@@ -1,0 +1,97 @@
+"""Built-in release evaluation suites."""
+
+from __future__ import annotations
+
+import tempfile
+from pathlib import Path
+from typing import Callable
+
+from ghostchimera.agent_core.executor import Executor
+from ghostchimera.agent_core.memory import MemoryManager
+from ghostchimera.agent_core.skill_manager import SkillManager
+from ghostchimera.chimera_pilot import ChimeraPilotKernel
+from ghostchimera.memory_layer.store import MemoryStore
+from ghostchimera.safety_layer.gating import ExecutionPolicy
+
+
+CaseFn = Callable[[], tuple[bool, str]]
+
+
+def run_suite(name: str) -> dict:
+    suites: dict[str, list[tuple[str, CaseFn]]] = {
+        "safety": [
+            ("shell_denied_by_default", _case_shell_denied_by_default),
+            ("file_write_outside_root_denied", _case_file_write_outside_root_denied),
+            ("python_denied_by_pilot_policy", _case_python_denied_by_pilot_policy),
+        ],
+        "smoke": [
+            ("chimera_pilot_status", _case_chimera_pilot_status),
+            ("cwr_retrieval", _case_cwr_retrieval),
+        ],
+    }
+    if name not in suites:
+        raise ValueError(f"Unknown eval suite: {name}")
+
+    cases = []
+    for case_name, case_fn in suites[name]:
+        try:
+            ok, detail = case_fn()
+        except Exception as exc:  # pragma: no cover - defensive eval reporting
+            ok, detail = False, str(exc)
+        cases.append({"name": case_name, "ok": ok, "detail": detail})
+    passed = sum(1 for case in cases if case["ok"])
+    failed = len(cases) - passed
+    return {
+        "suite": name,
+        "ok": failed == 0,
+        "passed": passed,
+        "failed": failed,
+        "cases": cases,
+    }
+
+
+def _case_shell_denied_by_default() -> tuple[bool, str]:
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-eval-") as tmp:
+        executor = Executor(
+            SkillManager(),
+            MemoryManager(str(Path(tmp) / "memory.json")),
+            policy=ExecutionPolicy(),
+        )
+        result = executor.execute([{"action": "shell", "command": "python --version"}])
+    return ("Policy denied shell" in result, result)
+
+
+def _case_file_write_outside_root_denied() -> tuple[bool, str]:
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-eval-") as tmp:
+        root = Path(tmp)
+        executor = Executor(
+            SkillManager(),
+            MemoryManager(str(root / "memory.json")),
+            policy=ExecutionPolicy(allow_file_write=True, allowed_roots=(str(root),)),
+        )
+        outside = root.parent / "ghostchimera-eval-outside.txt"
+        result = executor.execute([{"action": "write_file", "path": str(outside), "content": "x"}])
+    return ("Policy denied write_file" in result and not outside.exists(), result)
+
+
+def _case_python_denied_by_pilot_policy() -> tuple[bool, str]:
+    kernel = ChimeraPilotKernel.default(include_deterministic_backend=True)
+    try:
+        kernel.run("python: print(2 + 3)")
+    except PermissionError as exc:
+        return True, str(exc)
+    return False, "Python execution was not denied"
+
+
+def _case_chimera_pilot_status() -> tuple[bool, str]:
+    status = ChimeraPilotKernel.default(include_deterministic_backend=True).status()
+    return (status["backend_count"] >= 2 and status["policy"]["allow_python_execution"] is False, str(status))
+
+
+def _case_cwr_retrieval() -> tuple[bool, str]:
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-eval-") as tmp:
+        store = MemoryStore(Path(tmp) / "memory.sqlite3")
+        store.add_document("eval", "Ghost Chimera CWR retrieval works in smoke evals.")
+        execution = ChimeraPilotKernel.default(memory_store=store).run("retrieve smoke evals")[0]
+    ok = execution.ok and execution.result.backend_id == "cwr.local" and execution.result.output["citations"] == ["eval"]
+    return ok, str(execution.to_dict())

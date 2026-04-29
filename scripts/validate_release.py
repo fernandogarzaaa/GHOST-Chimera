@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""Release validation gate for Ghost Chimera."""
+
+from __future__ import annotations
+
+import compileall
+import tempfile
+import importlib
+import json
+import io
+import unittest
+import sys
+import tomllib
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+REQUIRED_FILES = [
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "CHANGELOG.md",
+    "CHIMERA_PILOT.md",
+    "pyproject.toml",
+    "MANIFEST.in",
+    "docs/ARCHITECTURE.md",
+    "docs/CLEAN_ROOM.md",
+    "docs/RELEASE_CHECKLIST.md",
+]
+
+
+def check_required_files() -> dict[str, Any]:
+    missing = [path for path in REQUIRED_FILES if not (ROOT / path).exists()]
+    return {"ok": not missing, "missing": missing}
+
+
+def check_pyproject() -> dict[str, Any]:
+    path = ROOT / "pyproject.toml"
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    project = data.get("project", {})
+    scripts = project.get("scripts", {})
+    required = ["name", "version", "description", "readme", "requires-python", "license"]
+    missing = [key for key in required if not project.get(key)]
+    if scripts.get("ghostchimera") != "ghostchimera.control_plane.cli:_main":
+        missing.append("project.scripts.ghostchimera")
+    if scripts.get("chimera-pilot") != "ghostchimera.chimera_pilot.cli:main":
+        missing.append("project.scripts.chimera-pilot")
+    if scripts.get("ghostchimera-eval") != "ghostchimera.evals.__main__:main":
+        missing.append("project.scripts.ghostchimera-eval")
+    return {"ok": not missing, "missing": missing, "name": project.get("name"), "version": project.get("version")}
+
+
+def check_imports() -> dict[str, Any]:
+    modules = [
+        "ghostchimera",
+        "ghostchimera.agent_core.core",
+        "ghostchimera.chimera_pilot",
+        "ghostchimera.chimera_pilot.cli",
+        "ghostchimera.control_plane.cli",
+    ]
+    imported: list[str] = []
+    for module in modules:
+        importlib.import_module(module)
+        imported.append(module)
+    return {"ok": True, "modules": imported}
+
+
+def check_policy_defaults() -> dict[str, Any]:
+    from ghostchimera.chimera_pilot import ChimeraPilotKernel
+
+    kernel = ChimeraPilotKernel.default(include_deterministic_backend=True)
+    status = kernel.status()
+    policy = status["policy"]
+    ok = policy["allow_python_execution"] is False and policy["allow_network"] is False
+    denied = False
+    try:
+        kernel.run("python: print(2 + 3)")
+    except PermissionError:
+        denied = True
+    return {"ok": ok and denied, "policy": policy, "python_denied_by_default": denied}
+
+
+def check_compileall() -> dict[str, Any]:
+    # In some mounted artifact directories the source tree may be read-only to
+    # the current Python process.  Write bytecode into a temporary pycache
+    # prefix so the syntax check stays independent from checkout ownership.
+    previous_prefix = sys.pycache_prefix
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-compile-") as cache_dir:
+        sys.pycache_prefix = cache_dir
+        try:
+            ok = compileall.compile_dir(str(ROOT / "ghostchimera"), quiet=1) and compileall.compile_dir(str(ROOT / "tests"), quiet=1)
+        finally:
+            sys.pycache_prefix = previous_prefix
+    return {"ok": bool(ok)}
+
+
+def check_unittest() -> dict[str, Any]:
+    stream = io.StringIO()
+    suite = unittest.defaultTestLoader.loadTestsFromNames([
+        "tests.test_agent_core_pilot",
+        "tests.test_chimera_pilot",
+        "tests.test_code_search",
+        "tests.test_config",
+        "tests.test_conscious_workspace",
+        "tests.test_cwr_backend",
+        "tests.test_evals",
+        "tests.test_llamacpp_backend",
+        "tests.test_local_model_profiles",
+        "tests.test_release_package",
+        "tests.test_safety_policy",
+    ])
+    result = unittest.TextTestRunner(stream=stream, verbosity=2).run(suite)
+    output = stream.getvalue()
+    return {
+        "ok": result.wasSuccessful(),
+        "tests_run": result.testsRun,
+        "failures": len(result.failures),
+        "errors": len(result.errors),
+        "output_tail": "\n".join(output.splitlines()[-30:]),
+    }
+
+
+def main() -> int:
+    checks = {
+        "required_files": check_required_files(),
+        "pyproject": check_pyproject(),
+        "imports": check_imports(),
+        "policy_defaults": check_policy_defaults(),
+        "compileall": check_compileall(),
+        "unittest": check_unittest(),
+    }
+    ok = all(item["ok"] for item in checks.values())
+    payload = {"ok": ok, "checks": checks}
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

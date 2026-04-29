@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import tomllib
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class ReleasePackageTests(unittest.TestCase):
+    def test_pyproject_has_cli_entrypoints(self) -> None:
+        data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        scripts = data["project"]["scripts"]
+
+        self.assertEqual(data["project"]["name"], "ghostchimera")
+        self.assertEqual(scripts["ghostchimera"], "ghostchimera.control_plane.cli:_main")
+        self.assertEqual(scripts["chimera-pilot"], "ghostchimera.chimera_pilot.cli:main")
+        self.assertEqual(scripts["ghostchimera-eval"], "ghostchimera.evals.__main__:main")
+
+    def test_required_release_docs_exist(self) -> None:
+        required = [
+            "README.md",
+            "LICENSE",
+            "SECURITY.md",
+            "CONTRIBUTING.md",
+            "CHANGELOG.md",
+            "CHIMERA_PILOT.md",
+            "docs/ARCHITECTURE.md",
+            "docs/CLEAN_ROOM.md",
+            "docs/RELEASE_CHECKLIST.md",
+        ]
+
+        missing = [path for path in required if not (ROOT / path).exists()]
+
+        self.assertEqual(missing, [])
+
+    def test_chimera_pilot_cli_status_outputs_json(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, "-m", "ghostchimera.chimera_pilot.cli", "status", "--include-deterministic-backend"],
+            cwd=str(ROOT),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=30,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertGreaterEqual(payload["backend_count"], 1)
+        self.assertFalse(payload["policy"]["allow_python_execution"])
+
+    def test_chimera_pilot_cli_denies_python_without_opt_in(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, "-m", "ghostchimera.chimera_pilot.cli", "run", "python: print(2 + 3)"],
+            cwd=str(ROOT),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=30,
+        )
+
+        self.assertEqual(completed.returncode, 1)
+        payload = json.loads(completed.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("disabled by policy", payload["error"])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,70 @@
+# Chimera Pilot
+
+Chimera Pilot is Ghost Chimera's resource orchestration layer. It turns high-level objectives into neutral `TaskSpec` objects, chooses a backend, enforces policy, executes with fallback, verifies output, and records telemetry.
+
+## Why it exists
+
+The subsystem re-iterates quantum/classical resource-orchestration ideas for practical everyday agent infrastructure:
+
+- local Python runtimes;
+- model providers;
+- retrieval systems;
+- browser/search tools;
+- MCP-style tool servers;
+- optional quantum simulators.
+
+It does not require a quantum computer.
+
+## Commands
+
+```bash
+chimera-pilot status --include-deterministic-backend
+chimera-pilot compile "retrieve memory about project"
+chimera-pilot calibrate --include-deterministic-backend
+chimera-pilot run "retrieve memory about project" --include-deterministic-backend
+chimera-pilot model-profiles
+```
+
+Use the local Conscious Workspace Retrieval store:
+
+```bash
+chimera-pilot memory-add --memory-db .ghostchimera-memory.sqlite3 --source project-note --content "Ghost Chimera stores local project memory."
+chimera-pilot memory-search --memory-db .ghostchimera-memory.sqlite3 "project memory"
+chimera-pilot run "retrieve project memory" --memory-db .ghostchimera-memory.sqlite3 --include-deterministic-backend
+```
+
+Python execution is denied by default:
+
+```bash
+chimera-pilot run "python: print(2 + 3)"
+```
+
+For trusted local code only:
+
+```bash
+chimera-pilot run "python: print(2 + 3)" --allow-python
+```
+
+## Built-in task kinds
+
+- `reasoning`
+- `code_edit`
+- `test_run`
+- `web_research`
+- `file_analysis`
+- `rag_query`
+- `tool_call`
+- `python`
+- `quantum_sim`
+
+## Built-in backends
+
+- `DeterministicBackend` for CI, smoke checks, and fallback tests.
+- `PythonRuntimeBackend` for trusted local Python/test execution.
+- `PyQPanda3Backend` for optional pyqpanda3 quantum simulation when installed.
+- `CWRBackend` for SQLite-backed local memory retrieval.
+- `LlamaCppBackend` for optional GGUF reasoning when a local model path is provided.
+
+## Security
+
+Local execution is policy-gated. See `SECURITY.md` before enabling Python, shell, filesystem mutation, or network tasks.
