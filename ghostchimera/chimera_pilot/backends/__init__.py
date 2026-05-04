@@ -6,6 +6,7 @@ from .deterministic import DeterministicBackend
 from .llamacpp import LlamaCppBackend
 from .python_runtime import PythonRuntimeBackend
 from .pyqpanda3_backend import PyQPanda3Backend
+from .mcp import MCPBackend
 
 __all__ = [
     "BackendCapabilities",
@@ -15,6 +16,7 @@ __all__ = [
     "DeterministicBackend",
     "ExecutionResult",
     "LlamaCppBackend",
+    "MCPBackend",
     "PyQPanda3Backend",
     "PythonRuntimeBackend",
 ]

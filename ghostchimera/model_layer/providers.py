@@ -14,8 +14,12 @@ import ssl
 from typing import Any, Dict, Type
 from urllib import request as urllib_request
 
+from ..logging_config import get_logger
 from .llamacpp_runtime import LlamaCppRuntime
 from .local_profiles import get_local_model_profile
+
+
+logger = get_logger("providers")
 
 
 class BaseProvider:
@@ -34,13 +38,29 @@ class OpenAIProvider(BaseProvider):
     name = "openai"
 
     def __init__(self) -> None:
-        self.api_key = os.environ.get("OPENAI_API_KEY")
+        self.api_key = os.environ.get("OPENAI_API_KEY", "")
         self.model = os.environ.get("OPENAI_MODEL", "gpt-3.5-turbo")
         self.available = bool(self.api_key)
+        logger.debug("Provider %s initialized", self.name)
+
+    @staticmethod
+    def _sanitize_key(key: str) -> str:
+        """Return a masked version of the key to prevent accidental leakage."""
+        if not key or len(key) <= 4:
+            return "***"
+        return key[:4] + "****"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return provider config without exposing the API key."""
+        return {
+            "name": self.name,
+            "available": self.available,
+            "model": self.model,
+        }
 
     def chat(self, system_message: str, user_message: str) -> str:
         if not self.available:
-            raise RuntimeError("OpenAIProvider is not available; set OPENAI_API_KEY in the environment")
+            raise RuntimeError(f"OpenAIProvider is not available; set OPENAI_API_KEY in the environment")
         url = "https://api.openai.com/v1/chat/completions"
         headers = {
             "Content-Type": "application/json",
@@ -84,6 +104,7 @@ class MinimindProvider(BaseProvider):
             self.mm = None
             self.runtime = None
             self.available = False
+        logger.debug("Provider %s initialized", self.name)
 
     def chat(self, system_message: str, user_message: str) -> str:
         if not self.available:
@@ -97,6 +118,13 @@ class MinimindProvider(BaseProvider):
         if hasattr(self.runtime, "llm_chat"):
             return self.runtime.llm_chat(system_message, user_message)
         raise RuntimeError("Minimind runtime is loaded but no supported chat interface was found")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "available": self.available,
+            "profile": self.profile.name,
+        }
 
     def _load_runtime(self, minimind_module: Any) -> Any:
         profile = self.profile.to_dict()
@@ -121,9 +149,16 @@ class LlamaCppProvider(BaseProvider):
             n_gpu_layers=int(os.environ.get("LLAMACPP_N_GPU_LAYERS", "0")),
         )
         self.available = self.runtime.available
+        logger.debug("Provider %s initialized", self.name)
 
     def chat(self, system_message: str, user_message: str) -> str:
         return self.runtime.chat(system_message, user_message)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "available": self.available,
+        }
 
 
 PROVIDERS: Dict[str, Type[BaseProvider]] = {
@@ -133,8 +168,10 @@ PROVIDERS: Dict[str, Type[BaseProvider]] = {
 }
 
 
-def get_provider(name: str) -> BaseProvider:
-    """Instantiate and return a provider by name."""
+def get_provider(name: str) -> BaseProvider | None:
+    """Instantiate and return a provider by name, or None if unknown."""
 
-    cls = PROVIDERS[name]
+    cls = PROVIDERS.get(name)
+    if cls is None:
+        return None
     return cls()

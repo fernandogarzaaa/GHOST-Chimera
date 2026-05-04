@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ghostchimera"
-version = "0.1.0"
+version = "0.2.0-beta"
 description = "Local-first agent orchestration prototype with Chimera Pilot scheduling and runtime control."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -15,7 +15,7 @@ authors = [
 ]
 keywords = ["agents", "orchestration", "local-first", "runtime", "scheduler"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",

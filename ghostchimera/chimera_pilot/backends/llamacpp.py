@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from ...logging_config import get_logger
 from .base import BackendCapabilities, BackendHealth, ExecutionResult
 from ...model_layer.llamacpp_runtime import LlamaCppRuntime
 from ...model_layer.local_profiles import get_local_model_profile
 from ..task_ir import TaskKind, TaskSpec
+
+
+logger = get_logger("llamacpp")
 
 
 class LlamaCppBackend:
@@ -22,6 +26,7 @@ class LlamaCppBackend:
         n_gpu_layers: int = 0,
     ) -> None:
         self.profile = get_local_model_profile(profile_name)
+        logger.debug("Provider %s initialized", self.name)
         self.runtime = LlamaCppRuntime(
             model_path=model_path,
             profile_name=profile_name,

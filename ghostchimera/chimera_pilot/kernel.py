@@ -17,7 +17,10 @@ from .resource_registry import ResourceRegistry
 from .scheduler import ChimeraScheduler
 from .task_ir import TaskKind, TaskSpec
 from .telemetry import InMemoryTelemetryStore
+from ..logging_config import get_logger
 from ..memory_layer.store import MemoryStore
+
+logger = get_logger("kernel")
 
 
 class ChimeraPilotKernel:
@@ -74,6 +77,7 @@ class ChimeraPilotKernel:
         self.registry.register(backend)
 
     def compile(self, objective: str) -> list[TaskSpec]:
+        logger.info("Compiling objective: %s", objective[:50])
         return self.compiler.compile(objective)
 
     def execute_task(self, task: TaskSpec) -> PilotExecution:
@@ -86,7 +90,9 @@ class ChimeraPilotKernel:
         return executor.execute(task)
 
     def run(self, objective: str) -> list[PilotExecution]:
-        return [self.execute_task(task) for task in self.compile(objective)]
+        tasks = self.compile(objective)
+        logger.info("Running pilot with %d tasks", len(tasks))
+        return [self.execute_task(task) for task in tasks]
 
     def calibrate(self) -> dict[str, Any]:
         calibrator = ChimeraCalibrator(self.registry.list(), self.calibration_store)
@@ -106,6 +112,7 @@ class ChimeraPilotKernel:
         }
 
     def status(self) -> dict[str, Any]:
+        logger.info("Status check: %d backends registered", len(self.registry.list()))
         backends = []
         for backend in self.registry.list():
             health = backend.probe()

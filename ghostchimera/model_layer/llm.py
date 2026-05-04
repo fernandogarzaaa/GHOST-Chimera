@@ -24,6 +24,9 @@ import os
 from typing import Optional
 
 from .providers import get_provider, BaseProvider, PROVIDERS
+from ..logging_config import get_logger
+
+logger = get_logger("llm")
 
 
 class LLM:
@@ -32,6 +35,7 @@ class LLM:
     def __init__(self, provider: Optional[str] = None) -> None:
         # Determine provider name either from argument or environment
         provider_name = provider or os.environ.get("GHOSTCHIMERA_MODEL_PROVIDER", "openai")
+        logger.info("LLM initialized with provider: %s", provider_name)
         if provider_name not in PROVIDERS:
             raise ValueError(
                 f"Unknown provider '{provider_name}'. Available providers: {', '.join(PROVIDERS.keys())}"
@@ -42,4 +46,5 @@ class LLM:
 
     def chat(self, system_message: str, user_message: str) -> str:
         """Delegate a chat request to the underlying provider."""
+        logger.debug("Delegating chat to provider %s", self.provider_name)
         return self.provider.chat(system_message, user_message)

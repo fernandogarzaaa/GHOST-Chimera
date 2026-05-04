@@ -9,8 +9,12 @@ import sys
 import tempfile
 from pathlib import Path
 
+from ...logging_config import get_logger
 from .base import BackendCapabilities, BackendHealth, ExecutionResult
 from ..task_ir import TaskKind, TaskSpec
+
+
+logger = get_logger("python_runtime")
 
 
 class PythonRuntimeBackend:
@@ -42,6 +46,7 @@ class PythonRuntimeBackend:
             self.allowed_roots = [self.cwd]
         self.allow_imports = allow_imports
         self.safe_imports = safe_imports or set(self._DEFAULT_SAFE_IMPORTS)
+        logger.debug("Provider %s initialized", self.name)
         self.capabilities = BackendCapabilities(
             kinds={TaskKind.PYTHON, TaskKind.TEST_RUN},
             supports_offline=True,
@@ -151,8 +156,12 @@ class PythonRuntimeBackend:
 
         if not cwd.exists() or not cwd.is_dir():
             return f"Working directory does not exist: {cwd}", None
-        if self.allowed_roots and not any(cwd == root or root in cwd.parents for root in self.allowed_roots):
-            return f"Working directory is outside allowed roots: {cwd}", None
+        if self.allowed_roots:
+            _under_root = any(
+                str(cwd) == str(root) or str(cwd).startswith(str(root) + "/") for root in self.allowed_roots
+            )
+            if not _under_root:
+                return f"Working directory is outside allowed roots: {cwd}", None
         return cwd, None
 
     def _validate_python_code(self, code: str, task: TaskSpec) -> str | None:

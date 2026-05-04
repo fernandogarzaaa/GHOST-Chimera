@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import re
+import unicodedata
+
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -64,6 +68,8 @@ class PilotPolicy:
             code = str(task.inputs.get("code", ""))
             if code:
                 self._reject_fragments(code, self.denied_python_fragments, "Python code")
+                # Layer 4: AST-based check for getattr/__getattr bypass patterns
+                self._reject_ast_bypass(code, task.id)
 
         if task.kind == TaskKind.QUANTUM_SIM and not self.allow_quantum_simulation:
             raise PermissionError("Quantum simulation is disabled by policy")
@@ -83,8 +89,72 @@ class PilotPolicy:
             "max_python_timeout_seconds": self.max_python_timeout_seconds,
         }
 
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        """Strip Unicode normalisation, zero-width characters, and interspersed whitespace."""
+        value = unicodedata.normalize("NFKC", value)
+        # Remove zero-width / invisible characters
+        value = re.sub(r"[​-‏ - ⁠-⁩﻿­̀-ͯ]", "", value)
+        # Collapse whitespace so fragments with injected spaces are still caught
+        value = re.sub(r"\s+", "", value)
+        return value
+
     def _reject_fragments(self, value: str, fragments: tuple[str, ...], field_name: str) -> None:
-        lower_value = value.lower()
+        # Layer 1: normalise then do a fast substring check
+        normed = self._normalize_text(value).lower()
         for fragment in fragments:
-            if fragment.lower() in lower_value:
+            if fragment.lower() in normed:
                 raise PermissionError(f"Task {field_name} contains denied fragment: {fragment}")
+
+        # Layer 2: attempt base64 decode of the entire value and re-check
+        try:
+            decoded = base64.b64decode(value, validate=True).decode("utf-8", errors="ignore")
+            decoded_normed = self._normalize_text(decoded).lower()
+            for fragment in fragments:
+                if fragment.lower() in decoded_normed:
+                    raise PermissionError(f"Task {field_name} contains denied fragment (base64): {fragment}")
+        except Exception:
+            pass  # Not valid base64; nothing to do
+
+        # Layer 3: whitespace-tolerant regex for each fragment
+        for fragment in fragments:
+            # Build a regex that allows optional whitespace between every character
+            pattern = re.escape(fragment).join([r"\s*"] * (len(fragment)))
+            if re.search(pattern, value, re.IGNORECASE):
+                raise PermissionError(f"Task {field_name} contains denied fragment: {fragment}")
+
+    def _reject_ast_bypass(self, code: str, task_id: str) -> None:
+        """AST-based check for getattr/eval/exec/compile bypass patterns."""
+        import ast
+
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            return  # Fragment check already caught anything relevant
+
+        denied_dunder_attrs = frozenset(
+            ("eval", "exec", "compile", "__import__", "open", "input", "getattr", "setattr")
+        )
+        dangerous_modules = frozenset(
+            ("os", "subprocess", "socket", "shutil", "ctypes", "pickle", "marshal", "sys", "builtins")
+        )
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                # Check for getattr(builtins, 'eval') or similar
+                if isinstance(func, ast.Attribute) and func.attr == "getattr":
+                    # getattr(X, "eval") — check if X could be builtins/os/etc.
+                    if isinstance(func.value, ast.Name) and func.value.id in dangerous_modules:
+                        raise PermissionError(
+                            f"Task {task_id} contains denied AST pattern: getattr on dangerous module"
+                        )
+                # Check for __import__('os') or getattr(builtins, ...)
+                if isinstance(func, ast.Name) and func.id == "__import__":
+                    # Check the argument
+                    if node.args and isinstance(node.args[0], ast.Constant):
+                        mod = str(node.args[0])
+                        if mod in dangerous_modules:
+                            raise PermissionError(
+                                f"Task {task_id} contains denied AST pattern: __import__('{mod}')"
+                            )

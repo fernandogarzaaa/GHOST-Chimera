@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from .schema import validate_task
 from .task_ir import TaskKind, TaskSpec
 
 
@@ -19,82 +20,82 @@ class RuleBasedTaskCompiler:
 
         python_code = self._extract_prefixed_payload(text, prefixes=("python:", "run python:", "execute python:"))
         if python_code is not None:
-            return [
-                TaskSpec.create(
-                    kind=TaskKind.PYTHON,
-                    objective=text,
-                    inputs={"code": python_code},
-                    privacy_level="private",
-                    max_cost_usd=0.0,
-                    max_latency_ms=10_000,
-                )
-            ]
+            spec = TaskSpec.create(
+                kind=TaskKind.PYTHON,
+                objective=text,
+                inputs={"code": python_code},
+                privacy_level="private",
+                max_cost_usd=0.0,
+                max_latency_ms=10_000,
+            )
+            validate_task(spec.kind, spec.inputs)
+            return [spec]
 
         if lower.startswith("run tests") or lower.startswith("test ") or "run unittest" in lower:
-            return [
-                TaskSpec.create(
-                    kind=TaskKind.TEST_RUN,
-                    objective=text,
-                    inputs=self._compile_test_inputs(text),
-                    privacy_level="private",
-                    max_cost_usd=0.0,
-                    max_latency_ms=60_000,
-                )
-            ]
+            spec = TaskSpec.create(
+                kind=TaskKind.TEST_RUN,
+                objective=text,
+                inputs=self._compile_test_inputs(text),
+                privacy_level="private",
+                max_cost_usd=0.0,
+                max_latency_ms=60_000,
+            )
+            validate_task(spec.kind, spec.inputs)
+            return [spec]
 
         if any(token in lower for token in ("quantum", "qasm", "qubit", "ghz")):
-            return [
-                TaskSpec.create(
-                    kind=TaskKind.QUANTUM_SIM,
-                    objective=text,
-                    inputs={"circuit": "ghz" if "ghz" in lower else "default", "qubits": self._extract_qubit_count(lower)},
-                    privacy_level="normal",
-                    max_cost_usd=0.0,
-                    max_latency_ms=10_000,
-                )
-            ]
+            spec = TaskSpec.create(
+                kind=TaskKind.QUANTUM_SIM,
+                objective=text,
+                inputs={"circuit": "ghz" if "ghz" in lower else "default", "qubits": self._extract_qubit_count(lower)},
+                privacy_level="normal",
+                max_cost_usd=0.0,
+                max_latency_ms=10_000,
+            )
+            validate_task(spec.kind, spec.inputs)
+            return [spec]
 
         if lower.startswith("research ") or lower.startswith("search web ") or "latest" in lower:
-            return [
-                TaskSpec.create(
-                    kind=TaskKind.WEB_RESEARCH,
-                    objective=text,
-                    inputs={"query": text},
-                    requires_network=True,
-                    privacy_level="normal",
-                    max_latency_ms=30_000,
-                )
-            ]
+            spec = TaskSpec.create(
+                kind=TaskKind.WEB_RESEARCH,
+                objective=text,
+                inputs={"query": text},
+                requires_network=True,
+                privacy_level="normal",
+                max_latency_ms=30_000,
+            )
+            validate_task(spec.kind, spec.inputs)
+            return [spec]
 
         if lower.startswith("analyze file") or lower.startswith("inspect file"):
-            return [
-                TaskSpec.create(
-                    kind=TaskKind.FILE_ANALYSIS,
-                    objective=text,
-                    inputs={"path": text.split(maxsplit=2)[-1] if len(text.split(maxsplit=2)) == 3 else ""},
-                    privacy_level="private",
-                    max_cost_usd=0.0,
-                )
-            ]
+            spec = TaskSpec.create(
+                kind=TaskKind.FILE_ANALYSIS,
+                objective=text,
+                inputs={"path": text.split(maxsplit=2)[-1] if len(text.split(maxsplit=2)) == 3 else ""},
+                privacy_level="private",
+                max_cost_usd=0.0,
+            )
+            validate_task(spec.kind, spec.inputs)
+            return [spec]
 
         if "rag" in lower or "retrieve" in lower:
-            return [
-                TaskSpec.create(
-                    kind=TaskKind.RAG_QUERY,
-                    objective=text,
-                    inputs={"query": text},
-                    privacy_level="normal",
-                )
-            ]
-
-        return [
-            TaskSpec.create(
-                kind=TaskKind.REASONING,
+            spec = TaskSpec.create(
+                kind=TaskKind.RAG_QUERY,
                 objective=text,
-                inputs={"prompt": text},
+                inputs={"query": text},
                 privacy_level="normal",
             )
-        ]
+            validate_task(spec.kind, spec.inputs)
+            return [spec]
+
+        spec = TaskSpec.create(
+            kind=TaskKind.REASONING,
+            objective=text,
+            inputs={"prompt": text},
+            privacy_level="normal",
+        )
+        validate_task(spec.kind, spec.inputs)
+        return [spec]
 
     def _extract_prefixed_payload(self, text: str, prefixes: tuple[str, ...]) -> str | None:
         stripped = text.strip()

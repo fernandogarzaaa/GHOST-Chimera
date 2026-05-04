@@ -10,7 +10,7 @@ enforce access controls.
 from pathlib import Path
 from typing import Any
 
-from ..safety_layer.gating import PolicyViolation, ensure_authorized
+from ..safety_layer.gating import PolicyViolation, _path_is_under_root, ensure_authorized
 
 
 def write_file(path: str, content: str, policy: dict[str, Any] | None = None) -> None:
@@ -39,6 +39,6 @@ def _authorized_path(path: str, policy: dict[str, Any]) -> Path:
     ]
     if not allowed_roots:
         raise PolicyViolation("No allowed filesystem roots are configured")
-    if not any(candidate == root or root in candidate.parents for root in allowed_roots):
+    if not any(_path_is_under_root(root, candidate) for root in allowed_roots):
         raise PolicyViolation(f"Path is outside allowed roots: {candidate}")
     return candidate

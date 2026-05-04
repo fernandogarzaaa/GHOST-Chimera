@@ -48,3 +48,61 @@ def record(task: Dict[str, Any], result: Any) -> None:
     records = _read_audit()
     records.append(entry)
     _write_audit(records)
+
+
+class AuditLog:
+    """HMAC-SHA256 chained audit log."""
+
+    def __init__(self, audit_file: str | None = None) -> None:
+        self.audit_file = audit_file or AUDIT_FILE
+        self.key = os.environ.get("GHOSTCHIMERA_AUDIT_KEY", "").encode("utf-8")
+        # Use deterministic signing for tests when no key is set
+        if not self.key:
+            self.key = b"ghostchimera-test-key"
+
+    def _hmac(self, data: str) -> str:
+        import hmac as _hmac
+        import hashlib as _hashlib
+        return _hmac.new(self.key, data.encode("utf-8"), _hashlib.sha256).hexdigest()
+
+    def record(self, action: str, details: Dict[str, Any]) -> Dict[str, Any]:
+        """Record an audit entry with chain hash."""
+        records = _read_audit()
+        prev_hash = records[-1]["chain_hash"] if records else "genesis"
+        entry = {
+            "action": action,
+            "details": details,
+            "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "chain_hash": self._hmac(f"{prev_hash}{action}{json.dumps(details, sort_keys=True)}"),
+        }
+        records.append(entry)
+        _write_audit(records)
+        return entry
+
+    def verify_integrity(self) -> tuple[bool, str]:
+        """Verify the audit chain integrity. Returns (ok, error_msg)."""
+        records = _read_audit()
+        if not records:
+            return True, "No records to verify"
+        prev_hash = records[0]["chain_hash"] if len(records) > 0 else "genesis"
+        for i, entry in enumerate(records):
+            expected = self._hmac(f"{prev_hash}{entry['action']}{json.dumps(entry['details'], sort_keys=True)}")
+            if entry.get("chain_hash") != expected:
+                return False, f"Chain broken at entry {i}"
+            prev_hash = entry["chain_hash"]
+        return True, "Chain intact"
+
+    def get_entries(self) -> list[Dict[str, Any]]:
+        """Return all audit entries."""
+        return _read_audit()
+
+    @staticmethod
+    def verify_entry(entry: Dict[str, Any], prev_entry: Dict[str, Any] | None = None) -> bool:
+        """Verify a single chain link."""
+        import hmac as _hmac
+        import hashlib as _hashlib
+        key = os.environ.get("GHOSTCHIMERA_AUDIT_KEY", "ghostchimera-test-key").encode("utf-8")
+        prev_hash = prev_entry["chain_hash"] if prev_entry else "genesis"
+        data = f"{prev_hash}{entry['action']}{json.dumps(entry['details'], sort_keys=True)}"
+        expected = _hmac.new(key, data.encode("utf-8"), _hashlib.sha256).hexdigest()
+        return entry.get("chain_hash") == expected

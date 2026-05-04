@@ -18,12 +18,16 @@ import sys
 
 from ..agent_core.core import AgentCore
 from ..config import GhostChimeraConfig
+from ..logging_config import ensure_configured, get_logger
+
+logger = get_logger("cli")
 
 
 def run_cli() -> None:
     """Start an interactive command line session with the agent."""
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+    ensure_configured()
     agent = AgentCore()
+    logger.info("Starting interactive CLI session")
     print("Ghost Chimera CLI. Type 'exit' or 'quit' to stop.")
     while True:
         try:
@@ -66,7 +70,8 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--include-quantum-backend", action="store_true", help="Probe and register optional pyqpanda3 backend if installed.")
     parser.add_argument("--config-show", action="store_true", help="Print resolved Ghost Chimera runtime config as JSON and exit.")
     args = parser.parse_args(argv)
-    logging.basicConfig(level=getattr(logging, args.log_level))
+    ensure_configured()
+    logger.info("CLI started with log_level=%s", args.log_level)
 
     if args.config_show:
         print(json.dumps(GhostChimeraConfig.from_env().to_dict(), indent=2, sort_keys=True))

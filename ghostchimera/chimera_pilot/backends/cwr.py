@@ -5,12 +5,16 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from ...logging_config import get_logger
 from .base import BackendCapabilities, BackendHealth, ExecutionResult
 from ...memory_layer.store import MemoryStore
 from ..task_ir import TaskKind, TaskSpec
 
 
 DEFAULT_MEMORY_DB = Path(os.environ.get("GHOSTCHIMERA_MEMORY_DB", "~/.ghostchimera/memory.sqlite3")).expanduser()
+
+
+logger = get_logger("cwr")
 
 
 class CWRBackend:
@@ -21,6 +25,7 @@ class CWRBackend:
 
     def __init__(self, store: MemoryStore | None = None) -> None:
         self.store = store or MemoryStore(DEFAULT_MEMORY_DB)
+        logger.debug("Provider %s initialized", self.name)
         self.capabilities = BackendCapabilities(
             kinds={TaskKind.RAG_QUERY},
             supports_offline=True,

@@ -51,7 +51,7 @@ class ChimeraPilotTests(unittest.TestCase):
     def test_executor_falls_back_after_backend_failure(self) -> None:
         failing = DeterministicBackend("failing", fail=True, reliability=1.0)
         succeeding = DeterministicBackend("succeeding", output="done", reliability=0.9)
-        task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute")
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
         executor = ChimeraPilotExecutor(ChimeraScheduler([failing, succeeding]))
 
         execution = executor.execute(task)

@@ -24,6 +24,7 @@ REQUIRED_FILES = [
     "CONTRIBUTING.md",
     "CHANGELOG.md",
     "CHIMERA_PILOT.md",
+    "CHANGES.md",
     "pyproject.toml",
     "MANIFEST.in",
     "docs/ARCHITECTURE.md",
@@ -60,11 +61,17 @@ def check_imports() -> dict[str, Any]:
         "ghostchimera.chimera_pilot",
         "ghostchimera.chimera_pilot.cli",
         "ghostchimera.control_plane.cli",
+        "ghostchimera.mcp.server",
+        "ghostchimera.mcp.client",
+        "ghostchimera.chimera_pilot.backends.mcp",
     ]
     imported: list[str] = []
     for module in modules:
-        importlib.import_module(module)
-        imported.append(module)
+        try:
+            importlib.import_module(module)
+            imported.append(module)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "imported": imported}
     return {"ok": True, "modules": imported}
 
 
@@ -95,6 +102,75 @@ def check_compileall() -> dict[str, Any]:
         finally:
             sys.pycache_prefix = previous_prefix
     return {"ok": bool(ok)}
+
+
+def check_beta_features() -> dict[str, Any]:
+    """Check that all v0.2.0 beta features exist."""
+    errors: list[str] = []
+
+    # rate_limiter.py
+    rl = ROOT / "ghostchimera" / "safety_layer" / "rate_limiter.py"
+    if not rl.exists():
+        errors.append("rate_limiter.py missing")
+    elif "RateLimiter" not in rl.read_text():
+        errors.append("RateLimiter class not found in rate_limiter.py")
+
+    # schema.py
+    sc = ROOT / "ghostchimera" / "chimera_pilot" / "schema.py"
+    if not sc.exists():
+        errors.append("schema.py missing")
+    elif "validate_task" not in sc.read_text():
+        errors.append("validate_task not found in schema.py")
+
+    # logging_config.py
+    lc = ROOT / "ghostchimera" / "logging_config.py"
+    if not lc.exists():
+        errors.append("logging_config.py missing")
+    elif "get_logger" not in lc.read_text():
+        errors.append("get_logger not found in logging_config.py")
+
+    # mcp/ directory
+    mcp = ROOT / "ghostchimera" / "mcp"
+    if not mcp.is_dir():
+        errors.append("mcp/ directory missing")
+    elif not (mcp / "server.py").exists():
+        errors.append("mcp/server.py missing")
+    elif not (mcp / "client.py").exists():
+        errors.append("mcp/client.py missing")
+
+    # router.py
+    rt = ROOT / "ghostchimera" / "model_layer" / "router.py"
+    if not rt.exists():
+        errors.append("router.py missing")
+
+    # telemetry export methods
+    tel = ROOT / "ghostchimera" / "chimera_pilot" / "telemetry.py"
+    if tel.exists():
+        content = tel.read_text()
+        if "export_json" not in content:
+            errors.append("export_json not found in telemetry.py")
+        if "export_csv" not in content:
+            errors.append("export_csv not found in telemetry.py")
+    else:
+        errors.append("telemetry.py missing")
+
+    # audit integrity
+    aud = ROOT / "ghostchimera" / "safety_layer" / "audit.py"
+    if aud.exists():
+        content = aud.read_text()
+        if "verify_integrity" not in content:
+            errors.append("verify_integrity not found in audit.py")
+    else:
+        errors.append("audit.py missing")
+
+    # version check
+    init_py = ROOT / "ghostchimera" / "__init__.py"
+    if init_py.exists():
+        content = init_py.read_text()
+        if "0.2.0-beta" not in content:
+            errors.append("version not 0.2.0-beta in __init__.py")
+
+    return {"ok": not errors, "errors": errors}
 
 
 def check_unittest() -> dict[str, Any]:
@@ -128,6 +204,7 @@ def main() -> int:
         "required_files": check_required_files(),
         "pyproject": check_pyproject(),
         "imports": check_imports(),
+        "beta_features": check_beta_features(),
         "policy_defaults": check_policy_defaults(),
         "compileall": check_compileall(),
         "unittest": check_unittest(),

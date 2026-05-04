@@ -8,9 +8,14 @@ from typing import Any
 from .backends.base import ExecutionResult
 from .policy import PilotPolicy
 from .scheduler import ChimeraScheduler, ScheduleDecision
+from .schema import validate_task
 from .task_ir import TaskSpec
 from .telemetry import InMemoryTelemetryStore, PilotTelemetryEvent, now
 from .verifier import ResultVerifier
+from ..logging_config import get_logger
+from ..safety_layer.rate_limiter import RateLimiterStore
+
+logger = get_logger("executor")
 
 
 @dataclass(frozen=True)
@@ -65,6 +70,9 @@ class ChimeraPilotExecutor:
         self.telemetry = telemetry or InMemoryTelemetryStore()
 
     def execute(self, task: TaskSpec) -> PilotExecution:
+        valid, errors = validate_task(task.kind, task.inputs)
+        if not valid:
+            raise RuntimeError(f"Validation failed: {errors}")
         self.policy.validate(task)
         ranked = self.scheduler.rank_backends(task)
         if not ranked:
@@ -76,16 +84,22 @@ class ChimeraPilotExecutor:
         last_result: ExecutionResult | None = None
 
         for decision in ranked:
+            logger.info("Executing task %s on backend %s", task.id, decision.backend.id)
             started = now()
             try:
                 result = decision.backend.execute(task)
             except Exception as exc:  # pragma: no cover - defensive guard for third-party backends
+                raw_error = str(exc)
+                # Mask any leaked API keys before storing
+                for secret_prefix in ("Bearer sk-", "Bearer pk-", "Bearer ak"):
+                    if secret_prefix in raw_error:
+                        raw_error = raw_error[:raw_error.index(secret_prefix)] + secret_prefix + "*MASKED*"
                 result = ExecutionResult(
                     backend_id=decision.backend.id,
                     task_id=task.id,
                     ok=False,
                     output="",
-                    error=str(exc),
+                    error=raw_error,
                     metrics={},
                 )
             finished = now()

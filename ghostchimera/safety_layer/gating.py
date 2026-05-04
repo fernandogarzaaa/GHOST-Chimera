@@ -34,16 +34,25 @@ class ExecutionPolicy:
 
     @classmethod
     def from_env(cls) -> "ExecutionPolicy":
+        allow_shell = _truthy(os.environ.get("GHOSTCHIMERA_ALLOW_SHELL"))
+        allow_network = _truthy(os.environ.get("GHOSTCHIMERA_ALLOW_NETWORK"))
+        allow_file_read = _truthy(os.environ.get("GHOSTCHIMERA_ALLOW_FILE_READ"))
+        allow_file_write = _truthy(os.environ.get("GHOSTCHIMERA_ALLOW_FILE_WRITE"))
         roots = tuple(
             item.strip()
             for item in os.environ.get("GHOSTCHIMERA_ALLOWED_ROOTS", "").split(os.pathsep)
             if item.strip()
         )
+        if not roots and (allow_shell or allow_file_read or allow_file_write):
+            raise ValueError(
+                "GHOSTCHIMERA_ALLOWED_ROOTS must contain at least one allowed filesystem root "
+                "when file or shell operations are enabled"
+            )
         return cls(
-            allow_shell=_truthy(os.environ.get("GHOSTCHIMERA_ALLOW_SHELL")),
-            allow_network=_truthy(os.environ.get("GHOSTCHIMERA_ALLOW_NETWORK")),
-            allow_file_read=_truthy(os.environ.get("GHOSTCHIMERA_ALLOW_FILE_READ")),
-            allow_file_write=_truthy(os.environ.get("GHOSTCHIMERA_ALLOW_FILE_WRITE")),
+            allow_shell=allow_shell,
+            allow_network=allow_network,
+            allow_file_read=allow_file_read,
+            allow_file_write=allow_file_write,
             allowed_roots=roots,
             shell_timeout_seconds=int(os.environ.get("GHOSTCHIMERA_SHELL_TIMEOUT_SECONDS", "10")),
         )
@@ -98,12 +107,24 @@ class ExecutionPolicy:
         roots = self._resolved_roots()
         if not roots:
             raise PolicyViolation("No allowed filesystem roots are configured")
-        if not any(path == root or root in path.parents for root in roots):
+        if not any(_path_is_under_root(root, path) for root in roots):
             raise PolicyViolation(f"Path is outside allowed roots: {path}")
         return path
 
     def _resolved_roots(self) -> tuple[Path, ...]:
         return tuple(Path(root).expanduser().resolve() for root in self.allowed_roots)
+
+
+def _path_is_under_root(root: Path, path: Path) -> bool:
+    """Check whether *path* is exactly *root* or a child of *root*.
+
+    Both paths are resolved and normalised to avoid subtle mismatches caused
+    by ``..`` components or trailing slashes.  Symlink resolution is handled
+    by the initial ``.resolve()`` call in the callers.
+    """
+    path_str = str(path)
+    root_str = str(root)
+    return path_str == root_str or path_str.startswith(root_str + "/")
 
 
 def requires_approval(task: Dict[str, Any]) -> bool:

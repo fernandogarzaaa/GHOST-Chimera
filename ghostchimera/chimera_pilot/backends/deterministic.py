@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from ...logging_config import get_logger
 from .base import BackendCapabilities, BackendHealth, ExecutionResult
 from ..task_ir import TaskKind, TaskSpec
+
+
+logger = get_logger("deterministic")
 
 
 class DeterministicBackend:
@@ -30,6 +34,7 @@ class DeterministicBackend:
     ) -> None:
         self.id = backend_id
         self.name = "Deterministic Local Backend"
+        logger.debug("Provider %s initialized", self.name)
         self._output = output
         self._fail = fail
         self._health = BackendHealth(
