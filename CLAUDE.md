@@ -95,6 +95,166 @@ ghostchimera/
 | Release validator | `scripts/validate_release.py` |
 | CI | `.github/workflows/ci.yml` |
 
-## Contributing
+## MCP Integration
 
-Follow rules in `CONTRIBUTING.md`: small PRs, no unrelated refactors, add tests, keep local execution opt-in, maintain clean-room boundaries. Run the full test gate before PRs.
+This project is configured with the **ChimeraLang MCP server** (44 tools for probabilistic types, confidence gating, hallucination detection, and provenance tracking). Configuration lives in `.claude/settings.json`.
+
+### Setup
+
+```bash
+# Install the MCP server (comes from the chimeralang-mcp package)
+pip install chimeralang-mcp
+# or for development:
+pip install -e /path/to/chimeralang-mcp
+```
+
+The server is configured in `.claude/settings.json` to transport via stdio. Verify it is running:
+
+```bash
+python3 -m chimeralang_mcp.server --transport stdio
+```
+
+### Available Tool Categories
+
+| Category | Tools | Use case |
+|----------|-------|----------|
+| **Core language** | `chimera_run`, `chimera_typecheck`, `chimera_prove` | Execute/type-check ChimeraLang programs with integrity proofs |
+| **Confidence gating** | `chimera_confident`, `chimera_explore`, `chimera_gate` | Assert confidence >= threshold, wrap uncertain values, consensus collapse |
+| **Safety** | `chimera_detect`, `chimera_safety_check`, `chimera_constrain` | Hallucination detection, policy validation, constraint middleware |
+| **Reasoning** | `chimera_plan_goals`, `chimera_causal`, `chimera_deliberate`, `chimera_quantum_vote` | Multi-path deliberation, causal graphs, consensus voting |
+| **Knowledge** | `chimera_world_model`, `chimera_knowledge`, `chimera_memory` | Persistent namespace-scoped state carried across sessions |
+| **Provenance** | `chimera_claims`, `chimera_verify`, `chimera_provenance_merge`, `chimera_trace` | Evidence-backed verification, claim extraction, FEVER-style verdicts |
+| **Token budget** | `chimera_compress`, `chimera_optimize`, `chimera_budget`, `chimera_cost_estimate` | Query-aware text compression with quantum-inspired salience scoring |
+
+All stateful tools persist to `~/.chimeralang_mcp` (configurable via `CHIMERA_MCP_DATA_DIR`).
+
+### Hook Configuration
+
+ChimeraLang ships with lifecycle hooks for session telemetry. Add to `.claude/settings.json` hooks:
+
+```jsonc
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "pip install -e . -q 2>/dev/null || true" },
+                  { "type": "command", "command": "python -m chimeralang_mcp.cli hook --event session-start" }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "python -m chimeralang_mcp.cli hook --event user-prompt" }] }
+    ],
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "python -m chimeralang_mcp.cli hook --event pre-tool-use" }] }
+    ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "python -m chimeralang_mcp.cli hook --event post-tool-use" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "python -m chimeralang_mcp.cli hook --event stop" }] }
+    ]
+  }
+}
+```
+
+### Usage Examples
+
+**Gate a value before acting:**
+Use `chimera_confident` to verify data confidence >= 0.95 before submitting results.
+
+**Consensus across reasoning paths:**
+Run `chimera_quantum_vote` to collapse multiple candidate answers into the most reliable one via contradiction detection.
+
+**Hallucination scan on output:**
+Run `chimera_detect` with `strategy="semantic"` on tool results to flag absolute-certainty markers or out-of-range values.
+
+**Evidence-backed fact-checking:**
+Use `chimera_claims` to extract atomic claims, then `chimera_verify` against source text, then `chimera_policy` with `strict_factual` to enforce rigor.
+
+**Cost tracking during long sessions:**
+Use `chimera_cost_track` before and after compression operations, check `chimera_budget` for token usage against a cap, and use `chimera_dashboard` for a session-level summary.
+
+### Materials Pack
+
+The MCP package ships with a curated core material pack. Inspect it with `chimera_materials` or use the CLI:
+
+```bash
+chimeralang-mcp status
+chimeralang-mcp licenses
+chimeralang-mcp sync          # fetch upstream metadata snapshots
+chimeralang-mcp build         # write normalized JSON manifests to disk
+```
+
+## Hermes-Agent Migration (v0.3.0)
+
+Ghost Chimera has been enhanced with the full Hermes-Agent (Nous Research) architecture — agent loop, multi-provider credentials, subagent delegation, parallel reasoning, cron scheduling, and WebSocket gateway.
+
+### New runtime components
+
+| Component | File | Purpose |
+|------|------|------|
+| **AIAgent** | `chimera_pilot/agent_loop.py` | Multi-turn agent with tool-calling loop, error recovery, model fallback |
+| **ContextCompressor** | `chimera_pilot/context_compressor.py` | Lossy conversation compression, ContextEngine base for pluggable engines |
+| **MCPWrapper** | `chimera_pilot/mcp_wrapper.py` | MCPClient, MCPRegistry, universal MCP tool bridge |
+| **CredentialPool** | `chimera_pilot/credential_pool.py` | Multi-provider auth, key rotation, quota tracking, health monitoring |
+| **ErrorClassifier** | `chimera_pilot/error_classifier.py` | 13 error categories, auto-recovery plans, severity scoring, regex + predicate rules |
+| **CheckpointManager** | `chimera_pilot/checkpoint.py` | Shadow git repo snapshots, CRUD, diff, pruning |
+| **ToolsetManager** | `chimera_pilot/toolsets.py` | Composable tool groups with progressive disclosure (coding, research, safety, devops) |
+| **SubagentPool** | `chimera_pilot/subagent.py` | Isolated child agents, spawn/spawn_parallel/spawn_tree, depth limiting, delegation tool |
+| **MixtureOfAgents** | `chimera_pilot/mixture_of_agents.py` | Parallel reasoning, quality scoring, contradiction detection, consensus voting, multi-round revote |
+| **BatchRunner** | `chimera_pilot/batch_runner.py` | Multiprocessing batch execution, result aggregation, JSONL output |
+| **CronScheduler** | `chimera_pilot/cron_scheduler.py` | Cron expressions, persistent state, periodic execution |
+| **GatewayServer** | `chimera_pilot/gateway_server.py` | WebSocket persistent sessions, real-time tool streaming, remote agent management |
+
+### Quick start (new features)
+
+```bash
+# Agent loop
+from ghostchimera.chimera_pilot.agent_loop import AIAgent
+agent = AIAgent(model_name="claude-sonnet-4-20250514")
+agent.start_session("my-session")
+response = agent.run("Write a Python function to sort a list")
+
+# Credential pool
+from ghostchimera.chimera_pilot.credential_pool import get_pool
+pool = get_pool()
+pool.add_credential("openai", api_key="sk-...")
+best = pool.select_best_provider()
+
+# Subagent delegation
+from ghostchimera.chimera_pilot.subagent import SubagentPool
+pool = SubagentPool("Analyze these repos", max_workers=3)
+result = pool.spawn_parallel(["review auth", "review tests", "review deps"])
+print(result.to_dict())
+
+# Mixture of agents
+from ghostchimera.chimera_pilot.mixture_of_agents import get_moa
+moa = get_moa(num_agents=5)
+result = moa.vote("What is the best architecture for a 10k LOC codebase?")
+print(f"Consensus: {result.consensus_answer[:200]}")
+print(f"Agreement: {result.consensus_pct}%")
+
+# Batch execution
+from ghostchimera.chimera_pilot.batch_runner import BatchRunner, BatchJob
+jobs = [BatchJob(objective=obj) for obj in objectives]
+runner = BatchRunner(jobs, workers=4, output_dir="batch_output")
+summary = runner.run()
+print(summary.to_dict())
+
+# Cron scheduler
+from ghostchimera.chimera_pilot.cron_scheduler import get_scheduler
+sched = get_scheduler()
+sched.add_job("daily-review", "0 9 * * 1-5", "Review pending PRs")
+sched.start()
+
+# Gateway server
+from ghostchimera.chimera_pilot.gateway_server import get_server
+server = get_server()
+server.start()  # listens on ws://127.0.0.1:8765 by default
+```
+
+### New dependencies
+
+```bash
+pip install -e '.[mcp]'     # MCP client/server support
+pip install -e '.[gateway]' # WebSocket gateway + cron scheduler
+pip install -e '.[all]'     # all optional features
+```
