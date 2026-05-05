@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..skill_layer.base import Skill
-from ..skill_layer.base import Skill
 from ..agent_core.skill_manager import SkillManager
 from ..logging_config import get_logger
 from .mcp_wrapper import list_available_tools
@@ -106,7 +105,8 @@ class ToolsetRegistry:
         """Register default toolsets based on existing skills."""
         # Build toolsets from existing skills
         skill_manager = SkillManager()
-        built_tools = skill_manager.list_skills()
+        built_skills = skill_manager.list_skills()
+        logger.info("Registered %d skills from skill_manager", len(built_skills))
 
         # coding toolset
         coding_tools = [

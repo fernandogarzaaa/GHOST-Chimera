@@ -112,3 +112,7 @@ class SkillManager:
     def get_skill_for_action(self, action: str) -> Skill | None:
         """Return the skill instance capable of handling the given action."""
         return self._action_to_skill.get(action)
+
+    def list_skills(self) -> dict[str, Skill]:
+        """Return a copy of all registered skills."""
+        return dict(self._skills)
