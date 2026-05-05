@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from ..agent_core.core import AgentCore
+from ..cognition_layer.hallucination import HallucinationDetector
 from ..config import GhostChimeraConfig
 from ..logging_config import get_logger
 from ..model_layer.router import ModelRouter
@@ -24,6 +25,7 @@ from .agent_loop import AIAgent, SessionState
 from .error_classifier import ErrorClassifier, ErrorCategory
 from .credential_pool import get_pool
 from .context_compressor import get_context_engine
+from .result_envelope import ResultEnvelope, merge_envelopes
 
 logger = get_logger("mixture_of_agents")
 
@@ -60,6 +62,8 @@ class MoAResult:
     duration_seconds: float
     avg_tokens: int
     avg_duration: float
+    confidence: float = 0.0
+    consensus_method: str = "jaccard"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -67,6 +71,8 @@ class MoAResult:
             "num_agents": self.num_agents,
             "num_agreeing": self.num_agreeing,
             "consensus_pct": round(self.consensus_pct, 1),
+            "confidence": round(self.confidence, 4),
+            "consensus_method": self.consensus_method,
             "consensus_answer": self.consensus_answer[:2000],
             "consensus_answer_full": self.consensus_answer,
             "contradictions": self.contradictions,
@@ -128,7 +134,7 @@ class MixtureOfAgents:
         n_agents = min(self.config.num_agents, len(prompts))
         agents = self._spawn_agents(query, prompts[:n_agents])
 
-        # Run in parallel
+        # Run in parallel (each agent now produces ResultEnvelope)
         results = self._run_agents_parallel(agents)
 
         # Score outputs
@@ -139,6 +145,14 @@ class MixtureOfAgents:
 
         # Find consensus
         consensus_answer, consensus_pct = self._find_consensus(scored)
+
+        # Merge agent envelopes for combined confidence
+        envelopes = [r.get("envelope") for r in results if r.get("envelope") is not None]
+        if len(envelopes) >= 2:
+            merged = merge_envelopes(envelopes)
+            consensus_confidence = merged.confidence
+        else:
+            consensus_confidence = 0.0
 
         duration = time.time() - start
         tokens = [r.get("tokens", 0) for r in scored]
@@ -158,6 +172,7 @@ class MixtureOfAgents:
             duration_seconds=duration,
             avg_tokens=int(sum(tokens) / len(tokens)) if tokens else 0,
             avg_duration=sum(durations) / len(durations) if durations else 0,
+            confidence=consensus_confidence,
         )
 
     def vote_with_revote(

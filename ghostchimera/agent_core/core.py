@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 from ..chimera_pilot import ChimeraPilotKernel
 from ..model_layer.llm import LLM
@@ -85,14 +86,17 @@ class AgentCore:
             The textual result of performing the request.
         """
         self.logger.info("Received request: %s", request)
-        pilot_result = self._try_chimera_pilot(request)
+        pilot_result, pilot_confidence = self._try_chimera_pilot(request)
         if pilot_result is not None:
-            self.memory.add_event({
+            memory_record: dict[str, Any] = {
                 "type": "interaction",
                 "request": request,
                 "runtime": "chimera_pilot",
                 "result": pilot_result,
-            })
+            }
+            if pilot_confidence is not None:
+                memory_record["confidence"] = pilot_confidence
+            self.memory.add_event(memory_record)
             return pilot_result
         # Plan the request into structured tasks
         tasks = self.planner.plan(request)
@@ -100,25 +104,39 @@ class AgentCore:
         # Execute the tasks sequentially
         result = self.executor.execute(tasks)
         # Record the full interaction into memory
-        self.memory.add_event({
+        memory_record: dict[str, Any] = {
             "type": "interaction",
             "request": request,
             "tasks": tasks,
             "result": result,
-        })
+        }
+        if pilot_confidence is not None:
+            memory_record["confidence"] = pilot_confidence
+        self.memory.add_event(memory_record)
         return result
 
-    def _try_chimera_pilot(self, request: str) -> str | None:
-        """Use Chimera Pilot for task kinds with an available runtime backend."""
+    def _try_chimera_pilot(self, request: str) -> tuple[str | None, float | None]:
+        """Use Chimera Pilot for task kinds with an available runtime backend.
+
+        Returns a tuple of (result_string, confidence) where both may be None.
+        """
 
         try:
             executions = self.pilot_kernel.run(request)
         except PermissionError as exc:
-            return f"Policy denied by Chimera Pilot: {exc}"
+            return (f"Policy denied by Chimera Pilot: {exc}", None)
         except RuntimeError:
-            return None
+            return (None, None)
 
         if not executions:
-            return None
+            return (None, None)
+
+        # Extract confidence from envelopes if available
+        confidence_values: list[float] = []
+        for execution in executions:
+            if execution.envelope is not None:
+                confidence_values.append(execution.envelope.confidence)
+
+        avg_confidence = (sum(confidence_values) / len(confidence_values)) if confidence_values else None
         payload = [execution.to_dict() for execution in executions]
-        return json.dumps(payload, indent=2, sort_keys=True)
+        return (json.dumps(payload, indent=2, sort_keys=True), avg_confidence)

@@ -9,15 +9,26 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from ..cognition_layer.confidence import (
+    ChimeraValue,
+    Confidence,
+    ConfidenceLevel,
+    ConfidentValue,
+    ConvergeValue,
+    ExploreValue,
+    ProvisionalValue,
+)
 from ..logging_config import get_logger
 from ..model_layer.router import ModelRouter
 from ..config import GhostChimeraConfig
 from .kernel import ChimeraPilotKernel
+from .result_envelope import ResultEnvelope
 from .telemetry import InMemoryTelemetryStore, PilotTelemetryEvent, now
 from .task_ir import TaskKind, TaskSpec
 
@@ -71,12 +82,20 @@ class SessionState:
     end_reason: str | None = None
     api_call_count: int = 0
     estimated_cost_usd: float = 0.0
+    # Confidence tracking (Phase 2-4)
+    confidence_history: list[float] = field(default_factory=list)
 
     def turn_count(self) -> int:
         return len([m for m in self.messages if m.role in {"user", "assistant"}])
 
     def message_dicts(self) -> list[dict[str, Any]]:
         return [m.to_dict() for m in self.messages]
+
+    def recent_confidence(self, n: int = 5) -> float:
+        """Return average confidence of the last N turns."""
+        if not self.confidence_history:
+            return 0.0
+        return sum(self.confidence_history[-n:]) / min(n, len(self.confidence_history))
 
 
 @dataclass
@@ -196,6 +215,13 @@ class AIAgent:
         self.telemetry = InMemoryTelemetryStore()
         self._lock = threading.Lock()
 
+        # Confidence tracking (Phase 2-4)
+        self.current_confidence: float = 0.0
+        self.confidence_threshold: float = 0.85
+        self._last_envelope: ResultEnvelope | None = None
+        self._running_confidence: float = 0.5  # neutral starting point
+        self._iteration_confidences: list[float] = []
+
         # Session management
         self._sessions: dict[str, SessionState] = {}
         self._active_session_id: str = session.session_id if session else "default"
@@ -271,6 +297,8 @@ class AIAgent:
             if tool_calls:
                 results = self._execute_tool_calls(tool_calls, tools=tools)
                 self._add_tool_results(results)
+                raw_confidence = self._evaluate_iteration_confidence(results)
+                self._update_confidence(raw_confidence)
                 continue  # loop back to model
 
             # Model returned text — this is our answer
@@ -282,8 +310,21 @@ class AIAgent:
                     finish_reason=response.get("finish_reason"),
                     tokens=response.get("usage", {}).get("total_tokens"),
                 ))
+                confidence_value = self._build_confidence_value(str(content))
+                self._last_envelope = ResultEnvelope(
+                    kind="agent_response",
+                    value=content,
+                    confidence=self._running_confidence,
+                    confidence_source="agent_loop",
+                )
+                self._last_envelope.claims = [
+                    {"claim": "agent_completed", "passed": True},
+                    {"claim": "confidence_level", "value": str(confidence_value)},
+                ]
+                self._session.confidence_history.append(self._running_confidence)
+                self.current_confidence = self._running_confidence
                 logger.info("Turn %d: agent returned text", turn + 1)
-                return str(content)
+                return self.format_with_confidence(str(content))
 
             self._add_message(Message(
                 role="assistant",
@@ -517,6 +558,74 @@ class AIAgent:
             return True
         return False
 
+    # -------------- confidence helpers
+    # --------------
+
+    def _evaluate_iteration_confidence(self, results: list[dict]) -> float:
+        """Evaluate confidence for a single iteration based on tool results."""
+        if not results:
+            return 0.3
+
+        success_count = sum(1 for r in results if r.get("status") == "success")
+        success_rate = success_count / len(results)
+
+        structured_count = 0
+        for r in results:
+            content = r.get("content", "")
+            if isinstance(content, str):
+                try:
+                    json.loads(content)
+                    structured_count += 1
+                except (json.JSONDecodeError, ValueError):
+                    pass
+        structure_score = structured_count / len(results) if results else 0.0
+
+        convergence_bonus = 0.0
+        if self._iteration_confidences:
+            diff = abs(self._running_confidence - self._iteration_confidences[-1])
+            if diff < 0.1:
+                convergence_bonus = 0.1
+            elif diff < 0.2:
+                convergence_bonus = 0.05
+
+        raw = (0.5 * success_rate) + (0.3 * structure_score) + (0.2 * convergence_bonus)
+        return max(0.05, min(0.99, raw))
+
+    def _update_confidence(self, raw_confidence: float) -> None:
+        """Update running confidence using product rule."""
+        if not self._iteration_confidences:
+            self._running_confidence = raw_confidence
+        else:
+            combined = Confidence(raw_confidence, source="agent_loop").combine(
+                Confidence(self._running_confidence, source="running")
+            )
+            self._running_confidence = combined.value
+
+        self._iteration_confidences.append(self._running_confidence)
+        self._session.confidence_history.append(self._running_confidence)
+        logger.debug("Confidence: %.3f (raw: %.3f)", self._running_confidence, raw_confidence)
+
+    def format_with_confidence(self, result: str) -> str:
+        """Format result with confidence-aware annotations."""
+        if self._running_confidence < 0.3:
+            return f"[Explore] {result}\n(Confidence: low -- treat as preliminary)"
+        if self._running_confidence < 0.6:
+            return f"[Provisional] {result}\n(Confidence: moderate -- verify before using)"
+        if self._running_confidence < 0.95:
+            return f"[Converging] {result}\n(Confidence: building -- check key claims)"
+        return result
+
+    def _build_confidence_value(self, result: str) -> ChimeraValue:
+        """Build the appropriate ChimeraValue based on confidence level."""
+        raw_confidence = Confidence(self._running_confidence, source="agent_loop")
+        if self._running_confidence >= 0.95:
+            return ConfidentValue(raw=result, confidence=raw_confidence)
+        if self._running_confidence >= 0.6:
+            return ConvergeValue(raw=result, confidence=raw_confidence)
+        if self._running_confidence >= 0.3:
+            return ProvisionalValue(raw=result, confidence=raw_confidence)
+        return ExploreValue(raw=result, confidence=raw_confidence)
+
     def status(self) -> dict[str, Any]:
         """Return current session status."""
         return {
@@ -530,6 +639,8 @@ class AIAgent:
             "api_call_count": self._session.api_call_count,
             "estimated_cost_usd": self._session.estimated_cost_usd,
             "turn_count": self._session.turn_count(),
+            "running_confidence": self._running_confidence,
+            "confidence_history_count": len(self._session.confidence_history),
         }
 
 

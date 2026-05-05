@@ -9,6 +9,7 @@ from .confidence import (
     MemoryScope,
     ProvisionalValue,
 )
+from .hallucination import DetectionReport, HallucinationDetector, HallucinationFlag  # noqa: F401
 from .reasoning import linearise_tasks  # noqa: F401
 from .workspace import AttentionController, ReflectionEngine, SelfModel, WorkingMemory
 
@@ -18,7 +19,10 @@ __all__ = [
     "ConfidenceLevel",
     "ConfidentValue",
     "ConvergeValue",
+    "DetectionReport",
     "ExploreValue",
+    "HallucinationDetector",
+    "HallucinationFlag",
     "MemoryScope",
     "ProvisionalValue",
     "ReflectionEngine",
