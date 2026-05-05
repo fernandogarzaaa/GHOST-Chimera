@@ -3,12 +3,12 @@
 import unittest
 
 from ghostchimera.chimera_pilot.backends.deterministic import DeterministicBackend
-from ghostchimera.chimera_pilot.scheduler import ChimeraScheduler
-from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
+from ghostchimera.chimera_pilot.calibration import CalibrationStore, ChimeraCalibrator
+from ghostchimera.chimera_pilot.calibration_async import calibrate_backends_parallel
 from ghostchimera.chimera_pilot.executor import ChimeraPilotExecutor
 from ghostchimera.chimera_pilot.executor_parallel import execute_tasks_parallel
-from ghostchimera.chimera_pilot.calibration_async import calibrate_backends_parallel
-from ghostchimera.chimera_pilot.calibration import ChimeraCalibrator, CalibrationStore
+from ghostchimera.chimera_pilot.scheduler import ChimeraScheduler
+from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
 
 
 class TestParallelExecutionIntegration(unittest.TestCase):
@@ -48,7 +48,7 @@ class TestParallelExecutionIntegration(unittest.TestCase):
 
     def test_parallel_multi_task_matches_sequential(self):
         tasks = [
-            TaskSpec.create(kind=TaskKind.REASONING, objective=f"task-{i}")
+            TaskSpec.create(kind=TaskKind.REASONING, objective=f"task-{i}", inputs={"prompt": f"task-{i}"})
             for i in range(5)
         ]
         backend = DeterministicBackend("multi", output="done")

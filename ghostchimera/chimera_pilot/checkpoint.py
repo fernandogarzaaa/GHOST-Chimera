@@ -130,7 +130,7 @@ class CheckpointManager:
 
     def __init__(self, config: GhostChimeraConfig | None = None):
         self.config = config or GhostChimeraConfig.from_env()
-        self.checkpoint_dir = CHECKPOINT_BASE
+        self.checkpoint_dir: Path = Path(CHECKPOINT_BASE)
         self.interval = CHECKPOINT_INTERVAL
         self._turn_count = 0
         self._last_checkpoint: str | None = None

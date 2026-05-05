@@ -26,7 +26,7 @@ logger = get_logger("credential_pool")
 # Credential store entry
 # ---------------------------------------------------------------------------
 
-@dataclass(frozen=True)
+@dataclass
 class CredentialEntry:
     """A single provider credential with metadata."""
     provider: str
@@ -58,7 +58,7 @@ class CredentialEntry:
         return min(1.0, self.quota_used / self.quota_limit)
 
 
-@dataclass(frozen=True)
+@dataclass
 class ProviderHealth:
     """Health of a provider from credential pool's perspective."""
     provider: str
@@ -90,6 +90,15 @@ class ProviderHealth:
 # ---------------------------------------------------------------------------
 
 class CredentialPool:
+    """Multi-provider credential management with rotation and quota tracking.
+
+    Architecture:
+        1. Initialize from env vars (GHOSTCHIMERA_*_API_KEY)
+        2. Add providers dynamically
+        3. Query availability before use
+        4. Rotate keys on expiration or failure threshold
+        5. Track per-provider quota usage
+    """
     """Multi-provider credential management with rotation and quota tracking.
 
     Architecture:
@@ -255,7 +264,7 @@ class CredentialPool:
                 if not entry.is_available:
                     continue
                 health = self._health.get(name)
-                if health and (health.usage_pct() > 0.9 or health.success_rate < 0.5):
+                if health and (health.usage_pct > 0.9 or health.success_rate < 0.5):
                     continue
                 candidates.append((name, health.success_rate if health else 1.0, 1.0 - entry.usage_pct()))
 

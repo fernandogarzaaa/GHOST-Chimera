@@ -3,17 +3,17 @@
 import unittest
 
 from ghostchimera.chimera_pilot.backends.deterministic import DeterministicBackend
+from ghostchimera.chimera_pilot.calibration import CalibrationStore
+from ghostchimera.chimera_pilot.calibration_async import calibrate_backends_parallel
+from ghostchimera.chimera_pilot.executor_parallel import execute_tasks_parallel
 from ghostchimera.chimera_pilot.scheduler import ChimeraScheduler
 from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
-from ghostchimera.chimera_pilot.executor_parallel import execute_tasks_parallel, ParallelExecutionResult
-from ghostchimera.chimera_pilot.calibration_async import calibrate_backends_parallel
-from ghostchimera.chimera_pilot.calibration import CalibrationStore
 
 
 class TestExecuteTasksParallel(unittest.TestCase):
     def test_parallel_executes_all_tasks(self):
-        task1 = TaskSpec.create(kind=TaskKind.REASONING, objective="task1")
-        task2 = TaskSpec.create(kind=TaskKind.REASONING, objective="task2")
+        task1 = TaskSpec.create(kind=TaskKind.REASONING, objective="task1", inputs={"prompt": "task1"})
+        task2 = TaskSpec.create(kind=TaskKind.REASONING, objective="task2", inputs={"prompt": "task2"})
         backend = DeterministicBackend("test", output="done")
         scheduler = ChimeraScheduler([backend])
 
@@ -24,7 +24,7 @@ class TestExecuteTasksParallel(unittest.TestCase):
         self.assertEqual(result.failures, 0)
 
     def test_parallel_with_single_task(self):
-        task = TaskSpec.create(kind=TaskKind.REASONING, objective="solo")
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="solo", inputs={"prompt": "solo"})
         backend = DeterministicBackend("solo", output="done")
         scheduler = ChimeraScheduler([backend])
 
@@ -38,7 +38,7 @@ class TestExecuteTasksParallel(unittest.TestCase):
         self.assertEqual(result.failures, 0)
 
     def test_parallel_to_dict(self):
-        task1 = TaskSpec.create(kind=TaskKind.REASONING, objective="t1")
+        task1 = TaskSpec.create(kind=TaskKind.REASONING, objective="t1", inputs={"prompt": "t1"})
         backend = DeterministicBackend("d", output="ok")
         scheduler = ChimeraScheduler([backend])
         result = execute_tasks_parallel([task1], scheduler, max_workers=1)

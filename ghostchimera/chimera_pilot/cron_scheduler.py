@@ -36,7 +36,7 @@ DEFAULT_TIMEZONE = "UTC"
 # Data types
 # --------------------------- ----------------------- ---------------
 
-@dataclass(frozen=True)
+@dataclass()
 class CronJob:
     """A scheduled cron job."""
     id: str
@@ -86,7 +86,7 @@ class CronJob:
         """Update the next_run time. Returns the new timestamp."""
         now = time.time()
         try:
-            next_time = croniter(self.cron_expression, time.localtime(now)).get_next()
+            next_time = croniter(self.cron_expression, now).get_next()
             self.next_run = next_time
         except (ValueError, KeyError) as exc:
             logger.error("Invalid cron expression '%s': %s", self.cron_expression, exc)

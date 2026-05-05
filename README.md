@@ -2,7 +2,7 @@
 
 Ghost Chimera is a local-first agent orchestration project. It provides a small modular agent stack plus **Chimera Pilot**, a control-plane layer for compiling objectives into task IR, scheduling backends, calibrating backend health, executing with fallback, validating results, and recording telemetry.
 
-This repository is release-ready as an **alpha developer release**. It is not marketed as AGI, an autonomous production agent, or a replacement for licensed quantum operating systems.
+This repository is release-ready as a **beta release**. It is not marketed as AGI, an autonomous production agent, or a replacement for licensed quantum operating systems.
 
 ## What is included
 
@@ -11,7 +11,7 @@ This repository is release-ready as an **alpha developer release**. It is not ma
 - `tool_layer` - filesystem, browser, and shell wrappers.
 - `skill_layer` - domain skills built on tools and models.
 - `safety_layer` - approval gating and audit helpers.
-- `chimera_pilot` - task IR, resource registry, scheduler, calibration, executor, verifier, telemetry, and optional quantum-simulator bridge.
+- `chimera_pilot` - task IR, resource registry, scheduler, calibration, executor, verifier, telemetry, agent loop, context compression, credential pool, toolset management, checkpoint system, cron scheduling, MCP gateway, batch orchestration, and optional quantum-simulator bridge.
 
 ## Install from source
 
@@ -126,7 +126,7 @@ Chimera Pilot is inspired by public systems architecture patterns from resource 
 
 ## Project status
 
-Current release status: **alpha**.
+Current release status: **beta**.
 
 Appropriate uses:
 
@@ -134,6 +134,8 @@ Appropriate uses:
 - backend scheduling research;
 - agent runtime prototyping;
 - testable extension work;
+- parallel batch orchestration;
+- MCP gateway and credential pooling;
 - optional quantum simulator integration.
 
 Not appropriate yet:
@@ -149,6 +151,18 @@ Run the built-in suite:
 
 ```bash
 python -m unittest tests.test_chimera_pilot tests.test_release_package -v
+```
+
+Run the expanded test suite (all components):
+
+```bash
+python -m pytest tests/ -v
+```
+
+Run lint checks:
+
+```bash
+ruff check .
 ```
 
 Run compile checks:

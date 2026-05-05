@@ -1,10 +1,11 @@
 """Shared fixtures for integration tests."""
 
+import pytest
+
 from ghostchimera.chimera_pilot import ChimeraPilotKernel
 from ghostchimera.chimera_pilot.backends.deterministic import DeterministicBackend
 from ghostchimera.chimera_pilot.scheduler import ChimeraScheduler
 from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
-import pytest
 
 
 @pytest.fixture
@@ -28,9 +29,9 @@ def scheduler(deterministic_backend):
 @pytest.fixture
 def client(scheduler):
     """Executor with deterministic backend and scheduler."""
+    from ghostchimera.chimera_pilot.executor import ChimeraPilotExecutor
     from ghostchimera.chimera_pilot.policy import PilotPolicy
     from ghostchimera.chimera_pilot.telemetry import InMemoryTelemetryStore
-    from ghostchimera.chimera_pilot.executor import ChimeraPilotExecutor
     return ChimeraPilotExecutor(scheduler, policy=PilotPolicy(), telemetry=InMemoryTelemetryStore())
 
 

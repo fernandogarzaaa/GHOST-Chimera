@@ -93,18 +93,18 @@ class ToolCall:
 # Error classification
 # ---------------------------------------------------------------------------
 
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
 class Classification:
-    recoverable: bool
+    recoverable: bool = False
     retry: bool = False
     backoff_seconds: float = 0.0
     switch_model: bool = False
     compress: bool = False
     requires_action: str | None = None
     message: str = ""
-
-    def __post_init__(self):
-        if not hasattr(self, 'recoverable'):
-            self.recoverable = False
 
 
 class ErrorClassifier:
@@ -504,7 +504,7 @@ class AIAgent:
     def _recover(self, exc: Exception, classification: Classification) -> bool:
         """Attempt error recovery. Returns True if recovered."""
         logger.info("Error recovery: %s", classification.message)
-        if not classification.recoverable:
+        if not classification.is_recoverable:
             return False
         if classification.retry and classification.backoff_seconds > 0:
             time.sleep(classification.backoff_seconds)

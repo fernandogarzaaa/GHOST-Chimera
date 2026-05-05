@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..skill_layer.base import Skill
-from ..skill_layer import SkillManager
+from ..skill_layer.base import Skill
+from ..agent_core.skill_manager import SkillManager
 from ..logging_config import get_logger
 from .mcp_wrapper import list_available_tools
 
