@@ -16,6 +16,7 @@ from .kernel import ChimeraPilotKernel
 from .policy import PilotPolicy
 from .resource_registry import ResourceRegistry
 from .scheduler import ChimeraScheduler, ScheduleDecision
+from .result_envelope import ResultEnvelope, merge_envelopes
 from .task_ir import TaskKind, TaskSpec
 
 __all__ = [
@@ -36,6 +37,8 @@ __all__ = [
     "ScheduleDecision",
     "TaskKind",
     "TaskSpec",
+    "ResultEnvelope",
+    "merge_envelopes",
     "calibrate_backends_parallel",
     "discover_builtin_backends",
     "execute_tasks_parallel",
