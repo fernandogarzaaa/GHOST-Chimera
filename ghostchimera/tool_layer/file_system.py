@@ -27,7 +27,7 @@ def read_file(path: str, policy: dict[str, Any] | None = None) -> str:
     """Read and return the contents of a file."""
     policy = dict(ensure_authorized(policy))
     p = _authorized_path(path, policy)
-    with open(p, "r", encoding="utf-8") as f:
+    with open(p, encoding="utf-8") as f:
         return f.read()
 
 

@@ -11,7 +11,7 @@ class ResourceRegistry:
     """In-memory registry of executable backends."""
 
     def __init__(self) -> None:
-        self._backends: "OrderedDict[str, ChimeraBackend]" = OrderedDict()
+        self._backends: OrderedDict[str, ChimeraBackend] = OrderedDict()
 
     def register(self, backend: ChimeraBackend) -> None:
         if backend.id in self._backends:

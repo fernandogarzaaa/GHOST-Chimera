@@ -15,10 +15,10 @@ Supported actions:
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
-from .base import Skill
 from ..model_layer.llm import LLM
+from .base import Skill
 
 
 class TechSupportSkill(Skill):
@@ -31,7 +31,7 @@ class TechSupportSkill(Skill):
         # configuration from environment variables.
         self.llm = LLM()
 
-    def run(self, task: Dict[str, Any]) -> Any:
+    def run(self, task: dict[str, Any]) -> Any:
         action = task.get("action")
         if action != "ask_llm":
             raise ValueError(f"TechSupportSkill only handles ask_llm tasks, got {action}")

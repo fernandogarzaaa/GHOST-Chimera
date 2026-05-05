@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Dict
 
 
 class RateLimiter:
@@ -44,7 +43,7 @@ class RateLimiterStore:
     def __init__(self, default_rate: float = 10.0, default_burst: int = 20) -> None:
         self.default_rate = default_rate
         self.default_burst = default_burst
-        self._limiters: Dict[str, RateLimiter] = {}
+        self._limiters: dict[str, RateLimiter] = {}
         self._lock = threading.Lock()
 
     def limiter(self, name: str) -> RateLimiter:

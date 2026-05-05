@@ -15,8 +15,9 @@ import os
 import shlex
 import shutil
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from ..safety_layer.gating import ensure_authorized
 

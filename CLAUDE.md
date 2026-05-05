@@ -4,25 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Ghost Chimera is a local-first agent orchestration project (alpha, v0.1.0). It provides a layered agent runtime with **Chimera Pilot** as the control-plane: a resource orchestrator that compiles natural-language objectives into a task IR, schedules them across registered backends using weighted scoring, enforces safety policy, executes with fallback, and records telemetry.
+Ghost Chimera is a local-first agent orchestration prototype (v0.2.0-beta). It provides a layered agent runtime with **Chimera Pilot** as the control-plane: a resource orchestrator that compiles natural-language objectives into a task IR, schedules them across registered backends using weighted scoring, enforces safety policy, executes with fallback, and records telemetry. Alpha-stage — designed for local experimentation, not production.
 
 ## Quick Commands
 
 ```bash
 # Install
 python -m venv .venv && source .venv/bin/activate
-python -m pip install -e '.[dev]'
+pip install -e '.[dev]'                    # dev deps (ruff, build)
+pip install -e '.[quantum]'               # optional quantum simulator
+pip install -e '.[local]'                 # optional local inference (llama-cpp)
 
-# Lint (ruff)
+# Lint (ruff, line-length=120, target py311)
 ruff check ghostchimera tests
 
 # Compile check
 python -m compileall ghostchimera tests
 
-# Tests (stdlib unittest)
-python -m unittest tests.test_chimera_pilot tests.test_release_package -v
+# Tests (stdlib unittest / pytest)
+python -m pytest tests/
+python -m unittest tests.test_chimera_pilot tests.test_release_package tests.test_safety_policy -v
 
-# Release validation (checks imports, metadata, policy defaults, test suite)
+# Release validation
 python scripts/validate_release.py
 
 # Eval suites
@@ -30,9 +33,14 @@ python -m ghostchimera.evals run --suite smoke
 python -m ghostchimera.evals run --suite safety
 
 # CLI
-chimera-pilot status --include-deterministic-backend
-chimera-pilot compile "objective"
-chimera-pilot run "objective" --include-deterministic-backend
+ghostchimera status
+ghostchimera compile <goal>
+ghostchimera calibrate
+ghostchimera run <goal> --include-deterministic-backend
+chimera-pilot status
+chimera-pilot memory-add <sqlite_path> <item>
+chimera-pilot memory-search <sqlite_path> <query>
+chimera-pilot model-profiles
 ghostchimera --config-show
 ```
 
@@ -47,7 +55,7 @@ ghostchimera/
   control_plane/    CLI entry points (chimera-pilot, ghostchimera)
   evals/            Smoke and safety evaluation suites
   memory_layer/     SQLite FTS5 local memory store
-  model_layer/      LLM provider abstraction (OpenAI, minimind, llama.cpp)
+  model_layer/      LLM provider abstraction + router, local model profiles
   safety_layer/     ExecutionPolicy gating and audit records
   skill_layer/      Domain skills (code_search, tech_support, to_issues, software_engineer, browser_operator)
   tool_layer/       Policy-gated filesystem, shell, and browser wrappers
@@ -57,18 +65,20 @@ ghostchimera/
 
 **Two execution paths:** `AgentCore.handle_request()` tries Chimera Pilot first (structured task IR + backend scheduling). If no registered backend can handle the task, it falls back to the legacy planner/skill executor with the same `ExecutionPolicy`.
 
-**Chimera Pilot pipeline:** Objective → `RuleBasedTaskCompiler` → `TaskSpec` list → `ChimeraScheduler` (weighted scoring) → best backend → `ChimeraPilotExecutor` (with fallback) → `Verifier` → telemetry.
+**Chimera Pilot pipeline:** Objective -> `RuleBasedTaskCompiler` -> `TaskSpec` list -> `ChimeraScheduler` (weighted scoring) -> best backend -> `ChimeraPilotExecutor` (with fallback) -> `Verifier` -> telemetry.
 
-**Backend contract:** Every backend exposes `id`, `name`, `capabilities`, `probe()`, `can_run(task)`, `estimate(task)`, `execute(task)`. This unifies local runtimes, cloud models, MCP connectors, and quantum simulators behind one scheduling interface.
+**Backend contract:** Every backend exposes `id`, `name`, `capabilities`, `probe()`, `can_run(task)`, `estimate(task)`, `execute()`. This unifies local runtimes, cloud models, MCP connectors, and quantum simulators behind one scheduling interface.
 
 **Safety boundary:** Scheduler decides *where* to run; policy decides *whether* it's allowed. Two separate layers (`PilotPolicy` for Chimera Pilot tasks, `ExecutionPolicy` for tool-layer operations).
 
-**Conservative defaults:** Network access denied, Python/test execution denied, Python runs with bounded timeout, minimal env, isolated interpreter, temporary cwd, AST-level rejection of high-risk calls (`os.system`, `subprocess`, `eval`, `exec`, etc.). Denied fragments hardcoded in `chimera_pilot/policy.py`.
+**Conservative defaults:** Network access denied, Python/test execution denied. Python runs with bounded timeout, minimal env, isolated interpreter, temp cwd, AST-level rejection of high-risk calls. Denied fragments hardcoded in `chimera_pilot/policy.py`.
+
+**Local model profiles:** Three built-in profiles configured via environment variables (see `.env.example`): `tiny` (fastest/lightest), `balanced`, `stronger` (best quality). GGUF support requires an external inference runtime.
 
 ### Core files
 
 | Area | Key file(s) |
-|------|-------------|
+|------|------|
 | Entry point | `ghostchimera/control_plane/cli.py` |
 | Agent facade | `ghostchimera/agent_core/core.py` (AgentCore) |
 | Pilot kernel | `ghostchimera/chimera_pilot/kernel.py` (ChimeraPilotKernel) |
@@ -78,7 +88,7 @@ ghostchimera/
 | Pilot policy | `ghostchimera/chimera_pilot/policy.py` (PilotPolicy) |
 | Tool policy | `ghostchimera/safety_layer/gating.py` (ExecutionPolicy) |
 | Config | `ghostchimera/config.py` (GhostChimeraConfig) |
-| LLM layer | `ghostchimera/model_layer/llm.py` + `providers.py` |
+| LLM layer | `ghostchimera/model_layer/llm.py` + `providers.py` + `router.py` |
 | Memory store | `ghostchimera/memory_layer/store.py` |
 | CWR primitives | `ghostchimera/cognition_layer/workspace.py` |
 | Evals | `ghostchimera/evals/runner.py` |

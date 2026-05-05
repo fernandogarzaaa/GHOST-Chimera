@@ -9,7 +9,8 @@ action.  Skills can also provide a human readable description.
 
 from __future__ import annotations
 
-from typing import Dict, Any, List, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 
 class Skill:
@@ -30,7 +31,7 @@ class Skill:
     description: str = "Base skill"
     actions: Iterable[str] = []
 
-    def run(self, task: Dict[str, Any]) -> Any:
+    def run(self, task: dict[str, Any]) -> Any:
         """Perform a task and return a result.
 
         Parameters

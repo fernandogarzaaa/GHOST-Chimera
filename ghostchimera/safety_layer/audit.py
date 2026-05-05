@@ -14,7 +14,7 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 AUDIT_FILE = os.environ.get(
     "GHOSTCHIMERA_AUDIT_FILE",
@@ -25,7 +25,7 @@ AUDIT_FILE = os.environ.get(
 def _read_audit() -> list:
     if not os.path.exists(AUDIT_FILE):
         return []
-    with open(AUDIT_FILE, "r", encoding="utf-8") as f:
+    with open(AUDIT_FILE, encoding="utf-8") as f:
         try:
             return json.load(f)
         except Exception:
@@ -38,7 +38,7 @@ def _write_audit(records: list) -> None:
         json.dump(records, f, ensure_ascii=False, indent=2)
 
 
-def record(task: Dict[str, Any], result: Any) -> None:
+def record(task: dict[str, Any], result: Any) -> None:
     """Append a record to the audit log."""
     entry = {
         "task": task,
@@ -61,11 +61,11 @@ class AuditLog:
             self.key = b"ghostchimera-test-key"
 
     def _hmac(self, data: str) -> str:
-        import hmac as _hmac
         import hashlib as _hashlib
+        import hmac as _hmac
         return _hmac.new(self.key, data.encode("utf-8"), _hashlib.sha256).hexdigest()
 
-    def record(self, action: str, details: Dict[str, Any]) -> Dict[str, Any]:
+    def record(self, action: str, details: dict[str, Any]) -> dict[str, Any]:
         """Record an audit entry with chain hash."""
         records = _read_audit()
         prev_hash = records[-1]["chain_hash"] if records else "genesis"
@@ -92,15 +92,15 @@ class AuditLog:
             prev_hash = entry["chain_hash"]
         return True, "Chain intact"
 
-    def get_entries(self) -> list[Dict[str, Any]]:
+    def get_entries(self) -> list[dict[str, Any]]:
         """Return all audit entries."""
         return _read_audit()
 
     @staticmethod
-    def verify_entry(entry: Dict[str, Any], prev_entry: Dict[str, Any] | None = None) -> bool:
+    def verify_entry(entry: dict[str, Any], prev_entry: dict[str, Any] | None = None) -> bool:
         """Verify a single chain link."""
-        import hmac as _hmac
         import hashlib as _hashlib
+        import hmac as _hmac
         key = os.environ.get("GHOSTCHIMERA_AUDIT_KEY", "ghostchimera-test-key").encode("utf-8")
         prev_hash = prev_entry["chain_hash"] if prev_entry else "genesis"
         data = f"{prev_hash}{entry['action']}{json.dumps(entry['details'], sort_keys=True)}"

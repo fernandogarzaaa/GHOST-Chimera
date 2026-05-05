@@ -14,10 +14,10 @@ Supported actions:
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
-from .base import Skill
 from ..tool_layer.browser import http_get
+from .base import Skill
 
 
 class BrowserOperatorSkill(Skill):
@@ -25,7 +25,7 @@ class BrowserOperatorSkill(Skill):
     description = "Perform simple HTTP GET requests"
     actions = ["http_get"]
 
-    def run(self, task: Dict[str, Any]) -> Any:
+    def run(self, task: dict[str, Any]) -> Any:
         if task.get("action") != "http_get":
             raise ValueError("BrowserOperatorSkill only handles http_get tasks")
         url = task.get("url")

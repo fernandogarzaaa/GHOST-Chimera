@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from ..logging_config import get_logger
 from .backends.base import ExecutionResult
 from .policy import PilotPolicy
 from .scheduler import ChimeraScheduler, ScheduleDecision
@@ -12,8 +13,6 @@ from .schema import validate_task
 from .task_ir import TaskSpec
 from .telemetry import InMemoryTelemetryStore, PilotTelemetryEvent, now
 from .verifier import ResultVerifier
-from ..logging_config import get_logger
-from ..safety_layer.rate_limiter import RateLimiterStore
 
 logger = get_logger("executor")
 

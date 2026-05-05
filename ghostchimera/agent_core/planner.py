@@ -20,8 +20,7 @@ available.
 from __future__ import annotations
 
 import json
-import os
-from typing import List, Dict, Any
+from typing import Any
 
 from ..model_layer.llm import LLM
 
@@ -32,7 +31,7 @@ class Planner:
     def __init__(self, llm: LLM) -> None:
         self.llm = llm
 
-    def _heuristic_plan(self, request: str) -> List[Dict[str, Any]]:
+    def _heuristic_plan(self, request: str) -> list[dict[str, Any]]:
         """Fallback heuristic planner.
 
         This very simple planner recognises a few common patterns and
@@ -41,7 +40,7 @@ class Planner:
         delegate to the language model.
         """
         req_lower = request.strip().lower()
-        tasks: List[Dict[str, Any]] = []
+        tasks: list[dict[str, Any]] = []
         # Create file pattern: "create a file X with content Y"
         if req_lower.startswith("create a file") and "with content" in req_lower:
             try:
@@ -85,21 +84,7 @@ class Planner:
         elif (
             "issue" in req_lower
             and any(word in req_lower for word in ["break", "split", "convert", "turn", "create", "make"])
-        ):
-            if ":" in request:
-                plan_text = request.split(":", 1)[1].strip()
-                if plan_text:
-                    tasks.append({"action": "to_issues", "plan": plan_text})
-                else:
-                    tasks.append({"action": "ask_llm", "prompt": request})
-            else:
-                # Without a colon, the plan is ambiguous; delegate to the LLM
-                tasks.append({"action": "ask_llm", "prompt": request})
-        # Detect requests to break a plan into issues.  We look for the word "issue" (singular or plural)
-        # combined with verbs like "break", "split", "convert", "turn", "create" or "make".  When a colon
-        # separates the instruction from the plan (e.g. "Break this into issues: step1; step2"), we extract
-        # the substring after the colon as the plan.  Otherwise we fall back to the LLM.
-        elif (
+        ) or (
             "issue" in req_lower
             and any(word in req_lower for word in ["break", "split", "convert", "turn", "create", "make"])
         ):
@@ -117,7 +102,7 @@ class Planner:
             tasks.append({"action": "ask_llm", "prompt": request})
         return tasks
 
-    def plan(self, request: str) -> List[Dict[str, Any]]:
+    def plan(self, request: str) -> list[dict[str, Any]]:
         """Plan a request into tasks.
 
         The method first uses heuristic rules.  If the heuristics produce an

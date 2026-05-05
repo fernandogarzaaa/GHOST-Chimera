@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from typing import Any, Callable, Dict, List
+from collections.abc import Callable
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class MCPServer:
     def __init__(self, host: str = "127.0.0.1", port: int = 3100) -> None:
         self.host = host
         self.port = port
-        self._tools: Dict[str, MCPTool] = {}
+        self._tools: dict[str, MCPTool] = {}
         self._server: HTTPServer | None = None
         self._running = False
 

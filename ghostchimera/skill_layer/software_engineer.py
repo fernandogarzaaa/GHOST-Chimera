@@ -15,11 +15,11 @@ Supported actions:
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
-from .base import Skill
-from ..tool_layer.file_system import write_file, read_file
+from ..tool_layer.file_system import read_file, write_file
 from ..tool_layer.shell import run_command
+from .base import Skill
 
 
 class SoftwareEngineerSkill(Skill):
@@ -27,7 +27,7 @@ class SoftwareEngineerSkill(Skill):
     description = "Operate on the local filesystem and run shell commands"
     actions = ["write_file", "read_file", "shell"]
 
-    def run(self, task: Dict[str, Any]) -> Any:
+    def run(self, task: dict[str, Any]) -> Any:
         action = task.get("action")
         policy = task.get("_ghostchimera_policy")
         if action == "write_file":

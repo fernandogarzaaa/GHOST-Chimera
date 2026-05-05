@@ -6,9 +6,9 @@ import argparse
 import json
 import sys
 
-from .kernel import ChimeraPilotKernel
-from ..model_layer.local_profiles import list_local_model_profiles
 from ..memory_layer.store import MemoryStore
+from ..model_layer.local_profiles import list_local_model_profiles
+from .kernel import ChimeraPilotKernel
 
 
 def _print_json(payload: object) -> None:

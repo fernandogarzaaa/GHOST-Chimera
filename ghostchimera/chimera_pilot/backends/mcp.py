@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..backends.base import BackendCapabilities, BackendHealth, ExecutionResult
-from ..task_ir import TaskKind, TaskSpec
 from ghostchimera.mcp.client import MCPClient
+
+from ..backends.base import BackendHealth, ExecutionResult
+from ..task_ir import TaskSpec
 
 
 class MCPBackend:
@@ -14,6 +15,7 @@ class MCPBackend:
 
     id = "mcp.remote"
     name = "MCP Remote Backend"
+    _description = "Remote MCP server backend"
 
     def __init__(self, host: str = "127.0.0.1", port: int = 3100) -> None:
         self.host = host
@@ -55,3 +57,5 @@ class MCPBackend:
             return ExecutionResult(self.id, task.id, True, str(result.get("result", "")), None, {"tool": tool_name})
         except Exception as exc:
             return ExecutionResult(self.id, task.id, False, "", str(exc), {})
+
+

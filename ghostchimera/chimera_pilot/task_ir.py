@@ -63,7 +63,7 @@ class TaskSpec:
         max_latency_ms: int | None = None,
         requires_network: bool = False,
         requires_gpu: bool = False,
-    ) -> "TaskSpec":
+    ) -> TaskSpec:
         return cls(
             id=new_task_id(kind.value),
             kind=kind,

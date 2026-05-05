@@ -11,9 +11,10 @@ loop.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping
+from typing import Any
 
 
 class PolicyViolation(PermissionError):
@@ -33,7 +34,7 @@ class ExecutionPolicy:
     output_limit_bytes: int = 20_000
 
     @classmethod
-    def from_env(cls) -> "ExecutionPolicy":
+    def from_env(cls) -> ExecutionPolicy:
         allow_shell = _truthy(os.environ.get("GHOSTCHIMERA_ALLOW_SHELL"))
         allow_network = _truthy(os.environ.get("GHOSTCHIMERA_ALLOW_NETWORK"))
         allow_file_read = _truthy(os.environ.get("GHOSTCHIMERA_ALLOW_FILE_READ"))
@@ -127,7 +128,7 @@ def _path_is_under_root(root: Path, path: Path) -> bool:
     return path_str == root_str or path_str.startswith(root_str + "/")
 
 
-def requires_approval(task: Dict[str, Any]) -> bool:
+def requires_approval(task: dict[str, Any]) -> bool:
     """Return True if the given task needs explicit user approval."""
     return str(task.get("action", "")) in {"shell", "write_file", "read_file", "http_get"}
 

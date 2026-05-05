@@ -5,8 +5,13 @@ AI/tool/runtime control plane: task IR, backend registry, health calibration,
 scoring scheduler, fallback execution, verification, and telemetry.
 """
 
+from .agent_pool import BatchAgent, BatchResult, BatchSummary, ParallelAgent
+from .backend_registry import BackendRegistry, default, discover_builtin_backends
+from .calibration_async import calibrate_backends_parallel
 from .compiler import RuleBasedTaskCompiler
 from .executor import ChimeraPilotExecutor, PilotExecution
+from .executor_async import AsyncChimeraPilotExecutor
+from .executor_parallel import ParallelExecutionResult, execute_tasks_parallel
 from .kernel import ChimeraPilotKernel
 from .policy import PilotPolicy
 from .resource_registry import ResourceRegistry
@@ -14,14 +19,24 @@ from .scheduler import ChimeraScheduler, ScheduleDecision
 from .task_ir import TaskKind, TaskSpec
 
 __all__ = [
+    "AsyncChimeraPilotExecutor",
+    "BackendRegistry",
+    "BatchAgent",
+    "BatchResult",
+    "BatchSummary",
     "ChimeraPilotExecutor",
     "ChimeraPilotKernel",
     "ChimeraScheduler",
     "PilotExecution",
     "PilotPolicy",
+    "ParallelAgent",
+    "ParallelExecutionResult",
     "ResourceRegistry",
     "RuleBasedTaskCompiler",
     "ScheduleDecision",
     "TaskKind",
     "TaskSpec",
+    "calibrate_backends_parallel",
+    "discover_builtin_backends",
+    "execute_tasks_parallel",
 ]

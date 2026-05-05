@@ -16,9 +16,8 @@ from __future__ import annotations
 
 import importlib
 import logging
-import pkgutil
 import os
-from typing import Dict, Optional, Type
+import pkgutil
 
 from ..skill_layer.base import Skill
 
@@ -29,8 +28,8 @@ class SkillManager:
     def __init__(self, package: str = "ghostchimera.skill_layer", logger: logging.Logger = None) -> None:
         self.package = package
         self.logger = logger or logging.getLogger(__name__)
-        self._skills: Dict[str, Skill] = {}
-        self._action_to_skill: Dict[str, Skill] = {}
+        self._skills: dict[str, Skill] = {}
+        self._action_to_skill: dict[str, Skill] = {}
         self._discover_skills()
 
     def _discover_skills(self) -> None:
@@ -110,6 +109,6 @@ class SkillManager:
                 )
             self._action_to_skill[action] = skill
 
-    def get_skill_for_action(self, action: str) -> Optional[Skill]:
+    def get_skill_for_action(self, action: str) -> Skill | None:
         """Return the skill instance capable of handling the given action."""
         return self._action_to_skill.get(action)

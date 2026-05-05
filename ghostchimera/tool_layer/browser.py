@@ -13,7 +13,7 @@ Non-HTTPS and dangerous schemes (file://, data:, javascript:) are rejected.
 import ssl
 from typing import Any
 from urllib import request as urllib_request
-from urllib.error import URLError, HTTPError
+from urllib.error import HTTPError, URLError
 
 from ..logging_config import get_logger
 from ..safety_layer.gating import ensure_authorized

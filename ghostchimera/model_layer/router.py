@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import logging
-import os
-from typing import List
 
-from .providers import BaseProvider, PROVIDERS, get_provider
+from .providers import BaseProvider, get_provider
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +64,7 @@ class ModelRouter:
                 logger.warning("Router: provider '%s' failed – %s", name, exc)
 
         raise RuntimeError(
-            f"All providers failed:\n" + "\n".join(f"  - {e}" for e in errors)
+            "All providers failed:\n" + "\n".join(f"  - {e}" for e in errors)
         )
 
     def get_fallback_chain(self) -> list[dict]:

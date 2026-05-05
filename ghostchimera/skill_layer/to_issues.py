@@ -31,7 +31,7 @@ The skill will return::
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import Any
 
 from .base import Skill
 
@@ -43,7 +43,7 @@ class ToIssuesSkill(Skill):
     description = "Break a plan or specification into a numbered list of issues"
     actions = ["to_issues"]
 
-    def run(self, task: Dict[str, Any]) -> Any:
+    def run(self, task: dict[str, Any]) -> Any:
         action = task.get("action")
         if action != "to_issues":
             raise ValueError(f"ToIssuesSkill only handles to_issues tasks, got {action}")
@@ -63,7 +63,7 @@ class ToIssuesSkill(Skill):
         # Split by newlines
         raw_items = [item.strip() for item in text.splitlines()]
         # Filter out empty strings
-        items: List[str] = [item for item in raw_items if item]
+        items: list[str] = [item for item in raw_items if item]
         if not items:
             return "No issues could be extracted from the provided plan."
         # Capitalise the first letter of each item

@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import re
 import unicodedata
-
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -88,6 +87,15 @@ class PilotPolicy:
             "default_max_cost_usd": self.default_max_cost_usd,
             "max_python_timeout_seconds": self.max_python_timeout_seconds,
         }
+
+    @classmethod
+    def permissive(cls) -> PilotPolicy:
+        """Return a policy that allows network access and Python execution."""
+        return cls(
+            allow_network=True,
+            allow_python_execution=True,
+            allow_quantum_simulation=True,
+        )
 
     @staticmethod
     def _normalize_text(value: str) -> str:

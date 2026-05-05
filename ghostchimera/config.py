@@ -23,7 +23,7 @@ class GhostChimeraConfig:
     local_model_gpu_layers: int
 
     @classmethod
-    def from_env(cls) -> "GhostChimeraConfig":
+    def from_env(cls) -> GhostChimeraConfig:
         state_dir = _expand_path(os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera"))
         memory_db = _expand_path(os.environ.get("GHOSTCHIMERA_MEMORY_DB", str(state_dir / "memory.sqlite3")))
         audit_file = _expand_path(os.environ.get("GHOSTCHIMERA_AUDIT_FILE", str(state_dir / "audit.json")))

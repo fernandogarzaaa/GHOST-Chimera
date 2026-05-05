@@ -4,9 +4,21 @@ from .base import BackendCapabilities, BackendHealth, ChimeraBackend, ExecutionR
 from .cwr import CWRBackend
 from .deterministic import DeterministicBackend
 from .llamacpp import LlamaCppBackend
-from .python_runtime import PythonRuntimeBackend
-from .pyqpanda3_backend import PyQPanda3Backend
 from .mcp import MCPBackend
+from .pyqpanda3_backend import PyQPanda3Backend
+from .python_runtime import PythonRuntimeBackend
+
+
+def discover_builtin_backends():
+    """Discover and register all self-registering backends.
+
+    Each backend module calls ``BackendRegistry.register()`` at import time.
+    This function uses AST inspection to find which modules self-register,
+    then imports them to trigger registration.
+    """
+    from ghostchimera.chimera_pilot.backend_registry import discover_builtin_backends as _discover
+    return _discover()
+
 
 __all__ = [
     "BackendCapabilities",
@@ -19,4 +31,5 @@ __all__ = [
     "MCPBackend",
     "PyQPanda3Backend",
     "PythonRuntimeBackend",
+    "discover_builtin_backends",
 ]

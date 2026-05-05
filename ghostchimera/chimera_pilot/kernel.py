@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .backends.deterministic import DeterministicBackend
+from ..logging_config import get_logger
+from ..memory_layer.store import MemoryStore
 from .backends.cwr import CWRBackend
+from .backends.deterministic import DeterministicBackend
 from .backends.llamacpp import LlamaCppBackend
 from .backends.pyqpanda3_backend import PyQPanda3Backend
 from .backends.python_runtime import PythonRuntimeBackend
@@ -17,8 +19,6 @@ from .resource_registry import ResourceRegistry
 from .scheduler import ChimeraScheduler
 from .task_ir import TaskKind, TaskSpec
 from .telemetry import InMemoryTelemetryStore
-from ..logging_config import get_logger
-from ..memory_layer.store import MemoryStore
 
 logger = get_logger("kernel")
 
@@ -54,7 +54,7 @@ class ChimeraPilotKernel:
         local_model_path: str | None = None,
         local_model_profile: str = "tiny",
         local_model_gpu_layers: int = 0,
-    ) -> "ChimeraPilotKernel":
+    ) -> ChimeraPilotKernel:
         policy = PilotPolicy(allow_python_execution=allow_python_execution, allow_network=allow_network)
         kernel = cls(policy=policy)
         kernel.registry.register(PythonRuntimeBackend(cwd=cwd, allowed_roots=[cwd] if cwd else None))

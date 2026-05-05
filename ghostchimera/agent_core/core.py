@@ -23,15 +23,14 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import List, Dict, Any, Optional
 
-from .planner import Planner
+from ..chimera_pilot import ChimeraPilotKernel
+from ..model_layer.llm import LLM
+from ..safety_layer.gating import ExecutionPolicy
 from .executor import Executor
 from .memory import MemoryManager
+from .planner import Planner
 from .skill_manager import SkillManager
-from ..model_layer.llm import LLM
-from ..chimera_pilot import ChimeraPilotKernel
-from ..safety_layer.gating import ExecutionPolicy
 
 
 class AgentCore:
@@ -54,12 +53,12 @@ class AgentCore:
 
     def __init__(
         self,
-        llm: Optional[LLM] = None,
-        memory_manager: Optional[MemoryManager] = None,
-        skill_manager: Optional[SkillManager] = None,
-        pilot_kernel: Optional[ChimeraPilotKernel] = None,
-        execution_policy: Optional[ExecutionPolicy] = None,
-        logger: Optional[logging.Logger] = None,
+        llm: LLM | None = None,
+        memory_manager: MemoryManager | None = None,
+        skill_manager: SkillManager | None = None,
+        pilot_kernel: ChimeraPilotKernel | None = None,
+        execution_policy: ExecutionPolicy | None = None,
+        logger: logging.Logger | None = None,
     ) -> None:
         self.logger = logger or logging.getLogger(__name__)
         self.llm = llm or LLM()

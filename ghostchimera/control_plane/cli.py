@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 import sys
 
 from ..agent_core.core import AgentCore
@@ -47,6 +46,11 @@ def run_cli() -> None:
 
 
 def _main(argv: list[str] | None = None) -> int:
+    # If parallel flags are present, delegate to parallel_cli
+    if argv and ("run" in argv or "batch" in argv):
+        from .parallel_cli import _main as _parallel_main
+        return _parallel_main(argv)
+
     parser = argparse.ArgumentParser(description="Ghost Chimera CLI")
     parser.add_argument(
         "--log-level",

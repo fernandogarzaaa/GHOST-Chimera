@@ -11,10 +11,10 @@ perform a naive topological ordering if dependencies are expressed.
 
 from __future__ import annotations
 
-from typing import List, Dict, Any
+from typing import Any
 
 
-def linearise_tasks(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def linearise_tasks(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return tasks in a linear order.
 
     Currently this function simply returns the input list.  It is a stub for

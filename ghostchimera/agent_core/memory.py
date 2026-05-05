@@ -20,7 +20,7 @@ import os
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, List, Dict, Optional
+from typing import Any
 
 DEFAULT_FILE = os.environ.get(
     "GHOSTCHIMERA_MEMORY_FILE",
@@ -31,7 +31,7 @@ DEFAULT_FILE = os.environ.get(
 class MemoryManager:
     """Thread‑safe persistent memory store."""
 
-    def __init__(self, file_path: Optional[str] = None) -> None:
+    def __init__(self, file_path: str | None = None) -> None:
         self.file_path = file_path or DEFAULT_FILE
         self._lock = threading.Lock()
         # ensure directory exists
@@ -41,18 +41,18 @@ class MemoryManager:
             with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump([], f)
 
-    def _read_events(self) -> List[Dict[str, Any]]:
-        with open(self.file_path, "r", encoding="utf-8") as f:
+    def _read_events(self) -> list[dict[str, Any]]:
+        with open(self.file_path, encoding="utf-8") as f:
             try:
                 return json.load(f)
             except Exception:
                 return []
 
-    def _write_events(self, events: List[Dict[str, Any]]) -> None:
+    def _write_events(self, events: list[dict[str, Any]]) -> None:
         with open(self.file_path, "w", encoding="utf-8") as f:
             json.dump(events, f, ensure_ascii=False, indent=2)
 
-    def add_event(self, event: Dict[str, Any]) -> None:
+    def add_event(self, event: dict[str, Any]) -> None:
         """Append an event to the memory."""
         entry = dict(event)
         entry["timestamp"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -61,12 +61,12 @@ class MemoryManager:
             events.append(entry)
             self._write_events(events)
 
-    def get_events(self) -> List[Dict[str, Any]]:
+    def get_events(self) -> list[dict[str, Any]]:
         """Return all events from memory."""
         with self._lock:
             return self._read_events()
 
-    def search(self, query: str) -> List[Dict[str, Any]]:
+    def search(self, query: str) -> list[dict[str, Any]]:
         """Naive keyword search over stored events."""
         results = []
         for event in self.get_events():

@@ -48,7 +48,7 @@ class PilotTelemetryEvent:
             "metrics": sanitized_metrics,
         }
 
-    def sanitize(self) -> "PilotTelemetryEvent":
+    def sanitize(self) -> PilotTelemetryEvent:
         """Return a copy with all sensitive data stripped."""
         return PilotTelemetryEvent(
             task_id=self.task_id,

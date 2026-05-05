@@ -11,13 +11,12 @@ from __future__ import annotations
 import json
 import os
 import ssl
-from typing import Any, Dict, Type
+from typing import Any
 from urllib import request as urllib_request
 
 from ..logging_config import get_logger
 from .llamacpp_runtime import LlamaCppRuntime
 from .local_profiles import get_local_model_profile
-
 
 logger = get_logger("providers")
 
@@ -60,7 +59,7 @@ class OpenAIProvider(BaseProvider):
 
     def chat(self, system_message: str, user_message: str) -> str:
         if not self.available:
-            raise RuntimeError(f"OpenAIProvider is not available; set OPENAI_API_KEY in the environment")
+            raise RuntimeError("OpenAIProvider is not available; set OPENAI_API_KEY in the environment")
         url = "https://api.openai.com/v1/chat/completions"
         headers = {
             "Content-Type": "application/json",
@@ -161,7 +160,7 @@ class LlamaCppProvider(BaseProvider):
         }
 
 
-PROVIDERS: Dict[str, Type[BaseProvider]] = {
+PROVIDERS: dict[str, type[BaseProvider]] = {
     LlamaCppProvider.name: LlamaCppProvider,
     OpenAIProvider.name: OpenAIProvider,
     MinimindProvider.name: MinimindProvider,

@@ -6,8 +6,8 @@ physical quantum computer or Origin Pilot installation to load this backend.
 
 from __future__ import annotations
 
-from .base import BackendCapabilities, BackendHealth, ExecutionResult
 from ..task_ir import TaskKind, TaskSpec
+from .base import BackendCapabilities, BackendHealth, ExecutionResult
 
 
 class PyQPanda3Backend:
@@ -15,6 +15,18 @@ class PyQPanda3Backend:
 
     id = "originq.pyqpanda3.local"
     name = "pyqpanda3 Local Quantum Simulator"
+    _description = "Quantum simulation via PyQPanda3"
+    _check_fn = None  # set at class-definition time below
+
+    @classmethod
+    def is_available(cls) -> bool:
+        try:
+            import pyqpanda3  # noqa: F401
+        except ImportError:
+            return False
+        return True
+
+    _check_fn = is_available
 
     def __init__(self) -> None:
         self.capabilities = BackendCapabilities(
@@ -108,3 +120,5 @@ class PyQPanda3Backend:
             output={"counts": dict(counts), "qubits": qubits, "shots": shots},
             metrics={"qubits": qubits, "shots": shots},
         )
+
+

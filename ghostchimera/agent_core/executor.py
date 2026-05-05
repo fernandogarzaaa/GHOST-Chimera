@@ -10,12 +10,12 @@ returns a combined response.
 from __future__ import annotations
 
 import logging
-from typing import List, Dict, Any
+from typing import Any
 
-from .memory import MemoryManager
-from .skill_manager import SkillManager
 from ..safety_layer.audit import record as record_audit
 from ..safety_layer.gating import ExecutionPolicy, PolicyViolation
+from .memory import MemoryManager
+from .skill_manager import SkillManager
 
 
 class Executor:
@@ -33,9 +33,9 @@ class Executor:
         self.logger = logger or logging.getLogger(__name__)
         self.policy = policy or ExecutionPolicy.from_env()
 
-    def execute(self, tasks: List[Dict[str, Any]]) -> str:
+    def execute(self, tasks: list[dict[str, Any]]) -> str:
         """Execute a sequence of tasks and return the aggregate result."""
-        results: List[str] = []
+        results: list[str] = []
         for task in tasks:
             action = task.get("action")
             self.logger.debug("Executing task: %s", task)

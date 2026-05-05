@@ -6,10 +6,9 @@ import os
 from pathlib import Path
 
 from ...logging_config import get_logger
-from .base import BackendCapabilities, BackendHealth, ExecutionResult
 from ...memory_layer.store import MemoryStore
 from ..task_ir import TaskKind, TaskSpec
-
+from .base import BackendCapabilities, BackendHealth, ExecutionResult
 
 DEFAULT_MEMORY_DB = Path(os.environ.get("GHOSTCHIMERA_MEMORY_DB", "~/.ghostchimera/memory.sqlite3")).expanduser()
 
@@ -22,6 +21,7 @@ class CWRBackend:
 
     id = "cwr.local"
     name = "Conscious Workspace Retrieval"
+    _description = "SQLite FTS5 retrieval backend"
 
     def __init__(self, store: MemoryStore | None = None) -> None:
         self.store = store or MemoryStore(DEFAULT_MEMORY_DB)
@@ -60,3 +60,5 @@ class CWRBackend:
             output=output,
             metrics={"result_count": len(results), "retrieval": "sqlite_fts"},
         )
+
+

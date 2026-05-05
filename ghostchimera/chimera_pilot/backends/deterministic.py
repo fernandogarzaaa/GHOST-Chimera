@@ -5,9 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from ...logging_config import get_logger
-from .base import BackendCapabilities, BackendHealth, ExecutionResult
 from ..task_ir import TaskKind, TaskSpec
-
+from .base import BackendCapabilities, BackendHealth, ExecutionResult
 
 logger = get_logger("deterministic")
 
@@ -19,6 +18,11 @@ class DeterministicBackend:
     scheduler smoke checks, and CI environments where no model provider or
     quantum simulator is available.
     """
+
+    id = "deterministic.local"
+    name = "Deterministic Local Backend"
+    _description = "Deterministic local backend for tests and smoke checks"
+    _check_fn = None
 
     def __init__(
         self,
@@ -33,10 +37,6 @@ class DeterministicBackend:
         estimated_cost_usd: float = 0.0,
     ) -> None:
         self.id = backend_id
-        self.name = "Deterministic Local Backend"
-        logger.debug("Provider %s initialized", self.name)
-        self._output = output
-        self._fail = fail
         self._health = BackendHealth(
             available=True,
             reliability=reliability,
@@ -51,6 +51,9 @@ class DeterministicBackend:
             supports_network=not supports_offline,
             max_context_tokens=4096,
         )
+        logger.debug("Provider %s initialized", self.name)
+        self._output = output
+        self._fail = fail
 
     def probe(self) -> BackendHealth:
         return self._health

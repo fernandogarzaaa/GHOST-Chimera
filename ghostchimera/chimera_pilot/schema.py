@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, List, Tuple
+from typing import Any
 
 from .task_ir import TaskKind
 
@@ -12,8 +12,8 @@ from .task_ir import TaskKind
 class _KindSchema:
     """Schema definition for a single TaskKind."""
 
-    required_fields: List[str]
-    optional_fields: List[str]
+    required_fields: list[str]
+    optional_fields: list[str]
     field_types: dict  # field_name -> type
     value_constraints: dict  # field_name -> callable(value) -> bool
 
@@ -82,7 +82,7 @@ class PythonSchema:
     """Validate Python task inputs."""
 
     @staticmethod
-    def validate(inputs: dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate(inputs: dict[str, Any]) -> tuple[bool, list[str]]:
         errors = _KindSchema(
             required_fields=["code"],
             optional_fields=[],
@@ -94,42 +94,42 @@ class PythonSchema:
 
 class TestRunSchema:
     @staticmethod
-    def validate(inputs: dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate(inputs: dict[str, Any]) -> tuple[bool, list[str]]:
         errors = _KIND_SCHEMAS[TaskKind.TEST_RUN]
         return _validate_one(inputs, errors)
 
 
 class QuantumSimSchema:
     @staticmethod
-    def validate(inputs: dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate(inputs: dict[str, Any]) -> tuple[bool, list[str]]:
         errors = _KIND_SCHEMAS[TaskKind.QUANTUM_SIM]
         return _validate_one(inputs, errors)
 
 
 class WebResearchSchema:
     @staticmethod
-    def validate(inputs: dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate(inputs: dict[str, Any]) -> tuple[bool, list[str]]:
         errors = _KIND_SCHEMAS[TaskKind.WEB_RESEARCH]
         return _validate_one(inputs, errors)
 
 
 class FileAnalysisSchema:
     @staticmethod
-    def validate(inputs: dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate(inputs: dict[str, Any]) -> tuple[bool, list[str]]:
         errors = _KIND_SCHEMAS[TaskKind.FILE_ANALYSIS]
         return _validate_one(inputs, errors)
 
 
 class RagQuerySchema:
     @staticmethod
-    def validate(inputs: dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate(inputs: dict[str, Any]) -> tuple[bool, list[str]]:
         errors = _KIND_SCHEMAS[TaskKind.RAG_QUERY]
         return _validate_one(inputs, errors)
 
 
 class ReasoningSchema:
     @staticmethod
-    def validate(inputs: dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate(inputs: dict[str, Any]) -> tuple[bool, list[str]]:
         errors = _KIND_SCHEMAS[TaskKind.REASONING]
         return _validate_one(inputs, errors)
 
@@ -148,8 +148,8 @@ _KIND_VALIDATORS = {
 def _validate_one(
     inputs: dict[str, Any],
     schema: _KindSchema,
-) -> Tuple[bool, List[str]]:
-    errors: List[str] = []
+) -> tuple[bool, list[str]]:
+    errors: list[str] = []
 
     for field in schema.required_fields:
         if field not in inputs or inputs[field] is None:
@@ -170,7 +170,7 @@ def _validate_one(
 def validate_task(
     task_kind: TaskKind,
     inputs: dict[str, Any],
-) -> Tuple[bool, List[str]]:
+) -> tuple[bool, list[str]]:
     """Validate *inputs* for the given *task_kind*.
 
     Returns

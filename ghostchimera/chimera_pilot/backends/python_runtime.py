@@ -10,9 +10,8 @@ import tempfile
 from pathlib import Path
 
 from ...logging_config import get_logger
-from .base import BackendCapabilities, BackendHealth, ExecutionResult
 from ..task_ir import TaskKind, TaskSpec
-
+from .base import BackendCapabilities, BackendHealth, ExecutionResult
 
 logger = get_logger("python_runtime")
 
@@ -28,6 +27,7 @@ class PythonRuntimeBackend:
     id = "python.local"
     name = "Local Python Runtime"
 
+    _description = "Sandboxed local Python execution backend"
     _DEFAULT_SAFE_IMPORTS = frozenset({"collections", "datetime", "decimal", "fractions", "functools", "itertools", "json", "math", "re", "statistics", "string", "typing"})
 
     def __init__(
@@ -200,3 +200,5 @@ class PythonRuntimeBackend:
         if len(command) >= 4 and command[-2] == "-c":
             return [*command[:-1], "<python-code>"]
         return list(command)
+
+

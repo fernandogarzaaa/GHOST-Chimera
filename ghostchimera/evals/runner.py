@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from ghostchimera.agent_core.executor import Executor
 from ghostchimera.agent_core.memory import MemoryManager
@@ -12,7 +12,6 @@ from ghostchimera.agent_core.skill_manager import SkillManager
 from ghostchimera.chimera_pilot import ChimeraPilotKernel
 from ghostchimera.memory_layer.store import MemoryStore
 from ghostchimera.safety_layer.gating import ExecutionPolicy
-
 
 CaseFn = Callable[[], tuple[bool, str]]
 

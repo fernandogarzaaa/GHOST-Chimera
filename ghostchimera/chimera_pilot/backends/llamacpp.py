@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from ...logging_config import get_logger
-from .base import BackendCapabilities, BackendHealth, ExecutionResult
 from ...model_layer.llamacpp_runtime import LlamaCppRuntime
 from ...model_layer.local_profiles import get_local_model_profile
 from ..task_ir import TaskKind, TaskSpec
-
+from .base import BackendCapabilities, BackendHealth, ExecutionResult
 
 logger = get_logger("llamacpp")
 
@@ -17,6 +16,7 @@ class LlamaCppBackend:
 
     id = "llamacpp.local"
     name = "llama.cpp Local GGUF Runtime"
+    _description = "Local GGUF model backend via llama.cpp"
 
     def __init__(
         self,
@@ -82,3 +82,5 @@ class LlamaCppBackend:
             output=output,
             metrics={"profile": self.profile.name, "runtime": "llama_cpp"},
         )
+
+

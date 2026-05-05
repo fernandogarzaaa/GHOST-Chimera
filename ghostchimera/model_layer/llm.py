@@ -21,10 +21,9 @@ raised when attempting to call :meth:`chat`.  Callers can check the
 from __future__ import annotations
 
 import os
-from typing import Optional
 
-from .providers import get_provider, BaseProvider, PROVIDERS
 from ..logging_config import get_logger
+from .providers import PROVIDERS, BaseProvider, get_provider
 
 logger = get_logger("llm")
 
@@ -32,7 +31,7 @@ logger = get_logger("llm")
 class LLM:
     """Unified interface to multiple model providers."""
 
-    def __init__(self, provider: Optional[str] = None) -> None:
+    def __init__(self, provider: str | None = None) -> None:
         # Determine provider name either from argument or environment
         provider_name = provider or os.environ.get("GHOSTCHIMERA_MODEL_PROVIDER", "openai")
         logger.info("LLM initialized with provider: %s", provider_name)

@@ -7,7 +7,6 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any
 
 _GHOSTCHIMERA_LOG = logging.getLogger("ghostchimera")
 _INITIALIZED = False
