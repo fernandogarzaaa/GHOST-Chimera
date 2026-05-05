@@ -52,6 +52,10 @@ def _main(argv: list[str] | None = None) -> int:
         return _parallel_main(argv)
 
     parser = argparse.ArgumentParser(description="Ghost Chimera CLI")
+    sub = parser.add_subparsers(dest="command")
+    sub.add_parser("setup", help="Run interactive setup wizard")
+    sub.add_parser("doctor", help="Run health checks and report status")
+    sub.add_parser("model", help="List and switch the current model provider")
     parser.add_argument(
         "--log-level",
         default="INFO",
@@ -76,6 +80,25 @@ def _main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     ensure_configured()
     logger.info("CLI started with log_level=%s", args.log_level)
+
+    # Dispatch subcommands
+    if args.command == "setup":
+        from .setup_wizard import run_setup_wizard
+
+        run_setup_wizard()
+        return 0
+
+    if args.command == "doctor":
+        from .doctor import run_doctor
+
+        run_doctor()
+        return 0
+
+    if args.command == "model":
+        from .model_picker import run_model_picker
+
+        run_model_picker()
+        return 0
 
     if args.config_show:
         print(json.dumps(GhostChimeraConfig.from_env().to_dict(), indent=2, sort_keys=True))
