@@ -24,6 +24,7 @@ from ..cognition_layer.confidence import (
     ExploreValue,
     ProvisionalValue,
 )
+from ..cognition_layer.workspace import SelfModel, WorkingMemory, ReflectionEngine
 from ..logging_config import get_logger
 from ..model_layer.router import ModelRouter
 from ..config import GhostChimeraConfig
@@ -215,6 +216,11 @@ class AIAgent:
         self.telemetry = InMemoryTelemetryStore()
         self._lock = threading.Lock()
 
+        # Cognition primitives
+        self.self_model = SelfModel(identity="ghost-chimera-agent")
+        self.working_memory = WorkingMemory(task="default")
+        self.reflection_engine = ReflectionEngine()
+
         # Confidence tracking (Phase 2-4)
         self.current_confidence: float = 0.0
         self.confidence_threshold: float = 0.85
@@ -323,6 +329,14 @@ class AIAgent:
                 ]
                 self._session.confidence_history.append(self._running_confidence)
                 self.current_confidence = self._running_confidence
+                self.working_memory.task = user_message
+                self.reflection_engine.record(
+                    self.working_memory,
+                    action="agent_response",
+                    outcome="completed" if self._running_confidence >= self.confidence_threshold else "below_threshold",
+                    confidence=self._running_confidence,
+                )
+                self.self_model.set_goal("current", user_message)
                 logger.info("Turn %d: agent returned text", turn + 1)
                 return self.format_with_confidence(str(content))
 

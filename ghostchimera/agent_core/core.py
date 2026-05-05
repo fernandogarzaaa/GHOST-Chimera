@@ -26,6 +26,7 @@ import logging
 from typing import Any
 
 from ..chimera_pilot import ChimeraPilotKernel
+from ..cognition_layer.workspace import SelfModel, WorkingMemory, AttentionController
 from ..model_layer.llm import LLM
 from ..safety_layer.gating import ExecutionPolicy
 from .executor import Executor
@@ -68,6 +69,9 @@ class AgentCore:
         self.planner = Planner(self.llm)
         self.pilot_kernel = pilot_kernel or ChimeraPilotKernel.default()
         self.executor = Executor(self.skills, self.memory, logger=self.logger, policy=execution_policy)
+        self.self_model = SelfModel()
+        self.working_memory = WorkingMemory(task="default")
+        self.attention = AttentionController()
 
     def handle_request(self, request: str) -> str:
         """Handle a natural language request and return the result.

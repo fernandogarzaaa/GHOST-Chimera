@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..safety_layer.material_policy import MaterialRegistry
 from .backends.base import BackendHealth, ChimeraBackend
 from .task_ir import TaskSpec
 
@@ -19,8 +20,10 @@ class ScheduleDecision:
 class ChimeraScheduler:
     """Select the best backend for a task using transparent weighted scoring."""
 
-    def __init__(self, backends: list[ChimeraBackend]) -> None:
+    def __init__(self, backends: list[ChimeraBackend],
+                 policy_registry: MaterialRegistry | None = None) -> None:
         self.backends = list(backends)
+        self._registry = policy_registry
 
     def rank_backends(self, task: TaskSpec) -> list[ScheduleDecision]:
         decisions: list[ScheduleDecision] = []
@@ -36,6 +39,39 @@ class ChimeraScheduler:
             decisions.append(ScheduleDecision(backend=backend, score=score, reasons=reasons, health=health))
 
         decisions.sort(key=lambda item: (-item.score, item.backend.id))
+
+        # Apply policy constraints from MaterialRegistry
+        if self._registry:
+            decisions = self._apply_policy_constraints(task, decisions)
+
+        return decisions
+
+    def _apply_policy_constraints(self, task: TaskSpec,
+                                  decisions: list[ScheduleDecision]) -> list[ScheduleDecision]:
+        """Filter/re-score backends based on MaterialRegistry policy patterns."""
+        policy_id = task.constraints.get("policy_pattern", "strict_factual")
+        pattern = self._registry.get_pattern(policy_id)
+        if not pattern:
+            return decisions
+
+        constraints = pattern.get("constraints", {})
+        min_confidence = constraints.get("min_confidence", 0.0)
+
+        # mcp_security: deny network backends (token_theft / scope_creep risk)
+        if "mcp_security" in policy_id:
+            return [d for d in decisions if not d.backend.capabilities.supports_network]
+
+        # medical_cautious: require high-confidence backends only
+        if "medical_cautious" in policy_id:
+            adjusted: list[ScheduleDecision] = []
+            for d in decisions:
+                if d.health.reliability < min_confidence:
+                    adjusted.append(ScheduleDecision(backend=d.backend, score=d.score - 1.0,
+                                                     reasons=d.reasons + ["low_reliability"], health=d.health))
+                else:
+                    adjusted.append(d)
+            return adjusted
+
         return decisions
 
     def select_backend(self, task: TaskSpec) -> ScheduleDecision:

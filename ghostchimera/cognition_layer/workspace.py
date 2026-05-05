@@ -33,6 +33,18 @@ class SelfModel:
     def set_goal(self, name: str, description: str) -> None:
         self.goals[name] = description
 
+    def query(self, key: str) -> str | None:
+        if key in self.capabilities:
+            return self.capabilities[key]
+        if key in self.limits:
+            return self.limits[key]
+        if key in self.goals:
+            return self.goals[key]
+        return None
+
+    def clear_goals(self) -> None:
+        self.goals.clear()
+
     def snapshot(self) -> dict[str, Any]:
         return {
             "identity": self.identity,
@@ -60,6 +72,19 @@ class WorkingMemory:
             }
         )
 
+    def query_evidence(self, source: str | None = None) -> list[dict]:
+        if source:
+            return [e for e in self.evidence if e.get("source") == source]
+        return list(self.evidence)
+
+    def compact_high_confidence(self, threshold: float = 0.8) -> int:
+        before = len(self.evidence)
+        self.evidence = [e for e in self.evidence if e.get("confidence", 0) >= threshold]
+        return before - len(self.evidence)
+
+    def clear_evidence(self) -> None:
+        self.evidence.clear()
+
     def snapshot(self) -> dict[str, Any]:
         return {
             "task": self.task,
@@ -70,6 +95,17 @@ class WorkingMemory:
 
 class AttentionController:
     """Rank workspace items by relevance, trust, recency, and novelty."""
+
+    def rank_backends(self, backends: list[dict], context: dict[str, Any]) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for b in backends:
+            item = dict(b)
+            item["relevance"] = context.get("task_relevance", 0.5)
+            item["trust"] = b.get("reliability", 0.5)
+            item["recency"] = 1.0 / (1.0 + context.get("latency_ms", 0) / 1000.0)
+            item["novelty"] = context.get("novelty", 0.0)
+            items.append(item)
+        return self.rank(items)
 
     def rank(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ranked: list[dict[str, Any]] = []
@@ -98,3 +134,6 @@ class ReflectionEngine:
                 "timestamp": _now(),
             }
         )
+
+    def clear(self, memory: WorkingMemory) -> None:
+        memory.reflections.clear()

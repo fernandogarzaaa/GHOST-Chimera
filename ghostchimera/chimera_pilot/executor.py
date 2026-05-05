@@ -14,6 +14,7 @@ from .schema import validate_task
 from .task_ir import TaskSpec
 from .telemetry import InMemoryTelemetryStore, PilotTelemetryEvent, now
 from .verifier import ResultVerifier
+from .semantic_verifier import SemanticVerifier
 
 logger = get_logger("executor")
 
@@ -104,11 +105,13 @@ class ChimeraPilotExecutor:
         *,
         policy: PilotPolicy | None = None,
         verifier: ResultVerifier | None = None,
+        semantic_verifier: SemanticVerifier | None = None,
         telemetry: InMemoryTelemetryStore | None = None,
     ) -> None:
         self.scheduler = scheduler
         self.policy = policy or PilotPolicy()
         self.verifier = verifier or ResultVerifier()
+        self.semantic_verifier = semantic_verifier or SemanticVerifier()
         self.telemetry = telemetry or InMemoryTelemetryStore()
 
     def execute(self, task: TaskSpec) -> PilotExecution:
@@ -162,6 +165,8 @@ class ChimeraPilotExecutor:
             verified, verification_error = self.verifier.verify(task, result)
             last_verification_error = verification_error
             if result.ok and verified:
+                # Run semantic verification alongside structural
+                semantic_ok, semantic_err, semantic_warnings = self.semantic_verifier.verify(task, result, envelope=None)
                 envelope = ResultEnvelope(
                     kind=task.kind.value,
                     value=result.output,
@@ -179,13 +184,14 @@ class ChimeraPilotExecutor:
                         {"claim": "task_completed", "passed": True},
                         {"claim": "verification_passed", "passed": True},
                     ],
-                    warnings=[],
+                    warnings=semantic_warnings if semantic_ok else [],
                     metadata={
                         "task_id": task.id,
                         "task_kind": task.kind.value,
                         "attempts": len(attempts),
                         "score": decision.score,
                         "backend_id": decision.backend.id,
+                        "semantic_ok": semantic_ok,
                     },
                 )
                 return PilotExecution(

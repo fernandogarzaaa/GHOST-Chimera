@@ -56,6 +56,7 @@ def _main(argv: list[str] | None = None) -> int:
     sub.add_parser("setup", help="Run interactive setup wizard")
     sub.add_parser("doctor", help="Run health checks and report status")
     sub.add_parser("model", help="List and switch the current model provider")
+    sub.add_parser("policy", help="Manage security policies")
     parser.add_argument(
         "--log-level",
         default="INFO",
@@ -99,6 +100,11 @@ def _main(argv: list[str] | None = None) -> int:
 
         run_model_picker()
         return 0
+
+    if args.command == "policy":
+        from .cli_policy import _main as _policy_main
+
+        return _policy_main()
 
     if args.config_show:
         print(json.dumps(GhostChimeraConfig.from_env().to_dict(), indent=2, sort_keys=True))

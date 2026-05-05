@@ -79,15 +79,12 @@ class SemanticVerifier:
         """Run hallucination detection on output."""
         warnings: list[str] = []
 
-        # Scan for confidence anomalies
+        # Scan for confidence anomalies and attack pattern terms
         if envelope.confidence is not None and envelope.confidence > 0.9:
-            # Check for hedge markers that contradict high confidence
-            hedge_count = sum(1 for m in self._registry._patterns[0].get("constraints", {}).get("min_confidence", 0) or 0 for _ in [])
-            for marker in self._registry._attack_patterns:
-                for term in marker.get("match_terms", []):
+            for attack in self._registry.attack_patterns:
+                for term in attack.get("match_terms", []):
                     if term.lower() in text.lower():
                         warnings.append(f"high confidence but attack term found: {term}")
-                        break
 
         return len(warnings) == 0, warnings
 

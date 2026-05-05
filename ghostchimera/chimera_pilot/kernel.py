@@ -34,12 +34,14 @@ class ChimeraPilotKernel:
         policy: PilotPolicy | None = None,
         telemetry: InMemoryTelemetryStore | None = None,
         calibration_store: CalibrationStore | None = None,
+        policy_registry: Any | None = None,
     ) -> None:
         self.registry = registry or ResourceRegistry()
         self.compiler = compiler or RuleBasedTaskCompiler()
         self.policy = policy or PilotPolicy()
         self.telemetry = telemetry or InMemoryTelemetryStore()
         self.calibration_store = calibration_store or CalibrationStore()
+        self._policy_registry = policy_registry
 
     @classmethod
     def default(
@@ -81,7 +83,9 @@ class ChimeraPilotKernel:
         return self.compiler.compile(objective)
 
     def execute_task(self, task: TaskSpec) -> PilotExecution:
-        scheduler = ChimeraScheduler(self.registry.list())
+        from ..safety_layer.material_policy import MaterialRegistry
+        registry = self._policy_registry or MaterialRegistry()
+        scheduler = ChimeraScheduler(self.registry.list(), policy_registry=registry)
         executor = ChimeraPilotExecutor(
             scheduler,
             policy=self.policy,
