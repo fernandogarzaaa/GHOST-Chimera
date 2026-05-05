@@ -92,6 +92,67 @@ class MemoryStore:
                 USING fts5(source, content, content='memory_documents', content_rowid='id')
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS orchestration_outcomes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    backend_id TEXT NOT NULL,
+                    task_kind TEXT NOT NULL,
+                    success INTEGER NOT NULL,
+                    latency_ms REAL NOT NULL,
+                    verifier_score REAL NOT NULL DEFAULT 0.0,
+                    policy_warnings_json TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+    def record_outcome(
+        self,
+        *,
+        backend_id: str,
+        task_kind: str,
+        success: bool,
+        latency_ms: float,
+        verifier_score: float = 0.0,
+        policy_warnings: list[str] | None = None,
+    ) -> int:
+        warnings_json = json.dumps(policy_warnings or [], sort_keys=True)
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO orchestration_outcomes(
+                    backend_id, task_kind, success, latency_ms, verifier_score, policy_warnings_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (backend_id, task_kind, 1 if success else 0, float(latency_ms), float(verifier_score), warnings_json),
+            )
+            return int(cursor.lastrowid)
+
+    def recent_outcomes(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 200))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT backend_id, task_kind, success, latency_ms, verifier_score, policy_warnings_json, created_at
+                FROM orchestration_outcomes
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "backend_id": row["backend_id"],
+                "task_kind": row["task_kind"],
+                "success": bool(row["success"]),
+                "latency_ms": float(row["latency_ms"]),
+                "verifier_score": float(row["verifier_score"]),
+                "policy_warnings": json.loads(row["policy_warnings_json"] or "[]"),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:

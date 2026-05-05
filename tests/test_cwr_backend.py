@@ -50,6 +50,21 @@ class ConsciousWorkspaceRetrievalTests(unittest.TestCase):
         self.assertEqual(result.output["citations"], ["architecture"])
         self.assertIn("Chimera Pilot", result.output["results"][0]["content"])
 
+    def test_memory_store_records_orchestration_outcomes(self) -> None:
+        store = MemoryStore(self.db_path)
+        row_id = store.record_outcome(
+            backend_id="cwr.local",
+            task_kind="rag_query",
+            success=True,
+            latency_ms=12.5,
+            verifier_score=1.0,
+            policy_warnings=["none"],
+        )
+        self.assertGreater(row_id, 0)
+        outcomes = store.recent_outcomes(limit=5)
+        self.assertGreaterEqual(len(outcomes), 1)
+        self.assertEqual(outcomes[0]["backend_id"], "cwr.local")
+
     def test_kernel_prefers_real_cwr_backend_over_deterministic_placeholder(self) -> None:
         store = MemoryStore(self.db_path)
         store.add_document("memory", "Ghost Chimera remembers project goals through CWR.")
@@ -61,6 +76,8 @@ class ConsciousWorkspaceRetrievalTests(unittest.TestCase):
         self.assertEqual(execution.result.backend_id, "cwr.local")
         self.assertNotEqual(execution.result.output, "ok")
         self.assertEqual(execution.result.output["citations"], ["memory"])
+        outcomes = store.recent_outcomes(limit=1)
+        self.assertEqual(outcomes[0]["backend_id"], "cwr.local")
 
     def test_cli_can_add_search_and_run_against_memory_db(self) -> None:
         add = subprocess.run(

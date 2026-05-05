@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 
 from ghostchimera.chimera_pilot import ChimeraPilotKernel, ChimeraScheduler, ResourceRegistry, TaskKind, TaskSpec
 from ghostchimera.chimera_pilot.backends import BackendHealth, DeterministicBackend, PythonRuntimeBackend
 from ghostchimera.chimera_pilot.calibration import CalibrationStore, ChimeraCalibrator
 from ghostchimera.chimera_pilot.compiler import RuleBasedTaskCompiler
-from ghostchimera.chimera_pilot.executor import ChimeraPilotExecutor
+from ghostchimera.chimera_pilot.executor import ChimeraPilotExecutor, PilotRunState
 from ghostchimera.chimera_pilot.policy import PilotPolicy
 
 
@@ -21,6 +22,7 @@ class ChimeraPilotTests(unittest.TestCase):
 
         self.assertEqual(decision.backend.id, "strong")
         self.assertGreater(decision.score, 0)
+        self.assertIn("reliability", decision.breakdown)
 
     def test_unavailable_backend_is_skipped(self) -> None:
         class UnavailableBackend(DeterministicBackend):
@@ -59,6 +61,15 @@ class ChimeraPilotTests(unittest.TestCase):
         self.assertTrue(execution.ok)
         self.assertEqual(execution.result.backend_id, "succeeding")
         self.assertEqual(len(execution.attempts), 2)
+
+    def test_executor_feeds_outcomes_back_to_scheduler(self) -> None:
+        failing = DeterministicBackend("failing", fail=True, reliability=1.0)
+        scheduler = ChimeraScheduler([failing])
+        before = scheduler.weights["reliability"]
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
+        ChimeraPilotExecutor(scheduler).execute(task)
+        after = scheduler.weights["reliability"]
+        self.assertLess(after, before)
 
     def test_calibration_updates_reliability(self) -> None:
         backend = DeterministicBackend("calibrated", reliability=0.75)
@@ -105,6 +116,49 @@ class ChimeraPilotTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             PilotPolicy(allow_network=False).validate(task)
 
+    def test_scheduler_weights_can_be_updated(self) -> None:
+        backend = DeterministicBackend("d", reliability=0.9)
+        scheduler = ChimeraScheduler([backend])
+        scheduler.set_weights({"reliability": 0.5})
+        self.assertEqual(scheduler.weights["reliability"], 0.5)
+
+    def test_scheduler_adapts_from_outcomes(self) -> None:
+        backend = DeterministicBackend("d", reliability=0.9)
+        scheduler = ChimeraScheduler([backend])
+        base = scheduler.weights["reliability"]
+        scheduler.adapt_from_outcome(backend_id="d", success=False, latency_ms=1500)
+        self.assertLess(scheduler.weights["reliability"], base)
+
+    def test_scheduler_can_disable_adaptation(self) -> None:
+        backend = DeterministicBackend("d", reliability=0.9)
+        scheduler = ChimeraScheduler([backend])
+        scheduler.set_adaptation_enabled(False)
+        base = scheduler.weights["reliability"]
+        scheduler.adapt_from_outcome(backend_id="d", success=False, latency_ms=1500)
+        self.assertEqual(scheduler.weights["reliability"], base)
+
+    def test_scheduler_save_and_load_weights(self) -> None:
+        backend = DeterministicBackend("d", reliability=0.9)
+        scheduler = ChimeraScheduler([backend])
+        scheduler.set_weights({"reliability": 0.42})
+        with tempfile.NamedTemporaryFile(suffix=".json") as tmp:
+            scheduler.save_weights(tmp.name)
+            other = ChimeraScheduler([backend])
+            loaded = other.load_weights(tmp.name)
+        self.assertEqual(loaded["reliability"], 0.42)
+
+    def test_scheduler_strategy_selector(self) -> None:
+        backends = [
+            DeterministicBackend("a", reliability=0.8),
+            DeterministicBackend("b", reliability=0.7),
+            DeterministicBackend("c", reliability=0.9),
+        ]
+        scheduler = ChimeraScheduler(backends)
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="reason")
+        self.assertEqual(scheduler.select_strategy(task), "fallback_chain")
+        self.assertEqual(scheduler.select_strategy(task, uncertainty=0.8), "moa")
+        self.assertEqual(scheduler.select_strategy(task, historical_success_rate=0.2), "parallel")
+
 
 
 class ChimeraPilotReleaseHardeningTests(unittest.TestCase):
@@ -139,3 +193,173 @@ class ChimeraPilotReleaseHardeningTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChimeraPilotStateTransitionTests(unittest.TestCase):
+    def test_executor_emits_committed_transition_on_success(self) -> None:
+        backend = DeterministicBackend("ok", output="done")
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
+        execution = ChimeraPilotExecutor(ChimeraScheduler([backend])).execute(task)
+
+        self.assertIsNotNone(execution.transitions)
+        states = [t.state for t in execution.transitions or []]
+        self.assertEqual(states[0], PilotRunState.PLANNED)
+        self.assertEqual(states[-1], PilotRunState.COMMITTED)
+
+    def test_executor_emits_failed_transition_on_failure(self) -> None:
+        backend = DeterministicBackend("bad", fail=True)
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
+        execution = ChimeraPilotExecutor(ChimeraScheduler([backend])).execute(task)
+
+        self.assertIsNotNone(execution.transitions)
+        states = [t.state for t in execution.transitions or []]
+        self.assertEqual(states[0], PilotRunState.PLANNED)
+        self.assertEqual(states[-1], PilotRunState.FAILED)
+
+    def test_executor_emits_run_attempt_checkpoint_ids(self) -> None:
+        backend = DeterministicBackend("ok", output="done")
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
+        execution = ChimeraPilotExecutor(ChimeraScheduler([backend])).execute(task)
+
+        self.assertTrue((execution.run_id or "").startswith("run-"))
+        self.assertTrue((execution.attempt_id or "").startswith("attempt-"))
+        self.assertTrue((execution.checkpoint_id or "").startswith("ckpt-"))
+        payload = execution.to_dict()
+        self.assertEqual(payload["run_id"], execution.run_id)
+
+    def test_resume_run_reuses_run_and_checkpoint_context(self) -> None:
+        backend = DeterministicBackend("ok", output="done")
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
+        executor = ChimeraPilotExecutor(ChimeraScheduler([backend]))
+        resumed = executor.resume_run(task, run_id="run-existing", checkpoint_id="ckpt-existing")
+
+        self.assertEqual(resumed.run_id, "run-existing")
+        self.assertEqual(resumed.checkpoint_id, "ckpt-existing")
+        details = [t.detail for t in resumed.transitions or []]
+        self.assertIn("resumed_from=ckpt-existing", details)
+
+    def test_cancelled_run_short_circuits_execution(self) -> None:
+        backend = DeterministicBackend("ok", output="done")
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
+        executor = ChimeraPilotExecutor(ChimeraScheduler([backend]))
+        executor.cancel_run("run-cancelled")
+
+        cancelled = executor.resume_run(task, run_id="run-cancelled", checkpoint_id="ckpt-existing")
+        states = [t.state for t in cancelled.transitions or []]
+        self.assertEqual(states[-1], PilotRunState.CANCELLED)
+        self.assertFalse(cancelled.ok)
+
+    def test_replay_bundle_contains_run_decision_and_transitions(self) -> None:
+        backend = DeterministicBackend("ok", output="done")
+        task = TaskSpec.create(
+            kind=TaskKind.REASONING,
+            objective="execute",
+            inputs={"prompt": "execute"},
+            constraints={"uncertainty": 0.9},
+        )
+        execution = ChimeraPilotExecutor(ChimeraScheduler([backend])).execute(task)
+
+        bundle = execution.to_replay_bundle()
+        self.assertIn("run", bundle)
+        self.assertIn("decision", bundle)
+        self.assertIn("attempts", bundle)
+        self.assertIn("transitions", bundle)
+        self.assertIn("trace_hash", bundle)
+        self.assertTrue(bundle["run"]["run_id"].startswith("run-"))
+        self.assertEqual(bundle["run"]["strategy"], "moa")
+        self.assertIn("output_hash", bundle["attempts"][0])
+        self.assertIn("error_hash", bundle["attempts"][0])
+
+    def test_executor_records_replay_bundle_in_telemetry(self) -> None:
+        backend = DeterministicBackend("ok", output="done")
+        scheduler = ChimeraScheduler([backend])
+        executor = ChimeraPilotExecutor(scheduler)
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
+        executor.execute(task)
+        bundles = executor.telemetry.replay_bundles()
+        self.assertEqual(len(bundles), 1)
+        self.assertIn("run", bundles[0])
+
+    def test_telemetry_export_json_includes_replay_bundles(self) -> None:
+        backend = DeterministicBackend("ok", output="done")
+        scheduler = ChimeraScheduler([backend])
+        executor = ChimeraPilotExecutor(scheduler)
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
+        executor.execute(task)
+
+        with tempfile.NamedTemporaryFile(suffix=".json") as tmp:
+            content = executor.telemetry.export_json(tmp.name)
+            payload = json.loads(content)
+            self.assertIn("replay_bundles", payload)
+            self.assertEqual(len(payload["replay_bundles"]), 1)
+
+    def test_telemetry_export_replay_bundles_file(self) -> None:
+        backend = DeterministicBackend("ok", output="done")
+        scheduler = ChimeraScheduler([backend])
+        executor = ChimeraPilotExecutor(scheduler)
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
+        executor.execute(task)
+
+        with tempfile.NamedTemporaryFile(suffix=".json") as tmp:
+            content = executor.telemetry.export_replay_bundles(tmp.name)
+            payload = json.loads(content)
+            self.assertIn("replay_bundles", payload)
+            self.assertEqual(len(payload["replay_bundles"]), 1)
+
+    def test_executor_records_terminal_checkpoint(self) -> None:
+        class StubCheckpointManager:
+            def __init__(self) -> None:
+                self.descriptions: list[str] = []
+
+            def create_checkpoint(self, description: str, agent=None):
+                self.descriptions.append(description)
+                return object()
+
+        backend = DeterministicBackend("ok", output="done")
+        scheduler = ChimeraScheduler([backend])
+        ckpt = StubCheckpointManager()
+        executor = ChimeraPilotExecutor(scheduler, checkpoint_manager=ckpt)
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
+        execution = executor.execute(task)
+        self.assertTrue(execution.ok)
+        self.assertEqual(len(ckpt.descriptions), 1)
+        self.assertIn("committed:", ckpt.descriptions[0])
+
+    def test_executor_records_outcome_in_outcome_store(self) -> None:
+        class StubOutcomeStore:
+            def __init__(self) -> None:
+                self.rows: list[dict] = []
+
+            def record_outcome(self, **kwargs):
+                self.rows.append(dict(kwargs))
+                return len(self.rows)
+
+        backend = DeterministicBackend("ok", output="done")
+        scheduler = ChimeraScheduler([backend])
+        store = StubOutcomeStore()
+        executor = ChimeraPilotExecutor(scheduler, outcome_store=store)
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
+        execution = executor.execute(task)
+        self.assertTrue(execution.ok)
+        self.assertEqual(len(store.rows), 1)
+        self.assertEqual(store.rows[0]["backend_id"], "ok")
+
+    def test_executor_uses_historical_success_rate_for_strategy(self) -> None:
+        class StubOutcomeStore:
+            def recent_outcomes(self, limit=100):
+                return [
+                    {"task_kind": "reasoning", "success": False},
+                    {"task_kind": "reasoning", "success": False},
+                    {"task_kind": "reasoning", "success": True},
+                ]
+
+            def record_outcome(self, **kwargs):
+                return 1
+
+        backend = DeterministicBackend("ok", output="done")
+        scheduler = ChimeraScheduler([backend, DeterministicBackend("ok2", output="done"), DeterministicBackend("ok3", output="done")])
+        executor = ChimeraPilotExecutor(scheduler, outcome_store=StubOutcomeStore())
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
+        execution = executor.execute(task)
+        bundle = execution.to_replay_bundle()
+        self.assertEqual(bundle["run"]["strategy"], "parallel")

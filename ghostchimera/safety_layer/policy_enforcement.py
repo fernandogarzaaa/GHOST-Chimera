@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+import uuid
 
 from ..chimera_pilot.policy import PilotPolicy
 from ..chimera_pilot.task_ir import TaskSpec
@@ -25,9 +26,15 @@ class EnforcementResult:
     pilot_check: dict[str, Any] | None = None
     claims: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    trace_id: str = ""
+    simulated: bool = False
+    trace: list[dict[str, Any]] = field(default_factory=list)
 
     def add_warning(self, msg: str) -> None:
         self.warnings.append(msg)
+
+    def add_trace(self, step: str, detail: dict[str, Any]) -> None:
+        self.trace.append({"step": step, "detail": detail})
 
 
 class PolicyEnforcer:
@@ -41,14 +48,26 @@ class PolicyEnforcer:
         self._registry = registry or MaterialRegistry()
         self._default_policy = default_policy
 
-    def enforce(self, task: TaskSpec, policy: PilotPolicy | None = None) -> EnforcementResult:
+    def enforce(
+        self,
+        task: TaskSpec,
+        policy: PilotPolicy | None = None,
+        *,
+        simulate: bool = False,
+    ) -> EnforcementResult:
         """Run all policy checks and return combined result."""
-        result = EnforcementResult(allowed=True, policy_id=self._default_policy)
+        result = EnforcementResult(
+            allowed=True,
+            policy_id=self._default_policy,
+            trace_id=f"policy-trace-{uuid.uuid4().hex[:10]}",
+            simulated=simulate,
+        )
 
         # MaterialRegistry checks
         text = f"{task.objective} {task.inputs}"
         material = self._registry.check_security(text, self._default_policy)
         result.material_check = material
+        result.add_trace("material_check", {"policy_id": self._default_policy, "matches": len(material["attack_matches"])})
 
         # Warn on high-risk attack matches
         for match in material["attack_matches"]:
@@ -59,12 +78,25 @@ class PolicyEnforcer:
 
         # PilotPolicy validation (binary allow/deny)
         pilot_policy = policy or PilotPolicy()
-        try:
-            pilot_policy.validate(task)
-            result.pilot_check = {"status": "allowed"}
-        except PermissionError as exc:
-            result.pilot_check = {"status": "denied", "reason": str(exc)}
-            result.allowed = False
+        if simulate:
+            try:
+                pilot_policy.validate(task)
+                result.pilot_check = {"status": "allowed", "simulated": True}
+                result.add_trace("pilot_policy", {"status": "allowed", "simulated": True})
+            except PermissionError as exc:
+                result.pilot_check = {"status": "denied", "reason": str(exc), "simulated": True}
+                result.allowed = False
+                result.add_trace("pilot_policy", {"status": "denied", "simulated": True, "reason": str(exc)})
+            result.add_warning("Simulation mode enabled: no execution side effects were performed")
+        else:
+            try:
+                pilot_policy.validate(task)
+                result.pilot_check = {"status": "allowed"}
+                result.add_trace("pilot_policy", {"status": "allowed", "simulated": False})
+            except PermissionError as exc:
+                result.pilot_check = {"status": "denied", "reason": str(exc)}
+                result.allowed = False
+                result.add_trace("pilot_policy", {"status": "denied", "simulated": False, "reason": str(exc)})
 
         return result
 

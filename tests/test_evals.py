@@ -15,12 +15,16 @@ class EvaluationHarnessTests(unittest.TestCase):
         self.assertTrue(report["ok"])
         self.assertGreaterEqual(report["passed"], 3)
         self.assertEqual(report["failed"], 0)
+        self.assertIn("policy_guardrail_pass_rate", report["kpis"])
+        self.assertTrue(report["gates"]["policy_guardrail_gate"])
 
     def test_smoke_suite_reports_release_ready_surfaces(self) -> None:
         report = run_suite("smoke")
 
         self.assertTrue(report["ok"])
         self.assertIn("chimera_pilot_status", [case["name"] for case in report["cases"]])
+        self.assertIn("first_choice_success_rate_proxy", report["kpis"])
+        self.assertTrue(report["gates"]["smoke_reliability_gate"])
 
     def test_eval_cli_outputs_json(self) -> None:
         completed = subprocess.run(

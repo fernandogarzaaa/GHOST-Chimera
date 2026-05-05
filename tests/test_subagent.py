@@ -12,6 +12,7 @@ from ghostchimera.chimera_pilot.mixture_of_agents import (
     get_moa,
 )
 from ghostchimera.chimera_pilot.subagent import (
+    DelegationContract,
     DelegationResult,
     SubagentPool,
     SubagentResult,
@@ -82,6 +83,31 @@ class SubagentPoolTests(unittest.TestCase):
         pool = SubagentPool(parent_objective="test")
         # Verify internal state
         self.assertEqual(len(pool._results), 0)
+
+    def test_delegation_contract_filters_tools_and_clamps_limits(self) -> None:
+        pool = SubagentPool(parent_objective="test", max_workers=5, depth_cap=4, timeout=900)
+        contract = DelegationContract(
+            allowed_tools=["read_file"],
+            max_depth=2,
+            max_workers=2,
+            max_timeout_seconds=60,
+        )
+        filtered = contract.enforce_tools(["read_file", "delegate_task"], pool.blocked_tools)
+        self.assertEqual(filtered, ["read_file"])
+        self.assertEqual(contract.clamp_workers(5), 2)
+        self.assertEqual(contract.clamp_timeout(900), 60)
+
+    def test_spawn_parallel_with_contract_empty_goals(self) -> None:
+        pool = SubagentPool(parent_objective="test", max_workers=5, depth_cap=4, timeout=900)
+        contract = DelegationContract(
+            allowed_tools=["read_file"],
+            max_depth=2,
+            max_workers=2,
+            max_timeout_seconds=60,
+        )
+        result = pool.spawn_parallel_with_contract([], contract=contract, tools=["read_file", "delegate_task"])
+        self.assertEqual(result.successful_count, 0)
+        self.assertEqual(result.failed_count, 0)
 
     def test_thread_safety(self) -> None:
         pool = SubagentPool(parent_objective="test")

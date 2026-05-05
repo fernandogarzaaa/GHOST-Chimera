@@ -176,6 +176,16 @@ class PolicyEnforcerTests(unittest.TestCase):
         self.assertIsNotNone(result.material_check)
         self.assertEqual(result.policy_id, "mcp_security")
 
+    def test_enforce_simulation_mode_sets_flags(self):
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="simulate policy review")
+        result = self.enforcer.enforce(task, simulate=True)
+        self.assertTrue(result.simulated)
+        self.assertTrue(result.trace_id.startswith("policy-trace-"))
+        self.assertIn("Simulation mode enabled", " ".join(result.warnings))
+        self.assertEqual(result.pilot_check.get("simulated"), True)
+        self.assertGreaterEqual(len(result.trace), 2)
+        self.assertEqual(result.trace[0]["step"], "material_check")
+
 
 class SemanticVerifierTests(unittest.TestCase):
     """Tests for SemanticVerifier."""
