@@ -8,6 +8,7 @@ scoring scheduler, fallback execution, verification, and telemetry.
 from .agent_pool import BatchAgent, BatchResult, BatchSummary, ParallelAgent
 from .backend_registry import BackendRegistry, default, discover_builtin_backends
 from .calibration_async import calibrate_backends_parallel
+from .claim_extractor import ClaimExtractor
 from .compiler import RuleBasedTaskCompiler
 from .executor import ChimeraPilotExecutor, PilotExecution
 from .executor_async import AsyncChimeraPilotExecutor
@@ -16,6 +17,7 @@ from .kernel import ChimeraPilotKernel
 from .policy import PilotPolicy
 from .resource_registry import ResourceRegistry
 from .scheduler import ChimeraScheduler, ScheduleDecision
+from .semantic_verifier import SemanticVerifier
 from .result_envelope import ResultEnvelope, merge_envelopes
 from .task_ir import TaskKind, TaskSpec
 
@@ -28,16 +30,18 @@ __all__ = [
     "ChimeraPilotExecutor",
     "ChimeraPilotKernel",
     "ChimeraScheduler",
+    "ClaimExtractor",
     "PilotExecution",
     "PilotPolicy",
     "ParallelAgent",
     "ParallelExecutionResult",
     "ResourceRegistry",
+    "ResultEnvelope",
     "RuleBasedTaskCompiler",
     "ScheduleDecision",
+    "SemanticVerifier",
     "TaskKind",
     "TaskSpec",
-    "ResultEnvelope",
     "merge_envelopes",
     "calibrate_backends_parallel",
     "discover_builtin_backends",

@@ -46,7 +46,7 @@ class PolicyEnforcer:
         result = EnforcementResult(allowed=True, policy_id=self._default_policy)
 
         # MaterialRegistry checks
-        text = f"{task.description} {task.inputs}"
+        text = f"{task.objective} {task.inputs}"
         material = self._registry.check_security(text, self._default_policy)
         result.material_check = material
 
