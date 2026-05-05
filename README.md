@@ -6,12 +6,14 @@ This repository is release-ready as a **beta release**. It is not marketed as AG
 
 ## What is included
 
-- `agent_core` - planning, execution, memory, and skill dispatch.
-- `model_layer` - provider abstraction for model calls.
-- `tool_layer` - filesystem, browser, and shell wrappers.
-- `skill_layer` - domain skills built on tools and models.
-- `safety_layer` - approval gating and audit helpers.
-- `chimera_pilot` - task IR, resource registry, scheduler, calibration, executor, verifier, telemetry, agent loop, context compression, credential pool, toolset management, checkpoint system, cron scheduling, MCP gateway, batch orchestration, and optional quantum-simulator bridge.
+- `agent_core` — planning, execution, memory, and skill dispatch with confidence-aware results.
+- `model_layer` — provider abstraction for model calls and local model profiles.
+- `tool_layer` — filesystem, browser, and shell wrappers.
+- `skill_layer` — domain skills built on tools and models.
+- `safety_layer` — approval gating, MaterialRegistry policy patterns, and PolicyEnforcer.
+- `chimera_pilot` — task IR, resource registry, scheduler, calibration, executor, verifier, telemetry, agent loop, context compression, credential pool, toolset management, checkpoint system, cron scheduling, MCP gateway, batch orchestration, mixture-of-agents, and optional quantum-simulator bridge.
+- `cognition_layer` — confidence type system, claim extraction, hallucination detection, and conscious workspace primitives.
+- `memory_layer` — SQLite memory store and persistent namespace store.
 
 ## Install from source
 
@@ -32,11 +34,19 @@ python -m pip install -e '.[quantum]'
 
 ```bash
 python scripts/validate_release.py
+python -m pytest tests/
+ruff check .
 ```
 
-The validator checks required release files, imports, compileability, package metadata, policy defaults, and the unittest suite.
-
 ## CLI quickstart
+
+Configure Ghost Chimera:
+
+```bash
+ghostchimera setup          # Interactive wizard: provider, model, gateway, safety
+ghostchimera doctor         # Health check: Python, config, providers, safety
+ghostchimera model          # Interactive model picker
+```
 
 Show Chimera Pilot status:
 
@@ -78,16 +88,103 @@ ghostchimera --pilot-status
 ghostchimera --pilot-run "python: print(2 + 3)" --allow-python
 ```
 
-## Security posture
+## Safety and policy enforcement
 
-Ghost Chimera defaults to conservative execution:
+Ghost Chimera uses a multi-layer safety system:
 
-- network-requiring tasks are blocked unless explicitly allowed;
-- local Python and test execution are blocked unless explicitly allowed;
-- Python execution uses a restricted environment, temporary cwd by default, bytecode disabled, isolated interpreter mode, bounded timeout, and AST-level rejection of high-risk calls;
-- dangerous execution surfaces are documented in `SECURITY.md`.
+### ExecutionPolicy (binary gating)
 
-These protections reduce accidental risk, but they are not a substitute for container or VM isolation when running untrusted code.
+- network-requiring tasks are blocked unless explicitly allowed
+- local Python and test execution are blocked unless explicitly allowed
+- Python execution uses restricted environment, isolated interpreter, bounded timeout, and AST-level rejection of high-risk calls
+
+### MaterialRegistry (policy patterns)
+
+Seven inline policy patterns derived from OWASP MCP Top-10 and guardrails research:
+
+| Pattern | Purpose |
+|---------|---------|
+| `strict_factual` | Require strong confidence and evidence-backed claims |
+| `brainstorm` | Allow exploratory output with hedge/abstention tagging |
+| `medical_cautious` | Conservative with strong source requirements |
+| `code_review` | Balanced review policy with constrained confidence |
+| `mcp_security` | Hardened against token theft, scope creep, tool poisoning |
+| `prompt_injection_hardened` | Treats contextual metadata as potentially tainted |
+| `research_factcheck` | Evidence-first with contradiction checks and abstention |
+
+### PolicyEnforcer (unified gate)
+
+Combines MaterialRegistry checks with PilotPolicy validation, returning a combined enforcement result with material scan data, pilot check status, and security warnings.
+
+### Security defaults
+
+- dangerous execution surfaces are documented in `SECURITY.md`
+- These protections reduce accidental risk but are not a substitute for container or VM isolation
+
+## Confidence type system
+
+Ghost Chimera tracks confidence through the Chimera Pilot pipeline:
+
+- **ConfidentValue** — confidence >= 0.95, no hallucination allowed
+- **ConvergeValue** — confidence >= 0.6, requires multi-branch consensus
+- **ProvisionalValue** — confidence >= 0.3, revocable until contradicted
+- **ExploreValue** — confidence < 0.3, explicitly allows hallucination
+
+Confidence combines via the product rule: independent uncertainties compound (`p * q`), preventing spurious high confidence from multiple moderate signals.
+
+## Result transport
+
+Results flow through `ResultEnvelope` with:
+
+- **confidence** — numerical confidence (0.0-1.0)
+- **provenance** — step-by-step trace of backends and scores
+- **claims** — extracted claims with verification status
+- **warnings** — security and confidence warnings
+- **metadata** — task metadata, attempt counts, verification results
+
+Multi-agent results merge via `merge_envelopes()` with weighted confidence combination.
+
+## Mixture of agents
+
+Ghost Chimera includes a parallel reasoning system:
+
+```python
+from ghostchimera.chimera_pilot.mixture_of_agents import MixtureOfAgents, MoAConfig
+
+moa = MixtureOfAgents(config=MoAConfig(num_agents=3))
+result = moa.vote("What is the best approach to X?")
+print(f"Consensus: {result.consensus_answer} ({result.consensus_pct:.1f}%)")
+```
+
+Each agent reasons independently from different perspectives; outputs are scored, contradictions are detected, and consensus is found via Jaccard similarity.
+
+## Semantic verification
+
+`SemanticVerifier` extends structural verification with:
+
+- **confidence threshold** — results below min_confidence are rejected
+- **provenance checks** — verifies every result has a backend trace
+- **claim verification** — checks claims against material registry gold data
+- **hallucination detection** — scans for confidence anomalies and attack patterns
+
+`ClaimExtractor` parses freeform text into structured claims:
+
+```python
+from ghostchimera.chimera_pilot.claim_extractor import ClaimExtractor
+
+extractor = ClaimExtractor()
+result = extractor.extract_and_verify("Paris is the capital of France.")
+# {claims: [...], claim_count: 1, factual_count: 1, security: {...}}
+```
+
+## Hallucination detection
+
+`HallucinationDetector` scans for four hallucination indicators:
+
+- **Branch divergence** — gate branches produce wildly different results
+- **Confidence anomalies** — unexplained confidence spikes
+- **Promotion violations** — Explore -> Confident without gate consensus
+- **Source trace gaps** — values lacking provenance
 
 ## Local model profiles
 
@@ -135,8 +232,11 @@ Appropriate uses:
 - agent runtime prototyping;
 - testable extension work;
 - parallel batch orchestration;
+- mixture-of-agents reasoning;
 - MCP gateway and credential pooling;
-- optional quantum simulator integration.
+- optional quantum simulator integration;
+- confidence-aware result validation;
+- policy-pattern security scanning.
 
 Not appropriate yet:
 
