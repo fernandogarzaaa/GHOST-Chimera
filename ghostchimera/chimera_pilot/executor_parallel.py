@@ -28,6 +28,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class CancellationToken:
+    """Cooperative cancellation token for parallel execution."""
+
+    cancelled: bool = False
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+
 @dataclass(frozen=True)
 class ParallelExecutionResult:
     """Aggregated results from parallel task execution."""
@@ -56,6 +66,7 @@ def _execute_group(
     max_workers: int,
     policy: PilotPolicy,
     telemetry: InMemoryTelemetryStore,
+    cancellation_token: CancellationToken | None = None,
 ) -> list[tuple[int, PilotExecution]]:
     """Execute a group of tasks in parallel and return ordered results.
 
@@ -89,6 +100,8 @@ def _execute_group(
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures: dict[Future, int] = {}
         for i, task in enumerate(tasks):
+            if cancellation_token and cancellation_token.cancelled:
+                break
             future = pool.submit(executor.execute, task)
             futures[future] = i
 
@@ -134,6 +147,7 @@ def execute_tasks_parallel(
     policy: PilotPolicy | None = None,
     telemetry: InMemoryTelemetryStore | None = None,
     dependency_order: list[list[int]] | None = None,
+    cancellation_token: CancellationToken | None = None,
 ) -> ParallelExecutionResult:
     """Execute multiple tasks in parallel (optionally respecting dependencies).
 
@@ -169,6 +183,8 @@ def execute_tasks_parallel(
     if dependency_order is not None:
         # Execute groups sequentially
         for group_indices in dependency_order:
+            if cancellation_token and cancellation_token.cancelled:
+                break
             group_tasks = [tasks[i] for i in group_indices]
             ordered = _execute_group(
                 scheduler,
@@ -177,19 +193,24 @@ def execute_tasks_parallel(
                 max_workers,
                 policy,
                 telemetry,
+                cancellation_token=cancellation_token,
             )
             for _orig_idx, execution in ordered:
                 all_results[_orig_idx] = execution
     else:
         # Run all tasks in parallel (up to max_workers)
-        ordered = _execute_group(
-            scheduler,
-            tasks,
-            list(range(num_tasks)),
-            max_workers,
-            policy,
-            telemetry,
-        )
+        if cancellation_token and cancellation_token.cancelled:
+            ordered = []
+        else:
+            ordered = _execute_group(
+                scheduler,
+                tasks,
+                list(range(num_tasks)),
+                max_workers,
+                policy,
+                telemetry,
+                cancellation_token=cancellation_token,
+            )
         for _orig_idx, execution in ordered:
             all_results[_orig_idx] = execution
 
@@ -223,4 +244,4 @@ def execute_tasks_parallel(
     )
 
 
-__all__ = ["ParallelExecutionResult", "execute_tasks_parallel"]
+__all__ = ["CancellationToken", "ParallelExecutionResult", "execute_tasks_parallel"]

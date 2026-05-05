@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from time import time
 from typing import Any
 
@@ -67,6 +68,7 @@ class InMemoryTelemetryStore:
     def __init__(self, max_events: int = 1000) -> None:
         self.max_events = max_events
         self._events: list[PilotTelemetryEvent] = []
+        self._replay_bundles: list[dict[str, Any]] = []
 
     def record(self, event: PilotTelemetryEvent) -> None:
         self._events.append(event)
@@ -75,6 +77,14 @@ class InMemoryTelemetryStore:
 
     def events(self) -> list[PilotTelemetryEvent]:
         return list(self._events)
+
+    def record_replay_bundle(self, bundle: dict[str, Any]) -> None:
+        self._replay_bundles.append(dict(bundle))
+        if len(self._replay_bundles) > self.max_events:
+            del self._replay_bundles[: len(self._replay_bundles) - self.max_events]
+
+    def replay_bundles(self) -> list[dict[str, Any]]:
+        return list(self._replay_bundles)
 
     def summary(self) -> dict[str, Any]:
         total = len(self._events)
@@ -125,9 +135,17 @@ class InMemoryTelemetryStore:
         import json as _json
         data = {
             "events": [event.to_dict() for event in self._events],
+            "replay_bundles": list(self._replay_bundles),
             "summary": self.summary(),
         }
         content = _json.dumps(data, indent=2)
+        Path(path).write_text(content, encoding="utf-8")
+        return content
+
+    def export_replay_bundles(self, path: str) -> str:
+        """Export replay bundles as JSON to *path*. Returns written content."""
+        import json as _json
+        content = _json.dumps({"replay_bundles": self._replay_bundles}, indent=2)
         Path(path).write_text(content, encoding="utf-8")
         return content
 

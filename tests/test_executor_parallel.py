@@ -5,7 +5,7 @@ import unittest
 from ghostchimera.chimera_pilot.backends.deterministic import DeterministicBackend
 from ghostchimera.chimera_pilot.calibration import CalibrationStore
 from ghostchimera.chimera_pilot.calibration_async import calibrate_backends_parallel
-from ghostchimera.chimera_pilot.executor_parallel import execute_tasks_parallel
+from ghostchimera.chimera_pilot.executor_parallel import CancellationToken, execute_tasks_parallel
 from ghostchimera.chimera_pilot.scheduler import ChimeraScheduler
 from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
 
@@ -46,6 +46,18 @@ class TestExecuteTasksParallel(unittest.TestCase):
         self.assertIn("results", d)
         self.assertIn("successes", d)
         self.assertIn("total_time_seconds", d)
+
+    def test_parallel_cancelled_before_start(self):
+        task1 = TaskSpec.create(kind=TaskKind.REASONING, objective="task1", inputs={"prompt": "task1"})
+        task2 = TaskSpec.create(kind=TaskKind.REASONING, objective="task2", inputs={"prompt": "task2"})
+        backend = DeterministicBackend("test", output="done")
+        scheduler = ChimeraScheduler([backend])
+        token = CancellationToken(cancelled=True)
+
+        result = execute_tasks_parallel([task1, task2], scheduler, max_workers=2, cancellation_token=token)
+        self.assertEqual(len(result.results), 0)
+        self.assertEqual(result.successes, 0)
+        self.assertEqual(result.failures, 2)
 
 
 class TestCalibrateBackendsParallel(unittest.TestCase):

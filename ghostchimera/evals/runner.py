@@ -40,13 +40,43 @@ def run_suite(name: str) -> dict:
         cases.append({"name": case_name, "ok": ok, "detail": detail})
     passed = sum(1 for case in cases if case["ok"])
     failed = len(cases) - passed
+    kpis = _suite_kpis(name, cases)
+    gates = _suite_gates(name, kpis)
     return {
         "suite": name,
         "ok": failed == 0,
         "passed": passed,
         "failed": failed,
+        "kpis": kpis,
+        "gates": gates,
         "cases": cases,
     }
+
+
+def _suite_kpis(name: str, cases: list[dict[str, object]]) -> dict[str, float]:
+    total = len(cases)
+    passed = sum(1 for case in cases if case["ok"])
+    pass_rate = (passed / total) if total else 0.0
+    kpis: dict[str, float] = {
+        "case_pass_rate": round(pass_rate, 3),
+        "case_failure_rate": round(1.0 - pass_rate, 3) if total else 0.0,
+    }
+    if name == "smoke":
+        # proxy KPI for orchestration readiness in smoke checks
+        kpis["first_choice_success_rate_proxy"] = round(pass_rate, 3)
+    if name == "safety":
+        # proxy KPI for policy hardening
+        kpis["policy_guardrail_pass_rate"] = round(pass_rate, 3)
+    return kpis
+
+
+def _suite_gates(name: str, kpis: dict[str, float]) -> dict[str, bool]:
+    """Simple release-gate checks derived from suite KPIs."""
+    if name == "safety":
+        return {"policy_guardrail_gate": kpis.get("policy_guardrail_pass_rate", 0.0) >= 1.0}
+    if name == "smoke":
+        return {"smoke_reliability_gate": kpis.get("first_choice_success_rate_proxy", 0.0) >= 1.0}
+    return {}
 
 
 def _case_shell_denied_by_default() -> tuple[bool, str]:

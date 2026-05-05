@@ -35,6 +35,7 @@ class ChimeraPilotKernel:
         telemetry: InMemoryTelemetryStore | None = None,
         calibration_store: CalibrationStore | None = None,
         policy_registry: Any | None = None,
+        memory_store: MemoryStore | None = None,
     ) -> None:
         self.registry = registry or ResourceRegistry()
         self.compiler = compiler or RuleBasedTaskCompiler()
@@ -42,6 +43,7 @@ class ChimeraPilotKernel:
         self.telemetry = telemetry or InMemoryTelemetryStore()
         self.calibration_store = calibration_store or CalibrationStore()
         self._policy_registry = policy_registry
+        self.memory_store = memory_store
 
     @classmethod
     def default(
@@ -58,7 +60,7 @@ class ChimeraPilotKernel:
         local_model_gpu_layers: int = 0,
     ) -> ChimeraPilotKernel:
         policy = PilotPolicy(allow_python_execution=allow_python_execution, allow_network=allow_network)
-        kernel = cls(policy=policy)
+        kernel = cls(policy=policy, memory_store=memory_store)
         kernel.registry.register(PythonRuntimeBackend(cwd=cwd, allowed_roots=[cwd] if cwd else None))
         kernel.registry.register(CWRBackend(store=memory_store))
         if local_model_path:
@@ -90,6 +92,7 @@ class ChimeraPilotKernel:
             scheduler,
             policy=self.policy,
             telemetry=self.telemetry,
+            outcome_store=self.memory_store,
         )
         return executor.execute(task)
 

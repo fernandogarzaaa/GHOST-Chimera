@@ -115,6 +115,26 @@ class DelegationResult:
         }
 
 
+@dataclass(frozen=True)
+class DelegationContract:
+    """Bounded delegation contract for child agent execution."""
+
+    allowed_tools: list[str] = field(default_factory=list)
+    max_depth: int = DEFAULT_DEPTH_CAP
+    max_workers: int = DEFAULT_MAX_WORKERS
+    max_timeout_seconds: int = 300
+
+    def enforce_tools(self, requested_tools: list[str], blocked_tools: frozenset[str]) -> list[str]:
+        allowed_set = set(self.allowed_tools)
+        return [t for t in requested_tools if t not in blocked_tools and (not allowed_set or t in allowed_set)]
+
+    def clamp_workers(self, requested_workers: int) -> int:
+        return max(1, min(requested_workers, self.max_workers))
+
+    def clamp_timeout(self, requested_timeout: int) -> int:
+        return max(1, min(requested_timeout, self.max_timeout_seconds))
+
+
 # ---------------------------------------------------------------------------
 # Subagent pool
 # ---------------------------------------------------------------------------
@@ -186,6 +206,20 @@ class SubagentPool:
                 self._results.append(result)
             return result
 
+    def spawn_with_contract(
+        self,
+        goal: str,
+        contract: DelegationContract,
+        tools: list[str] | None = None,
+    ) -> SubagentResult:
+        """Spawn a child subagent constrained by an explicit contract."""
+        requested_tools = list(tools or [])
+        effective_tools = contract.enforce_tools(requested_tools, self.blocked_tools)
+        self.max_workers = contract.clamp_workers(self.max_workers)
+        self.timeout = contract.clamp_timeout(self.timeout)
+        self.depth_cap = min(self.depth_cap, contract.max_depth)
+        return self.spawn(goal, tools=effective_tools)
+
     def spawn_parallel(self, goals: list[str], tools: list[str] | None = None) -> DelegationResult:
         """Spawn multiple child subagents in parallel."""
         start = time.time()
@@ -224,6 +258,29 @@ class SubagentPool:
             successful_count=successful,
             failed_count=len(results) - successful,
         )
+
+    def spawn_parallel_with_contract(
+        self,
+        goals: list[str],
+        contract: DelegationContract,
+        tools: list[str] | None = None,
+    ) -> DelegationResult:
+        """Spawn multiple children in parallel under a delegation contract."""
+        requested_tools = list(tools or [])
+        effective_tools = contract.enforce_tools(requested_tools, self.blocked_tools)
+        workers = contract.clamp_workers(self.max_workers)
+        timeout = contract.clamp_timeout(self.timeout)
+        depth_cap = min(self.depth_cap, contract.max_depth)
+
+        child_pool = SubagentPool(
+            parent_objective=self.parent_objective,
+            max_workers=workers,
+            depth_cap=depth_cap,
+            timeout=timeout,
+            config=self.config,
+            blocked_tools=self.blocked_tools,
+        )
+        return child_pool.spawn_parallel(goals, tools=effective_tools)
 
     def spawn_tree(self, objective: str, max_depth: int | None = None) -> DelegationResult:
         """Spawn a delegation tree: spawn N subagents, each can spawn M more up to max_depth."""
