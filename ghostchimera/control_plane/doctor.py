@@ -114,7 +114,7 @@ def run_doctor() -> None:
         from ghostchimera.skill_layer.registry import get_registry as get_skill_registry
         registry = get_skill_registry()
         skill_problems: list[str] = []
-        for skill_name, skill in registry.skills.items():
+        for skill_name, skill in registry.list_skills().items():
             if hasattr(skill, "check_requirements"):
                 problems = skill.check_requirements()
                 skill_problems.extend(problems)
