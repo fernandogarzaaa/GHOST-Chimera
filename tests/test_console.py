@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -255,6 +256,27 @@ class ConsoleRouteTests(unittest.TestCase):
 
 
 class ConsoleCliTests(unittest.TestCase):
+    def test_cli_delegates_top_level_parallel_commands_from_sys_argv(self) -> None:
+        with (
+            patch.object(sys, "argv", ["ghostchimera", "run", "inspect status", "--parallel", "1"]),
+            patch("ghostchimera.control_plane.parallel_cli._main", return_value=0) as parallel_main,
+        ):
+            result = _main()
+
+        self.assertEqual(result, 0)
+        parallel_main.assert_called_once_with(["run", "inspect status", "--parallel", "1"])
+
+    def test_cli_does_not_delegate_nested_autonomy_run_to_parallel_cli(self) -> None:
+        with (
+            patch("ghostchimera.control_plane.parallel_cli._main", return_value=99) as parallel_main,
+            patch("ghostchimera.control_plane.cli._run_autonomy_cli", return_value=0) as autonomy_main,
+        ):
+            result = _main(["autonomy", "run", "repair-preview"])
+
+        self.assertEqual(result, 0)
+        parallel_main.assert_not_called()
+        autonomy_main.assert_called_once()
+
     def test_run_console_registers_routes_without_blocking(self) -> None:
         server = run_console(host="127.0.0.1", port=0, http_port=0, open_browser=False, block=False)
         try:

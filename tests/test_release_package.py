@@ -37,6 +37,13 @@ class ReleasePackageTests(unittest.TestCase):
 
         self.assertEqual(missing, [])
 
+    def test_env_example_documents_runtime_state_variables(self) -> None:
+        env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+
+        self.assertIn("GHOSTCHIMERA_STATE_DIR=", env_example)
+        self.assertIn("GHOSTCHIMERA_MEMORY_DB=", env_example)
+        self.assertIn("GHOSTCHIMERA_AUDIT_FILE=", env_example)
+
     def test_chimera_pilot_cli_status_outputs_json(self) -> None:
         completed = subprocess.run(
             [sys.executable, "-m", "ghostchimera.chimera_pilot.cli", "status", "--include-deterministic-backend"],

@@ -23,6 +23,45 @@ from .config import get_autonomy_config, load_config, save_config
 logger = get_logger("cli")
 
 
+_PARALLEL_COMMANDS = {"run", "batch"}
+_GLOBAL_OPTIONS_WITH_VALUES = {
+    "--log-level",
+    "--pilot-run",
+    "--pilot-cwd",
+    "--desktop-action-class",
+    "--desktop-kill-switch-path",
+    "--desktop-confirm-token",
+    "--desktop-action-log-path",
+    "--desktop-screenshot-dir",
+    "--desktop-max-actions",
+    "--desktop-max-duration-seconds",
+    "--ghost-mode",
+    "--autonomy-level",
+    "--runtime-specialization-cache-dir",
+}
+
+
+def _first_command_token(argv: list[str]) -> str:
+    """Return the first top-level command token after global options."""
+
+    skip_next = False
+    for token in argv:
+        if skip_next:
+            skip_next = False
+            continue
+        if not token:
+            continue
+        if token.startswith("--"):
+            option_name = token.split("=", 1)[0]
+            if "=" not in token and option_name in _GLOBAL_OPTIONS_WITH_VALUES:
+                skip_next = True
+            continue
+        if token.startswith("-"):
+            continue
+        return token
+    return ""
+
+
 def run_cli() -> None:
     """Start an interactive command line session with the agent."""
     ensure_configured()
@@ -48,9 +87,10 @@ def run_cli() -> None:
 
 def _main(argv: list[str] | None = None) -> int:
     # If parallel flags are present, delegate to parallel_cli
-    if argv and ("run" in argv or "batch" in argv):
+    effective_argv = list(sys.argv[1:] if argv is None else argv)
+    if _first_command_token(effective_argv) in _PARALLEL_COMMANDS:
         from .parallel_cli import _main as _parallel_main
-        return _parallel_main(argv)
+        return _parallel_main(effective_argv)
 
     parser = argparse.ArgumentParser(description="Ghost Chimera CLI")
     sub = parser.add_subparsers(dest="command")
@@ -135,7 +175,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--disable-runtime-specialization", action="store_true", help="Disable local runtime specialization planning.")
     parser.add_argument("--runtime-specialization-cache-dir", default="", help="Write local runtime specialization manifests here.")
     parser.add_argument("--config-show", action="store_true", help="Print resolved Ghost Chimera runtime config as JSON and exit.")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(effective_argv)
     if args.ghost_mode:
         import os
 

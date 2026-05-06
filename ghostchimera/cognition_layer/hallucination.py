@@ -12,15 +12,9 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from .confidence import (
-    ChimeraValue,
-    ConfidentValue,
-)
-
-if TYPE_CHECKING:
-    pass
+from .confidence import ChimeraValue, ConfidentValue
 
 
 class HallucinationKind(Enum):

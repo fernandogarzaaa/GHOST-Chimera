@@ -22,7 +22,7 @@ production deployment workflow.
 
 - [ ] README quickstart works from a clean virtual environment.
 - [ ] `ghostchimera --config-show` prints JSON with expected state paths and policy defaults.
-- [ ] `ghostchimera console --state-dir .ghost-console-smoke --no-open` starts and prints a localhost URL.
+- [ ] With `.[gateway]` installed, `ghostchimera console --state-dir .ghost-console-smoke --no-open` starts and prints a localhost URL.
 - [ ] Console `/api/console/autonomy/jobs` lists profile-aware jobs and records a preview run.
 - [ ] Console `/api/console/autonomy/schedules` can create a disabled recurring autonomy job.
 - [ ] Console browser workspace status remains useful when optional `agent-browser` is not installed.

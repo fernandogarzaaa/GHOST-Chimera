@@ -76,12 +76,13 @@ ghostchimera --config-show
 Open the local browser console when you do not want to drive Ghost Chimera through command flags:
 
 ```bash
+python -m pip install -e ".[gateway]"
 ghostchimera console
 ghostchimera console --no-open
 ghostchimera console --state-dir .ghost-console-state
 ```
 
-The console runs on localhost by default and exposes status, autonomy profile controls, safe objective runs, a durable autonomy job center, recurring schedules, release-readiness checks, the existing HTTPS-only browser fetch tool, and optional `agent-browser` workspace controls through the gateway-backed UI. The browser workspace is optional; when `agent-browser` is not installed, the console reports a degraded browser-workspace state while core controls continue to work.
+The console runs on localhost by default and exposes status, autonomy profile controls, safe objective runs, a durable autonomy job center, recurring schedules, release-readiness checks, the existing HTTPS-only browser fetch tool, and optional `agent-browser` workspace controls through the gateway-backed UI. Install the `gateway` extra for WebSocket and cron scheduling dependencies. The browser workspace is optional; when `agent-browser` is not installed, the console reports a degraded browser-workspace state while core controls continue to work.
 
 Inspect Chimera Pilot:
 
