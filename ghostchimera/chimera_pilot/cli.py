@@ -26,6 +26,12 @@ def main(argv: list[str] | None = None) -> int:
     status_parser.add_argument("--local-model-path", default="", help="Optional GGUF model path for llama.cpp local reasoning.")
     status_parser.add_argument("--local-model-profile", default="tiny", help="Local model profile name.")
     status_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
+    status_parser.add_argument("--allow-desktop-control", action="store_true", help="Allow desktop cursor/keyboard control.")
+    status_parser.add_argument("--enable-desktop-backend", action="store_true", help="Register desktop backend.")
+    status_parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
+    status_parser.add_argument("--desktop-kill-switch-path", default="", help="If this file exists, desktop actions are blocked.")
+    status_parser.add_argument("--desktop-action-log-path", default="", help="JSONL log file for desktop actions.")
+    status_parser.add_argument("--ghost-mode", default="whisper", choices=["whisper", "haunt", "possess"], help="Ghost mode for policy gating.")
 
     run_parser = subparsers.add_parser("run", help="Compile and execute one objective.")
     run_parser.add_argument("objective", help="Objective to compile and execute.")
@@ -34,6 +40,12 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--include-quantum-backend", action="store_true", help="Probe and register optional pyqpanda3 backend if installed.")
     run_parser.add_argument("--allow-python", action="store_true", help="Allow local Python/test execution for this command.")
     run_parser.add_argument("--allow-network", action="store_true", help="Allow network-requiring tasks for this command.")
+    run_parser.add_argument("--allow-desktop-control", action="store_true", help="Allow desktop cursor/keyboard control.")
+    run_parser.add_argument("--enable-desktop-backend", action="store_true", help="Register desktop backend (dry-run).")
+    run_parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
+    run_parser.add_argument("--desktop-kill-switch-path", default="", help="If this file exists, desktop actions are blocked.")
+    run_parser.add_argument("--desktop-action-log-path", default="", help="JSONL log file for desktop actions.")
+    run_parser.add_argument("--ghost-mode", default="whisper", choices=["whisper", "haunt", "possess"], help="Ghost mode for policy gating.")
     run_parser.add_argument("--memory-db", default="", help="SQLite memory database for CWR retrieval.")
     run_parser.add_argument("--local-model-path", default="", help="Optional GGUF model path for llama.cpp local reasoning.")
     run_parser.add_argument("--local-model-profile", default="tiny", help="Local model profile name.")
@@ -110,6 +122,12 @@ def main(argv: list[str] | None = None) -> int:
         cwd=getattr(args, "cwd", "") or None,
         allow_python_execution=getattr(args, "allow_python", False),
         allow_network=getattr(args, "allow_network", False),
+        allow_desktop_control=getattr(args, "allow_desktop_control", False),
+        enable_desktop_backend=getattr(args, "enable_desktop_backend", False),
+        enable_live_desktop=getattr(args, "enable_live_desktop", False),
+        desktop_kill_switch_path=getattr(args, "desktop_kill_switch_path", "") or None,
+        desktop_action_log_path=getattr(args, "desktop_action_log_path", "") or None,
+        ghost_mode=getattr(args, "ghost_mode", "whisper"),
         memory_store=MemoryStore(args.memory_db) if getattr(args, "memory_db", "") else None,
         local_model_path=getattr(args, "local_model_path", "") or None,
         local_model_profile=getattr(args, "local_model_profile", "tiny"),

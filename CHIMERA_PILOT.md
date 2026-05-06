@@ -45,6 +45,25 @@ For trusted local code only:
 chimera-pilot run "python: print(2 + 3)" --allow-python
 ```
 
+Desktop control is denied by default:
+
+```bash
+chimera-pilot run "click submit button" --enable-desktop-backend
+```
+
+For explicit desktop-control opt-in and possess mode:
+
+```bash
+chimera-pilot run "click submit button" --enable-desktop-backend --allow-desktop-control --ghost-mode possess
+```
+
+Compiler shorthand prefixes are supported for desktop intent strength:
+
+```bash
+chimera-pilot run "dryrun desktop: click submit button" --enable-desktop-backend --allow-desktop-control --ghost-mode possess
+chimera-pilot run "live desktop: click submit button" --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess
+```
+
 ## Built-in task kinds
 
 - `reasoning`
@@ -56,6 +75,7 @@ chimera-pilot run "python: print(2 + 3)" --allow-python
 - `tool_call`
 - `python`
 - `quantum_sim`
+- `desktop_control`
 
 ## Built-in backends
 
@@ -64,6 +84,7 @@ chimera-pilot run "python: print(2 + 3)" --allow-python
 - `PyQPanda3Backend` for optional pyqpanda3 quantum simulation when installed.
 - `CWRBackend` for SQLite-backed local memory retrieval.
 - `LlamaCppBackend` for optional GGUF reasoning when a local model path is provided.
+- `DesktopRuntimeBackend` for dry-run desktop control (with explicit live constraints for real UI mutation).
 
 ## Security
 

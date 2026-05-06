@@ -80,6 +80,15 @@ Local Python execution is disabled by default. Enable it only for trusted code:
 chimera-pilot run "python: print(2 + 3)" --allow-python
 ```
 
+Desktop control is opt-in and safe-by-default. Register the backend and run in dry-run mode:
+
+```bash
+chimera-pilot run "click submit button" --enable-desktop-backend --allow-desktop-control --ghost-mode possess
+```
+
+Live desktop control is additionally gated and requires explicit task-level `live_desktop=true`
+constraints from the caller/runtime policy path.
+
 The main control-plane CLI exposes Chimera Pilot as well:
 
 ```bash
@@ -96,6 +105,7 @@ Ghost Chimera uses a multi-layer safety system:
 
 - network-requiring tasks are blocked unless explicitly allowed
 - local Python and test execution are blocked unless explicitly allowed
+- desktop control tasks are blocked unless explicitly allowed and `ghost_mode=possess`
 - Python execution uses restricted environment, isolated interpreter, bounded timeout, and AST-level rejection of high-risk calls
 
 ### MaterialRegistry (policy patterns)

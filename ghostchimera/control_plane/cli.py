@@ -76,9 +76,24 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pilot-cwd", default="", help="Allowed working directory for Chimera Pilot local execution.")
     parser.add_argument("--allow-python", action="store_true", help="Allow Chimera Pilot local Python/test execution.")
     parser.add_argument("--allow-network", action="store_true", help="Allow Chimera Pilot network-requiring tasks.")
+    parser.add_argument("--allow-desktop-control", action="store_true", help="Allow Chimera Pilot desktop control tasks.")
+    parser.add_argument("--enable-desktop-backend", action="store_true", help="Register Chimera Pilot desktop backend (dry-run).")
+    parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
+    parser.add_argument("--desktop-kill-switch-path", default="", help="If file exists, desktop actions are blocked.")
+    parser.add_argument("--desktop-action-log-path", default="", help="JSONL log path for desktop actions.")
+    parser.add_argument(
+        "--ghost-mode",
+        default="",
+        choices=["", "whisper", "haunt", "possess"],
+        help="Ghost operation mode: whisper (suggest), haunt (observe), possess (act).",
+    )
     parser.add_argument("--include-quantum-backend", action="store_true", help="Probe and register optional pyqpanda3 backend if installed.")
     parser.add_argument("--config-show", action="store_true", help="Print resolved Ghost Chimera runtime config as JSON and exit.")
     args = parser.parse_args(argv)
+    if args.ghost_mode:
+        import os
+
+        os.environ["GHOSTCHIMERA_GHOST_MODE"] = args.ghost_mode
     ensure_configured()
     logger.info("CLI started with log_level=%s", args.log_level)
 
@@ -119,6 +134,12 @@ def _main(argv: list[str] | None = None) -> int:
             cwd=args.pilot_cwd or None,
             allow_python_execution=args.allow_python,
             allow_network=args.allow_network,
+            allow_desktop_control=args.allow_desktop_control,
+            enable_desktop_backend=args.enable_desktop_backend,
+            enable_live_desktop=args.enable_live_desktop,
+            desktop_kill_switch_path=args.desktop_kill_switch_path or None,
+            desktop_action_log_path=args.desktop_action_log_path or None,
+            ghost_mode=args.ghost_mode or "whisper",
         )
         if args.pilot_status:
             print(json.dumps(kernel.status(), indent=2, sort_keys=True))

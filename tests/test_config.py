@@ -60,6 +60,7 @@ class GhostChimeraConfigTests(unittest.TestCase):
         self.assertIn("state_dir", payload)
         self.assertIn("policy", payload)
         self.assertIn("local_model", payload)
+        self.assertIn("ghost_mode", payload["policy"])
 
     def test_control_plane_can_show_resolved_config(self) -> None:
         completed = subprocess.run(
@@ -75,6 +76,30 @@ class GhostChimeraConfigTests(unittest.TestCase):
         payload = json.loads(completed.stdout)
         self.assertIn("state_dir", payload)
         self.assertIn("policy", payload)
+
+    def test_control_plane_pilot_status_accepts_desktop_flags(self) -> None:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ghostchimera.control_plane.cli",
+                "--pilot-status",
+                "--enable-desktop-backend",
+                "--allow-desktop-control",
+                "--ghost-mode",
+                "possess",
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=30,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        backend_ids = [item["id"] for item in payload["backends"]]
+        self.assertIn("desktop.runtime", backend_ids)
+        self.assertEqual(payload["policy"]["ghost_mode"], "possess")
 
 
 if __name__ == "__main__":

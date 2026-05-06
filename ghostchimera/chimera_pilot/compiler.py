@@ -78,6 +78,20 @@ class RuleBasedTaskCompiler:
             validate_task(spec.kind, spec.inputs)
             return [spec]
 
+        desktop_action, desktop_constraints = self._parse_desktop_action(text, lower)
+        if desktop_action is not None:
+            spec = TaskSpec.create(
+                kind=TaskKind.DESKTOP_CONTROL,
+                objective=text,
+                inputs=desktop_action,
+                constraints=desktop_constraints,
+                privacy_level="private",
+                max_cost_usd=0.0,
+                max_latency_ms=5_000,
+            )
+            validate_task(spec.kind, spec.inputs)
+            return [spec]
+
         if "rag" in lower or "retrieve" in lower:
             spec = TaskSpec.create(
                 kind=TaskKind.RAG_QUERY,
@@ -116,3 +130,28 @@ class RuleBasedTaskCompiler:
         if match:
             return {"pattern": match.group(1)}
         return {"pattern": "test_*.py"}
+
+    def _parse_desktop_action(self, text: str, lower: str) -> tuple[dict[str, object] | None, dict[str, object]]:
+        constraints: dict[str, object] = {}
+        if lower.startswith("live desktop:"):
+            constraints["live_desktop"] = True
+            text = text[len("live desktop:") :].strip()
+            lower = text.lower()
+        elif lower.startswith("dryrun desktop:"):
+            constraints["live_desktop"] = False
+            text = text[len("dryrun desktop:") :].strip()
+            lower = text.lower()
+
+        if lower.startswith("click ") or lower == "click":
+            return {"action": "click", "target": text[6:].strip()}, constraints
+        if lower.startswith("double click "):
+            return {"action": "double_click", "target": text[13:].strip()}, constraints
+        if lower.startswith("right click "):
+            return {"action": "right_click", "target": text[12:].strip()}, constraints
+        if lower.startswith("type "):
+            return {"action": "type", "text": text[5:].strip(), "target": ""}, constraints
+        if lower.startswith("press ") or lower.startswith("hotkey "):
+            payload = text.split(maxsplit=1)[1] if len(text.split(maxsplit=1)) == 2 else ""
+            keys = [k.strip() for k in payload.split("+") if k.strip()]
+            return {"action": "hotkey", "keys": keys}, constraints
+        return None, {}

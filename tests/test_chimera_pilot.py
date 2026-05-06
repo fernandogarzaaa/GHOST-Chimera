@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -10,6 +12,7 @@ from ghostchimera.chimera_pilot.calibration import CalibrationStore, ChimeraCali
 from ghostchimera.chimera_pilot.compiler import RuleBasedTaskCompiler
 from ghostchimera.chimera_pilot.executor import ChimeraPilotExecutor, PilotRunState
 from ghostchimera.chimera_pilot.policy import PilotPolicy
+from ghostchimera.chimera_pilot.schema import validate_task
 
 
 class ChimeraPilotTests(unittest.TestCase):
@@ -92,6 +95,30 @@ class ChimeraPilotTests(unittest.TestCase):
         self.assertEqual(quantum_task.kind, TaskKind.QUANTUM_SIM)
         self.assertEqual(quantum_task.inputs["qubits"], 4)
 
+    def test_compiler_detects_desktop_control_task(self) -> None:
+        compiler = RuleBasedTaskCompiler()
+        desktop_task = compiler.compile("click submit button")[0]
+        self.assertEqual(desktop_task.kind, TaskKind.DESKTOP_CONTROL)
+        self.assertEqual(desktop_task.inputs["action"], "click")
+        ok, errors = validate_task(desktop_task.kind, desktop_task.inputs)
+        self.assertTrue(ok, errors)
+
+    def test_compiler_desktop_live_and_dryrun_prefix_constraints(self) -> None:
+        compiler = RuleBasedTaskCompiler()
+        live_task = compiler.compile("live desktop: click submit")[0]
+        dryrun_task = compiler.compile("dryrun desktop: click submit")[0]
+        self.assertTrue(bool(live_task.constraints.get("live_desktop")))
+        self.assertFalse(bool(dryrun_task.constraints.get("live_desktop")))
+
+    def test_desktop_schema_rejects_invalid_action_and_keys_type(self) -> None:
+        ok, errors = validate_task(TaskKind.DESKTOP_CONTROL, {"action": "launch_missiles"})
+        self.assertFalse(ok)
+        self.assertTrue(any("action" in msg for msg in errors))
+
+        ok2, errors2 = validate_task(TaskKind.DESKTOP_CONTROL, {"action": "hotkey", "keys": "ctrl+s"})
+        self.assertFalse(ok2)
+        self.assertTrue(any("keys" in msg for msg in errors2))
+
     def test_python_runtime_backend_executes_real_python_code(self) -> None:
         task = TaskSpec.create(kind=TaskKind.PYTHON, objective="python", inputs={"code": "print(2 + 3)"})
         result = PythonRuntimeBackend().execute(task)
@@ -115,6 +142,41 @@ class ChimeraPilotTests(unittest.TestCase):
 
         with self.assertRaises(PermissionError):
             PilotPolicy(allow_network=False).validate(task)
+
+    def test_kernel_desktop_control_requires_opt_in(self) -> None:
+        kernel = ChimeraPilotKernel.default(enable_desktop_backend=True, include_deterministic_backend=True)
+        with self.assertRaises(PermissionError):
+            kernel.run("click submit")
+
+        allowed = ChimeraPilotKernel.default(
+            enable_desktop_backend=True,
+            allow_desktop_control=True,
+            ghost_mode="possess",
+            include_deterministic_backend=True,
+        )
+        execution = allowed.run("click submit")[0]
+        self.assertTrue(execution.ok)
+
+    def test_kernel_desktop_control_requires_possess_mode(self) -> None:
+        kernel = ChimeraPilotKernel.default(
+            enable_desktop_backend=True,
+            allow_desktop_control=True,
+            ghost_mode="haunt",
+            include_deterministic_backend=True,
+        )
+        with self.assertRaises(PermissionError):
+            kernel.run("click submit")
+
+    def test_kernel_can_register_live_desktop_backend(self) -> None:
+        kernel = ChimeraPilotKernel.default(
+            enable_desktop_backend=True,
+            enable_live_desktop=True,
+            allow_desktop_control=True,
+            ghost_mode="possess",
+        )
+        status = kernel.status()
+        desktop = next(item for item in status["backends"] if item["id"] == "desktop.runtime")
+        self.assertTrue(desktop["available"])
 
     def test_scheduler_weights_can_be_updated(self) -> None:
         backend = DeterministicBackend("d", reliability=0.9)
@@ -189,6 +251,31 @@ class ChimeraPilotReleaseHardeningTests(unittest.TestCase):
 
         with self.assertRaises(PermissionError):
             PilotPolicy(allow_python_execution=True).validate(task)
+
+    def test_pilot_cli_status_exposes_desktop_backend_and_ghost_mode(self) -> None:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ghostchimera.chimera_pilot.cli",
+                "status",
+                "--include-deterministic-backend",
+                "--enable-desktop-backend",
+                "--allow-desktop-control",
+                "--ghost-mode",
+                "possess",
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=30,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        backend_ids = [item["id"] for item in payload["backends"]]
+        self.assertIn("desktop.runtime", backend_ids)
+        self.assertEqual(payload["policy"]["ghost_mode"], "possess")
 
 
 if __name__ == "__main__":
