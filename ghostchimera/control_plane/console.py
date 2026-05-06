@@ -13,6 +13,7 @@ from ..chimera_pilot.autonomy import get_autonomy_profile, list_autonomy_profile
 from ..chimera_pilot.gateway_server import GatewayServer, HttpResponse
 from ..config import GhostChimeraConfig
 from ..tool_layer.browser import http_get
+from ..tool_layer.browser_workspace import AgentBrowserWorkspace
 from .config import get_autonomy_config, load_config, save_config
 
 RunObjective = Callable[[str], dict[str, Any]]
@@ -137,11 +138,17 @@ CONSOLE_HTML = """<!doctype html>
         <button id="saveAutonomy" class="primary" style="margin-top: 12px; width: 100%;">Save Profile</button>
       </section>
       <section style="padding: 18px 0 0;">
-        <h2>Browser Fetch</h2>
+        <h2>Browser Workspace</h2>
         <label for="url">HTTPS URL</label>
         <input id="url" value="https://example.com">
-        <button id="fetchUrl" style="margin-top: 12px; width: 100%;">Fetch</button>
-        <div class="hint">Uses the existing HTTPS-only Ghost browser tool. Full browser automation comes next.</div>
+        <label for="browserSession">Session</label>
+        <input id="browserSession" value="default">
+        <div class="row" style="margin-top: 12px;">
+          <button id="openBrowser">Open</button>
+          <button id="snapshotBrowser">Snapshot</button>
+        </div>
+        <button id="fetchUrl" style="margin-top: 10px; width: 100%;">HTTPS Fetch</button>
+        <div class="hint" id="browserWorkspaceState">checking browser workspace</div>
       </section>
     </aside>
     <div>
@@ -180,6 +187,11 @@ CONSOLE_HTML = """<!doctype html>
         document.getElementById("gatewayState").textContent = data.gateway.running ? "running" : "available";
         document.getElementById("sessionCount").textContent = data.gateway.session_count;
         document.getElementById("autonomyState").textContent = data.autonomy.resolved_profile.name;
+        const browser = data.browser_workspace || {};
+        document.getElementById("browserWorkspaceState").textContent = browser.available
+          ? "agent-browser available"
+          : "agent-browser unavailable; HTTPS Fetch still works";
+        document.getElementById("browserWorkspaceState").className = browser.available ? "hint ok" : "hint warn";
         const select = document.getElementById("autonomyLevel");
         select.innerHTML = "";
         for (const profile of state.profiles) {
@@ -233,6 +245,28 @@ CONSOLE_HTML = """<!doctype html>
         body: JSON.stringify({ url })
       }));
     };
+    document.getElementById("openBrowser").onclick = async () => {
+      const url = document.getElementById("url").value.trim();
+      const session = document.getElementById("browserSession").value.trim() || "default";
+      write("Opening browser workspace...");
+      write(await request("/api/console/browser/open", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, session })
+      }));
+      await refresh();
+    };
+    document.getElementById("snapshotBrowser").onclick = async () => {
+      const url = document.getElementById("url").value.trim();
+      const session = document.getElementById("browserSession").value.trim() || "default";
+      write("Capturing browser snapshot...");
+      write(await request("/api/console/browser/snapshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, session })
+      }));
+      await refresh();
+    };
     refresh();
   </script>
 </body>
@@ -279,17 +313,21 @@ def register_console_routes(
     *,
     run_objective: RunObjective | None = None,
     fetch_url: FetchUrl | None = None,
+    browser_workspace: AgentBrowserWorkspace | None = None,
 ) -> None:
     """Register browser console routes on an existing GatewayServer."""
 
     objective_runner = run_objective or _default_run_objective
     url_fetcher = fetch_url or http_get
+    workspace = browser_workspace or AgentBrowserWorkspace()
 
     def console_page(ctx: dict[str, Any]) -> HttpResponse:
         return HttpResponse(body=CONSOLE_HTML, content_type="text/html; charset=utf-8")
 
     def status(ctx: dict[str, Any]) -> dict[str, Any]:
-        return _status_payload(server)
+        payload = _status_payload(server)
+        payload["browser_workspace"] = workspace.status()
+        return payload
 
     def autonomy(ctx: dict[str, Any]) -> dict[str, Any]:
         if ctx.get("method") == "GET":
@@ -330,6 +368,29 @@ def register_console_routes(
             return {"ok": False, "error": str(exc)}
         return {"ok": True, "url": url, "content": content[:100_000], "truncated": len(content) > 100_000}
 
+    def browser_workspace_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        return workspace.status()
+
+    def browser_open(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        url = str(body.get("url") or "").strip()
+        session = str(body.get("session") or "default").strip() or "default"
+        if not url:
+            return {"ok": False, "error": "Missing url"}
+        try:
+            return workspace.open(url, session=session)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def browser_snapshot(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        url = str(body.get("url") or "").strip()
+        session = str(body.get("session") or "default").strip() or "default"
+        try:
+            return workspace.snapshot(url=url, session=session)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     server.routes.register("/", console_page, method="GET", auth="open", description="Ghost Console browser UI")
     server.routes.register("/console", console_page, method="GET", auth="open", description="Ghost Console browser UI")
     server.routes.register("/api/console/status", status, method="GET", auth="open", description="Ghost Console status")
@@ -342,6 +403,27 @@ def register_console_routes(
         method="POST",
         auth="open",
         description="Fetch an HTTPS URL through the Ghost browser tool",
+    )
+    server.routes.register(
+        "/api/console/browser/status",
+        browser_workspace_status,
+        method="GET",
+        auth="open",
+        description="Inspect optional agent-browser workspace availability",
+    )
+    server.routes.register(
+        "/api/console/browser/open",
+        browser_open,
+        method="POST",
+        auth="open",
+        description="Open an HTTPS URL in the optional agent-browser workspace",
+    )
+    server.routes.register(
+        "/api/console/browser/snapshot",
+        browser_snapshot,
+        method="POST",
+        auth="open",
+        description="Capture an accessibility snapshot from the optional agent-browser workspace",
     )
 
 

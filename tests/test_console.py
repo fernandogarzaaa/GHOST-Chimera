@@ -11,6 +11,22 @@ from ghostchimera.control_plane.cli import _main
 from ghostchimera.control_plane.console import register_console_routes, run_console
 
 
+class FakeBrowserWorkspace:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, str]]] = []
+
+    def status(self) -> dict[str, object]:
+        return {"available": True, "binary": "agent-browser", "detail": "ready"}
+
+    def open(self, url: str, *, session: str = "default") -> dict[str, object]:
+        self.calls.append(("open", {"url": url, "session": session}))
+        return {"ok": True, "action": "open", "url": url, "session": session}
+
+    def snapshot(self, *, url: str = "", session: str = "default", interactive: bool = True) -> dict[str, object]:
+        self.calls.append(("snapshot", {"url": url, "session": session}))
+        return {"ok": True, "action": "snapshot", "output": "@e1 [heading] Example", "session": session}
+
+
 class ConsoleRouteTests(unittest.TestCase):
     def test_console_registers_browser_ui_and_status_routes(self) -> None:
         server = GatewayServer()
@@ -63,6 +79,45 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["content"], "<title>Example</title>")
         self.assertEqual(calls, ["https://example.com"])
+
+    def test_console_registers_browser_workspace_routes(self) -> None:
+        workspace = FakeBrowserWorkspace()
+        server = GatewayServer()
+        register_console_routes(server, browser_workspace=workspace)
+
+        status_route = server.routes.find("GET", "/api/console/browser/status")
+        open_route = server.routes.find("POST", "/api/console/browser/open")
+        snapshot_route = server.routes.find("POST", "/api/console/browser/snapshot")
+
+        self.assertIsNotNone(status_route)
+        self.assertIsNotNone(open_route)
+        self.assertIsNotNone(snapshot_route)
+        self.assertTrue(status_route.handler({"method": "GET", "path": "/api/console/browser/status", "headers": {}, "body": "", "query": {}})["available"])
+
+        opened = open_route.handler(
+            {
+                "method": "POST",
+                "path": "/api/console/browser/open",
+                "headers": {},
+                "body": json.dumps({"url": "https://example.com", "session": "demo"}),
+                "query": {},
+            }
+        )
+        self.assertTrue(opened["ok"])
+
+        snapshot = snapshot_route.handler(
+            {
+                "method": "POST",
+                "path": "/api/console/browser/snapshot",
+                "headers": {},
+                "body": json.dumps({"url": "https://example.com", "session": "demo"}),
+                "query": {},
+            }
+        )
+        self.assertTrue(snapshot["ok"])
+        self.assertEqual(snapshot["output"], "@e1 [heading] Example")
+        self.assertEqual(workspace.calls[0][0], "open")
+        self.assertEqual(workspace.calls[1][0], "snapshot")
 
     def test_console_run_route_validates_objective_and_delegates_to_runner(self) -> None:
         calls: list[str] = []
