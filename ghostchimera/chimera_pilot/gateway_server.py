@@ -79,6 +79,7 @@ class HttpRoute:
     auth: str = "gateway"
     prefix: bool = False
     description: str = ""
+    token: str = ""
 
     def matches(self, method: str, req_path: str) -> bool:
         if self.method != "*" and self.method.upper() != method.upper():
@@ -105,6 +106,7 @@ class HttpRouteRegistry:
         auth: str = "open",
         prefix: bool = False,
         description: str = "",
+        token: str = "",
     ) -> None:
         """Register a route.
 
@@ -122,9 +124,15 @@ class HttpRouteRegistry:
             Whether to do prefix matching.
         description:
             Human-readable description.
+        token:
+            Expected secret for ``auth="token"`` routes.  The value is
+            compared against the ``X-Gateway-Token`` request header.  A
+            route registered with ``auth="token"`` but no *token* will
+            always reject requests.
         """
         route = HttpRoute(path=path, handler=handler, method=method,
-                          auth=auth, prefix=prefix, description=description)
+                          auth=auth, prefix=prefix, description=description,
+                          token=token)
         with self._lock:
             self._routes.append(route)
         logger.debug("Registered HTTP route %s %s (auth=%s)", method, path, auth)
@@ -152,8 +160,9 @@ class HttpRouteRegistry:
         if route.auth == "gateway":
             return bool(self._gateway_token) and token_header == self._gateway_token
         if route.auth == "token":
-            # Custom token — caller registered their expected value
-            return bool(token_header)
+            # Custom token — compare against the route-specific expected value.
+            # A route with no configured token always rejects requests.
+            return bool(route.token) and token_header == route.token
         return False
 
 # ---------------------------------------------------------------------------

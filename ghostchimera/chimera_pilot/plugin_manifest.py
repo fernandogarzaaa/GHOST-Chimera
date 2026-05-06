@@ -174,6 +174,7 @@ class PluginManifest:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], plugin_dir: Path | None = None) -> PluginManifest:
+        activation = PluginActivation.from_dict(data.get("activation", {}))
         return cls(
             id=data["id"],
             name=data.get("name", data["id"]),
@@ -182,10 +183,10 @@ class PluginManifest:
             kind=data.get("kind", []),
             contracts=PluginContracts.from_dict(data.get("contracts", {})),
             setup=PluginSetup.from_dict(data.get("setup", {})),
-            activation=PluginActivation.from_dict(data.get("activation", {})),
+            activation=activation,
             config_schema=data.get("configSchema", {}),
             plugin_dir=plugin_dir,
-            _enabled=data.get("enabledByDefault", False),
+            _enabled=activation.enabled_by_default,
         )
 
     @classmethod

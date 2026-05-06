@@ -542,6 +542,12 @@ def get_media_provider(
         return None
     try:
         return cls(profile)
+    except TypeError:
+        try:
+            return cls()
+        except Exception as exc:
+            logger.warning("Failed to instantiate media provider %s/%s: %s", provider_type, name, exc)
+            return None
     except Exception as exc:
         logger.warning("Failed to instantiate media provider %s/%s: %s", provider_type, name, exc)
         return None

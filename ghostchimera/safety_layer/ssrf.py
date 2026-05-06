@@ -19,6 +19,7 @@ Usage::
 from __future__ import annotations
 
 import ipaddress
+import socket
 import ssl
 import threading
 import urllib.parse
@@ -103,7 +104,22 @@ class SSRFPolicy:
                 if addr.is_private or addr.is_loopback or addr.is_link_local:
                     return False, f"Private/loopback address blocked: {hostname}"
             except ValueError:
-                pass  # not an IP — proceed to hostname checks
+                # Not a literal IP — resolve the hostname and check all resolved addresses
+                try:
+                    infos = socket.getaddrinfo(hostname, None)
+                    for info in infos:
+                        addr_str = info[4][0]
+                        try:
+                            addr = ipaddress.ip_address(addr_str)
+                            if addr.is_private or addr.is_loopback or addr.is_link_local:
+                                return False, (
+                                    f"Hostname '{hostname}' resolves to private/loopback/link-local"
+                                    f" address: {addr_str}"
+                                )
+                        except ValueError:
+                            pass
+                except OSError:
+                    pass  # DNS resolution failed; proceed to pattern checks
 
         with self._lock:
             denied = list(self._denied)
@@ -140,6 +156,33 @@ class SSRFPolicy:
 
 class SSRFViolation(PermissionError):
     """Raised when a network request is blocked by the SSRF policy."""
+
+
+# ---------------------------------------------------------------------------
+# Redirect handler
+# ---------------------------------------------------------------------------
+
+
+class _SSRFRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Redirect handler that re-validates every Location URL against the policy."""
+
+    def __init__(self, policy: SSRFPolicy) -> None:
+        self._policy = policy
+        super().__init__()
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        permitted, reason = self._policy.is_permitted(newurl)
+        if not permitted:
+            raise SSRFViolation(f"Redirect to '{newurl}' blocked: {reason}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +258,11 @@ class NetworkDispatcher:
         try:
             req = urllib.request.Request(url, data=body, headers=hdrs, method=method.upper())
             ctx = ssl.create_default_context()
-            with urllib.request.urlopen(req, context=ctx, timeout=timeout_seconds) as resp:
+            opener = urllib.request.build_opener(
+                urllib.request.HTTPSHandler(context=ctx),
+                _SSRFRedirectHandler(self.policy),
+            )
+            with opener.open(req, timeout=timeout_seconds) as resp:
                 resp_body = resp.read()
                 resp_headers = {k.lower(): v for k, v in resp.headers.items()}
                 return FetchResult(
