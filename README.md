@@ -78,9 +78,10 @@ Open the local browser console when you do not want to drive Ghost Chimera throu
 ```bash
 ghostchimera console
 ghostchimera console --no-open
+ghostchimera console --state-dir .ghost-console-state
 ```
 
-The console runs on localhost by default and exposes status, autonomy profile controls, safe objective runs, and the existing HTTPS-only browser fetch tool through the gateway-backed UI.
+The console runs on localhost by default and exposes status, autonomy profile controls, safe objective runs, a durable autonomy job center, recurring schedules, release-readiness checks, the existing HTTPS-only browser fetch tool, and optional `agent-browser` workspace controls through the gateway-backed UI. The browser workspace is optional; when `agent-browser` is not installed, the console reports a degraded browser-workspace state while core controls continue to work.
 
 Inspect Chimera Pilot:
 
@@ -291,6 +292,8 @@ ghostchimera autonomy set --level autonomous --local-model-profile stronger
 
 Profile-aware jobs include `self-audit`, `dependency-scan`, `test-regression`, `memory-refresh`, `model-health-check`, and `repair-preview`. Conservative profiles return preview plans for high-impact jobs. `autonomous` and `generalist` may run bounded checks when the caller passes `--execute`, but source mutation, training, network access, Python execution, shell execution, and desktop control still require their existing policy opt-ins and production guardrails.
 
+The browser console adds a local job center for the same profile-aware jobs. It records durable history in the Ghost Chimera state directory, supports queued preview runs, exposes run-now for operator-approved jobs, and creates disabled recurring schedules that reuse the same profile and policy checks before execution.
+
 MiniMind helpers provide lightweight local runtime status, dataset generation, and low-confidence logging:
 
 ```bash
@@ -314,6 +317,7 @@ For package validation, install the built wheel into a fresh virtual environment
 
 ```bash
 python -m ghostchimera.control_plane.cli --help
+python -m ghostchimera.control_plane.cli console --help
 python -m ghostchimera.chimera_pilot.cli --help
 python -m ghostchimera.evals run --suite safety
 ```

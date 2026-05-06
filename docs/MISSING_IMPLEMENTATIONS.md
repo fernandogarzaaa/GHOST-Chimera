@@ -5,6 +5,19 @@ Date: 2026-05-06
 Ghost Chimera is in beta phase. This tracker records the release wiring status
 for the orchestration workstreams from `docs/ORCHESTRATION_IMPLEMENTATION_PLAN.md`.
 
+## Local Operator Console
+
+- `ghostchimera console` now exposes a task-oriented localhost UI for status,
+  autonomy profile control, safe objective runs, optional browser workspace
+  controls, a durable autonomy job center, recurring autonomy schedules, and
+  release-readiness checks.
+- Console job history is persisted under the Ghost Chimera state directory and
+  reuses `AutonomyJobRunner` so high-impact execution remains profile-gated.
+- Recurring schedules reuse `CronScheduler` with a console executor that records
+  scheduled runs in the same autonomy job history.
+- Optional `agent-browser` support remains degraded-friendly; core console
+  controls continue to work when the binary is absent.
+
 ## Runtime State And Checkpointing
 
 - Run state lifecycle primitives are wired through executor transitions.

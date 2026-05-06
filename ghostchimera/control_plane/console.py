@@ -6,10 +6,14 @@ import json
 import time
 import webbrowser
 from collections.abc import Callable
+from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from ..chimera_pilot import ChimeraPilotKernel
 from ..chimera_pilot.autonomy import get_autonomy_profile, list_autonomy_profiles
+from ..chimera_pilot.autonomy_jobs import JOB_SPECS
+from ..chimera_pilot.autonomy_queue import AutonomyJobQueue
 from ..chimera_pilot.gateway_server import GatewayServer, HttpResponse
 from ..config import GhostChimeraConfig
 from ..tool_layer.browser import http_get
@@ -18,6 +22,35 @@ from .config import get_autonomy_config, load_config, save_config
 
 RunObjective = Callable[[str], dict[str, Any]]
 FetchUrl = Callable[[str], str]
+
+
+RELEASE_CHECKS: list[dict[str, str]] = [
+    {
+        "name": "release validator",
+        "command": "python scripts/validate_release.py",
+        "purpose": "Runs the repo release gate checks.",
+    },
+    {
+        "name": "package build",
+        "command": "python -m build",
+        "purpose": "Builds source and wheel artifacts.",
+    },
+    {
+        "name": "smoke eval",
+        "command": "python -m ghostchimera.evals run --suite smoke",
+        "purpose": "Runs the built-in smoke evaluation suite.",
+    },
+    {
+        "name": "safety eval",
+        "command": "python -m ghostchimera.evals run --suite safety",
+        "purpose": "Runs the built-in safety evaluation suite.",
+    },
+    {
+        "name": "clean wheel smoke",
+        "command": "python -m venv .venv-release-smoke; pip install dist/*.whl; ghostchimera --help",
+        "purpose": "Verifies the installed artifact in a clean environment.",
+    },
+]
 
 
 CONSOLE_HTML = """<!doctype html>
@@ -108,6 +141,27 @@ CONSOLE_HTML = """<!doctype html>
     .ok { color: var(--accent); }
     .warn { color: var(--warn); }
     .error { color: var(--danger); }
+    .stack { display: grid; gap: 10px; }
+    .pill {
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 2px 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .compact-list {
+      display: grid;
+      gap: 8px;
+      max-height: 220px;
+      overflow: auto;
+    }
+    .compact-item {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 9px;
+      background: #111418;
+    }
     @media (max-width: 780px) {
       main { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -150,6 +204,26 @@ CONSOLE_HTML = """<!doctype html>
         <button id="fetchUrl" style="margin-top: 10px; width: 100%;">HTTPS Fetch</button>
         <div class="hint" id="browserWorkspaceState">checking browser workspace</div>
       </section>
+      <section style="padding: 18px 0 0;">
+        <h2>Job Center</h2>
+        <label for="jobName">Autonomy Job</label>
+        <select id="jobName"></select>
+        <label><input id="jobExecute" type="checkbox" style="width: auto; margin-right: 6px;"> execute high-impact checks</label>
+        <div class="row" style="margin-top: 12px;">
+          <button id="queueJob">Queue</button>
+          <button id="runJob" class="primary">Run Now</button>
+        </div>
+        <div class="hint">High-impact jobs still require an operator-enabled profile.</div>
+      </section>
+      <section style="padding: 18px 0 0;">
+        <h2>Schedules</h2>
+        <label for="scheduleName">Name</label>
+        <input id="scheduleName" value="daily self audit">
+        <label for="scheduleCron">Cron</label>
+        <input id="scheduleCron" value="0 9 * * *">
+        <button id="createSchedule" style="margin-top: 10px; width: 100%;">Create Disabled Schedule</button>
+        <div class="hint">Schedules reuse the job center and policy gates.</div>
+      </section>
     </aside>
     <div>
       <section>
@@ -164,6 +238,18 @@ CONSOLE_HTML = """<!doctype html>
         <h2>Output</h2>
         <pre id="output">Ready.</pre>
       </section>
+      <section>
+        <h2>Recent Jobs</h2>
+        <div id="jobHistory" class="compact-list"></div>
+      </section>
+      <section>
+        <h2>Schedules</h2>
+        <div id="scheduleList" class="compact-list"></div>
+      </section>
+      <section>
+        <h2>Release Readiness</h2>
+        <div id="readinessList" class="compact-list"></div>
+      </section>
     </div>
   </main>
   <script>
@@ -171,6 +257,9 @@ CONSOLE_HTML = """<!doctype html>
     const state = { profiles: [] };
     function write(value) {
       output.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    }
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
     }
     async function request(path, options) {
       const response = await fetch(path, options);
@@ -202,10 +291,63 @@ CONSOLE_HTML = """<!doctype html>
         }
         select.value = data.autonomy.resolved_profile.name;
         updateAutonomyDescription();
+        await refreshJobs();
+        await refreshSchedules();
+        await refreshReadiness();
       } catch (err) {
         document.getElementById("health").textContent = "offline";
         document.getElementById("health").className = "hint error";
         write(String(err));
+      }
+    }
+    async function refreshJobs() {
+      const data = await request("/api/console/autonomy/jobs");
+      const select = document.getElementById("jobName");
+      select.innerHTML = "";
+      for (const job of data.available_jobs || []) {
+        const option = document.createElement("option");
+        option.value = job.name;
+        option.textContent = job.name;
+        select.appendChild(option);
+      }
+      const history = document.getElementById("jobHistory");
+      history.innerHTML = "";
+      for (const job of (data.history || []).slice().reverse().slice(0, 8)) {
+        const item = document.createElement("div");
+        item.className = "compact-item";
+        item.innerHTML = `<strong>${escapeHtml(job.name)}</strong> <span class="pill">${escapeHtml(job.status)}</span><div class="hint">${escapeHtml(job.profile)} ${job.execute ? "execute" : "preview"}</div>`;
+        history.appendChild(item);
+      }
+      if (!history.children.length) history.textContent = "No autonomy jobs yet.";
+    }
+    async function refreshSchedules() {
+      const data = await request("/api/console/autonomy/schedules");
+      const list = document.getElementById("scheduleList");
+      list.innerHTML = "";
+      for (const schedule of data.schedules || []) {
+        const item = document.createElement("div");
+        item.className = "compact-item";
+        item.innerHTML = `<strong>${escapeHtml(schedule.name)}</strong> <span class="pill">${schedule.enabled ? "enabled" : "disabled"}</span><div class="hint">${escapeHtml(schedule.cron_expression)} next ${escapeHtml(schedule.next_run || "pending")}</div>`;
+        const run = document.createElement("button");
+        run.textContent = "Run Now";
+        run.onclick = async () => {
+          write(await request(`/api/console/autonomy/schedules/${schedule.id}/run-now`, { method: "POST" }));
+          await refresh();
+        };
+        item.appendChild(run);
+        list.appendChild(item);
+      }
+      if (!list.children.length) list.textContent = "No schedules yet.";
+    }
+    async function refreshReadiness() {
+      const data = await request("/api/console/readiness");
+      const list = document.getElementById("readinessList");
+      list.innerHTML = "";
+      for (const check of data.checks || []) {
+        const item = document.createElement("div");
+        item.className = "compact-item";
+        item.innerHTML = `<strong>${escapeHtml(check.name)}</strong><div class="hint">${escapeHtml(check.command)}</div>`;
+        list.appendChild(item);
       }
     }
     function updateAutonomyDescription() {
@@ -267,6 +409,47 @@ CONSOLE_HTML = """<!doctype html>
       }));
       await refresh();
     };
+    document.getElementById("queueJob").onclick = async () => {
+      write(await request("/api/console/autonomy/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job: document.getElementById("jobName").value,
+          profile: document.getElementById("autonomyLevel").value,
+          execute: document.getElementById("jobExecute").checked,
+          run_now: false
+        })
+      }));
+      await refresh();
+    };
+    document.getElementById("runJob").onclick = async () => {
+      write(await request("/api/console/autonomy/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job: document.getElementById("jobName").value,
+          profile: document.getElementById("autonomyLevel").value,
+          execute: document.getElementById("jobExecute").checked,
+          run_now: true
+        })
+      }));
+      await refresh();
+    };
+    document.getElementById("createSchedule").onclick = async () => {
+      write(await request("/api/console/autonomy/schedules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: document.getElementById("scheduleName").value,
+          cron_expression: document.getElementById("scheduleCron").value,
+          job: document.getElementById("jobName").value,
+          profile: document.getElementById("autonomyLevel").value,
+          execute: document.getElementById("jobExecute").checked,
+          enabled: false
+        })
+      }));
+      await refresh();
+    };
     refresh();
   </script>
 </body>
@@ -282,6 +465,18 @@ def _json_body(ctx: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("Expected a JSON object")
     return data
+
+
+def _as_bool(value: Any, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _suffix(ctx: dict[str, Any], prefix: str) -> str:
+    return str(ctx.get("path") or "")[len(prefix) :].strip("/")
 
 
 def _default_run_objective(objective: str) -> dict[str, Any]:
@@ -308,18 +503,74 @@ def _status_payload(server: GatewayServer) -> dict[str, Any]:
     }
 
 
+def _scheduled_executor(queue: AutonomyJobQueue):
+    from ..chimera_pilot.cron_scheduler import CronJob, CronJobResult
+
+    def execute(job: CronJob) -> CronJobResult:
+        job_name = str(job.metadata.get("autonomy_job") or "").strip()
+        profile = str(job.metadata.get("profile") or "supervised")
+        run_execute = _as_bool(job.metadata.get("execute"), default=False)
+        if not job_name:
+            return CronJobResult(
+                job_id=job.id,
+                job_name=job.name,
+                objective=job.objective,
+                success=False,
+                error="Scheduled console job is missing autonomy_job metadata.",
+            )
+        try:
+            record = queue.enqueue(
+                job_name,
+                profile=profile,
+                execute=run_execute,
+                source="schedule",
+                schedule_id=job.id,
+            )
+        except Exception as exc:
+            return CronJobResult(
+                job_id=job.id,
+                job_name=job.name,
+                objective=job.objective,
+                success=False,
+                error=str(exc),
+            )
+        return CronJobResult(
+            job_id=job.id,
+            job_name=job.name,
+            objective=job.objective,
+            success=record.get("status") not in {"error", "cancelled"},
+            output=json.dumps(record, sort_keys=True)[:3000],
+            error=record.get("error"),
+        )
+
+    return execute
+
+
 def register_console_routes(
     server: GatewayServer,
     *,
     run_objective: RunObjective | None = None,
     fetch_url: FetchUrl | None = None,
     browser_workspace: AgentBrowserWorkspace | None = None,
+    state_dir: str | Path | None = None,
+    autonomy_queue: AutonomyJobQueue | None = None,
+    cron_scheduler: Any | None = None,
 ) -> None:
     """Register browser console routes on an existing GatewayServer."""
 
     objective_runner = run_objective or _default_run_objective
     url_fetcher = fetch_url or http_get
     workspace = browser_workspace or AgentBrowserWorkspace()
+    queue = autonomy_queue or AutonomyJobQueue(state_dir=state_dir or server.config.state_dir)
+    scheduler = cron_scheduler
+    scheduler_error = ""
+    if scheduler is None:
+        try:
+            from ..chimera_pilot.cron_scheduler import CronScheduler
+
+            scheduler = CronScheduler(state_dir=state_dir or server.config.state_dir, job_executor=_scheduled_executor(queue))
+        except Exception as exc:  # pragma: no cover - depends on optional croniter availability
+            scheduler_error = str(exc)
 
     def console_page(ctx: dict[str, Any]) -> HttpResponse:
         return HttpResponse(body=CONSOLE_HTML, content_type="text/html; charset=utf-8")
@@ -391,11 +642,187 @@ def register_console_routes(
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
+    def readiness(ctx: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "checks": [dict(check) for check in RELEASE_CHECKS],
+            "note": "Run these checks locally before tagging or pushing a beta release.",
+        }
+
+    def jobs_list(ctx: dict[str, Any]) -> dict[str, Any]:
+        return {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()}
+
+    def jobs_create(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        job_name = str(body.get("job") or body.get("name") or "").strip()
+        profile = str(body.get("profile") or _status_payload(server)["autonomy"]["resolved_profile"]["name"])
+        execute = _as_bool(body.get("execute"), default=False)
+        run_now = _as_bool(body.get("run_now"), default=True)
+        if not job_name:
+            return {"ok": False, "error": "Missing autonomy job name"}
+        try:
+            record = queue.enqueue(job_name, profile=profile, execute=execute, run_now=run_now)
+        except PermissionError as exc:
+            return {"ok": False, "error": str(exc), "type": "policy"}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "type": "runtime"}
+        return {"ok": record.get("status") != "error", "job": record}
+
+    def jobs_detail(ctx: dict[str, Any]) -> dict[str, Any]:
+        prefix = "/api/console/autonomy/jobs/"
+        suffix = _suffix(ctx, prefix)
+        if suffix.endswith("/cancel"):
+            return jobs_cancel(ctx)
+        job_id = suffix
+        try:
+            return {"ok": True, "job": queue.get(job_id)}
+        except KeyError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def jobs_cancel(ctx: dict[str, Any]) -> dict[str, Any]:
+        prefix = "/api/console/autonomy/jobs/"
+        job_id = _suffix(ctx, prefix).removesuffix("/cancel").strip("/")
+        try:
+            return {"ok": True, "job": queue.cancel(job_id)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def schedules_list(ctx: dict[str, Any]) -> dict[str, Any]:
+        if scheduler is None:
+            return {"ok": False, "error": scheduler_error or "Cron scheduler unavailable", "schedules": []}
+        status_payload = scheduler.status()
+        return {
+            "ok": True,
+            "running": status_payload.get("running", False),
+            "job_count": status_payload.get("job_count", 0),
+            "enabled_count": status_payload.get("enabled_count", 0),
+            "schedules": status_payload.get("jobs", []),
+        }
+
+    def schedules_create(ctx: dict[str, Any]) -> dict[str, Any]:
+        if scheduler is None:
+            return {"ok": False, "error": scheduler_error or "Cron scheduler unavailable"}
+        body = _json_body(ctx)
+        name = str(body.get("name") or "").strip()
+        cron_expression = str(body.get("cron_expression") or body.get("cron") or "").strip()
+        job_name = str(body.get("job") or body.get("autonomy_job") or "").strip().lower().replace("_", "-")
+        profile = str(body.get("profile") or _status_payload(server)["autonomy"]["resolved_profile"]["name"])
+        execute = _as_bool(body.get("execute"), default=False)
+        enabled = _as_bool(body.get("enabled"), default=True)
+        if not name:
+            return {"ok": False, "error": "Missing schedule name"}
+        if not cron_expression:
+            return {"ok": False, "error": "Missing cron_expression"}
+        if job_name not in JOB_SPECS:
+            return {"ok": False, "error": f"Unknown autonomy job '{job_name}'"}
+        spec = JOB_SPECS[job_name]
+        if not spec.background_capable:
+            return {"ok": False, "error": f"Autonomy job '{job_name}' is not background-capable"}
+        try:
+            queue.validate_request(job_name, profile=profile, execute=execute)
+        except PermissionError as exc:
+            return {"ok": False, "error": str(exc), "type": "policy"}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "type": "runtime"}
+        schedule = scheduler.add_job(
+            name=name,
+            cron_expression=cron_expression,
+            objective=f"autonomy job: {job_name}",
+            enabled=enabled,
+            metadata={"autonomy_job": job_name, "profile": profile, "execute": execute},
+        )
+        return {"ok": True, "schedule": schedule.to_dict()}
+
+    def schedules_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        if scheduler is None:
+            return {"ok": False, "error": scheduler_error or "Cron scheduler unavailable"}
+        prefix = "/api/console/autonomy/schedules/"
+        parts = [part for part in _suffix(ctx, prefix).split("/") if part]
+        if len(parts) != 2:
+            return {"ok": False, "error": "Expected /api/console/autonomy/schedules/{id}/{action}"}
+        schedule_id, action = parts
+        if schedule_id not in scheduler.jobs:
+            return {"ok": False, "error": f"Unknown schedule '{schedule_id}'"}
+        if action == "enable":
+            return {"ok": scheduler.enable_job(schedule_id), "schedule": scheduler.jobs[schedule_id].to_dict()}
+        if action == "disable":
+            return {"ok": scheduler.disable_job(schedule_id), "schedule": scheduler.jobs[schedule_id].to_dict()}
+        if action == "delete":
+            return {"ok": scheduler.remove_job(schedule_id)}
+        if action == "run-now":
+            schedule = scheduler.jobs[schedule_id]
+            metadata = schedule.metadata
+            try:
+                record = queue.enqueue(
+                    str(metadata.get("autonomy_job") or ""),
+                    profile=str(metadata.get("profile") or "supervised"),
+                    execute=_as_bool(metadata.get("execute"), default=False),
+                    source="schedule",
+                    schedule_id=schedule.id,
+                )
+            except PermissionError as exc:
+                return {"ok": False, "error": str(exc), "type": "policy"}
+            except Exception as exc:
+                return {"ok": False, "error": str(exc), "type": "runtime"}
+            return {
+                "ok": record.get("status") not in {"error", "cancelled"},
+                "result": {
+                    "schedule_id": schedule.id,
+                    "schedule_name": schedule.name,
+                    "success": record.get("status") not in {"error", "cancelled"},
+                    "error": record.get("error"),
+                },
+                "job": record,
+                "error": record.get("error"),
+            }
+        return {"ok": False, "error": f"Unknown schedule action '{action}'"}
+
     server.routes.register("/", console_page, method="GET", auth="open", description="Ghost Console browser UI")
     server.routes.register("/console", console_page, method="GET", auth="open", description="Ghost Console browser UI")
     server.routes.register("/api/console/status", status, method="GET", auth="open", description="Ghost Console status")
     server.routes.register("/api/console/autonomy", autonomy, method="GET", auth="open", description="Ghost Console autonomy")
     server.routes.register("/api/console/autonomy", autonomy, method="POST", auth="open", description="Ghost Console autonomy")
+    server.routes.register("/api/console/readiness", readiness, method="GET", auth="open", description="Ghost Console release readiness runbook")
+    server.routes.register("/api/console/autonomy/jobs", jobs_list, method="GET", auth="open", description="List autonomy jobs")
+    server.routes.register("/api/console/autonomy/jobs", jobs_create, method="POST", auth="open", description="Queue autonomy job")
+    server.routes.register(
+        "/api/console/autonomy/jobs/",
+        jobs_detail,
+        method="GET",
+        auth="open",
+        prefix=True,
+        description="Inspect autonomy job record",
+    )
+    server.routes.register(
+        "/api/console/autonomy/jobs/",
+        jobs_cancel,
+        method="POST",
+        auth="open",
+        prefix=True,
+        description="Cancel queued autonomy job",
+    )
+    server.routes.register(
+        "/api/console/autonomy/schedules",
+        schedules_list,
+        method="GET",
+        auth="open",
+        description="List autonomy schedules",
+    )
+    server.routes.register(
+        "/api/console/autonomy/schedules",
+        schedules_create,
+        method="POST",
+        auth="open",
+        description="Create autonomy schedule",
+    )
+    server.routes.register(
+        "/api/console/autonomy/schedules/",
+        schedules_action,
+        method="POST",
+        auth="open",
+        prefix=True,
+        description="Update, run, or delete autonomy schedule",
+    )
     server.routes.register("/api/console/run", run, method="POST", auth="open", description="Run a Ghost objective")
     server.routes.register(
         "/api/console/browser/fetch",
@@ -439,13 +866,18 @@ def run_console(
     host: str = "127.0.0.1",
     port: int = 8765,
     http_port: int | None = None,
+    state_dir: str | Path | None = None,
     open_browser: bool = True,
     block: bool = True,
 ) -> GatewayServer:
     """Start the gateway-backed Ghost Console."""
 
-    server = GatewayServer(host=host, port=port, http_port=http_port)
-    register_console_routes(server)
+    config = GhostChimeraConfig.from_env()
+    if state_dir:
+        resolved = Path(state_dir).expanduser()
+        config = replace(config, state_dir=resolved, memory_db=resolved / "memory.sqlite3", audit_file=resolved / "audit.json")
+    server = GatewayServer(host=host, port=port, http_port=http_port, config=config)
+    register_console_routes(server, state_dir=state_dir or config.state_dir)
     server.start()
     url = _console_url(server)
     print(f"Ghost Console: {url}")

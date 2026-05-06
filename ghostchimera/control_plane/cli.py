@@ -59,6 +59,7 @@ def _main(argv: list[str] | None = None) -> int:
     console_parser.add_argument("--host", default="127.0.0.1", help="Gateway bind host for the console.")
     console_parser.add_argument("--port", type=int, default=8765, help="Gateway WebSocket port.")
     console_parser.add_argument("--http-port", type=int, default=8766, help="Console HTTP port.")
+    console_parser.add_argument("--state-dir", default="", help="Optional state directory for console jobs and schedules.")
     console_parser.add_argument("--no-open", action="store_true", help="Print the console URL without opening a browser.")
     doctor_parser = sub.add_parser("doctor", help="Run health checks and report status")
     doctor_parser.add_argument("--production", action="store_true", help="Require production deployment guardrails.")
@@ -156,6 +157,7 @@ def _main(argv: list[str] | None = None) -> int:
             host=args.host,
             port=args.port,
             http_port=args.http_port,
+            state_dir=args.state_dir or None,
             open_browser=not args.no_open,
             block=True,
         )

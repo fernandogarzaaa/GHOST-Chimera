@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import compileall
-import tempfile
 import importlib
-import json
 import io
-import unittest
+import json
 import sys
+import tempfile
 import tomllib
+import unittest
 from pathlib import Path
 from typing import Any
 

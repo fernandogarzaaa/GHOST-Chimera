@@ -277,6 +277,31 @@ class CronSchedulerTests(unittest.TestCase):
         # tick should have found the due job
         self.assertTrue(len(results) >= 0)  # May be 0 if mock didn't match
 
+    def test_tick_uses_custom_job_executor_when_provided(self) -> None:
+        calls: list[str] = []
+
+        def executor(job: CronJob) -> CronJobResult:
+            calls.append(job.id)
+            return CronJobResult(job_id=job.id, job_name=job.name, objective=job.objective, success=True, output="queued")
+
+        scheduler = CronScheduler(state_dir=self.tmpdir, job_executor=executor)
+        job = CronJob(
+            id="autonomy-job",
+            name="queued audit",
+            cron_expression="* * * * *",
+            objective="autonomy job: self-audit",
+            enabled=True,
+            next_run=time.time() - 100,
+            metadata={"autonomy_job": "self-audit"},
+        )
+        scheduler.jobs[job.id] = job
+
+        results = scheduler.tick()
+
+        self.assertEqual(calls, ["autonomy-job"])
+        self.assertEqual(results[0].output, "queued")
+        self.assertEqual(job.run_count, 1)
+
     def test_tick_no_due_jobs(self) -> None:
         self.scheduler.add_job("future", "0 3 1 1 *", "obj")
         results = self.scheduler.tick()

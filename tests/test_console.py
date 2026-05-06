@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -149,6 +150,109 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertEqual(calls, ["summarize runtime status"])
         self.assertEqual(result["executions"][0]["objective"], "summarize runtime status")
 
+    def test_console_registers_autonomy_job_routes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-console-") as tmp:
+            server = GatewayServer()
+            register_console_routes(server, state_dir=tmp)
+
+            list_route = server.routes.find("GET", "/api/console/autonomy/jobs")
+            create_route = server.routes.find("POST", "/api/console/autonomy/jobs")
+            detail_route = server.routes.find("GET", "/api/console/autonomy/jobs/job-missing")
+            cancel_route = server.routes.find("POST", "/api/console/autonomy/jobs/job-missing/cancel")
+
+            self.assertIsNotNone(list_route)
+            self.assertIsNotNone(create_route)
+            self.assertIsNotNone(detail_route)
+            self.assertIsNotNone(cancel_route)
+
+            listed = list_route.handler({"method": "GET", "path": "/api/console/autonomy/jobs", "headers": {}, "body": "", "query": {}})
+            self.assertIn("available_jobs", listed)
+            self.assertEqual(listed["history"], [])
+
+            created = create_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/autonomy/jobs",
+                    "headers": {},
+                    "body": json.dumps({"job": "repair-preview", "profile": "supervised", "execute": False}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(created["ok"])
+            self.assertEqual(created["job"]["status"], "preview")
+
+            rejected = create_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/autonomy/jobs",
+                    "headers": {},
+                    "body": json.dumps({"job": "test-regression", "profile": "supervised", "execute": True}),
+                    "query": {},
+                }
+            )
+            self.assertFalse(rejected["ok"])
+            self.assertEqual(rejected["type"], "policy")
+
+    def test_console_registers_schedule_routes_that_use_autonomy_jobs(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-console-") as tmp:
+            server = GatewayServer()
+            register_console_routes(server, state_dir=tmp)
+
+            list_route = server.routes.find("GET", "/api/console/autonomy/schedules")
+            create_route = server.routes.find("POST", "/api/console/autonomy/schedules")
+
+            self.assertIsNotNone(list_route)
+            self.assertIsNotNone(create_route)
+
+            created = create_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/autonomy/schedules",
+                    "headers": {},
+                    "body": json.dumps(
+                        {
+                            "name": "daily audit",
+                            "cron_expression": "0 9 * * *",
+                            "job": "self-audit",
+                            "profile": "autonomous",
+                            "enabled": False,
+                        }
+                    ),
+                    "query": {},
+                }
+            )
+            self.assertTrue(created["ok"])
+            schedule_id = created["schedule"]["id"]
+
+            run_now = server.routes.find("POST", f"/api/console/autonomy/schedules/{schedule_id}/run-now")
+            self.assertIsNotNone(run_now)
+            result = run_now.handler(
+                {
+                    "method": "POST",
+                    "path": f"/api/console/autonomy/schedules/{schedule_id}/run-now",
+                    "headers": {},
+                    "body": "",
+                    "query": {},
+                }
+            )
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["job"]["name"], "self-audit")
+
+            disabled = list_route.handler({"method": "GET", "path": "/api/console/autonomy/schedules", "headers": {}, "body": "", "query": {}})
+            self.assertEqual(disabled["schedules"][0]["enabled"], False)
+
+    def test_console_readiness_route_returns_release_runbook(self) -> None:
+        server = GatewayServer()
+        register_console_routes(server)
+        route = server.routes.find("GET", "/api/console/readiness")
+
+        self.assertIsNotNone(route)
+        payload = route.handler({"method": "GET", "path": "/api/console/readiness", "headers": {}, "body": "", "query": {}})
+
+        commands = [check["command"] for check in payload["checks"]]
+        self.assertIn("python scripts/validate_release.py", commands)
+        self.assertIn("python -m ghostchimera.evals run --suite safety", commands)
+
 
 class ConsoleCliTests(unittest.TestCase):
     def test_run_console_registers_routes_without_blocking(self) -> None:
@@ -162,7 +266,20 @@ class ConsoleCliTests(unittest.TestCase):
     def test_cli_console_dispatches_to_run_console(self) -> None:
         with patch("ghostchimera.control_plane.console.run_console") as mocked:
             mocked.return_value = object()
-            result = _main(["console", "--host", "127.0.0.1", "--port", "9001", "--http-port", "9002", "--no-open"])
+            result = _main(
+                [
+                    "console",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    "9001",
+                    "--http-port",
+                    "9002",
+                    "--state-dir",
+                    "C:/tmp/ghost-state",
+                    "--no-open",
+                ]
+            )
 
         self.assertEqual(result, 0)
         mocked.assert_called_once()
@@ -170,6 +287,7 @@ class ConsoleCliTests(unittest.TestCase):
         self.assertEqual(kwargs["host"], "127.0.0.1")
         self.assertEqual(kwargs["port"], 9001)
         self.assertEqual(kwargs["http_port"], 9002)
+        self.assertEqual(kwargs["state_dir"], "C:/tmp/ghost-state")
         self.assertFalse(kwargs["open_browser"])
         self.assertTrue(kwargs["block"])
 

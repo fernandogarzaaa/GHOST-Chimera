@@ -14,6 +14,7 @@ import json
 import os
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -138,11 +139,13 @@ class CronScheduler(BackgroundService):
         state_dir: str | Path | None = None,
         poll_interval: int = DEFAULT_POLL_INTERVAL,
         config: GhostChimeraConfig | None = None,
+        job_executor: Callable[[CronJob], CronJobResult] | None = None,
     ):
         self.jobs: dict[str, CronJob] = {}
         self._lock = threading.RLock()
         self.poll_interval = poll_interval
         self.config = config or GhostChimeraConfig.from_env()
+        self.job_executor = job_executor
         self._state_dir = Path(state_dir or self.config.state_dir)
         self._state_file = self._state_dir / DEFAULT_STATE_FILE
         self._running = False
@@ -205,6 +208,7 @@ class CronScheduler(BackgroundService):
         with self._lock:
             if job_id in self.jobs:
                 self.jobs[job_id].enabled = False
+                self._save_jobs()
                 return True
         return False
 
@@ -284,6 +288,8 @@ class CronScheduler(BackgroundService):
 
     def _run_job(self, job: CronJob) -> CronJobResult:
         """Execute a cron job."""
+        if self.job_executor is not None:
+            return self.job_executor(job)
         try:
             kernel = AgentCore.default()
             results = kernel.compile_and_run(job.objective)
@@ -333,7 +339,7 @@ class CronScheduler(BackgroundService):
             tmp_file = self._state_file.with_suffix(".tmp")
             with open(tmp_file, "w") as f:
                 json.dump(data, f, indent=2)
-            os.rename(tmp_file, self._state_file)
+            os.replace(tmp_file, self._state_file)
         except Exception as exc:
             logger.error("Failed to save cron jobs: %s", exc)
 
