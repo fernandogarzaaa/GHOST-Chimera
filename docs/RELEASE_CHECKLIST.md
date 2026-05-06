@@ -32,11 +32,11 @@ The release gate, package build, and built-in eval suites must pass before taggi
 
 ## Release positioning
 
-Use alpha language unless the project has undergone external security review and production deployment testing.
+Use beta language while still being explicit that the project has not undergone external security review or production deployment testing.
 
 Recommended wording:
 
-> Ghost Chimera is an alpha local-first agent orchestration runtime with an early resource scheduling layer called Chimera Pilot.
+> Ghost Chimera is a beta local-first agent orchestration runtime with a resource scheduling and policy layer called Chimera Pilot.
 
 Avoid:
 

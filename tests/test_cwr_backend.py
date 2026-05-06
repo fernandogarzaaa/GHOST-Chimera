@@ -8,7 +8,6 @@ import unittest
 from pathlib import Path
 
 from ghostchimera.chimera_pilot import ChimeraPilotKernel, TaskKind, TaskSpec
-from ghostchimera.chimera_pilot.backends import DeterministicBackend
 from ghostchimera.chimera_pilot.backends.cwr import CWRBackend
 from ghostchimera.memory_layer.store import MemoryStore
 
@@ -65,7 +64,7 @@ class ConsciousWorkspaceRetrievalTests(unittest.TestCase):
         self.assertGreaterEqual(len(outcomes), 1)
         self.assertEqual(outcomes[0]["backend_id"], "cwr.local")
 
-    def test_kernel_prefers_real_cwr_backend_over_deterministic_placeholder(self) -> None:
+    def test_kernel_prefers_real_cwr_backend_over_deterministic_fallback(self) -> None:
         store = MemoryStore(self.db_path)
         store.add_document("memory", "Ghost Chimera remembers project goals through CWR.")
         kernel = ChimeraPilotKernel.default(include_deterministic_backend=True, memory_store=store)

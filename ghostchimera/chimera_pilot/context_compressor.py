@@ -37,7 +37,7 @@ _IMAGE_CHAR_EQUIVALENT = _IMAGE_TOKEN_ESTIMATE * _CHARS_PER_TOKEN
 _MIN_SUMMARY_TOKENS = 2000
 _SUMMARY_RATIO = 0.20
 _SUMMARY_TOKENS_CEILING = 12_000
-_PRUNED_TOOL_PLACEHOLDER = "[Old tool output cleared to save context space]"
+_PRUNED_TOOL_MARKER = "[Old tool output cleared to save context space]"
 _FAILURE_COOLDOWN_SECONDS = 600
 _COMPRESSION_THRESHOLD = 0.75  # 75% of model context length
 
@@ -286,7 +286,7 @@ class ContextCompressor(ContextEngine):
         for msg in messages:
             if msg.get("role") == "tool":
                 new_msg = dict(msg)
-                new_msg["content"] = _PRUNED_TOOL_PLACEHOLDER
+                new_msg["content"] = _PRUNED_TOOL_MARKER
                 result.append(new_msg)
             else:
                 result.append(msg)
@@ -302,7 +302,7 @@ class ContextCompressor(ContextEngine):
         for msg in messages:
             role = msg.get("role", "")
             content = _content_text(msg.get("content"))
-            if not content or content == _PRUNED_TOOL_PLACEHOLDER:
+            if not content or content == _PRUNED_TOOL_MARKER:
                 continue
 
             # Extract file references
@@ -353,7 +353,7 @@ class ContextCompressor(ContextEngine):
         for msg in messages:
             role = msg.get("role", "").upper()
             content = _content_text(msg.get("content"))
-            if content and content != _PRUNED_TOOL_PLACEHOLDER:
+            if content and content != _PRUNED_TOOL_MARKER:
                 summarize_prompt += f"[{role}]: {content[:500]}\n\n"
 
         if focus_topic:

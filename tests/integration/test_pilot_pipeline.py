@@ -60,7 +60,7 @@ def test_fallback_on_failure():
     try:
         kernel.registry.register(failing)
     except ValueError:
-        pass  # Already registered
+        assert any(backend.id == failing.id for backend in kernel.registry.list())
     # Use a valid task spec that passes validation
     task = TaskSpec.create(kind=TaskKind.REASONING, objective="test", inputs={"prompt": "test"})
     backends = kernel.registry.list()

@@ -284,11 +284,11 @@ class DocumentExtractor(ABC):
 
 
 # ---------------------------------------------------------------------------
-# Built-in stub implementations (no external deps, useful for testing)
+# Built-in stdlib implementations (no external dependencies)
 # ---------------------------------------------------------------------------
 
 
-class StubWebFetchProvider(WebFetchProvider):
+class StdlibWebFetchProvider(WebFetchProvider):
     """Simple stdlib-only web fetch using ``urllib``."""
 
     name = "stdlib_web_fetch"
@@ -447,10 +447,7 @@ class OpenAIVisionProvider(MediaUnderstandingProvider):
         if not self.available:
             raise RuntimeError("OpenAIVisionProvider is not available; set OPENAI_API_KEY")
 
-        if isinstance(image_data, bytes):
-            b64 = base64.b64encode(image_data).decode()
-        else:
-            b64 = image_data
+        b64 = base64.b64encode(image_data).decode() if isinstance(image_data, bytes) else image_data
 
         body = json.dumps({
             "model": self.model,
@@ -490,7 +487,7 @@ MEDIA_PROVIDERS: dict[str, dict[str, type]] = {
     },
     "web_search": {},  # No built-in web search — external plugins register here
     "web_fetch": {
-        StubWebFetchProvider.name: StubWebFetchProvider,
+        StdlibWebFetchProvider.name: StdlibWebFetchProvider,
     },
     "media_understanding": {
         OpenAIVisionProvider.name: OpenAIVisionProvider,
@@ -578,7 +575,7 @@ __all__ = [
     "OpenAIImageProvider",
     "OpenAISpeechProvider",
     "OpenAIVisionProvider",
-    "StubWebFetchProvider",
+    "StdlibWebFetchProvider",
     "MEDIA_PROVIDERS",
     "register_media_provider",
     "get_media_provider",

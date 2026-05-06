@@ -2,7 +2,7 @@
 
 ## Supported status
 
-Ghost Chimera is currently an alpha developer release. Security fixes should target the latest published source revision.
+Ghost Chimera is currently a beta developer release. Security fixes should target the latest published source revision.
 
 ## High-risk capabilities
 

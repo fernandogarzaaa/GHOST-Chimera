@@ -21,8 +21,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
+from unittest.mock import patch
 
 # ---------------------------------------------------------------------------
 # Gap 1 — Media provider interfaces
@@ -30,9 +29,9 @@ from unittest.mock import MagicMock, patch
 
 
 class MediaProviderTests(unittest.TestCase):
-    def test_stub_web_fetch_import(self) -> None:
-        from ghostchimera.model_layer.media_providers import StubWebFetchProvider
-        p = StubWebFetchProvider()
+    def test_stdlib_web_fetch_import(self) -> None:
+        from ghostchimera.model_layer.media_providers import StdlibWebFetchProvider
+        p = StdlibWebFetchProvider()
         self.assertTrue(p.available)
 
     def test_openai_image_provider_requires_key(self) -> None:
@@ -66,8 +65,10 @@ class MediaProviderTests(unittest.TestCase):
 
     def test_register_media_provider(self) -> None:
         from ghostchimera.model_layer.media_providers import (
-            WebSearchProvider, register_media_provider, get_media_provider,
-            WebSearchResult, MEDIA_PROVIDERS
+            MEDIA_PROVIDERS,
+            WebSearchProvider,
+            get_media_provider,
+            register_media_provider,
         )
 
         class MySearch(WebSearchProvider):
@@ -100,43 +101,33 @@ class MediaProviderTests(unittest.TestCase):
 
 class ApprovalFlowTests(unittest.TestCase):
     def test_auto_approve_handler(self) -> None:
-        from ghostchimera.safety_layer.approval import (
-            AutoApproveHandler, ApprovalRequest
-        )
+        from ghostchimera.safety_layer.approval import ApprovalRequest, AutoApproveHandler
         handler = AutoApproveHandler()
         result = handler.handle(ApprovalRequest(tool_name="shell", arguments={"cmd": "ls"}))
         self.assertTrue(result.approved)
 
     def test_auto_deny_handler(self) -> None:
-        from ghostchimera.safety_layer.approval import (
-            AutoDenyHandler, ApprovalRequest
-        )
+        from ghostchimera.safety_layer.approval import ApprovalRequest, AutoDenyHandler
         handler = AutoDenyHandler()
         result = handler.handle(ApprovalRequest(tool_name="shell", arguments={}))
         self.assertFalse(result.approved)
 
     def test_trusted_tool_bypasses_deny(self) -> None:
-        from ghostchimera.safety_layer.approval import (
-            AutoDenyHandler, ApprovalRequest, ApprovalPolicy
-        )
+        from ghostchimera.safety_layer.approval import ApprovalPolicy, ApprovalRequest, AutoDenyHandler
         policy = ApprovalPolicy()
         handler = AutoDenyHandler(policy)
         result = handler.handle(ApprovalRequest(tool_name="read_file"))
         self.assertTrue(result.approved)  # read_file is trusted by default
 
     def test_blocked_tool_denied(self) -> None:
-        from ghostchimera.safety_layer.approval import (
-            AutoApproveHandler, ApprovalRequest, ApprovalPolicy
-        )
+        from ghostchimera.safety_layer.approval import ApprovalPolicy, ApprovalRequest, AutoApproveHandler
         policy = ApprovalPolicy()
         handler = AutoApproveHandler(policy)
         result = handler.handle(ApprovalRequest(tool_name="delete_all"))
         self.assertFalse(result.approved)  # matches "delete_*" blocked pattern
 
     def test_callback_handler_approval(self) -> None:
-        from ghostchimera.safety_layer.approval import (
-            CallbackApprovalHandler, ApprovalRequest
-        )
+        from ghostchimera.safety_layer.approval import ApprovalRequest, CallbackApprovalHandler
         handler = CallbackApprovalHandler(callback=lambda req: True)
         result = handler.handle(ApprovalRequest(tool_name="shell"))
         self.assertTrue(result.approved)
@@ -150,6 +141,7 @@ class ApprovalFlowTests(unittest.TestCase):
 
     def test_approve_convenience(self) -> None:
         from ghostchimera.safety_layer import approval
+
         # override default handler to auto-approve
         from ghostchimera.safety_layer.approval import AutoApproveHandler, set_default_handler
         set_default_handler(AutoApproveHandler())
@@ -212,9 +204,7 @@ class ToolMiddlewareTests(unittest.TestCase):
         self.assertIn("ValueError", result)
 
     def test_chain_runs_in_order(self) -> None:
-        from ghostchimera.chimera_pilot.tool_middleware import (
-            ToolMiddlewareChain, ToolResultMiddleware
-        )
+        from ghostchimera.chimera_pilot.tool_middleware import ToolMiddlewareChain, ToolResultMiddleware
         order = []
 
         class A(ToolResultMiddleware):
@@ -237,9 +227,7 @@ class ToolMiddlewareTests(unittest.TestCase):
         self.assertEqual(order, ["a", "b"])
 
     def test_chain_exception_does_not_propagate(self) -> None:
-        from ghostchimera.chimera_pilot.tool_middleware import (
-            ToolMiddlewareChain, ToolResultMiddleware
-        )
+        from ghostchimera.chimera_pilot.tool_middleware import ToolMiddlewareChain, ToolResultMiddleware
 
         class Exploder(ToolResultMiddleware):
             name = "exploder"
@@ -260,8 +248,8 @@ class ToolMiddlewareTests(unittest.TestCase):
         self.assertGreater(len(c1), 0)  # pre-populated
 
     def test_toolset_manager_register_middleware(self) -> None:
-        from ghostchimera.chimera_pilot.toolsets import ToolsetManager
         from ghostchimera.chimera_pilot.tool_middleware import ToolResultMiddleware, get_default_chain
+        from ghostchimera.chimera_pilot.toolsets import ToolsetManager
 
         class TestMW(ToolResultMiddleware):
             name = "test_mw"
@@ -456,7 +444,7 @@ class HttpRouteRegistryTests(unittest.TestCase):
         self.assertIsNone(registry.find("GET", "/other"))
 
     def test_open_auth_always_passes(self) -> None:
-        from ghostchimera.chimera_pilot.gateway_server import HttpRouteRegistry, HttpRoute
+        from ghostchimera.chimera_pilot.gateway_server import HttpRoute, HttpRouteRegistry
         registry = HttpRouteRegistry()
         route = HttpRoute(path="/open", handler=lambda ctx: {}, auth="open")
         self.assertTrue(registry.check_auth(route, {}))
@@ -479,8 +467,8 @@ class HttpRouteRegistryTests(unittest.TestCase):
         self.assertTrue(result["custom"])
 
     def test_gateway_server_implements_background_service(self) -> None:
-        from ghostchimera.chimera_pilot.service_registry import BackgroundService
         from ghostchimera.chimera_pilot.gateway_server import GatewayServer
+        from ghostchimera.chimera_pilot.service_registry import BackgroundService
         self.assertTrue(issubclass(GatewayServer, BackgroundService))
 
     def test_gateway_server_probe_not_running(self) -> None:
@@ -582,7 +570,7 @@ class ExternalAuthProviderTests(unittest.TestCase):
             ExternalAuthProvider()  # type: ignore
 
     def test_concrete_external_auth_provider(self) -> None:
-        from ghostchimera.model_layer.auth_profiles import ExternalAuthProvider, AuthProfile, OAuthCredential
+        from ghostchimera.model_layer.auth_profiles import AuthProfile, ExternalAuthProvider, OAuthCredential
 
         class MyAuth(ExternalAuthProvider):
             provider_id = "my_service"
@@ -602,7 +590,7 @@ class ExternalAuthProviderTests(unittest.TestCase):
 
     def test_credential_pool_register_auth_provider(self) -> None:
         from ghostchimera.chimera_pilot.credential_pool import CredentialPool
-        from ghostchimera.model_layer.auth_profiles import ExternalAuthProvider, AuthProfile, OAuthCredential
+        from ghostchimera.model_layer.auth_profiles import AuthProfile, ExternalAuthProvider, OAuthCredential
 
         class FakeAuth(ExternalAuthProvider):
             provider_id = "fake"
@@ -675,7 +663,7 @@ class SSRFPolicyTests(unittest.TestCase):
         self.assertFalse(permitted2)
 
     def test_ssrf_violation_raised(self) -> None:
-        from ghostchimera.safety_layer.ssrf import NetworkDispatcher, SSRFViolation, SSRFPolicy
+        from ghostchimera.safety_layer.ssrf import NetworkDispatcher, SSRFPolicy, SSRFViolation
         policy = SSRFPolicy(default_allow=False)
         dispatcher = NetworkDispatcher(policy)
         with self.assertRaises(SSRFViolation):
@@ -683,7 +671,7 @@ class SSRFPolicyTests(unittest.TestCase):
 
     def test_pilot_policy_allowed_hosts(self) -> None:
         from ghostchimera.chimera_pilot.policy import PilotPolicy
-        from ghostchimera.chimera_pilot.task_ir import TaskSpec, TaskKind
+        from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
         policy = PilotPolicy(allow_network=True, allowed_hosts=("api.openai.com",))
         # Non-blocked URL from allowed host — should pass
         task = TaskSpec.create(
@@ -696,7 +684,7 @@ class SSRFPolicyTests(unittest.TestCase):
 
     def test_pilot_policy_blocks_disallowed_host(self) -> None:
         from ghostchimera.chimera_pilot.policy import PilotPolicy
-        from ghostchimera.chimera_pilot.task_ir import TaskSpec, TaskKind
+        from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
         policy = PilotPolicy(allow_network=True, allowed_hosts=("api.openai.com",))
         task = TaskSpec.create(
             kind=TaskKind.WEB_RESEARCH,
@@ -715,7 +703,7 @@ class SSRFPolicyTests(unittest.TestCase):
 
 class ProvidersSplitTests(unittest.TestCase):
     def test_text_providers_contains_known(self) -> None:
-        from ghostchimera.model_layer.providers import TEXT_PROVIDERS, PROVIDERS
+        from ghostchimera.model_layer.providers import PROVIDERS, TEXT_PROVIDERS
         self.assertIn("openai", TEXT_PROVIDERS)
         self.assertIn("anthropic", TEXT_PROVIDERS)
         # PROVIDERS is the canonical source; TEXT_PROVIDERS must be a subset
@@ -723,9 +711,7 @@ class ProvidersSplitTests(unittest.TestCase):
             self.assertIn(name, PROVIDERS)
 
     def test_register_text_provider(self) -> None:
-        from ghostchimera.model_layer.providers import (
-            register_text_provider, TEXT_PROVIDERS, PROVIDERS, BaseProvider
-        )
+        from ghostchimera.model_layer.providers import PROVIDERS, TEXT_PROVIDERS, BaseProvider, register_text_provider
 
         class MyProvider(BaseProvider):
             name = "my_custom_llm"

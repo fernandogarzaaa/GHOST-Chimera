@@ -63,7 +63,7 @@ class LlamaCppRuntimeTests(unittest.TestCase):
 
         class FakeLlama:
             def __init__(self, **_kwargs):
-                pass
+                self.kwargs = _kwargs
 
             def create_chat_completion(self, messages, **_kwargs):
                 return {"choices": [{"message": {"content": f"answer: {messages[-1]['content']}"}}]}
@@ -87,7 +87,7 @@ class LlamaCppRuntimeTests(unittest.TestCase):
 
         class FakeLlama:
             def __init__(self, **_kwargs):
-                pass
+                self.kwargs = _kwargs
 
             def create_chat_completion(self, messages, **_kwargs):
                 return {"choices": [{"message": {"content": "kernel local answer"}}]}

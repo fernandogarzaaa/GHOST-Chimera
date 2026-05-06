@@ -137,9 +137,11 @@ class SSRFPolicy:
                                     f" address: {addr_str}"
                                 )
                         except ValueError:
-                            pass
-                except OSError:
-                    pass  # DNS resolution failed; proceed to pattern checks
+                            logger.debug("Skipping non-IP DNS result for '%s': %s", hostname, addr_str)
+                            continue
+                except OSError as exc:
+                    logger.warning("DNS resolution for '%s' failed; denying request: %s", hostname, exc)
+                    return False, f"DNS resolution failed for hostname: {hostname}"
                 finally:
                     # Shut down without waiting so a still-running getaddrinfo thread
                     # does not block the caller.

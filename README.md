@@ -1,295 +1,249 @@
 # Ghost Chimera
 
-Ghost Chimera is a local-first agent orchestration project. It provides a small modular agent stack plus **Chimera Pilot**, a control-plane layer for compiling objectives into task IR, scheduling backends, calibrating backend health, executing with fallback, validating results, and recording telemetry.
+Ghost Chimera is a local-first beta agent orchestration runtime. It combines a modular agent stack with Chimera Pilot, a resource-control layer that compiles objectives into task specs, chooses an execution backend, enforces policy, verifies results, and records telemetry.
 
-This repository is release-ready as a **beta release**. It is not marketed as AGI, an autonomous production agent, or a replacement for licensed quantum operating systems.
+This is a developer beta for local experimentation, runtime research, and extension work. It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
 
-## What is included
+## Current Status
 
-- `agent_core` — planning, execution, memory, and skill dispatch with confidence-aware results.
-- `model_layer` — provider abstraction for model calls and local model profiles.
-- `tool_layer` — filesystem, browser, and shell wrappers.
-- `skill_layer` — domain skills built on tools and models.
-- `safety_layer` — approval gating, MaterialRegistry policy patterns, and PolicyEnforcer.
-- `chimera_pilot` — task IR, resource registry, scheduler, calibration, executor, verifier, telemetry, agent loop, context compression, credential pool, toolset management, checkpoint system, cron scheduling, MCP gateway, batch orchestration, mixture-of-agents, and optional quantum-simulator bridge.
-- `cognition_layer` — confidence type system, claim extraction, hallucination detection, and conscious workspace primitives.
-- `memory_layer` — SQLite memory store and persistent namespace store.
+- Release phase: beta
+- Package version: `0.3.0-beta`
+- Python: 3.11 through 3.13
+- License: MIT
+- Runtime posture: local-first, conservative-by-default, optional integrations
+- Validation gate: release script, test suite, build, smoke evals, safety evals
 
-## Install from source
+## What Is Wired
+
+| Layer | Purpose |
+| --- | --- |
+| `agent_core` | Planner, task linearization, memory, skill dispatch, and Chimera Pilot handoff. |
+| `chimera_pilot` | Task IR, compiler, backend registry, scheduler, policy gate, fallback executor, verifier, telemetry, checkpointing, batch orchestration, subagents, credential pool, gateway server, cron scheduling, toolsets, lifecycle hooks, tool-result middleware, plugin manifests, and service registry. |
+| `cognition_layer` | Confidence values, hallucination flags, task ordering, self-model, working memory, attention, and reflection primitives. |
+| `control_plane` | User-facing CLIs for setup, diagnostics, model selection, policy management, parallel runs, and Pilot execution. |
+| `evals` | Built-in release smoke and safety evaluation suites. |
+| `mcp` | Lightweight JSON-RPC style MCP server/client surfaces and Chimera Pilot MCP backend. |
+| `memory_layer` | SQLite-backed memory retrieval and namespace persistence. |
+| `model_layer` | Provider abstraction, provider routing, auth profiles, model catalog, media-provider interfaces, minimind-compatible profiles, and optional llama.cpp/GGUF runtime. |
+| `safety_layer` | Execution policy, approval gates, MaterialRegistry policy patterns, audit records, policy enforcement, SSRF/network dispatch, and rate limiting. |
+| `skill_layer` | Built-in skills for browser fetches, code search, software tasks, tech support, issue conversion, and dynamic skill registry support. |
+| `tool_layer` | Policy-aware filesystem, shell, and browser tools. |
+
+## Install
+
+From a clean checkout:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
+source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-Optional quantum simulator support:
+On Windows PowerShell:
 
-```bash
-python -m pip install -e '.[quantum]'
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e .
 ```
 
-## Validate the release
+Optional extras:
 
 ```bash
-python scripts/validate_release.py
-python -m pytest tests/
-ruff check .
+python -m pip install -e ".[gateway]"  # WebSocket gateway and cron scheduling
+python -m pip install -e ".[mcp]"      # MCP package integration
+python -m pip install -e ".[local]"    # llama.cpp-compatible local model runtime
+python -m pip install -e ".[quantum]"  # optional pyqpanda3 simulator backend
+python -m pip install -e ".[dev]"      # build and lint tools
 ```
 
-## CLI quickstart
+Heavy runtimes such as `llama-cpp-python` and `pyqpanda3` are optional. The base package stays lightweight and stdlib-first.
 
-Configure Ghost Chimera:
+## CLI Quickstart
+
+Run the setup and diagnostics flow:
 
 ```bash
-ghostchimera setup          # Interactive wizard: provider, model, gateway, safety
-ghostchimera doctor         # Health check: Python, config, providers, safety
-ghostchimera model          # Interactive model picker
+ghostchimera setup
+ghostchimera doctor
+ghostchimera model
+ghostchimera --config-show
 ```
 
-Show Chimera Pilot status:
+Inspect Chimera Pilot:
 
 ```bash
 chimera-pilot status --include-deterministic-backend
-```
-
-Compile an objective without executing it:
-
-```bash
 chimera-pilot compile "retrieve memory about project"
+chimera-pilot calibrate --include-deterministic-backend
 ```
 
-Run a safe deterministic fallback task:
+Run a deterministic local task:
 
 ```bash
 chimera-pilot run "retrieve memory about project" --include-deterministic-backend
 ```
 
-Add and retrieve local CWR memory:
+Use the same Pilot path through the main control-plane CLI:
 
 ```bash
-chimera-pilot memory-add --memory-db .ghostchimera-memory.sqlite3 --source project-goals --content "Ghost Chimera should use real local memory retrieval."
-chimera-pilot memory-search --memory-db .ghostchimera-memory.sqlite3 "local memory retrieval"
-chimera-pilot run "retrieve local memory retrieval" --memory-db .ghostchimera-memory.sqlite3 --include-deterministic-backend
+ghostchimera --pilot-status
+ghostchimera --pilot-run "retrieve memory about project"
 ```
 
-Local Python execution is disabled by default. Enable it only for trusted code:
+## Local Memory
+
+Ghost Chimera includes Conscious Workspace Retrieval through a local SQLite FTS store:
+
+```bash
+chimera-pilot memory-add --memory-db .ghostchimera-memory.sqlite3 --source project-note --content "Ghost Chimera stores local project memory."
+chimera-pilot memory-search --memory-db .ghostchimera-memory.sqlite3 "project memory"
+chimera-pilot run "retrieve project memory" --memory-db .ghostchimera-memory.sqlite3 --include-deterministic-backend
+```
+
+## Execution Safety
+
+Potentially dangerous execution surfaces are denied unless explicitly enabled.
+
+Python execution is blocked by default:
+
+```bash
+chimera-pilot run "python: print(2 + 3)"
+```
+
+Trusted local Python can be enabled per run:
 
 ```bash
 chimera-pilot run "python: print(2 + 3)" --allow-python
 ```
 
-Desktop control is opt-in and safe-by-default. Register the backend and run in dry-run mode:
+Desktop control is opt-in and dry-run oriented by default:
 
 ```bash
 chimera-pilot run "click submit button" --enable-desktop-backend --allow-desktop-control --ghost-mode possess
 ```
 
-Live desktop control is additionally gated and requires explicit task-level `live_desktop=true`
-constraints from the caller/runtime policy path.
-
-The main control-plane CLI exposes Chimera Pilot as well:
+Live desktop mutation requires the live backend flag, possess mode, explicit caller/runtime constraints, and bounded session limits:
 
 ```bash
-ghostchimera --config-show
-ghostchimera --pilot-status
-ghostchimera --pilot-run "python: print(2 + 3)" --allow-python
+chimera-pilot run "live desktop: click submit button" --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess
 ```
 
-## Safety and policy enforcement
+For unattended or high-impact use, run Ghost Chimera inside an external sandbox such as a container, VM, or locked-down service account. See `SECURITY.md`.
 
-Ghost Chimera uses a multi-layer safety system:
+## Chimera Pilot Backends
 
-### ExecutionPolicy (binary gating)
+Built-in backends currently include:
 
-- network-requiring tasks are blocked unless explicitly allowed
-- local Python and test execution are blocked unless explicitly allowed
-- desktop control tasks are blocked unless explicitly allowed and `ghost_mode=possess`
-- Python execution uses restricted environment, isolated interpreter, bounded timeout, and AST-level rejection of high-risk calls
+- `DeterministicBackend` for CI, smoke checks, and fallback testing.
+- `PythonRuntimeBackend` for explicitly allowed local Python and unittest execution.
+- `CWRBackend` for SQLite-backed local memory retrieval.
+- `MCPBackend` for MCP-style tool execution.
+- `LlamaCppBackend` for optional GGUF reasoning through a local model path.
+- `PyQPanda3Backend` for optional pyqpanda3 simulator tasks.
+- `DesktopRuntimeBackend` for dry-run desktop control and gated live desktop control.
 
-### MaterialRegistry (policy patterns)
+The backend contract is intentionally small: every backend advertises capabilities, probes health, estimates fit, and executes a normalized `TaskSpec`.
 
-Seven inline policy patterns derived from OWASP MCP Top-10 and guardrails research:
+## Extension Surfaces
 
-| Pattern | Purpose |
-|---------|---------|
-| `strict_factual` | Require strong confidence and evidence-backed claims |
-| `brainstorm` | Allow exploratory output with hedge/abstention tagging |
-| `medical_cautious` | Conservative with strong source requirements |
-| `code_review` | Balanced review policy with constrained confidence |
-| `mcp_security` | Hardened against token theft, scope creep, tool poisoning |
-| `prompt_injection_hardened` | Treats contextual metadata as potentially tainted |
-| `research_factcheck` | Evidence-first with contradiction checks and abstention |
+The `0.3.0-beta` line closes the main OpenClaw parity gaps with concrete extension contracts:
 
-### PolicyEnforcer (unified gate)
+- `HookRegistry` with `before_tool_call`, `after_tool_call`, `llm_input`, and `llm_output` lifecycle events.
+- `ToolMiddlewareChain` for normalizing, truncating, and wrapping tool results before they enter agent context.
+- `PluginManifest` and `PluginLoader` for declaring plugin capabilities, activation rules, and contracts.
+- `BackgroundService` and `ServiceRegistry` for long-running components with `start`, `stop`, `probe`, and `status`.
+- `ApprovalHandler` and `ApprovalPolicy` for human-reviewable tool calls.
+- `SSRFPolicy` and `NetworkDispatcher` for fail-closed outbound network requests.
+- `AuthProfile`, `OAuthCredential`, and `ExternalAuthProvider` for provider credential assembly.
+- Media provider interfaces for image generation, speech, web search, web fetch, media understanding, and document extraction.
+- `ModelCatalogEntry` for known model pricing/context metadata used by scheduling and routing.
 
-Combines MaterialRegistry checks with PilotPolicy validation, returning a combined enforcement result with material scan data, pilot check status, and security warnings.
+## Confidence, Verification, And Results
 
-### Security defaults
+Results move through `ResultEnvelope` with confidence, provenance, claims, warnings, constraints, and metadata. The verification layer checks structural output, expected keys/files, command status, provenance, confidence thresholds, claim support, and hallucination indicators.
 
-- dangerous execution surfaces are documented in `SECURITY.md`
-- These protections reduce accidental risk but are not a substitute for container or VM isolation
+The cognition layer exposes confidence classes:
 
-## Confidence type system
+- `ConfidentValue`
+- `ConvergeValue`
+- `ProvisionalValue`
+- `ExploreValue`
 
-Ghost Chimera tracks confidence through the Chimera Pilot pipeline:
+Confidence uses product-rule composition so multiple uncertain signals do not become falsely certain.
 
-- **ConfidentValue** — confidence >= 0.95, no hallucination allowed
-- **ConvergeValue** — confidence >= 0.6, requires multi-branch consensus
-- **ProvisionalValue** — confidence >= 0.3, revocable until contradicted
-- **ExploreValue** — confidence < 0.3, explicitly allows hallucination
+## Local Model Profiles
 
-Confidence combines via the product rule: independent uncertainties compound (`p * q`), preventing spurious high confidence from multiple moderate signals.
-
-## Result transport
-
-Results flow through `ResultEnvelope` with:
-
-- **confidence** — numerical confidence (0.0-1.0)
-- **provenance** — step-by-step trace of backends and scores
-- **claims** — extracted claims with verification status
-- **warnings** — security and confidence warnings
-- **metadata** — task metadata, attempt counts, verification results
-
-Multi-agent results merge via `merge_envelopes()` with weighted confidence combination.
-
-## Mixture of agents
-
-Ghost Chimera includes a parallel reasoning system:
-
-```python
-from ghostchimera.chimera_pilot.mixture_of_agents import MixtureOfAgents, MoAConfig
-
-moa = MixtureOfAgents(config=MoAConfig(num_agents=3))
-result = moa.vote("What is the best approach to X?")
-print(f"Consensus: {result.consensus_answer} ({result.consensus_pct:.1f}%)")
-```
-
-Each agent reasons independently from different perspectives; outputs are scored, contradictions are detected, and consensus is found via Jaccard similarity.
-
-## Semantic verification
-
-`SemanticVerifier` extends structural verification with:
-
-- **confidence threshold** — results below min_confidence are rejected
-- **provenance checks** — verifies every result has a backend trace
-- **claim verification** — checks claims against material registry gold data
-- **hallucination detection** — scans for confidence anomalies and attack patterns
-
-`ClaimExtractor` parses freeform text into structured claims:
-
-```python
-from ghostchimera.chimera_pilot.claim_extractor import ClaimExtractor
-
-extractor = ClaimExtractor()
-result = extractor.extract_and_verify("Paris is the capital of France.")
-# {claims: [...], claim_count: 1, factual_count: 1, security: {...}}
-```
-
-## Hallucination detection
-
-`HallucinationDetector` scans for four hallucination indicators:
-
-- **Branch divergence** — gate branches produce wildly different results
-- **Confidence anomalies** — unexplained confidence spikes
-- **Promotion violations** — Explore -> Confident without gate consensus
-- **Source trace gaps** — values lacking provenance
-
-## Local model profiles
-
-The local model layer exposes explicit small-model profiles for constrained hardware:
-
-- `tiny` - Qwen2.5 0.5B instruct GGUF, q4, designed for the 4 GB RAM target.
-- `balanced` - SmolLM2 1.7B instruct GGUF, q4, still lightweight.
-- `stronger` - Phi-3.5 mini instruct, q4, for machines with more available memory.
-
-Set `GHOSTCHIMERA_MODEL_PROVIDER=minimind` and `MINIMIND_MODEL_PROFILE=tiny` to use the minimind-compatible provider once a matching runtime is installed.
-
-For GGUF models, use the optional llama.cpp-compatible runtime:
+Small local model profiles are exposed for constrained hardware:
 
 ```bash
 chimera-pilot model-profiles
+```
+
+Profiles include `tiny`, `balanced`, and `stronger`. GGUF execution requires a compatible `llama_cpp` runtime and an explicit model path:
+
+```bash
 chimera-pilot status --local-model-path C:\models\qwen2.5-0.5b-instruct-q4.gguf --local-model-profile tiny
 chimera-pilot run "explain the current project" --local-model-path C:\models\qwen2.5-0.5b-instruct-q4.gguf --local-model-profile tiny
 ```
 
-The base package does not install heavy local inference dependencies. Install a compatible `llama_cpp` runtime separately before using `--local-model-path`.
+## Release Validation
 
-## Conscious workspace
-
-Ghost Chimera includes inspectable consciousness-inspired state primitives:
-
-- `SelfModel` for identity, capabilities, limits, and active goals.
-- `WorkingMemory` for task evidence and reflections.
-- `AttentionController` for relevance/trust/recency ranking.
-- `ReflectionEngine` for post-action learning records.
-
-These are engineering surfaces for agent state and evaluation. They are not claims of subjective experience.
-
-## Clean-room boundary
-
-Chimera Pilot is inspired by public systems architecture patterns from resource orchestration and quantum/classical scheduling. It does not copy proprietary Origin Pilot code, binaries, private APIs, private endpoints, UI assets, or licensed files. See `docs/CLEAN_ROOM.md`.
-
-## Project status
-
-Current release status: **beta**.
-
-Appropriate uses:
-
-- local experimentation;
-- backend scheduling research;
-- agent runtime prototyping;
-- testable extension work;
-- parallel batch orchestration;
-- mixture-of-agents reasoning;
-- MCP gateway and credential pooling;
-- optional quantum simulator integration;
-- confidence-aware result validation;
-- policy-pattern security scanning.
-
-Not appropriate yet:
-
-- unattended production automation;
-- executing untrusted code without external sandboxing;
-- claims of AGI or fully autonomous operation;
-- commercial/enterprise deployment without additional security review.
-
-## Development
-
-Run the built-in suite:
-
-```bash
-python -m unittest tests.test_chimera_pilot tests.test_release_package -v
-```
-
-Run the expanded test suite (all components):
-
-```bash
-python -m pytest tests/ -v
-```
-
-Run lint checks:
-
-```bash
-ruff check .
-```
-
-Run compile checks:
-
-```bash
-python -m compileall ghostchimera tests
-```
-
-Run the release gate:
+Before publishing or tagging a release, run:
 
 ```bash
 python scripts/validate_release.py
-```
-
-Run built-in eval suites:
-
-```bash
+python -m pytest -q
+python -m build
 python -m ghostchimera.evals run --suite smoke
 python -m ghostchimera.evals run --suite safety
 ```
+
+For package validation, install the built wheel into a fresh virtual environment and smoke the console entry points:
+
+```bash
+python -m ghostchimera.control_plane.cli --help
+python -m ghostchimera.chimera_pilot.cli --help
+python -m ghostchimera.evals run --suite safety
+```
+
+## Documentation
+
+- `CHIMERA_PILOT.md` - focused Chimera Pilot usage and backend notes.
+- `docs/ARCHITECTURE.md` - layered architecture and runtime convergence.
+- `docs/CLEAN_ROOM.md` - clean-room implementation boundary.
+- `docs/DESKTOP_CONTROL_HANDOFF.md` - desktop control policy and handoff notes.
+- `docs/MISSING_IMPLEMENTATIONS.md` - beta wiring audit.
+- `docs/RELEASE_CHECKLIST.md` - release checks and manual verification.
+- `SECURITY.md` - supported status, high-risk capabilities, and hardening guidance.
+
+## Appropriate Uses
+
+- Local agent-runtime experimentation.
+- Backend scheduling and fallback research.
+- Safety-gated tool/runtime prototyping.
+- Local memory and model-profile experiments.
+- Batch orchestration and subagent workflow development.
+- MCP gateway and credential-pool integration work.
+- Release-gated extension development.
+
+## Not Appropriate Yet
+
+- Unattended production automation without external isolation and review.
+- Executing untrusted prompts, repositories, or code on a host machine.
+- Claims of AGI, subjective consciousness, or fully autonomous operation.
+- Commercial or enterprise deployment without additional security hardening.
+- Treating optional simulator support as access to a proprietary quantum OS.
+
+## Development
+
+```bash
+python -m pytest tests/ -v
+ruff check .
+python -m compileall ghostchimera tests
+python scripts/validate_release.py
+```
+
+The CI workflow runs the release gate and package build across Ubuntu, Windows, and macOS for Python 3.11, 3.12, and 3.13.

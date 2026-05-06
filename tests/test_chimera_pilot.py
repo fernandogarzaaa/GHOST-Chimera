@@ -406,7 +406,7 @@ class ChimeraPilotStateTransitionTests(unittest.TestCase):
             self.assertEqual(len(payload["replay_bundles"]), 1)
 
     def test_executor_records_terminal_checkpoint(self) -> None:
-        class StubCheckpointManager:
+        class RecordingCheckpointManager:
             def __init__(self) -> None:
                 self.descriptions: list[str] = []
 
@@ -416,7 +416,7 @@ class ChimeraPilotStateTransitionTests(unittest.TestCase):
 
         backend = DeterministicBackend("ok", output="done")
         scheduler = ChimeraScheduler([backend])
-        ckpt = StubCheckpointManager()
+        ckpt = RecordingCheckpointManager()
         executor = ChimeraPilotExecutor(scheduler, checkpoint_manager=ckpt)
         task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
         execution = executor.execute(task)
@@ -425,7 +425,7 @@ class ChimeraPilotStateTransitionTests(unittest.TestCase):
         self.assertIn("committed:", ckpt.descriptions[0])
 
     def test_executor_records_outcome_in_outcome_store(self) -> None:
-        class StubOutcomeStore:
+        class RecordingOutcomeStore:
             def __init__(self) -> None:
                 self.rows: list[dict] = []
 
@@ -435,7 +435,7 @@ class ChimeraPilotStateTransitionTests(unittest.TestCase):
 
         backend = DeterministicBackend("ok", output="done")
         scheduler = ChimeraScheduler([backend])
-        store = StubOutcomeStore()
+        store = RecordingOutcomeStore()
         executor = ChimeraPilotExecutor(scheduler, outcome_store=store)
         task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
         execution = executor.execute(task)
@@ -444,7 +444,7 @@ class ChimeraPilotStateTransitionTests(unittest.TestCase):
         self.assertEqual(store.rows[0]["backend_id"], "ok")
 
     def test_executor_uses_historical_success_rate_for_strategy(self) -> None:
-        class StubOutcomeStore:
+        class HistoricalOutcomeStore:
             def recent_outcomes(self, limit=100):
                 return [
                     {"task_kind": "reasoning", "success": False},
@@ -457,7 +457,7 @@ class ChimeraPilotStateTransitionTests(unittest.TestCase):
 
         backend = DeterministicBackend("ok", output="done")
         scheduler = ChimeraScheduler([backend, DeterministicBackend("ok2", output="done"), DeterministicBackend("ok3", output="done")])
-        executor = ChimeraPilotExecutor(scheduler, outcome_store=StubOutcomeStore())
+        executor = ChimeraPilotExecutor(scheduler, outcome_store=HistoricalOutcomeStore())
         task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
         execution = executor.execute(task)
         bundle = execution.to_replay_bundle()

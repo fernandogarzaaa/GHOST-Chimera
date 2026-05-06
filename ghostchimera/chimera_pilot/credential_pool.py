@@ -188,10 +188,10 @@ class CredentialPool:
     def get_credential(self, provider: str) -> CredentialEntry | None:
         """Get credential for a provider, checking availability.
 
-        If the entry carries an ``oauth_token`` and is expired, an OAuth
-        refresh is attempted (via :class:`~ghostchimera.model_layer.auth_profiles.OAuthCredential`).
-        The refresh is a no-op stub today — it logs a warning and returns
-        ``None`` — but the hook is in place for future OAuth flows.
+        If the entry carries an ``oauth_token`` and is expired, refresh is
+        delegated to a registered
+        :class:`~ghostchimera.model_layer.auth_profiles.ExternalAuthProvider`.
+        Without a registered provider, expired OAuth credentials fail closed.
         """
         with self._lock:
             entry = self._creds.get(provider)
@@ -203,7 +203,8 @@ class CredentialPool:
                 has_auth_provider = provider in self._auth_providers
             if has_auth_provider:
                 return self.refresh_credential(provider)
-            # Attempt OAuth refresh (stub — raises NotImplementedError in practice)
+            # OAuth token exchange is provider-specific. Without a registered
+            # ExternalAuthProvider, fail closed instead of returning stale auth.
             try:
                 from ..model_layer.auth_profiles import OAuthCredential
                 oauth = OAuthCredential(
@@ -222,9 +223,9 @@ class CredentialPool:
                 with self._lock:
                     self._creds[provider] = new_entry
                 return new_entry
-            except NotImplementedError:
+            except RuntimeError:
                 logger.warning(
-                    "OAuth token for %s is expired and no refresh implementation is available", provider
+                    "OAuth token for %s is expired and no external auth provider is registered", provider
                 )
                 return None
             except Exception as exc:

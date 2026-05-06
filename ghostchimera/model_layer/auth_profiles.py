@@ -84,8 +84,10 @@ class OAuthCredential:
     that unblocks future OAuth support without coupling providers to a
     specific flow library today.
 
-    Call :meth:`refresh` to renew an expired token.  Concrete OAuth flows
-    must subclass and override :meth:`_do_refresh`.
+    Call :meth:`refresh` to validate whether the current token is still usable.
+    Expired credentials must be refreshed through a registered
+    :class:`ExternalAuthProvider`; the credential object itself does not perform
+    network token exchange.
     """
 
     token: str
@@ -106,16 +108,16 @@ class OAuthCredential:
 
         Raises
         ------
-        NotImplementedError
-            Always, until a concrete subclass provides :meth:`_do_refresh`.
+        RuntimeError
+            If the token is expired and no external auth provider has refreshed
+            it first.
         """
-        return self._do_refresh()
-
-    def _do_refresh(self) -> OAuthCredential:
-        raise NotImplementedError(
-            "OAuthCredential.refresh() is not yet implemented. "
-            "Subclass OAuthCredential and override _do_refresh() with the "
-            "provider-specific token refresh logic."
+        if not self.is_expired:
+            return self
+        raise RuntimeError(
+            "OAuthCredential is expired. Register an ExternalAuthProvider with "
+            "CredentialPool.refresh_credential() to perform provider-specific "
+            "token refresh."
         )
 
     def to_auth_profile(self, provider: str, **kwargs) -> AuthProfile:
@@ -187,10 +189,12 @@ class ExternalAuthProvider(ABC):
         """
 
     def revoke(self, credential: OAuthCredential) -> None:
-        """Revoke a credential.  Optional — raises ``NotImplementedError`` by default."""
-        raise NotImplementedError(
-            f"{type(self).__name__}.revoke() is not implemented."
-        )
+        """Revoke a credential when the provider supports revocation.
+
+        Revocation is optional for external providers; the base behavior simply
+        returns when a provider only supports refresh.
+        """
+        return None
 
     def validate_config(self) -> list[str]:
         """Return configuration errors.  Empty list means OK."""

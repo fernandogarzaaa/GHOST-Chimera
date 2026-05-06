@@ -60,11 +60,15 @@ class AuthProfileTests(unittest.TestCase):
 
 
 class OAuthCredentialTests(unittest.TestCase):
-    def test_refresh_raises_not_implemented(self) -> None:
-        cred = OAuthCredential(token="tok")
-        with self.assertRaises(NotImplementedError) as ctx:
+    def test_refresh_returns_current_non_expired_credential(self) -> None:
+        cred = OAuthCredential(token="tok", expires_at=time.time() + 3600)
+        self.assertIs(cred.refresh(), cred)
+
+    def test_refresh_fails_closed_for_expired_credential_without_provider(self) -> None:
+        cred = OAuthCredential(token="tok", expires_at=time.time() - 1)
+        with self.assertRaises(RuntimeError) as ctx:
             cred.refresh()
-        self.assertIn("OAuthCredential.refresh()", str(ctx.exception))
+        self.assertIn("ExternalAuthProvider", str(ctx.exception))
 
     def test_to_auth_profile(self) -> None:
         cred = OAuthCredential(token="tok-xyz", expires_at=9999.0)
@@ -485,8 +489,8 @@ class CredentialPoolOAuthTests(unittest.TestCase):
         pool.add_credential("openai", api_key="sk-test", expires_at=time.time() - 100)
         self.assertIsNone(pool.get_credential("openai"))
 
-    def test_expired_oauth_credential_attempts_refresh_and_returns_none(self) -> None:
-        """Expired oauth_token triggers refresh attempt; stub returns None."""
+    def test_expired_oauth_credential_without_provider_returns_none(self) -> None:
+        """Expired oauth_token fails closed when no auth provider is registered."""
         pool = CredentialPool()
         pool.add_credential(
             "custom",
@@ -494,7 +498,7 @@ class CredentialPoolOAuthTests(unittest.TestCase):
             oauth_token="expired-token",
             expires_at=time.time() - 100,
         )
-        # OAuthCredential.refresh() raises NotImplementedError → pool returns None
+        # OAuthCredential.refresh() raises RuntimeError, so the pool returns None.
         result = pool.get_credential("custom")
         self.assertIsNone(result)
 
@@ -531,8 +535,8 @@ class BackendFallbackHookWiringTests(unittest.TestCase):
     """Verify that BACKEND_FALLBACK fires via the executor when a backend fails."""
 
     def test_fallback_hook_fires_on_backend_failure(self) -> None:
-        from ghostchimera.chimera_pilot.executor import ChimeraPilotExecutor
         from ghostchimera.chimera_pilot.backends.deterministic import DeterministicBackend
+        from ghostchimera.chimera_pilot.executor import ChimeraPilotExecutor
 
         # "a.primary" sorts before "b.fallback" so the scheduler tries it first.
         # fail=True makes it return ok=False so the executor moves on.
