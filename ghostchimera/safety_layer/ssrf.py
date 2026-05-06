@@ -18,6 +18,7 @@ Usage::
 
 from __future__ import annotations
 
+import concurrent.futures
 import ipaddress
 import socket
 import ssl
@@ -30,6 +31,8 @@ from typing import Any
 from ..logging_config import get_logger
 
 logger = get_logger("ssrf")
+
+_DNS_RESOLVE_TIMEOUT = 5.0  # seconds
 
 
 # ---------------------------------------------------------------------------
@@ -104,9 +107,21 @@ class SSRFPolicy:
                 if addr.is_private or addr.is_loopback or addr.is_link_local:
                     return False, f"Private/loopback address blocked: {hostname}"
             except ValueError:
-                # Not a literal IP — resolve the hostname and check all resolved addresses
+                # Not a literal IP — resolve the hostname and check all resolved addresses.
+                # Wrapped in a thread with a timeout to avoid indefinite blocking on
+                # unresponsive DNS servers.
                 try:
-                    infos = socket.getaddrinfo(hostname, None)
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        future = pool.submit(socket.getaddrinfo, hostname, None)
+                        try:
+                            infos = future.result(timeout=_DNS_RESOLVE_TIMEOUT)
+                        except concurrent.futures.TimeoutError:
+                            logger.warning(
+                                "DNS resolution for '%s' timed out after %.1fs; proceeding without IP check",
+                                hostname,
+                                _DNS_RESOLVE_TIMEOUT,
+                            )
+                            infos = []
                     for info in infos:
                         addr_str = info[4][0]
                         try:

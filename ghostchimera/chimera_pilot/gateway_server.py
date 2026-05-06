@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 import threading
 import time
 from collections.abc import Callable
@@ -160,9 +161,10 @@ class HttpRouteRegistry:
         if route.auth == "gateway":
             return bool(self._gateway_token) and token_header == self._gateway_token
         if route.auth == "token":
-            # Custom token — compare against the route-specific expected value.
+            # Custom token — compare against the route-specific expected value using
+            # constant-time comparison to prevent timing-based token extraction.
             # A route with no configured token always rejects requests.
-            return bool(route.token) and token_header == route.token
+            return bool(route.token) and secrets.compare_digest(token_header, route.token)
         return False
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ the pool the single authoritative credential source.
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import ssl
@@ -313,10 +314,17 @@ def get_provider(name: str, profile: AuthProfile | None = None) -> BaseProvider 
     cls = PROVIDERS.get(name)
     if cls is None:
         return None
+    # Check whether the provider's __init__ accepts a 'profile' parameter so that
+    # a TypeError inside cls(profile) (e.g. missing required args on a custom provider)
+    # is not silently swallowed by a broad except.
     try:
+        sig = inspect.signature(cls.__init__)
+        accepts_profile = "profile" in sig.parameters
+    except (ValueError, TypeError):
+        accepts_profile = True  # fall back to attempting profile injection
+    if accepts_profile:
         return cls(profile)
-    except TypeError:
-        return cls()
+    return cls()
 
 
 def register_text_provider(name: str, cls: type[BaseProvider]) -> None:
