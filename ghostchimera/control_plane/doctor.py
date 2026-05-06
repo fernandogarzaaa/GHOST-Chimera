@@ -91,6 +91,25 @@ def run_doctor(*, production: bool = False) -> int:
         _check("Safety", True, "Using defaults (all deny)")
         passed += 1
 
+    autonomy = config.get("autonomy", {})
+    level = autonomy.get("level", "supervised") if isinstance(autonomy, dict) else "supervised"
+    try:
+        from ghostchimera.chimera_pilot.autonomy import get_autonomy_profile
+        from ghostchimera.model_layer.minimind_lifecycle import MiniMindLifecycle
+
+        profile = get_autonomy_profile(str(level))
+        _check(f"Autonomy profile: {profile.name}", True)
+        passed += 1
+        minimind = MiniMindLifecycle(profile_name=profile.local_model_profile).status()
+        _check(f"MiniMind runtime: {minimind.runtime_hint}", minimind.available, "; ".join(minimind.errors))
+        if minimind.available:
+            passed += 1
+        else:
+            warned += 1
+    except Exception as exc:
+        _check("Autonomy/MiniMind status", False, f"Could not check ({exc})")
+        warned += 1
+
     # State directory
     state_dir = CONFIG_FILE.parent
     try:

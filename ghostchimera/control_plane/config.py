@@ -64,6 +64,13 @@ def get_default_config() -> dict[str, Any]:
             "allow_file_read": False,
             "allow_file_write": False,
         },
+        "autonomy": {
+            "level": "supervised",
+            "max_tool_rounds": None,
+            "max_parallel_tasks": None,
+            "local_model_profile": "",
+            "require_approval_for_high_impact": True,
+        },
     }
 
 
@@ -104,4 +111,20 @@ def config_to_env_vars(config: dict[str, Any]) -> dict[str, str]:
     env["GHOSTCHIMERA_ALLOW_FILE_READ"] = "1" if safety.get("allow_file_read") else "0"
     env["GHOSTCHIMERA_ALLOW_FILE_WRITE"] = "1" if safety.get("allow_file_write") else "0"
 
+    autonomy = config.get("autonomy", {})
+    if autonomy.get("level"):
+        env["GHOSTCHIMERA_AUTONOMY_LEVEL"] = str(autonomy["level"])
+    if autonomy.get("local_model_profile"):
+        env["GHOSTCHIMERA_LOCAL_MODEL_PROFILE"] = str(autonomy["local_model_profile"])
+
     return env
+
+
+def get_autonomy_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return persisted autonomy config merged with defaults."""
+
+    base = get_default_config()["autonomy"]
+    active = (config or load_config()).get("autonomy", {})
+    if not isinstance(active, dict):
+        active = {}
+    return {**base, **active}

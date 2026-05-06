@@ -13,7 +13,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run Ghost Chimera evaluation suites")
     subparsers = parser.add_subparsers(dest="command", required=True)
     run_parser = subparsers.add_parser("run", help="Run one suite")
-    run_parser.add_argument("--suite", default="smoke", choices=["smoke", "safety"])
+    run_parser.add_argument("--suite", default="smoke", choices=["smoke", "safety", "autonomy"])
     args = parser.parse_args(argv)
 
     if args.command == "run":

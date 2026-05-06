@@ -213,6 +213,9 @@ Ghost Chimera exposes autonomy as an operator-adjustable profile, not as a claim
 
 ```bash
 chimera-pilot autonomy-profiles
+ghostchimera autonomy jobs
+ghostchimera autonomy run repair-preview
+ghostchimera minimind status
 chimera-pilot status --autonomy-level supervised --include-deterministic-backend
 chimera-pilot run "retrieve project memory" --autonomy-level autonomous --memory-db .ghostchimera-memory.sqlite3 --include-deterministic-backend
 ```
@@ -225,6 +228,22 @@ Profiles:
 - `generalist` is the highest local-first beta profile with MoA-style strategy selection and preview-only self-improvement posture.
 
 `GHOSTCHIMERA_AUTONOMY_LEVEL` sets the default profile. The aliases `agi` and `sgi` are accepted as operator shorthand for `generalist`, but Ghost Chimera still does not claim AGI, subjective consciousness, or fully autonomous operation.
+
+The main control-plane CLI can persist operator defaults in `~/.ghostchimera/config.json`:
+
+```bash
+ghostchimera autonomy show
+ghostchimera autonomy set --level autonomous --local-model-profile stronger
+```
+
+Profile-aware jobs include `self-audit`, `dependency-scan`, `test-regression`, `memory-refresh`, `model-health-check`, and `repair-preview`. Conservative profiles return preview plans for high-impact jobs. `autonomous` and `generalist` may run bounded checks when the caller passes `--execute`, but source mutation, training, network access, Python execution, shell execution, and desktop control still require their existing policy opt-ins and production guardrails.
+
+MiniMind helpers provide lightweight local runtime status, dataset generation, and low-confidence logging:
+
+```bash
+ghostchimera minimind dataset --prompt "Summarize this finding" --response "..."
+ghostchimera minimind log-failure --prompt "..." --response "..." --confidence 0.2
+```
 
 ## Release Validation
 

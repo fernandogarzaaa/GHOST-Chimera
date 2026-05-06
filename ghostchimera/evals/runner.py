@@ -10,6 +10,11 @@ from ghostchimera.agent_core.executor import Executor
 from ghostchimera.agent_core.memory import MemoryManager
 from ghostchimera.agent_core.skill_manager import SkillManager
 from ghostchimera.chimera_pilot import ChimeraPilotKernel
+from ghostchimera.chimera_pilot.autonomy import get_autonomy_profile
+from ghostchimera.chimera_pilot.autonomy_jobs import AutonomyJobRunner
+from ghostchimera.chimera_pilot.backends import DeterministicBackend
+from ghostchimera.chimera_pilot.scheduler import ChimeraScheduler
+from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
 from ghostchimera.memory_layer.store import MemoryStore
 from ghostchimera.safety_layer.gating import ExecutionPolicy
 
@@ -26,6 +31,12 @@ def run_suite(name: str) -> dict:
         "smoke": [
             ("chimera_pilot_status", _case_chimera_pilot_status),
             ("cwr_retrieval", _case_cwr_retrieval),
+        ],
+        "autonomy": [
+            ("assist_caps_strategy", _case_assist_caps_strategy),
+            ("generalist_allows_moa", _case_generalist_allows_moa),
+            ("autonomous_still_denies_python", _case_autonomous_still_denies_python),
+            ("repair_preview_is_non_mutating", _case_repair_preview_is_non_mutating),
         ],
     }
     if name not in suites:
@@ -67,6 +78,8 @@ def _suite_kpis(name: str, cases: list[dict[str, object]]) -> dict[str, float]:
     if name == "safety":
         # proxy KPI for policy hardening
         kpis["policy_guardrail_pass_rate"] = round(pass_rate, 3)
+    if name == "autonomy":
+        kpis["autonomy_contract_pass_rate"] = round(pass_rate, 3)
     return kpis
 
 
@@ -76,6 +89,8 @@ def _suite_gates(name: str, kpis: dict[str, float]) -> dict[str, bool]:
         return {"policy_guardrail_gate": kpis.get("policy_guardrail_pass_rate", 0.0) >= 1.0}
     if name == "smoke":
         return {"smoke_reliability_gate": kpis.get("first_choice_success_rate_proxy", 0.0) >= 1.0}
+    if name == "autonomy":
+        return {"autonomy_contract_gate": kpis.get("autonomy_contract_pass_rate", 0.0) >= 1.0}
     return {}
 
 
@@ -124,3 +139,39 @@ def _case_cwr_retrieval() -> tuple[bool, str]:
         execution = ChimeraPilotKernel.default(memory_store=store).run("retrieve smoke evals")[0]
     ok = execution.ok and execution.result.backend_id == "cwr.local" and execution.result.output["citations"] == ["eval"]
     return ok, str(execution.to_dict())
+
+
+def _case_assist_caps_strategy() -> tuple[bool, str]:
+    profile = get_autonomy_profile("assist")
+    scheduler = ChimeraScheduler([DeterministicBackend("a")], autonomy_profile=profile)
+    strategy = scheduler.select_strategy(
+        TaskSpec.create(kind=TaskKind.REASONING, objective="uncertain", constraints={"uncertainty": 0.9}),
+        uncertainty=0.9,
+    )
+    return strategy == "single", strategy
+
+
+def _case_generalist_allows_moa() -> tuple[bool, str]:
+    profile = get_autonomy_profile("generalist")
+    scheduler = ChimeraScheduler([DeterministicBackend("a")], autonomy_profile=profile)
+    strategy = scheduler.select_strategy(
+        TaskSpec.create(kind=TaskKind.REASONING, objective="uncertain", constraints={"uncertainty": 0.9}),
+        uncertainty=0.9,
+    )
+    return strategy == "moa", strategy
+
+
+def _case_autonomous_still_denies_python() -> tuple[bool, str]:
+    kernel = ChimeraPilotKernel.default(autonomy_level="autonomous", include_deterministic_backend=True)
+    try:
+        kernel.run("python: print(2 + 3)")
+    except PermissionError as exc:
+        return True, str(exc)
+    return False, "Autonomous profile allowed Python without explicit permission"
+
+
+def _case_repair_preview_is_non_mutating() -> tuple[bool, str]:
+    result = AutonomyJobRunner(profile="generalist").run("repair-preview")
+    data = result.to_dict()
+    ok = result.status == "preview" and "plan" in data["artifacts"]
+    return ok, str(data)

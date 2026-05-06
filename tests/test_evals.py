@@ -30,14 +30,21 @@ class EvaluationHarnessTests(unittest.TestCase):
         completed = subprocess.run(
             [sys.executable, "-m", "ghostchimera.evals", "run", "--suite", "safety"],
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=False,
             timeout=30,
         )
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertTrue(json.loads(completed.stdout)["ok"])
+
+    def test_autonomy_suite_reports_profile_contracts(self) -> None:
+        report = run_suite("autonomy")
+
+        self.assertTrue(report["ok"])
+        self.assertGreaterEqual(report["passed"], 4)
+        self.assertIn("autonomy_contract_pass_rate", report["kpis"])
+        self.assertTrue(report["gates"]["autonomy_contract_gate"])
 
 
 if __name__ == "__main__":

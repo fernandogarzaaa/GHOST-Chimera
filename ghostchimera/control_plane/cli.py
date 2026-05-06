@@ -18,6 +18,7 @@ import sys
 from ..agent_core.core import AgentCore
 from ..config import GhostChimeraConfig
 from ..logging_config import ensure_configured, get_logger
+from .config import get_autonomy_config, load_config, save_config
 
 logger = get_logger("cli")
 
@@ -58,6 +59,22 @@ def _main(argv: list[str] | None = None) -> int:
     doctor_parser.add_argument("--production", action="store_true", help="Require production deployment guardrails.")
     sub.add_parser("model", help="List and switch the current model provider")
     sub.add_parser("policy", help="Manage security policies")
+    autonomy_parser = sub.add_parser("autonomy", help="Show, set, and run autonomy controls")
+    autonomy_parser.add_argument("action", choices=["show", "set", "jobs", "run"], nargs="?", default="show")
+    autonomy_parser.add_argument("job", nargs="?", default="", help="Job name for 'run'")
+    autonomy_parser.add_argument("--level", choices=["assist", "supervised", "autonomous", "generalist", "agi", "sgi"])
+    autonomy_parser.add_argument("--max-tool-rounds", type=int)
+    autonomy_parser.add_argument("--max-parallel-tasks", type=int)
+    autonomy_parser.add_argument("--local-model-profile", choices=["tiny", "balanced", "stronger"])
+    autonomy_parser.add_argument("--execute", action="store_true", help="Allow jobs that otherwise return preview-only plans.")
+    minimind_parser = sub.add_parser("minimind", help="Inspect MiniMind local runtime support")
+    minimind_parser.add_argument("action", choices=["status", "dataset", "log-failure"], nargs="?", default="status")
+    minimind_parser.add_argument("--profile", default="", help="MiniMind/local model profile.")
+    minimind_parser.add_argument("--output", default="", help="Output JSONL path.")
+    minimind_parser.add_argument("--prompt", default="", help="Prompt/instruction text.")
+    minimind_parser.add_argument("--response", default="", help="Response/output text.")
+    minimind_parser.add_argument("--confidence", type=float, default=0.0)
+    minimind_parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument(
         "--log-level",
         default="INFO",
@@ -124,6 +141,12 @@ def _main(argv: list[str] | None = None) -> int:
 
         return _policy_main()
 
+    if args.command == "autonomy":
+        return _run_autonomy_cli(args)
+
+    if args.command == "minimind":
+        return _run_minimind_cli(args)
+
     if args.config_show:
         print(json.dumps(GhostChimeraConfig.from_env().to_dict(), indent=2, sort_keys=True))
         return 0
@@ -131,6 +154,8 @@ def _main(argv: list[str] | None = None) -> int:
     if args.pilot_status or args.pilot_run:
         from ..chimera_pilot import ChimeraPilotKernel
 
+        persisted_autonomy = get_autonomy_config(load_config())
+        autonomy_level = args.autonomy_level or str(persisted_autonomy.get("level") or "supervised")
         kernel = ChimeraPilotKernel.default(
             include_deterministic_backend=args.pilot_status,
             include_quantum_backend=args.include_quantum_backend,
@@ -145,7 +170,7 @@ def _main(argv: list[str] | None = None) -> int:
             desktop_max_live_actions=args.desktop_max_actions,
             desktop_max_session_seconds=args.desktop_max_duration_seconds,
             ghost_mode=args.ghost_mode or "whisper",
-            autonomy_level=args.autonomy_level or None,
+            autonomy_level=autonomy_level,
         )
         if args.pilot_status:
             print(json.dumps(kernel.status(), indent=2, sort_keys=True))
@@ -161,6 +186,76 @@ def _main(argv: list[str] | None = None) -> int:
 
     run_cli()
     return 0
+
+
+def _run_autonomy_cli(args: argparse.Namespace) -> int:
+    from ..chimera_pilot.autonomy import get_autonomy_profile, list_autonomy_profiles
+    from ..chimera_pilot.autonomy_jobs import AutonomyJobRunner
+
+    config = load_config()
+    autonomy = get_autonomy_config(config)
+
+    if args.action == "show":
+        profile = get_autonomy_profile(str(autonomy.get("level") or "supervised"))
+        print(json.dumps({"config": autonomy, "resolved_profile": profile.to_dict()}, indent=2, sort_keys=True))
+        return 0
+
+    if args.action == "set":
+        if args.level:
+            autonomy["level"] = args.level
+        if args.max_tool_rounds is not None:
+            autonomy["max_tool_rounds"] = args.max_tool_rounds
+        if args.max_parallel_tasks is not None:
+            autonomy["max_parallel_tasks"] = args.max_parallel_tasks
+        if args.local_model_profile:
+            autonomy["local_model_profile"] = args.local_model_profile
+        config["autonomy"] = autonomy
+        save_config(config)
+        profile = get_autonomy_profile(str(autonomy.get("level") or "supervised"))
+        print(json.dumps({"ok": True, "config": autonomy, "resolved_profile": profile.to_dict()}, indent=2, sort_keys=True))
+        return 0
+
+    if args.action == "jobs":
+        print(json.dumps({"profiles": [p.to_dict() for p in list_autonomy_profiles()], "jobs": AutonomyJobRunner.list_jobs()}, indent=2, sort_keys=True))
+        return 0
+
+    if args.action == "run":
+        if not args.job:
+            print(json.dumps({"ok": False, "error": "Missing autonomy job name"}, indent=2, sort_keys=True))
+            return 2
+        runner = AutonomyJobRunner(profile=str(autonomy.get("level") or "supervised"))
+        result = runner.run(args.job, execute=args.execute)
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0 if result.ok else 1
+
+    return 2
+
+
+def _run_minimind_cli(args: argparse.Namespace) -> int:
+    from ..model_layer.minimind_lifecycle import MiniMindLifecycle
+
+    lifecycle = MiniMindLifecycle(profile_name=args.profile or None)
+    if args.action == "status":
+        print(json.dumps(lifecycle.status().to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.action == "dataset":
+        path = lifecycle.generate_dataset(
+            [{"prompt": args.prompt, "response": args.response}],
+            output_path=args.output or None,
+        )
+        print(json.dumps({"ok": True, "path": str(path)}, indent=2, sort_keys=True))
+        return 0
+    if args.action == "log-failure":
+        logged = lifecycle.log_low_confidence(
+            prompt=args.prompt,
+            response=args.response,
+            confidence=args.confidence,
+            threshold=args.threshold,
+            output_path=args.output or None,
+        )
+        print(json.dumps({"ok": True, "logged": logged}, indent=2, sort_keys=True))
+        return 0
+    return 2
 
 
 if __name__ == "__main__":  # pragma: no cover
