@@ -108,20 +108,25 @@ class SSRFPolicy:
                     return False, f"Private/loopback address blocked: {hostname}"
             except ValueError:
                 # Not a literal IP — resolve the hostname and check all resolved addresses.
-                # Wrapped in a thread with a timeout to avoid indefinite blocking on
-                # unresponsive DNS servers.
+                # Use a short-lived executor that is shut down without waiting so that
+                # a blocked socket.getaddrinfo call cannot stall the caller after the
+                # timeout fires.
+                pool = None
                 try:
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                        future = pool.submit(socket.getaddrinfo, hostname, None)
-                        try:
-                            infos = future.result(timeout=_DNS_RESOLVE_TIMEOUT)
-                        except concurrent.futures.TimeoutError:
-                            logger.warning(
-                                "DNS resolution for '%s' timed out after %.1fs; proceeding without IP check",
-                                hostname,
-                                _DNS_RESOLVE_TIMEOUT,
-                            )
-                            infos = []
+                    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                    future = pool.submit(socket.getaddrinfo, hostname, None)
+                    try:
+                        infos = future.result(timeout=_DNS_RESOLVE_TIMEOUT)
+                    except concurrent.futures.TimeoutError:
+                        # Fail closed: deny the request rather than skipping the IP
+                        # check, because a slow/unresponsive DNS server should not
+                        # be exploitable as an SSRF bypass.
+                        logger.warning(
+                            "DNS resolution for '%s' timed out after %.1fs; denying request",
+                            hostname,
+                            _DNS_RESOLVE_TIMEOUT,
+                        )
+                        return False, f"DNS resolution timed out for hostname: {hostname}"
                     for info in infos:
                         addr_str = info[4][0]
                         try:
@@ -135,6 +140,11 @@ class SSRFPolicy:
                             pass
                 except OSError:
                     pass  # DNS resolution failed; proceed to pattern checks
+                finally:
+                    # Shut down without waiting so a still-running getaddrinfo thread
+                    # does not block the caller.
+                    if pool is not None:
+                        pool.shutdown(wait=False, cancel_futures=True)
 
         with self._lock:
             denied = list(self._denied)
