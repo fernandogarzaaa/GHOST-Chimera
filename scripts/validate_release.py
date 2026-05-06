@@ -105,7 +105,7 @@ def check_compileall() -> dict[str, Any]:
 
 
 def check_beta_features() -> dict[str, Any]:
-    """Check that all v0.2.0 beta features exist."""
+    """Check that all v0.3.0 beta features exist."""
     errors: list[str] = []
 
     # rate_limiter.py
@@ -167,8 +167,8 @@ def check_beta_features() -> dict[str, Any]:
     init_py = ROOT / "ghostchimera" / "__init__.py"
     if init_py.exists():
         content = init_py.read_text()
-        if "0.2.0-beta" not in content:
-            errors.append("version not 0.2.0-beta in __init__.py")
+        if "0.3.0-beta" not in content:
+            errors.append("version not 0.3.0-beta in __init__.py")
 
     return {"ok": not errors, "errors": errors}
 

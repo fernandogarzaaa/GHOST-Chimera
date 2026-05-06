@@ -164,7 +164,7 @@ class HttpRouteRegistry:
             # Custom token — compare against the route-specific expected value using
             # constant-time comparison to prevent timing-based token extraction.
             # A route with no configured token always rejects requests.
-            return bool(route.token) and secrets.compare_digest(token_header, route.token)
+            return bool(route.token) and bool(token_header) and secrets.compare_digest(token_header, route.token)
         return False
 
 # ---------------------------------------------------------------------------

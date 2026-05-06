@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ghostchimera"
-version = "0.2.0-beta"
+version = "0.3.0-beta"
 description = "Local-first agent orchestration prototype with Chimera Pilot scheduling and runtime control."
 readme = "README.md"
 requires-python = ">=3.11"

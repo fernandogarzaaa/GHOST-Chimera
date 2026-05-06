@@ -264,10 +264,10 @@ class CronScheduler(BackgroundService):
         with self._lock:
             job_count = len(self.jobs)
             enabled = sum(1 for j in self.jobs.values() if j.enabled)
-        running = self._running and self._thread is not None and self._thread.is_alive()
+            running = self._running and self._thread is not None and self._thread.is_alive()
         return ServiceHealth(
             ok=running,
-            state="running" if self._running else "stopped",
+            state="running" if running else "stopped",
             details={"job_count": job_count, "enabled_count": enabled},
         )
 
