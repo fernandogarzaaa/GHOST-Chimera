@@ -56,6 +56,7 @@ class GhostChimeraConfig:
                 "allowed_roots": list(self.policy.allowed_roots),
                 "shell_timeout_seconds": self.policy.shell_timeout_seconds,
                 "output_limit_bytes": self.policy.output_limit_bytes,
+                "production": self.policy.production_guardrails.to_dict(),
             },
             "local_model": {
                 "path": self.local_model_path,

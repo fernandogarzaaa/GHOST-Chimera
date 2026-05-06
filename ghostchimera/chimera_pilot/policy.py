@@ -8,6 +8,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..safety_layer.production import ProductionGuardrails
 from .task_ir import TaskKind, TaskSpec
 
 
@@ -37,6 +38,7 @@ class PilotPolicy:
     default_max_cost_usd: float = 0.0
     max_python_timeout_seconds: int = 30
     allowed_hosts: tuple[str, ...] = field(default_factory=tuple)
+    production_guardrails: ProductionGuardrails = ProductionGuardrails()
     """Allowlisted hostname glob patterns for SSRF policy.
 
     When non-empty, network tasks are restricted to these hosts only.
@@ -73,6 +75,8 @@ class PilotPolicy:
 
         if task.requires_network and not self.allow_network:
             raise PermissionError("Task requires network access, but network execution is disabled by policy")
+        if task.requires_network:
+            self._require_production_ready(task, "network execution")
 
         # SSRF check (Gap 9) — when allowed_hosts is set, build a per-task SSRFPolicy
         if task.requires_network and self.allow_network and self.allowed_hosts:
@@ -89,6 +93,7 @@ class PilotPolicy:
         if task.kind in {TaskKind.PYTHON, TaskKind.TEST_RUN}:
             if not self.allow_python_execution:
                 raise PermissionError("Local Python/test execution is disabled by policy")
+            self._require_production_ready(task, "local Python/test execution")
             timeout = int(task.constraints.get("timeout_seconds", self.max_python_timeout_seconds))
             if timeout > self.max_python_timeout_seconds:
                 raise PermissionError(
@@ -106,6 +111,8 @@ class PilotPolicy:
             raise PermissionError("Desktop control is disabled by policy")
         if task.kind == TaskKind.DESKTOP_CONTROL and self.ghost_mode != "possess":
             raise PermissionError("Desktop control requires ghost_mode=possess")
+        if task.kind == TaskKind.DESKTOP_CONTROL:
+            self._require_production_ready(task, "desktop control")
 
         max_cost = task.max_cost_usd
         if max_cost is None:
@@ -123,6 +130,7 @@ class PilotPolicy:
             "default_max_cost_usd": self.default_max_cost_usd,
             "max_python_timeout_seconds": self.max_python_timeout_seconds,
             "allowed_hosts": list(self.allowed_hosts),
+            "production": self.production_guardrails.to_dict(),
         }
 
     @classmethod
@@ -134,7 +142,16 @@ class PilotPolicy:
             allow_quantum_simulation=True,
             allow_desktop_control=True,
             ghost_mode="possess",
+            production_guardrails=ProductionGuardrails(),
         )
+
+    def _require_production_ready(self, task: TaskSpec, surface: str) -> None:
+        task_payload = {
+            "trusted": task.constraints.get("trusted"),
+            "untrusted": task.constraints.get("untrusted"),
+        }
+        self.production_guardrails.require_ready(surface)
+        self.production_guardrails.reject_untrusted_task(task_payload, surface)
 
     @staticmethod
     def _normalize_text(value: str) -> str:

@@ -9,6 +9,7 @@ python scripts/validate_release.py
 python -m build
 python -m ghostchimera.evals run --suite smoke
 python -m ghostchimera.evals run --suite safety
+GHOSTCHIMERA_DEPLOYMENT_MODE=production GHOSTCHIMERA_EXTERNAL_ISOLATION=container GHOSTCHIMERA_SECURITY_REVIEWED=1 GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED=1 ghostchimera doctor --production
 ```
 
 The release gate, package build, and built-in eval suites must pass before tagging.

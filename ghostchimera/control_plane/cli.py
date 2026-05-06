@@ -54,7 +54,8 @@ def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ghost Chimera CLI")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("setup", help="Run interactive setup wizard")
-    sub.add_parser("doctor", help="Run health checks and report status")
+    doctor_parser = sub.add_parser("doctor", help="Run health checks and report status")
+    doctor_parser.add_argument("--production", action="store_true", help="Require production deployment guardrails.")
     sub.add_parser("model", help="List and switch the current model provider")
     sub.add_parser("policy", help="Manage security policies")
     parser.add_argument(
@@ -109,8 +110,7 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         from .doctor import run_doctor
 
-        run_doctor()
-        return 0
+        return run_doctor(production=args.production)
 
     if args.command == "model":
         from .model_picker import run_model_picker

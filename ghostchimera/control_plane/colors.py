@@ -21,7 +21,7 @@ def color(text: str, fg: str, bold: bool = False) -> str:
 
 def print_header(title: str) -> None:
     print()
-    print(color(f"  ◆  {title}", Colors.CYAN, True))
+    print(color(f"  == {title} ==", Colors.CYAN, True))
 
 
 def print_info(msg: str) -> None:

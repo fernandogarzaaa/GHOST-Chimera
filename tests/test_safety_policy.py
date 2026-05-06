@@ -10,6 +10,7 @@ from ghostchimera.agent_core.executor import Executor
 from ghostchimera.agent_core.memory import MemoryManager
 from ghostchimera.agent_core.skill_manager import SkillManager
 from ghostchimera.safety_layer.gating import ExecutionPolicy
+from ghostchimera.safety_layer.production import ProductionGuardrails
 from ghostchimera.tool_layer.shell import run_command
 
 
@@ -86,6 +87,59 @@ class AgentCoreSafetyPolicyTests(unittest.TestCase):
     def test_direct_shell_tool_requires_policy_authorization(self) -> None:
         with self.assertRaises(PermissionError):
             run_command([sys.executable, "-c", "print('blocked')"])
+
+    def test_production_mode_blocks_shell_without_guardrails(self) -> None:
+        executor = self._executor(
+            ExecutionPolicy(
+                allow_shell=True,
+                allowed_roots=(str(self.root),),
+                production_guardrails=ProductionGuardrails(deployment_mode="production"),
+            )
+        )
+
+        result = executor.execute([{"action": "shell", "command": [sys.executable, "-c", "print('blocked')"]}])
+
+        self.assertIn("Production mode blocks shell execution", result)
+
+    def test_production_mode_allows_shell_with_isolation_review_and_approval(self) -> None:
+        executor = self._executor(
+            ExecutionPolicy(
+                allow_shell=True,
+                allowed_roots=(str(self.root),),
+                production_guardrails=ProductionGuardrails(
+                    deployment_mode="production",
+                    external_isolation="container",
+                    security_reviewed=True,
+                    human_approval_required=True,
+                    trusted_inputs_only=True,
+                ),
+            )
+        )
+
+        result = executor.execute([{"action": "shell", "command": [sys.executable, "-c", "print('safe')"]}])
+
+        self.assertEqual(result.strip(), "safe")
+
+    def test_production_mode_blocks_untrusted_shell_on_host(self) -> None:
+        executor = self._executor(
+            ExecutionPolicy(
+                allow_shell=True,
+                allowed_roots=(str(self.root),),
+                production_guardrails=ProductionGuardrails(
+                    deployment_mode="production",
+                    external_isolation="container",
+                    security_reviewed=True,
+                    human_approval_required=True,
+                    trusted_inputs_only=True,
+                ),
+            )
+        )
+
+        result = executor.execute(
+            [{"action": "shell", "command": [sys.executable, "-c", "print('blocked')"], "trusted": False}]
+        )
+
+        self.assertIn("blocks untrusted shell execution", result)
 
 
 if __name__ == "__main__":

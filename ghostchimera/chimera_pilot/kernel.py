@@ -6,6 +6,7 @@ from typing import Any
 
 from ..logging_config import get_logger
 from ..memory_layer.store import MemoryStore
+from ..safety_layer.production import ProductionGuardrails
 from .backends.cwr import CWRBackend
 from .backends.desktop_runtime import DesktopRuntimeBackend
 from .backends.deterministic import DeterministicBackend
@@ -77,6 +78,7 @@ class ChimeraPilotKernel:
             allow_network=allow_network,
             allow_desktop_control=allow_desktop_control,
             ghost_mode=ghost_mode,
+            production_guardrails=ProductionGuardrails.from_env(),
         )
         kernel = cls(policy=policy, memory_store=memory_store, hooks=hooks)
         kernel.registry.register(PythonRuntimeBackend(cwd=cwd, allowed_roots=[cwd] if cwd else None))

@@ -35,6 +35,10 @@ class GhostChimeraConfigTests(unittest.TestCase):
                     "GHOSTCHIMERA_ALLOW_FILE_WRITE": "true",
                     "GHOSTCHIMERA_ALLOW_SHELL": "true",
                     "GHOSTCHIMERA_SHELL_TIMEOUT_SECONDS": "7",
+                    "GHOSTCHIMERA_DEPLOYMENT_MODE": "production",
+                    "GHOSTCHIMERA_EXTERNAL_ISOLATION": "container",
+                    "GHOSTCHIMERA_SECURITY_REVIEWED": "true",
+                    "GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED": "true",
                     "GHOSTCHIMERA_LOCAL_MODEL_PATH": str(root / "tiny.gguf"),
                     "GHOSTCHIMERA_LOCAL_MODEL_PROFILE": "balanced",
                     "GHOSTCHIMERA_LOCAL_MODEL_GPU_LAYERS": "4",
@@ -49,6 +53,7 @@ class GhostChimeraConfigTests(unittest.TestCase):
         self.assertTrue(config.policy.allow_file_read)
         self.assertTrue(config.policy.allow_file_write)
         self.assertEqual(config.policy.shell_timeout_seconds, 7)
+        self.assertTrue(config.policy.production_guardrails.ready)
         self.assertEqual(config.local_model_profile, "balanced")
         self.assertEqual(config.local_model_gpu_layers, 4)
 
@@ -61,6 +66,7 @@ class GhostChimeraConfigTests(unittest.TestCase):
         self.assertIn("policy", payload)
         self.assertIn("local_model", payload)
         self.assertIn("ghost_mode", payload["policy"])
+        self.assertIn("production", payload["policy"])
 
     def test_control_plane_can_show_resolved_config(self) -> None:
         completed = subprocess.run(
@@ -75,6 +81,37 @@ class GhostChimeraConfigTests(unittest.TestCase):
         payload = json.loads(completed.stdout)
         self.assertIn("state_dir", payload)
         self.assertIn("policy", payload)
+
+    def test_control_plane_doctor_production_reports_missing_guardrails(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, "-m", "ghostchimera.control_plane.cli", "doctor", "--production"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("Production mode", completed.stdout)
+
+    def test_control_plane_doctor_production_passes_with_guardrails(self) -> None:
+        env = {
+            **os.environ,
+            "GHOSTCHIMERA_DEPLOYMENT_MODE": "production",
+            "GHOSTCHIMERA_EXTERNAL_ISOLATION": "container",
+            "GHOSTCHIMERA_SECURITY_REVIEWED": "1",
+            "GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED": "1",
+        }
+        completed = subprocess.run(
+            [sys.executable, "-m", "ghostchimera.control_plane.cli", "doctor", "--production"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=30,
+            env=env,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
     def test_control_plane_pilot_status_accepts_desktop_flags(self) -> None:
         completed = subprocess.run(

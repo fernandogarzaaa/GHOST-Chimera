@@ -14,6 +14,7 @@ from ghostchimera.chimera_pilot.compiler import RuleBasedTaskCompiler
 from ghostchimera.chimera_pilot.executor import ChimeraPilotExecutor, PilotRunState
 from ghostchimera.chimera_pilot.policy import PilotPolicy
 from ghostchimera.chimera_pilot.schema import validate_task
+from ghostchimera.safety_layer.production import ProductionGuardrails
 
 
 class ChimeraPilotTests(unittest.TestCase):
@@ -462,3 +463,40 @@ class ChimeraPilotStateTransitionTests(unittest.TestCase):
         execution = executor.execute(task)
         bundle = execution.to_replay_bundle()
         self.assertEqual(bundle["run"]["strategy"], "parallel")
+
+    def test_production_mode_blocks_python_without_guardrails(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-prod-pilot-") as tmp:
+            backend = PythonRuntimeBackend(cwd=tmp)
+            scheduler = ChimeraScheduler([backend])
+            policy = PilotPolicy(
+                allow_python_execution=True,
+                production_guardrails=ProductionGuardrails(deployment_mode="production"),
+            )
+            executor = ChimeraPilotExecutor(scheduler, policy=policy)
+            task = TaskSpec.create(kind=TaskKind.PYTHON, objective="python: print(1)", inputs={"code": "print(1)"})
+
+            with self.assertRaises(PermissionError) as ctx:
+                executor.execute(task)
+
+        self.assertIn("Production mode blocks local Python/test execution", str(ctx.exception))
+
+    def test_production_mode_allows_python_with_guardrails(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-prod-pilot-") as tmp:
+            backend = PythonRuntimeBackend(cwd=tmp)
+            scheduler = ChimeraScheduler([backend])
+            policy = PilotPolicy(
+                allow_python_execution=True,
+                production_guardrails=ProductionGuardrails(
+                    deployment_mode="production",
+                    external_isolation="container",
+                    security_reviewed=True,
+                    human_approval_required=True,
+                    trusted_inputs_only=True,
+                ),
+            )
+            executor = ChimeraPilotExecutor(scheduler, policy=policy)
+            task = TaskSpec.create(kind=TaskKind.PYTHON, objective="python: print(1)", inputs={"code": "print(1)"})
+
+            execution = executor.execute(task)
+
+        self.assertTrue(execution.ok, execution.result.error)

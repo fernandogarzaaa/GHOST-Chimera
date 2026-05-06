@@ -42,6 +42,23 @@ Before using Ghost Chimera for unattended production automation, add deployment-
 7. Pin dependencies and review optional providers before enabling them.
 8. Validate any local model binary path, checksum, and license before enabling local inference.
 
+Ghost Chimera enforces a runtime production-readiness contract for high-impact execution. In production mode, shell execution, local Python/test execution, file writes, network execution, and live desktop control require:
+
+```bash
+GHOSTCHIMERA_DEPLOYMENT_MODE=production
+GHOSTCHIMERA_EXTERNAL_ISOLATION=container   # or vm, service-account, sandboxed
+GHOSTCHIMERA_SECURITY_REVIEWED=1
+GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED=1
+```
+
+Validate the deployment with:
+
+```bash
+ghostchimera doctor --production
+```
+
+Host execution remains trusted-inputs-only. Do not set `GHOSTCHIMERA_ALLOW_UNTRUSTED_INPUTS=1` for high-impact production workflows.
+
 ## Reporting vulnerabilities
 
 Open a private security advisory or contact the repository maintainer. Include:

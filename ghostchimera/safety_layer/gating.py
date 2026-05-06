@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .production import ProductionGuardrails
+
 
 class PolicyViolation(PermissionError):
     """Raised when a task is blocked by Ghost Chimera policy."""
@@ -33,6 +35,7 @@ class ExecutionPolicy:
     shell_timeout_seconds: int = 10
     output_limit_bytes: int = 20_000
     ghost_mode: str = "whisper"
+    production_guardrails: ProductionGuardrails = ProductionGuardrails()
 
     @classmethod
     def from_env(cls) -> ExecutionPolicy:
@@ -58,6 +61,7 @@ class ExecutionPolicy:
             allowed_roots=roots,
             shell_timeout_seconds=int(os.environ.get("GHOSTCHIMERA_SHELL_TIMEOUT_SECONDS", "10")),
             ghost_mode=_normalize_ghost_mode(os.environ.get("GHOSTCHIMERA_GHOST_MODE", "whisper")),
+            production_guardrails=ProductionGuardrails.from_env(),
         )
 
     def authorize_task(self, task: Mapping[str, Any]) -> dict[str, Any]:
@@ -70,10 +74,12 @@ class ExecutionPolicy:
         if action == "shell":
             if not self.allow_shell:
                 raise PolicyViolation("Shell execution is disabled by policy")
+            self._require_production_ready(task, "shell execution")
             cwd = self._resolve_cwd(task)
         elif action == "http_get":
             if not self.allow_network:
                 raise PolicyViolation("Network access is disabled by policy")
+            self._require_production_ready(task, "network access")
         elif action == "read_file":
             if not self.allow_file_read:
                 raise PolicyViolation("File reads are disabled by policy")
@@ -81,6 +87,7 @@ class ExecutionPolicy:
         elif action == "write_file":
             if not self.allow_file_write:
                 raise PolicyViolation("File writes are disabled by policy")
+            self._require_production_ready(task, "file writes")
             self._require_path_under_allowed_root(str(task.get("path", "")))
 
         sanitized["_ghostchimera_policy"] = {
@@ -117,6 +124,13 @@ class ExecutionPolicy:
 
     def _resolved_roots(self) -> tuple[Path, ...]:
         return tuple(Path(root).expanduser().resolve() for root in self.allowed_roots)
+
+    def _require_production_ready(self, task: Mapping[str, Any], surface: str) -> None:
+        try:
+            self.production_guardrails.require_ready(surface)
+            self.production_guardrails.reject_untrusted_task(task, surface)
+        except PermissionError as exc:
+            raise PolicyViolation(str(exc)) from exc
 
 
 def _path_is_under_root(root: Path, path: Path) -> bool:

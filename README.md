@@ -133,6 +133,24 @@ chimera-pilot run "live desktop: click submit button" --enable-desktop-backend -
 
 For unattended or high-impact use, run Ghost Chimera inside an external sandbox such as a container, VM, or locked-down service account. See `SECURITY.md`.
 
+## Production Mode
+
+Ghost Chimera now has an explicit production-readiness contract for high-impact execution. Set `GHOSTCHIMERA_DEPLOYMENT_MODE=production` and run:
+
+```bash
+ghostchimera doctor --production
+```
+
+Production mode blocks shell execution, local Python/test execution, file writes, network execution, and live desktop control unless the deployment declares all required guardrails:
+
+```bash
+GHOSTCHIMERA_EXTERNAL_ISOLATION=container
+GHOSTCHIMERA_SECURITY_REVIEWED=1
+GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED=1
+```
+
+Accepted isolation declarations are `container`, `vm`, `service-account`, and `sandboxed`. Host execution also remains trusted-inputs-only by default; setting `GHOSTCHIMERA_ALLOW_UNTRUSTED_INPUTS=1` makes the production gate fail for high-impact local execution.
+
 ## Chimera Pilot Backends
 
 Built-in backends currently include:
@@ -224,18 +242,18 @@ python -m ghostchimera.evals run --suite safety
 - Local agent-runtime experimentation.
 - Backend scheduling and fallback research.
 - Safety-gated tool/runtime prototyping.
+- Production automation inside externally isolated, reviewed deployments that pass `ghostchimera doctor --production`.
 - Local memory and model-profile experiments.
 - Batch orchestration and subagent workflow development.
 - MCP gateway and credential-pool integration work.
 - Release-gated extension development.
 
-## Not Appropriate Yet
+## Non-Goals And Boundaries
 
-- Unattended production automation without external isolation and review.
-- Executing untrusted prompts, repositories, or code on a host machine.
-- Claims of AGI, subjective consciousness, or fully autonomous operation.
-- Commercial or enterprise deployment without additional security hardening.
-- Treating optional simulator support as access to a proprietary quantum OS.
+- Untrusted prompts, repositories, or code should run only inside external isolation, not directly on a host machine.
+- Ghost Chimera does not claim AGI, subjective consciousness, or fully autonomous operation.
+- Commercial and enterprise deployments are expected to pass production guardrails and add organization-specific controls.
+- Optional simulator support is not access to a proprietary quantum operating system.
 
 ## Development
 

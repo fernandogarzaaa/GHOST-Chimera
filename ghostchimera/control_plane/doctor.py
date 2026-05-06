@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib
 import sys
 
+from ..safety_layer.production import ProductionGuardrails
 from .colors import Colors, color, print_error, print_header, print_info, print_success, print_warning
 from .config import CONFIG_FILE, ensure_state_dir, load_config
 
@@ -17,12 +18,12 @@ def _check(label: str, ok: bool, hint: str = "") -> None:
     if ok:
         print_success(f"  [OK] {label}")
     elif hint:
-        print_warning(f"  [WARN] {label} — {hint}")
+        print_warning(f"  [WARN] {label} - {hint}")
     else:
         print_error(f"  [ERR]  {label}")
 
 
-def run_doctor() -> None:
+def run_doctor(*, production: bool = False) -> int:
     """Run health checks and report status."""
     print_header("Ghost Chimera Doctor")
     print()
@@ -114,7 +115,7 @@ def run_doctor() -> None:
         from ghostchimera.skill_layer.registry import get_registry as get_skill_registry
         registry = get_skill_registry()
         skill_problems: list[str] = []
-        for skill_name, skill in registry.list_skills().items():
+        for _skill_name, skill in registry.list_skills().items():
             if hasattr(skill, "check_requirements"):
                 problems = skill.check_requirements()
                 skill_problems.extend(problems)
@@ -129,15 +130,31 @@ def run_doctor() -> None:
         _check("Skill requirements", False, f"Could not check ({exc})")
         warned += 1
 
+    if production:
+        guardrails = ProductionGuardrails.from_env()
+        if guardrails.is_production:
+            _check("Production mode", True)
+            passed += 1
+        else:
+            _check("Production mode", False, "Set GHOSTCHIMERA_DEPLOYMENT_MODE=production")
+            errors += 1
+        for requirement in guardrails.requirement_rows():
+            _check(f"Production guardrail: {requirement['name']}", bool(requirement["ok"]), requirement["remediation"])
+            if requirement["ok"]:
+                passed += 1
+            else:
+                errors += 1
+
     print()
-    print(color("═" * 50, Colors.DIM))
+    print(color("=" * 50, Colors.DIM))
     print()
     print(f"  Result: {passed} passed, {warned} warnings, {errors} errors")
     print()
     if errors > 0:
         print_info("Run 'ghostchimera setup' to fix configuration issues.")
     print()
+    return 0 if errors == 0 else 1
 
 
 if __name__ == "__main__":
-    run_doctor()
+    raise SystemExit(run_doctor())
