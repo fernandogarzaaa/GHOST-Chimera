@@ -76,8 +76,9 @@ Handler = Callable[..., Any]
 class HookRegistry:
     """Register and dispatch lifecycle hooks.
 
-    Thread-safe: hooks are copied at dispatch time so registration during
-    dispatch is safe.
+    Thread-safe: a lock guards all mutations to the handler lists.  During
+    dispatch, handlers are copied under the lock before being called, so
+    concurrent registration is safe and handler calls happen outside the lock.
     """
 
     def __init__(self) -> None:
