@@ -24,7 +24,7 @@ This is a developer beta for local experimentation, runtime research, and extens
 | `evals` | Built-in release smoke and safety evaluation suites. |
 | `mcp` | Lightweight JSON-RPC style MCP server/client surfaces and Chimera Pilot MCP backend. |
 | `memory_layer` | SQLite-backed memory retrieval and namespace persistence. |
-| `model_layer` | Provider abstraction, provider routing, auth profiles, model catalog, media-provider interfaces, minimind-compatible profiles, and optional llama.cpp/GGUF runtime. |
+| `model_layer` | Provider abstraction, provider routing, auth profiles, model catalog, media-provider interfaces, minimind-compatible profiles, runtime specialization, and optional llama.cpp/GGUF runtime. |
 | `safety_layer` | Execution policy, approval gates, MaterialRegistry policy patterns, audit records, policy enforcement, SSRF/network dispatch, and rate limiting. |
 | `skill_layer` | Built-in skills for browser fetches, code search, software tasks, tech support, issue conversion, and dynamic skill registry support. |
 | `tool_layer` | Policy-aware filesystem, shell, and browser tools. |
@@ -236,7 +236,14 @@ Inspect a plan without loading a model:
 chimera-pilot runtime-specialization "short prompt" --local-model-profile tiny --local-model-gpu-layers 12 --gpu-architecture sm100 --gpu-sm-count 160 --estimated-output-tokens 2
 ```
 
-When a GGUF model is enabled, the same planner feeds the local runtime's `n_batch` load parameter and can persist replayable warmup manifests:
+Precompute the built-in decode, hybrid, and prefill plans for one or more profiles before serving:
+
+```bash
+chimera-pilot runtime-warmup --runtime-specialization-cache-dir .ghost/runtime-specialization --local-model-profile tiny --local-model-profile balanced
+ghostchimera runtime-warmup --runtime-specialization-cache-dir .ghost/runtime-specialization --local-model-profile stronger
+```
+
+When a GGUF model is enabled, the same planner feeds the local runtime's `n_batch` load parameter and can persist replayable manifests:
 
 ```bash
 chimera-pilot run "explain the current project" --local-model-path C:\models\qwen2.5-0.5b-instruct-q4.gguf --runtime-specialization-cache-dir .ghost/runtime-specialization

@@ -264,6 +264,9 @@ class LlamaCppProvider(BaseProvider):
             model_path=model_path,
             profile_name=profile_name,
             n_gpu_layers=int(os.environ.get("LLAMACPP_N_GPU_LAYERS", "0")),
+            runtime_specialization=os.environ.get("LLAMACPP_RUNTIME_SPECIALIZATION", "1").lower()
+            not in {"0", "false", "no"},
+            specialization_cache_dir=os.environ.get("LLAMACPP_RUNTIME_SPECIALIZATION_CACHE_DIR") or None,
         )
         self.available = self.runtime.available
         logger.debug("Provider %s initialized", self.name)
@@ -280,6 +283,10 @@ class LlamaCppProvider(BaseProvider):
         return {
             "name": self.name,
             "available": self.available,
+            "runtime_specialization": {
+                "enabled": self.runtime.runtime_specialization,
+                "environment": self.runtime.environment.to_dict(),
+            },
         }
 
 

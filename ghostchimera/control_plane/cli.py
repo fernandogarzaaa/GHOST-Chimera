@@ -78,6 +78,12 @@ def _main(argv: list[str] | None = None) -> int:
     minimind_parser.add_argument("--response", default="", help="Response/output text.")
     minimind_parser.add_argument("--confidence", type=float, default=0.0)
     minimind_parser.add_argument("--threshold", type=float, default=0.5)
+    runtime_warmup_parser = sub.add_parser("runtime-warmup", help="Precompute local runtime specialization manifests")
+    runtime_warmup_parser.add_argument("--runtime-specialization-cache-dir", default=".ghost/runtime-specialization", help="Directory for warmup manifests.")
+    runtime_warmup_parser.add_argument("--local-model-profile", action="append", default=[], help="Profile to warm. Repeat for multiple; omit for all profiles.")
+    runtime_warmup_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
+    runtime_warmup_parser.add_argument("--gpu-architecture", default="", help="Optional GPU architecture hint, for example sm100.")
+    runtime_warmup_parser.add_argument("--gpu-sm-count", type=int, default=0, help="Optional GPU SM count hint.")
     parser.add_argument(
         "--log-level",
         default="INFO",
@@ -166,6 +172,27 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "minimind":
         return _run_minimind_cli(args)
+
+    if args.command == "runtime-warmup":
+        from ..model_layer.runtime_specialization import detect_runtime_environment, warm_runtime_specialization_cache
+
+        environment = detect_runtime_environment(
+            n_gpu_layers=args.local_model_gpu_layers,
+            architecture=args.gpu_architecture or None,
+            sm_count=args.gpu_sm_count or None,
+        )
+        print(
+            json.dumps(
+                warm_runtime_specialization_cache(
+                    cache_dir=args.runtime_specialization_cache_dir,
+                    profile_names=args.local_model_profile,
+                    environment=environment,
+                ),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
 
     if args.config_show:
         print(json.dumps(GhostChimeraConfig.from_env().to_dict(), indent=2, sort_keys=True))

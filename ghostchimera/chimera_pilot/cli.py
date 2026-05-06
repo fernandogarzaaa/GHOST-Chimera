@@ -11,6 +11,7 @@ from ..model_layer.local_profiles import get_local_model_profile, list_local_mod
 from ..model_layer.runtime_specialization import (
     detect_runtime_environment,
     plan_runtime_specialization,
+    warm_runtime_specialization_cache,
     workload_from_messages,
 )
 from .autonomy import get_autonomy_profile, list_autonomy_profiles
@@ -108,6 +109,12 @@ def main(argv: list[str] | None = None) -> int:
     runtime_parser.add_argument("--gpu-architecture", default="", help="Optional GPU architecture hint, for example sm100.")
     runtime_parser.add_argument("--gpu-sm-count", type=int, default=0, help="Optional GPU SM count hint.")
     runtime_parser.add_argument("--runtime-specialization-cache-dir", default="", help="Write specialization manifest here.")
+    warmup_parser = subparsers.add_parser("runtime-warmup", help="Precompute local runtime specialization manifests.")
+    warmup_parser.add_argument("--runtime-specialization-cache-dir", default=".ghost/runtime-specialization", help="Directory for warmup manifests.")
+    warmup_parser.add_argument("--local-model-profile", action="append", default=[], help="Profile to warm. Repeat for multiple; omit for all profiles.")
+    warmup_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
+    warmup_parser.add_argument("--gpu-architecture", default="", help="Optional GPU architecture hint, for example sm100.")
+    warmup_parser.add_argument("--gpu-sm-count", type=int, default=0, help="Optional GPU SM count hint.")
     subparsers.add_parser("autonomy-profiles", help="List built-in autonomy profiles.")
     desktop_stop_parser = subparsers.add_parser("desktop-stop", help="Create the desktop kill-switch file immediately.")
     desktop_stop_parser.add_argument("--desktop-kill-switch-path", default="", help="Kill-switch path to create.")
@@ -166,6 +173,21 @@ def main(argv: list[str] | None = None) -> int:
             cache_dir=args.runtime_specialization_cache_dir or None,
         )
         _print_json(plan.to_dict())
+        return 0
+
+    if args.command == "runtime-warmup":
+        environment = detect_runtime_environment(
+            n_gpu_layers=args.local_model_gpu_layers,
+            architecture=args.gpu_architecture or None,
+            sm_count=args.gpu_sm_count or None,
+        )
+        _print_json(
+            warm_runtime_specialization_cache(
+                cache_dir=args.runtime_specialization_cache_dir,
+                profile_names=args.local_model_profile,
+                environment=environment,
+            )
+        )
         return 0
 
     if args.command == "autonomy-profiles":

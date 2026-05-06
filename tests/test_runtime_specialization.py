@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +13,7 @@ from ghostchimera.model_layer.runtime_specialization import (
     WorkloadPhase,
     WorkloadShape,
     plan_runtime_specialization,
+    warm_runtime_specialization_cache,
     workload_from_messages,
 )
 
@@ -64,6 +67,53 @@ class RuntimeSpecializationTests(unittest.TestCase):
         self.assertEqual(workload.output_tokens, 8)
         self.assertEqual(workload.batch_size, 2)
         self.assertIn(workload.phase(), {WorkloadPhase.DECODE, WorkloadPhase.HYBRID, WorkloadPhase.PREFILL})
+
+    def test_warmup_cache_writes_profile_manifest_index(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-warmup-") as tmp:
+            payload = warm_runtime_specialization_cache(
+                cache_dir=tmp,
+                profile_names=["tiny"],
+                environment=RuntimeEnvironment(n_gpu_layers=12, architecture="sm100", sm_count=160),
+            )
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["profiles"], ["tiny"])
+            self.assertEqual(payload["manifest_count"], 3)
+            self.assertTrue(Path(payload["index_path"]).exists())
+            for manifest_path in payload["manifest_paths"]:
+                self.assertTrue(Path(manifest_path).exists())
+            phases = {item["plan"]["phase"] for item in payload["plans"]}
+            self.assertEqual(phases, {"decode", "hybrid", "prefill"})
+
+    def test_chimera_pilot_cli_warms_runtime_cache(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-warmup-cli-") as tmp:
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ghostchimera.chimera_pilot.cli",
+                    "runtime-warmup",
+                    "--runtime-specialization-cache-dir",
+                    tmp,
+                    "--local-model-profile",
+                    "tiny",
+                    "--local-model-gpu-layers",
+                    "12",
+                    "--gpu-architecture",
+                    "sm100",
+                    "--gpu-sm-count",
+                    "160",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            payload = json.loads(completed.stdout)
+            self.assertEqual(payload["manifest_count"], 3)
+            self.assertTrue(Path(tmp, "index.json").exists())
 
 
 if __name__ == "__main__":

@@ -59,9 +59,9 @@ Local model execution also has a runtime-specialization planner inspired by CuTe
 
 1. Classifies a local reasoning request as `prefill`, `decode`, or `hybrid` from prompt/output shape.
 2. Derives accelerator-aware hints such as vector width, load width, recommended warps, grid-barrier eligibility, and a `llama_cpp` `n_batch` value.
-3. Emits a stable cache key and optional JSON manifest so warmup/replay tooling can see which specialization was selected.
+3. Emits a stable cache key, JSON plan manifests, and a warmup index so deployment/replay tooling can see which specialization was selected.
 
-The planner is wired into `LlamaCppRuntime`, `LlamaCppBackend`, Chimera Pilot status, and the `chimera-pilot runtime-specialization` command. It detects the optional `nvidia-cutlass-dsl` package when installed, but the default beta path remains llama.cpp execution with specialization metadata rather than unverified custom GPU kernel compilation.
+The planner is wired into `LlamaCppRuntime`, `LlamaCppBackend`, Chimera Pilot status, `chimera-pilot runtime-specialization`, `chimera-pilot runtime-warmup`, and `ghostchimera runtime-warmup`. It detects the optional `nvidia-cutlass-dsl` package when installed, but the default beta path remains llama.cpp execution with specialization metadata rather than unverified custom GPU kernel compilation.
 
 ## Safety boundary
 

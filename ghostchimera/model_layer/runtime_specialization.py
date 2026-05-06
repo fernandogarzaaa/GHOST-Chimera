@@ -13,12 +13,14 @@ import importlib.util
 import json
 import math
 import os
+import time
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from .local_profiles import LocalModelProfile
+from .local_profiles import LocalModelProfile, get_local_model_profile, list_local_model_profiles
 
 
 class WorkloadPhase(StrEnum):
@@ -113,6 +115,13 @@ class RuntimeSpecializationPlan:
             "environment": self.environment.to_dict(),
             "warnings": list(self.warnings),
         }
+
+
+DEFAULT_WARMUP_WORKLOADS: tuple[tuple[str, WorkloadShape], ...] = (
+    ("decode_short", WorkloadShape(input_tokens=128, output_tokens=2, dtype="q4")),
+    ("hybrid_context", WorkloadShape(input_tokens=1024, output_tokens=8, dtype="q4")),
+    ("prefill_long", WorkloadShape(input_tokens=2048, output_tokens=256, dtype="q4")),
+)
 
 
 def estimate_tokens(text: str) -> int:
@@ -237,6 +246,71 @@ def write_specialization_manifest(plan: RuntimeSpecializationPlan) -> Path:
     return path
 
 
+def warm_runtime_specialization_cache(
+    *,
+    cache_dir: str,
+    profile_names: Iterable[str] | None = None,
+    environment: RuntimeEnvironment | None = None,
+    workloads: Iterable[tuple[str, WorkloadShape]] | None = None,
+) -> dict[str, Any]:
+    """Precompute specialization manifests for representative local workloads."""
+
+    resolved_cache = Path(cache_dir).expanduser()
+    profiles = _resolve_profiles(profile_names)
+    env = environment or detect_runtime_environment()
+    selected_workloads = tuple(workloads or DEFAULT_WARMUP_WORKLOADS)
+    plans: list[dict[str, Any]] = []
+    manifest_paths: list[str] = []
+    for profile in profiles:
+        for workload_name, workload in selected_workloads:
+            workload_for_profile = WorkloadShape(
+                input_tokens=workload.input_tokens,
+                output_tokens=workload.output_tokens,
+                batch_size=workload.batch_size,
+                dtype=workload.dtype or profile.quantization,
+                hidden_dim=workload.hidden_dim,
+            )
+            plan = plan_runtime_specialization(
+                profile=profile,
+                workload=workload_for_profile,
+                environment=env,
+                cache_dir=str(resolved_cache),
+            )
+            manifest_path = resolved_cache / f"{plan.cache_key}.json"
+            manifest_paths.append(str(manifest_path))
+            plans.append(
+                {
+                    "workload_name": workload_name,
+                    "manifest_path": str(manifest_path),
+                    "plan": plan.to_dict(),
+                }
+            )
+
+    index = {
+        "ok": True,
+        "created_at": time.time(),
+        "cache_dir": str(resolved_cache),
+        "environment": env.to_dict(),
+        "profiles": [profile.name for profile in profiles],
+        "workload_count": len(selected_workloads),
+        "manifest_count": len(manifest_paths),
+        "manifest_paths": manifest_paths,
+        "plans": plans,
+    }
+    resolved_cache.mkdir(parents=True, exist_ok=True)
+    index_path = resolved_cache / "index.json"
+    index["index_path"] = str(index_path)
+    index_path.write_text(json.dumps(index, indent=2, sort_keys=True), encoding="utf-8")
+    return index
+
+
+def _resolve_profiles(profile_names: Iterable[str] | None) -> list[LocalModelProfile]:
+    names = [name for name in (profile_names or []) if name]
+    if not names:
+        return list_local_model_profiles()
+    return [get_local_model_profile(name) for name in names]
+
+
 def _int_from_env(name: str) -> int | None:
     raw = os.environ.get(name)
     if not raw:
@@ -305,9 +379,11 @@ __all__ = [
     "RuntimeSpecializationPlan",
     "WorkloadPhase",
     "WorkloadShape",
+    "DEFAULT_WARMUP_WORKLOADS",
     "detect_runtime_environment",
     "estimate_tokens",
     "plan_runtime_specialization",
+    "warm_runtime_specialization_cache",
     "workload_from_messages",
     "write_specialization_manifest",
 ]
