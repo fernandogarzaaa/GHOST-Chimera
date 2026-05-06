@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from ghostchimera.chimera_pilot.backends.desktop_runtime import DesktopRuntimeBackend
+from ghostchimera.chimera_pilot.desktop_policy import DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN
 from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
 
 
@@ -174,6 +175,47 @@ class DesktopRuntimeBackendTests(unittest.TestCase):
                 self.assertEqual(row["screenshots"], screenshots)
                 self.assertEqual(fake.calls[0].split(":", 1)[0], "screenshot")
                 self.assertEqual(fake.calls[-1].split(":", 1)[0], "screenshot")
+        finally:
+            self._restore_pyautogui(previous)
+
+    def test_destructive_live_mode_requires_confirmation_token(self) -> None:
+        fake, previous = self._install_fake_pyautogui()
+        try:
+            backend = DesktopRuntimeBackend(dry_run=False)
+            task = TaskSpec.create(
+                kind=TaskKind.DESKTOP_CONTROL,
+                objective="live desktop: click delete project",
+                inputs={"action": "click", "target": "delete project", "action_class": "destructive"},
+                constraints={"live_desktop": True},
+            )
+
+            result = backend.execute(task)
+
+            self.assertFalse(result.ok)
+            self.assertIn("confirmation token", result.error or "")
+            self.assertEqual(fake.calls, [])
+        finally:
+            self._restore_pyautogui(previous)
+
+    def test_destructive_live_mode_runs_with_confirmation_token(self) -> None:
+        fake, previous = self._install_fake_pyautogui()
+        try:
+            backend = DesktopRuntimeBackend(dry_run=False)
+            task = TaskSpec.create(
+                kind=TaskKind.DESKTOP_CONTROL,
+                objective="live desktop: click delete project",
+                inputs={"action": "click", "target": "delete project", "action_class": "destructive"},
+                constraints={
+                    "live_desktop": True,
+                    "confirmation_token": DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN,
+                },
+            )
+
+            result = backend.execute(task)
+
+            self.assertTrue(result.ok)
+            self.assertEqual(result.metrics["desktop_action_class"], "destructive")
+            self.assertEqual(fake.calls, ["click"])
         finally:
             self._restore_pyautogui(previous)
 

@@ -12,6 +12,8 @@ from ..safety_layer.production import ProductionGuardrails
 from .autonomy import AutonomyProfile, get_autonomy_profile
 from .desktop_policy import (
     DEFAULT_ALLOWED_DESKTOP_ACTION_CLASSES,
+    DesktopActionClass,
+    destructive_desktop_confirmation_error,
     infer_desktop_action_class,
     normalize_allowed_desktop_action_classes,
 )
@@ -128,6 +130,13 @@ class PilotPolicy:
                     f"Desktop action class '{action_class}' is disabled by policy; "
                     f"allowed classes: {', '.join(allowed_classes)}"
                 )
+            live_flag = str(task.constraints.get("live_desktop", "")).strip().lower()
+            if action_class == DesktopActionClass.DESTRUCTIVE.value and live_flag in {"1", "true", "yes"}:
+                confirmation_error = destructive_desktop_confirmation_error(
+                    task.constraints.get("confirmation_token")
+                )
+                if confirmation_error:
+                    raise PermissionError(confirmation_error)
             self._require_production_ready(task, "desktop control")
 
         max_cost = task.max_cost_usd

@@ -59,6 +59,9 @@ def _main(argv: list[str] | None = None) -> int:
     doctor_parser.add_argument("--production", action="store_true", help="Require production deployment guardrails.")
     sub.add_parser("model", help="List and switch the current model provider")
     sub.add_parser("policy", help="Manage security policies")
+    desktop_stop_parser = sub.add_parser("desktop-stop", help="Create the Chimera Pilot desktop kill-switch file")
+    desktop_stop_parser.add_argument("--desktop-kill-switch-path", default="", help="Kill-switch path to create.")
+    desktop_stop_parser.add_argument("--reason", default="operator_stop", help="Reason written into the stop file.")
     autonomy_parser = sub.add_parser("autonomy", help="Show, set, and run autonomy controls")
     autonomy_parser.add_argument("action", choices=["show", "set", "jobs", "run"], nargs="?", default="show")
     autonomy_parser.add_argument("job", nargs="?", default="", help="Job name for 'run'")
@@ -104,6 +107,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--enable-desktop-backend", action="store_true", help="Register Chimera Pilot desktop backend (dry-run).")
     parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
     parser.add_argument("--desktop-kill-switch-path", default="", help="If file exists, desktop actions are blocked.")
+    parser.add_argument("--desktop-confirm-token", default="", help="Required token for destructive live desktop actions.")
     parser.add_argument("--desktop-action-log-path", default="", help="JSONL log path for desktop actions.")
     parser.add_argument("--desktop-screenshot-dir", default="", help="Directory for live desktop before/after screenshots.")
     parser.add_argument("--desktop-max-actions", type=int, default=25, help="Maximum live desktop actions per backend session.")
@@ -148,6 +152,13 @@ def _main(argv: list[str] | None = None) -> int:
 
         return _policy_main()
 
+    if args.command == "desktop-stop":
+        from ..chimera_pilot.desktop_policy import write_desktop_stop_file
+
+        path = write_desktop_stop_file(args.desktop_kill_switch_path or None, reason=args.reason)
+        print(json.dumps({"ok": True, "path": str(path)}, indent=2, sort_keys=True))
+        return 0
+
     if args.command == "autonomy":
         return _run_autonomy_cli(args)
 
@@ -171,6 +182,7 @@ def _main(argv: list[str] | None = None) -> int:
             allow_network=args.allow_network,
             allow_desktop_control=args.allow_desktop_control,
             desktop_action_classes=args.desktop_action_class,
+            desktop_confirmation_token=args.desktop_confirm_token or None,
             enable_desktop_backend=args.enable_desktop_backend,
             enable_live_desktop=args.enable_live_desktop,
             desktop_kill_switch_path=args.desktop_kill_switch_path or None,

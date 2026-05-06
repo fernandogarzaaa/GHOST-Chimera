@@ -19,6 +19,7 @@ from ghostchimera.chimera_pilot.backends import BackendHealth, DeterministicBack
 from ghostchimera.chimera_pilot.backends.desktop_runtime import DesktopRuntimeBackend
 from ghostchimera.chimera_pilot.calibration import CalibrationStore, ChimeraCalibrator
 from ghostchimera.chimera_pilot.compiler import RuleBasedTaskCompiler
+from ghostchimera.chimera_pilot.desktop_policy import DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN
 from ghostchimera.chimera_pilot.executor import ChimeraPilotExecutor, PilotRunState
 from ghostchimera.chimera_pilot.policy import PilotPolicy
 from ghostchimera.chimera_pilot.schema import validate_task
@@ -216,7 +217,21 @@ class ChimeraPilotTests(unittest.TestCase):
             constraints={"live_desktop": True},
         )
 
-        policy.validate(task)
+        with self.assertRaises(PermissionError) as ctx:
+            policy.validate(task)
+
+        self.assertIn("confirmation token", str(ctx.exception))
+
+        confirmed = TaskSpec.create(
+            kind=TaskKind.DESKTOP_CONTROL,
+            objective="live desktop: click delete project",
+            inputs={"action": "click", "target": "delete project", "action_class": "destructive"},
+            constraints={
+                "live_desktop": True,
+                "confirmation_token": DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN,
+            },
+        )
+        policy.validate(confirmed)
 
     def test_kernel_can_register_live_desktop_backend(self) -> None:
         kernel = ChimeraPilotKernel.default(
@@ -341,6 +356,31 @@ class ChimeraPilotReleaseHardeningTests(unittest.TestCase):
         self.assertEqual(desktop["metadata"]["max_session_seconds"], 30.0)
         self.assertEqual(payload["policy"]["ghost_mode"], "possess")
         self.assertEqual(payload["policy"]["allowed_desktop_action_classes"], ["read_only", "mutating"])
+
+    def test_chimera_pilot_cli_desktop_stop_creates_kill_switch(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-cli-stop-") as tmp:
+            stop_path = Path(tmp) / "STOP"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ghostchimera.chimera_pilot.cli",
+                    "desktop-stop",
+                    "--desktop-kill-switch-path",
+                    str(stop_path),
+                    "--reason",
+                    "test_stop",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue(stop_path.exists())
+            payload = json.loads(completed.stdout)
+            self.assertEqual(payload["path"], str(stop_path))
 
 
 if __name__ == "__main__":

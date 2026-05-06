@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import datetime as dt
+import json
+import os
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 
@@ -17,6 +21,8 @@ DEFAULT_ALLOWED_DESKTOP_ACTION_CLASSES = (
     DesktopActionClass.READ_ONLY.value,
     DesktopActionClass.MUTATING.value,
 )
+DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN = "confirm-destructive-desktop"
+DEFAULT_DESKTOP_KILL_SWITCH_FILE = ".ghostchimera-desktop-stop"
 
 _DEFAULT_BY_ACTION = {
     "move": DesktopActionClass.READ_ONLY,
@@ -95,3 +101,30 @@ def normalize_allowed_desktop_action_classes(values: tuple[str, ...] | list[str]
         return DEFAULT_ALLOWED_DESKTOP_ACTION_CLASSES
     normalized = tuple(dict.fromkeys(normalize_desktop_action_class(value) for value in values))
     return normalized or DEFAULT_ALLOWED_DESKTOP_ACTION_CLASSES
+
+
+def destructive_desktop_confirmation_error(token: Any) -> str | None:
+    if str(token or "").strip() == DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN:
+        return None
+    return (
+        "Destructive live desktop actions require confirmation token "
+        f"'{DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN}'"
+    )
+
+
+def resolve_desktop_kill_switch_path(path: str | None = None) -> Path:
+    configured = (path or "").strip() or os.environ.get("GHOSTCHIMERA_DESKTOP_KILL_SWITCH", "").strip()
+    if not configured:
+        configured = DEFAULT_DESKTOP_KILL_SWITCH_FILE
+    return Path(configured).expanduser()
+
+
+def write_desktop_stop_file(path: str | None = None, *, reason: str = "operator_stop") -> Path:
+    target = resolve_desktop_kill_switch_path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "created_at": dt.datetime.now(dt.UTC).isoformat(),
+        "reason": reason,
+    }
+    target.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    return target

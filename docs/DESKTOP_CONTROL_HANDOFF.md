@@ -63,10 +63,14 @@ Needed:
 Implemented:
 - max-action budget per backend session
 - max-duration timeout before each live action
+- emergency stop command creates the configured kill-switch file:
+  - `chimera-pilot desktop-stop`
+  - `ghostchimera desktop-stop`
+- destructive live desktop actions require explicit `confirm-destructive-desktop` confirmation token
 
 Still needed:
-- emergency stop command in CLI/session loop
-- explicit confirmation token workflow for irreversible actions
+- in-process cancellation during a currently executing pyautogui call
+- richer confirmation-token UX for multi-step live plans
 
 ## 3) Stronger policy semantics
 Implemented:
@@ -112,8 +116,8 @@ Needed:
 ---
 
 ## Suggested Next PR Order
-1. Add emergency stop command and confirmation-token workflow for irreversible live actions.
-2. Add app/window denylist and allowlist controls.
-3. Add multi-step desktop compiler/planner path and integration tests.
+1. Add app/window denylist and allowlist controls.
+2. Add multi-step desktop compiler/planner path and integration tests.
+3. Add in-process cancellation checks around long pyautogui calls.
 4. Add retention/compression strategy for desktop action telemetry.
 

@@ -10,7 +10,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ..desktop_policy import infer_desktop_action_class
+from ..desktop_policy import (
+    DesktopActionClass,
+    destructive_desktop_confirmation_error,
+    infer_desktop_action_class,
+)
 from ..task_ir import TaskKind, TaskSpec
 from .base import BackendCapabilities, BackendHealth, ExecutionResult
 
@@ -123,6 +127,11 @@ class DesktopRuntimeBackend:
         if limit_error:
             self._record_action(task, action, action_class=action_class, ok=False, error=limit_error)
             return ExecutionResult(self.id, task.id, False, "", error=limit_error)
+        if action_class == DesktopActionClass.DESTRUCTIVE.value:
+            confirmation_error = destructive_desktop_confirmation_error(task.constraints.get("confirmation_token"))
+            if confirmation_error:
+                self._record_action(task, action, action_class=action_class, ok=False, error=confirmation_error)
+                return ExecutionResult(self.id, task.id, False, "", error=confirmation_error)
 
         try:
             import pyautogui  # type: ignore

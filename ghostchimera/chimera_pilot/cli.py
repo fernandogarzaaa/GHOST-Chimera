@@ -9,6 +9,7 @@ import sys
 from ..memory_layer.store import MemoryStore
 from ..model_layer.local_profiles import list_local_model_profiles
 from .autonomy import get_autonomy_profile, list_autonomy_profiles
+from .desktop_policy import write_desktop_stop_file
 from .kernel import ChimeraPilotKernel
 
 
@@ -61,6 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--enable-desktop-backend", action="store_true", help="Register desktop backend (dry-run).")
     run_parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
     run_parser.add_argument("--desktop-kill-switch-path", default="", help="If this file exists, desktop actions are blocked.")
+    run_parser.add_argument("--desktop-confirm-token", default="", help="Required token for destructive live desktop actions.")
     run_parser.add_argument("--desktop-action-log-path", default="", help="JSONL log file for desktop actions.")
     run_parser.add_argument("--desktop-screenshot-dir", default="", help="Directory for live desktop before/after screenshots.")
     run_parser.add_argument("--desktop-max-actions", type=int, default=25, help="Maximum live desktop actions per backend session.")
@@ -86,6 +88,9 @@ def main(argv: list[str] | None = None) -> int:
 
     subparsers.add_parser("model-profiles", help="List built-in local model profiles.")
     subparsers.add_parser("autonomy-profiles", help="List built-in autonomy profiles.")
+    desktop_stop_parser = subparsers.add_parser("desktop-stop", help="Create the desktop kill-switch file immediately.")
+    desktop_stop_parser.add_argument("--desktop-kill-switch-path", default="", help="Kill-switch path to create.")
+    desktop_stop_parser.add_argument("--reason", default="operator_stop", help="Reason written into the stop file.")
 
     memory_add_parser = subparsers.add_parser("memory-add", help="Add one document to the CWR memory database.")
     memory_add_parser.add_argument("--memory-db", required=True, help="SQLite memory database to update.")
@@ -124,6 +129,11 @@ def main(argv: list[str] | None = None) -> int:
         _print_json({"profiles": [profile.to_dict() for profile in list_autonomy_profiles()]})
         return 0
 
+    if args.command == "desktop-stop":
+        path = write_desktop_stop_file(args.desktop_kill_switch_path or None, reason=args.reason)
+        _print_json({"ok": True, "path": str(path)})
+        return 0
+
     if args.command == "memory-add":
         try:
             metadata = json.loads(args.metadata)
@@ -151,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
         allow_network=getattr(args, "allow_network", False),
         allow_desktop_control=getattr(args, "allow_desktop_control", False),
         desktop_action_classes=getattr(args, "desktop_action_class", None),
+        desktop_confirmation_token=getattr(args, "desktop_confirm_token", "") or None,
         enable_desktop_backend=getattr(args, "enable_desktop_backend", False),
         enable_live_desktop=getattr(args, "enable_live_desktop", False),
         desktop_kill_switch_path=getattr(args, "desktop_kill_switch_path", "") or None,

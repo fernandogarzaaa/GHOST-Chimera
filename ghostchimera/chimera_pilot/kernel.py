@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from ..logging_config import get_logger
@@ -42,6 +43,7 @@ class ChimeraPilotKernel:
         memory_store: MemoryStore | None = None,
         hooks: HookRegistry | None = None,
         autonomy_profile: AutonomyProfile | None = None,
+        desktop_confirmation_token: str | None = None,
     ) -> None:
         self.registry = registry or ResourceRegistry()
         self.compiler = compiler or RuleBasedTaskCompiler()
@@ -52,6 +54,7 @@ class ChimeraPilotKernel:
         self.memory_store = memory_store
         self.hooks = hooks or HookRegistry()
         self.autonomy_profile = autonomy_profile or self.policy.autonomy_profile
+        self.desktop_confirmation_token = desktop_confirmation_token
 
     @classmethod
     def default(
@@ -64,6 +67,7 @@ class ChimeraPilotKernel:
         allow_network: bool = False,
         allow_desktop_control: bool = False,
         desktop_action_classes: tuple[str, ...] | list[str] | None = None,
+        desktop_confirmation_token: str | None = None,
         enable_desktop_backend: bool = False,
         enable_live_desktop: bool = False,
         desktop_kill_switch_path: str | None = None,
@@ -91,7 +95,13 @@ class ChimeraPilotKernel:
             default_max_cost_usd=autonomy_profile.default_max_cost_usd,
             autonomy_profile=autonomy_profile,
         )
-        kernel = cls(policy=policy, memory_store=memory_store, hooks=hooks, autonomy_profile=autonomy_profile)
+        kernel = cls(
+            policy=policy,
+            memory_store=memory_store,
+            hooks=hooks,
+            autonomy_profile=autonomy_profile,
+            desktop_confirmation_token=desktop_confirmation_token,
+        )
         kernel.registry.register(PythonRuntimeBackend(cwd=cwd, allowed_roots=[cwd] if cwd else None))
         kernel.registry.register(CWRBackend(store=memory_store))
         if enable_desktop_backend:
@@ -130,6 +140,14 @@ class ChimeraPilotKernel:
 
     def execute_task(self, task: TaskSpec) -> PilotExecution:
         from ..safety_layer.material_policy import MaterialRegistry
+        if task.kind == TaskKind.DESKTOP_CONTROL and self.desktop_confirmation_token:
+            task = replace(
+                task,
+                constraints={
+                    **task.constraints,
+                    "confirmation_token": self.desktop_confirmation_token,
+                },
+            )
         registry = self._policy_registry or MaterialRegistry()
         scheduler = ChimeraScheduler(
             self.registry.list(),
