@@ -10,11 +10,21 @@ Supported ``auth_kind`` values:
     ``oauth``    – short-lived token with optional refresh capability
     ``token``    – arbitrary access token (no refresh)
     ``custom``   – provider-specific credential bundle
+
+External auth providers
+-----------------------
+Concrete OAuth flows or third-party auth services implement
+:class:`ExternalAuthProvider` and register themselves with the
+:class:`~ghostchimera.chimera_pilot.credential_pool.CredentialPool` via
+``pool.register_auth_provider()``.  The pool then calls
+:meth:`ExternalAuthProvider.refresh` whenever a stored
+:class:`OAuthCredential` expires.
 """
 
 from __future__ import annotations
 
 import time
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -119,4 +129,72 @@ class OAuthCredential:
         )
 
 
-__all__ = ["AuthKind", "AuthProfile", "OAuthCredential"]
+# ---------------------------------------------------------------------------
+# ExternalAuthProvider  (Gap 8)
+# ---------------------------------------------------------------------------
+
+
+class ExternalAuthProvider(ABC):
+    """Abstract base for pluggable external authentication providers.
+
+    Mirrors OpenClaw's ``externalAuthProviders`` contract.  Concrete
+    implementations handle token exchange, refresh, and revocation for
+    third-party OAuth services.
+
+    Register with the credential pool::
+
+        from ghostchimera.chimera_pilot.credential_pool import get_pool
+        get_pool().register_auth_provider("my_service", MyAuthProvider())
+
+    The pool will call :meth:`refresh` automatically when the stored
+    :class:`OAuthCredential` for the provider is expired.
+    """
+
+    provider_id: str = "base_external_auth"
+    """Unique identifier matching the provider name in the credential pool."""
+
+    auth_methods: list[str] = ["api-key"]
+    """Auth methods supported: ``"api-key"``, ``"oauth"``, ``"token"``."""
+
+    @abstractmethod
+    def authorize(self, scope: str = "") -> AuthProfile:
+        """Obtain a fresh :class:`AuthProfile`.
+
+        Parameters
+        ----------
+        scope:
+            Optional permission scope string.
+
+        Returns
+        -------
+        AuthProfile
+            A valid, non-expired credential profile.
+        """
+
+    @abstractmethod
+    def refresh(self, credential: OAuthCredential) -> OAuthCredential:
+        """Refresh an expired :class:`OAuthCredential`.
+
+        Parameters
+        ----------
+        credential:
+            The expired credential to renew.
+
+        Returns
+        -------
+        OAuthCredential
+            A new, valid credential.
+        """
+
+    def revoke(self, credential: OAuthCredential) -> None:
+        """Revoke a credential.  Optional — raises ``NotImplementedError`` by default."""
+        raise NotImplementedError(
+            f"{type(self).__name__}.revoke() is not implemented."
+        )
+
+    def validate_config(self) -> list[str]:
+        """Return configuration errors.  Empty list means OK."""
+        return []
+
+
+__all__ = ["AuthKind", "AuthProfile", "OAuthCredential", "ExternalAuthProvider"]

@@ -19,6 +19,14 @@ class PilotPolicy:
     execution are both disabled unless a caller opts in explicitly.  This keeps
     Ghost Chimera useful for scheduling, compilation, calibration, and dry-run
     workflows while avoiding surprising execution of untrusted local code.
+
+    SSRF integration (Gap 9)
+    -------------------------
+    When ``allowed_hosts`` is non-empty the policy constructs an
+    :class:`~ghostchimera.safety_layer.ssrf.SSRFPolicy` that permits only
+    those hostnames for tasks with ``requires_network=True``.  This provides
+    per-task outbound network control on top of the binary ``allow_network``
+    flag.
     """
 
     allow_network: bool = False
@@ -28,6 +36,12 @@ class PilotPolicy:
     ghost_mode: str = "whisper"
     default_max_cost_usd: float = 0.0
     max_python_timeout_seconds: int = 30
+    allowed_hosts: tuple[str, ...] = field(default_factory=tuple)
+    """Allowlisted hostname glob patterns for SSRF policy.
+
+    When non-empty, network tasks are restricted to these hosts only.
+    Glob patterns supported (e.g. ``"*.openai.com"``).
+    """
     denied_objective_fragments: tuple[str, ...] = field(
         default_factory=lambda: (
             "rm -rf /",
@@ -59,6 +73,18 @@ class PilotPolicy:
 
         if task.requires_network and not self.allow_network:
             raise PermissionError("Task requires network access, but network execution is disabled by policy")
+
+        # SSRF check (Gap 9) — when allowed_hosts is set, build a per-task SSRFPolicy
+        if task.requires_network and self.allow_network and self.allowed_hosts:
+            url = task.inputs.get("url") or task.inputs.get("query", "")
+            if url and url.startswith(("http://", "https://")):
+                from ..safety_layer.ssrf import SSRFPolicy
+                ssrf = SSRFPolicy()
+                for host in self.allowed_hosts:
+                    ssrf.allow_host(host)
+                permitted, reason = ssrf.is_permitted(url)
+                if not permitted:
+                    raise PermissionError(f"Task network target blocked by SSRF policy: {reason}")
 
         if task.kind in {TaskKind.PYTHON, TaskKind.TEST_RUN}:
             if not self.allow_python_execution:
@@ -96,6 +122,7 @@ class PilotPolicy:
             "ghost_mode": self.ghost_mode,
             "default_max_cost_usd": self.default_max_cost_usd,
             "max_python_timeout_seconds": self.max_python_timeout_seconds,
+            "allowed_hosts": list(self.allowed_hosts),
         }
 
     @classmethod

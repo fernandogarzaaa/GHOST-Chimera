@@ -69,6 +69,42 @@ class HookName(StrEnum):
     SESSION_END = "session_end"
     """Fired after all tasks in a ``kernel.run()`` call complete."""
 
+    # ------------------------------------------------------------------
+    # Tool-level hooks  (mirrors OpenClaw ``before_tool_call`` / ``after_tool_call``)
+    # ------------------------------------------------------------------
+
+    BEFORE_TOOL_CALL = "before_tool_call"
+    """Fired immediately before a tool is executed.
+
+    Keyword args: ``tool_name`` (str), ``arguments`` (dict),
+    ``session_id`` (str), ``requester`` (str)
+    """
+
+    AFTER_TOOL_CALL = "after_tool_call"
+    """Fired immediately after a tool execution completes.
+
+    Keyword args: ``tool_name`` (str), ``arguments`` (dict),
+    ``result`` (Any), ``ok`` (bool), ``session_id`` (str)
+    """
+
+    # ------------------------------------------------------------------
+    # LLM-level hooks  (mirrors OpenClaw ``llm_input`` / ``llm_output``)
+    # ------------------------------------------------------------------
+
+    LLM_INPUT = "llm_input"
+    """Fired with the full message list just before it is sent to the LLM.
+
+    Keyword args: ``messages`` (list[dict]), ``model`` (str),
+    ``session_id`` (str)
+    """
+
+    LLM_OUTPUT = "llm_output"
+    """Fired with the raw LLM response immediately after it is received.
+
+    Keyword args: ``response`` (dict), ``model`` (str),
+    ``session_id`` (str)
+    """
+
 
 Handler = Callable[..., Any]
 

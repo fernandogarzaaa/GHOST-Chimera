@@ -289,6 +289,14 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
     MinimindProvider.name: MinimindProvider,
 }
 
+# Split registry by provider type — enables typed lookup for media providers
+TEXT_PROVIDERS: dict[str, type[BaseProvider]] = {
+    AnthropicProvider.name: AnthropicProvider,
+    LlamaCppProvider.name: LlamaCppProvider,
+    OpenAIProvider.name: OpenAIProvider,
+    MinimindProvider.name: MinimindProvider,
+}
+
 
 def get_provider(name: str, profile: AuthProfile | None = None) -> BaseProvider | None:
     """Instantiate and return a provider by name, or None if unknown.
@@ -306,3 +314,18 @@ def get_provider(name: str, profile: AuthProfile | None = None) -> BaseProvider 
     if cls is None:
         return None
     return cls(profile)
+
+
+def register_text_provider(name: str, cls: type[BaseProvider]) -> None:
+    """Register a custom text provider class at runtime.
+
+    Parameters
+    ----------
+    name:
+        Provider identifier (e.g. ``"my_llm"``).
+    cls:
+        Provider class — must subclass :class:`BaseProvider`.
+    """
+    PROVIDERS[name] = cls
+    TEXT_PROVIDERS[name] = cls
+    logger.debug("Registered text provider '%s'", name)
