@@ -313,7 +313,10 @@ def get_provider(name: str, profile: AuthProfile | None = None) -> BaseProvider 
     cls = PROVIDERS.get(name)
     if cls is None:
         return None
-    return cls(profile)
+    try:
+        return cls(profile)
+    except TypeError:
+        return cls()
 
 
 def register_text_provider(name: str, cls: type[BaseProvider]) -> None:

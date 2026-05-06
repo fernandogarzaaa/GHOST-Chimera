@@ -126,8 +126,8 @@ def run_doctor() -> None:
             _check("Skill requirements", True)
             passed += 1
     except Exception as exc:
-        _check("Skill requirements", True, f"Could not check ({exc})")
-        passed += 1
+        _check("Skill requirements", False, f"Could not check ({exc})")
+        warned += 1
 
     print()
     print(color("═" * 50, Colors.DIM))

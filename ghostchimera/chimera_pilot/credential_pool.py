@@ -198,6 +198,11 @@ class CredentialPool:
         if entry is None:
             return None
         if entry.is_expired and entry.oauth_token:
+            # Prefer delegating to a registered ExternalAuthProvider when available.
+            with self._lock:
+                has_auth_provider = provider in self._auth_providers
+            if has_auth_provider:
+                return self.refresh_credential(provider)
             # Attempt OAuth refresh (stub — raises NotImplementedError in practice)
             try:
                 from ..model_layer.auth_profiles import OAuthCredential

@@ -2,8 +2,8 @@
 
 Mirrors OpenClaw's ``AuthProfileCredential`` pattern: credentials are
 assembled once (from env, a credential pool, or explicit injection) and
-passed into providers at construction time, so providers never reach into
-``os.environ`` directly.
+passed into providers at construction time.  When no profile is supplied,
+providers fall back to reading from ``os.environ`` directly.
 
 Supported ``auth_kind`` values:
     ``api_key``  – a static bearer/API key (most providers)
