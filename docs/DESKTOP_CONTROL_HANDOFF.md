@@ -16,6 +16,9 @@
   2. Desktop control allowed
   3. `ghost_mode=possess`
   4. Task constraint `live_desktop=true`
+- Live execution has backend session guards:
+  - `max_live_actions` / CLI `--desktop-max-actions`
+  - `max_session_seconds` / CLI `--desktop-max-duration-seconds`
 - Kill-switch support:
   - task-level `constraints.kill_switch` path
   - backend-level `kill_switch_path`
@@ -48,9 +51,11 @@ Needed:
 - deterministic fallback when target not found
 
 ## 2) Live execution hardening
-Needed:
-- max-action budget per run
-- max-duration timeout for desktop sessions
+Implemented:
+- max-action budget per backend session
+- max-duration timeout before each live action
+
+Still needed:
 - emergency stop command in CLI/session loop
 - explicit confirmation token workflow for irreversible actions
 
@@ -93,8 +98,8 @@ Needed:
 ---
 
 ## Suggested Next PR Order
-1. Add max-action + max-duration enforcement in `DesktopRuntimeBackend`.
-2. Add screenshot hooks + replay integration for each live action.
-3. Add action-class policy model (`read_only`, `mutating`, `destructive`).
+1. Add screenshot hooks + replay integration for each live action.
+2. Add action-class policy model (`read_only`, `mutating`, `destructive`).
+3. Add emergency stop command and confirmation-token workflow for irreversible live actions.
 4. Add multi-step desktop compiler/planner path and integration tests.
 

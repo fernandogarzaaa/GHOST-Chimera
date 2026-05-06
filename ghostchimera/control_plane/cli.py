@@ -81,6 +81,8 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
     parser.add_argument("--desktop-kill-switch-path", default="", help="If file exists, desktop actions are blocked.")
     parser.add_argument("--desktop-action-log-path", default="", help="JSONL log path for desktop actions.")
+    parser.add_argument("--desktop-max-actions", type=int, default=25, help="Maximum live desktop actions per backend session.")
+    parser.add_argument("--desktop-max-duration-seconds", type=float, default=300.0, help="Maximum live desktop session duration.")
     parser.add_argument(
         "--ghost-mode",
         default="",
@@ -139,6 +141,8 @@ def _main(argv: list[str] | None = None) -> int:
             enable_live_desktop=args.enable_live_desktop,
             desktop_kill_switch_path=args.desktop_kill_switch_path or None,
             desktop_action_log_path=args.desktop_action_log_path or None,
+            desktop_max_live_actions=args.desktop_max_actions,
+            desktop_max_session_seconds=args.desktop_max_duration_seconds,
             ghost_mode=args.ghost_mode or "whisper",
         )
         if args.pilot_status:

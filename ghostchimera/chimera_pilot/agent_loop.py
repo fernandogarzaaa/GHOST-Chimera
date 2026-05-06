@@ -8,30 +8,27 @@ so tool decisions are always scheduled through the Chimera Pilot pipeline.
 from __future__ import annotations
 
 import json
-import logging
-import re
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..cognition_layer.confidence import (
     ChimeraValue,
     Confidence,
-    ConfidenceLevel,
     ConfidentValue,
     ConvergeValue,
     ExploreValue,
     ProvisionalValue,
 )
-from ..cognition_layer.workspace import SelfModel, WorkingMemory, ReflectionEngine
+from ..cognition_layer.workspace import ReflectionEngine, SelfModel, WorkingMemory
+from ..config import GhostChimeraConfig
 from ..logging_config import get_logger
 from ..model_layer.router import ModelRouter
-from ..config import GhostChimeraConfig
 from .kernel import ChimeraPilotKernel
 from .result_envelope import ResultEnvelope
-from .telemetry import InMemoryTelemetryStore, PilotTelemetryEvent, now
 from .task_ir import TaskKind, TaskSpec
+from .telemetry import InMemoryTelemetryStore, now
 
 logger = get_logger("agent_loop")
 
@@ -107,13 +104,6 @@ class ToolCall:
     arguments: dict[str, Any]
     result: str | None = None
     status: str = "pending"  # pending | success | error
-
-
-# ---------------------------------------------------------------------------
-# Error classification
-# ---------------------------------------------------------------------------
-
-from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -273,13 +263,12 @@ class AIAgent:
     # Core run loop
     # ------------------------------------------------------------------
 
-    def run(self, user_message: str, tools: list[Dict[str, Any]] | None = None) -> str:
+    def run(self, user_message: str, tools: list[dict[str, Any]] | None = None) -> str:
         """Execute one user turn: tool-calling loop until model returns text.
 
         Returns the final text response from the model.
         """
         self._add_message(Message(role="user", content=user_message))
-        last_error: str | None = None
 
         for turn in range(self.max_tool_rounds):
             # Check context budget
@@ -351,7 +340,7 @@ class AIAgent:
             f"Reached max tool rounds ({self.max_tool_rounds}) without returning text"
         )
 
-    def run_async(self, user_message: str, tools: list[Dict[str, Any]] | None = None) -> str:
+    def run_async(self, user_message: str, tools: list[dict[str, Any]] | None = None) -> str:
         """Async-compatible entry point — delegates to sync run via threading."""
         import asyncio
 
@@ -387,7 +376,7 @@ class AIAgent:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _call_model(self, tools: list[Dict[str, Any]] | None = None) -> dict[str, Any]:
+    def _call_model(self, tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Call the LLM via ModelRouter with fallback chain."""
         last_exception: Exception | None = None
         for model in self.fallback_chain:
@@ -429,7 +418,7 @@ class AIAgent:
     def _execute_tool_calls(
         self,
         tool_calls: list[dict],
-        tools: list[Dict[str, Any]] | None = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> list[dict]:
         """Execute tool calls returned by the model."""
         results = []
@@ -591,7 +580,7 @@ class AIAgent:
                     json.loads(content)
                     structured_count += 1
                 except (json.JSONDecodeError, ValueError):
-                    pass
+                    continue
         structure_score = structured_count / len(results) if results else 0.0
 
         convergence_bonus = 0.0

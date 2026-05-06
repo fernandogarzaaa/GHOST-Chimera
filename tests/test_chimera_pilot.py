@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 from ghostchimera.chimera_pilot import ChimeraPilotKernel, ChimeraScheduler, ResourceRegistry, TaskKind, TaskSpec
 from ghostchimera.chimera_pilot.backends import BackendHealth, DeterministicBackend, PythonRuntimeBackend
@@ -177,6 +178,8 @@ class ChimeraPilotTests(unittest.TestCase):
         status = kernel.status()
         desktop = next(item for item in status["backends"] if item["id"] == "desktop.runtime")
         self.assertTrue(desktop["available"])
+        self.assertEqual(desktop["metadata"]["max_live_actions"], 25)
+        self.assertEqual(desktop["metadata"]["max_session_seconds"], 300.0)
 
     def test_scheduler_weights_can_be_updated(self) -> None:
         backend = DeterministicBackend("d", reliability=0.9)
@@ -203,10 +206,11 @@ class ChimeraPilotTests(unittest.TestCase):
         backend = DeterministicBackend("d", reliability=0.9)
         scheduler = ChimeraScheduler([backend])
         scheduler.set_weights({"reliability": 0.42})
-        with tempfile.NamedTemporaryFile(suffix=".json") as tmp:
-            scheduler.save_weights(tmp.name)
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-scheduler-") as tmp:
+            path = Path(tmp) / "weights.json"
+            scheduler.save_weights(str(path))
             other = ChimeraScheduler([backend])
-            loaded = other.load_weights(tmp.name)
+            loaded = other.load_weights(str(path))
         self.assertEqual(loaded["reliability"], 0.42)
 
     def test_scheduler_strategy_selector(self) -> None:
@@ -264,10 +268,13 @@ class ChimeraPilotReleaseHardeningTests(unittest.TestCase):
                 "--allow-desktop-control",
                 "--ghost-mode",
                 "possess",
+                "--desktop-max-actions",
+                "3",
+                "--desktop-max-duration-seconds",
+                "30",
             ],
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=False,
             timeout=30,
         )
@@ -275,6 +282,9 @@ class ChimeraPilotReleaseHardeningTests(unittest.TestCase):
         payload = json.loads(completed.stdout)
         backend_ids = [item["id"] for item in payload["backends"]]
         self.assertIn("desktop.runtime", backend_ids)
+        desktop = next(item for item in payload["backends"] if item["id"] == "desktop.runtime")
+        self.assertEqual(desktop["metadata"]["max_live_actions"], 3)
+        self.assertEqual(desktop["metadata"]["max_session_seconds"], 30.0)
         self.assertEqual(payload["policy"]["ghost_mode"], "possess")
 
 
@@ -374,8 +384,9 @@ class ChimeraPilotStateTransitionTests(unittest.TestCase):
         task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
         executor.execute(task)
 
-        with tempfile.NamedTemporaryFile(suffix=".json") as tmp:
-            content = executor.telemetry.export_json(tmp.name)
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-telemetry-") as tmp:
+            path = Path(tmp) / "telemetry.json"
+            content = executor.telemetry.export_json(str(path))
             payload = json.loads(content)
             self.assertIn("replay_bundles", payload)
             self.assertEqual(len(payload["replay_bundles"]), 1)
@@ -387,8 +398,9 @@ class ChimeraPilotStateTransitionTests(unittest.TestCase):
         task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
         executor.execute(task)
 
-        with tempfile.NamedTemporaryFile(suffix=".json") as tmp:
-            content = executor.telemetry.export_replay_bundles(tmp.name)
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-replay-") as tmp:
+            path = Path(tmp) / "replay.json"
+            content = executor.telemetry.export_replay_bundles(str(path))
             payload = json.loads(content)
             self.assertIn("replay_bundles", payload)
             self.assertEqual(len(payload["replay_bundles"]), 1)

@@ -14,16 +14,13 @@ import concurrent.futures
 import logging
 import threading
 from collections.abc import Coroutine
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from .executor import ChimeraPilotExecutor, PilotExecution
 from .policy import PilotPolicy
 from .scheduler import ChimeraScheduler
 from .task_ir import TaskSpec
 from .telemetry import InMemoryTelemetryStore
-
-if TYPE_CHECKING:
-    pass  # no extra imports needed at runtime
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +111,7 @@ def _run_async(coro: Coroutine) -> Any:
                             asyncio.gather(*pending, return_exceptions=True)
                         )
                 except Exception:
-                    pass
+                    logger.debug("Worker event-loop cleanup failed", exc_info=True)
                 worker_loop.close()
 
         pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -127,7 +124,7 @@ def _run_async(coro: Coroutine) -> Any:
                     for t in asyncio.all_tasks(worker_loop):
                         worker_loop.call_soon_threadsafe(t.cancel)
                 except RuntimeError:
-                    pass
+                    logger.debug("Worker loop was closed before cancellation could be scheduled", exc_info=True)
             raise
         finally:
             pool.shutdown(wait=False)

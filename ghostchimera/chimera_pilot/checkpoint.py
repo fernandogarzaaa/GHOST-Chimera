@@ -8,17 +8,16 @@ state preservation and rollback capability.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
+from ..agent_core.core import AgentCore
 from ..config import GhostChimeraConfig
 from ..logging_config import get_logger
-from ..agent_core.core import AgentCore
 
 logger = get_logger("checkpoint")
 
@@ -93,7 +92,7 @@ class CheckpointDelta:
                 cwd=CHECKPOINT_BASE / f".ghost-{from_hash[:8]}",
                 stderr=subprocess.DEVNULL,
             ).decode().strip().split("\n")
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except (subprocess.CalledProcessError, FileNotFoundError, NotADirectoryError):
             added = []
 
         try:
@@ -102,7 +101,7 @@ class CheckpointDelta:
                 cwd=CHECKPOINT_BASE / f".ghost-{from_hash[:8]}",
                 stderr=subprocess.DEVNULL,
             ).decode().strip().split("\n")
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except (subprocess.CalledProcessError, FileNotFoundError, NotADirectoryError):
             modified = []
 
         try:
@@ -111,7 +110,7 @@ class CheckpointDelta:
                 cwd=CHECKPOINT_BASE / f".ghost-{from_hash[:8]}",
                 stderr=subprocess.DEVNULL,
             ).decode().strip().split("\n")
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except (subprocess.CalledProcessError, FileNotFoundError, NotADirectoryError):
             deleted = []
 
         # Filter empty strings from split
@@ -159,7 +158,7 @@ class CheckpointManager:
         try:
             with open(meta_file, "w") as f:
                 json.dump({"checkpoints": {n: c.to_dict() for n, c in self._checkpoints.items()}}, f, indent=2)
-            os.rename(meta_file, final_meta)
+            os.replace(meta_file, final_meta)
         except Exception as exc:
             logger.error("Failed to save checkpoint metadata: %s", exc)
 
@@ -192,8 +191,12 @@ class CheckpointManager:
 
             # Create a commit of current state_dir contents
             subprocess.run(["git", "add", "."], cwd=state_dir, check=False, capture_output=True)
-            result = subprocess.run(["git", "commit", "-m", json.dumps({"checkpoint": name, "description": description})],
-                                  cwd=state_dir, capture_output=True, text=True)
+            subprocess.run(
+                ["git", "commit", "-m", json.dumps({"checkpoint": name, "description": description})],
+                cwd=state_dir,
+                capture_output=True,
+                text=True,
+            )
 
             # Get the git hash
             hash_result = subprocess.run(["git", "rev-parse", "HEAD"],

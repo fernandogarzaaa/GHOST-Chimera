@@ -9,11 +9,12 @@ action.  Skills can also provide a human readable description.
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from typing import Any
 
 
-class Skill:
+class Skill(ABC):
     """Base class for skills.
 
     Attributes
@@ -31,6 +32,7 @@ class Skill:
     description: str = "Base skill"
     actions: Iterable[str] = []
 
+    @abstractmethod
     def run(self, task: dict[str, Any]) -> Any:
         """Perform a task and return a result.
 
@@ -44,4 +46,3 @@ class Skill:
         Any
             Result of performing the task.
         """
-        raise NotImplementedError

@@ -103,7 +103,8 @@ def run_model_picker() -> None:
             if 0 <= model_idx < len(models):
                 config["model"]["model"] = models[model_idx][1]
         except ValueError:
-            pass
+            print_error(f"Please enter a number between 1 and {len(models)}.")
+            return
 
     if new_provider == "skip":
         config["model"]["model"] = ""

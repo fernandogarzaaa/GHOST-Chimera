@@ -7,8 +7,8 @@ from typing import Any
 from ..logging_config import get_logger
 from ..memory_layer.store import MemoryStore
 from .backends.cwr import CWRBackend
-from .backends.deterministic import DeterministicBackend
 from .backends.desktop_runtime import DesktopRuntimeBackend
+from .backends.deterministic import DeterministicBackend
 from .backends.llamacpp import LlamaCppBackend
 from .backends.pyqpanda3_backend import PyQPanda3Backend
 from .backends.python_runtime import PythonRuntimeBackend
@@ -60,6 +60,8 @@ class ChimeraPilotKernel:
         enable_live_desktop: bool = False,
         desktop_kill_switch_path: str | None = None,
         desktop_action_log_path: str | None = None,
+        desktop_max_live_actions: int | None = DesktopRuntimeBackend.DEFAULT_MAX_LIVE_ACTIONS,
+        desktop_max_session_seconds: float | None = DesktopRuntimeBackend.DEFAULT_MAX_SESSION_SECONDS,
         ghost_mode: str = "whisper",
         memory_store: MemoryStore | None = None,
         local_model_path: str | None = None,
@@ -81,6 +83,8 @@ class ChimeraPilotKernel:
                     dry_run=not enable_live_desktop,
                     kill_switch_path=desktop_kill_switch_path,
                     action_log_path=desktop_action_log_path,
+                    max_live_actions=desktop_max_live_actions,
+                    max_session_seconds=desktop_max_session_seconds,
                 )
             )
         if local_model_path:
@@ -156,6 +160,7 @@ class ChimeraPilotKernel:
                     "offline": backend.capabilities.supports_offline,
                     "network": backend.capabilities.supports_network,
                     "gpu": backend.capabilities.supports_gpu,
+                    "metadata": dict(backend.capabilities.metadata),
                 }
             )
         return {

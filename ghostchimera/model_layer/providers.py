@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import ssl
+from abc import ABC, abstractmethod
 from typing import Any
 from urllib import request as urllib_request
 
@@ -21,14 +22,15 @@ from .local_profiles import get_local_model_profile
 logger = get_logger("providers")
 
 
-class BaseProvider:
+class BaseProvider(ABC):
     """Abstract base class for model providers."""
 
     name: str = "base"
     available: bool = False
 
+    @abstractmethod
     def chat(self, system_message: str, user_message: str) -> str:
-        raise NotImplementedError
+        """Return a chat completion for the provided system and user messages."""
 
 
 class OpenAIProvider(BaseProvider):

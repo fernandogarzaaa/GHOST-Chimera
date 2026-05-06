@@ -8,24 +8,18 @@ with result aggregation and per-task retry.
 from __future__ import annotations
 
 import json
-import logging
-import multiprocessing
-import os
-import signal
-import sys
-import tempfile
 import time
-from concurrent.futures import ProcessPoolExecutor, TimeoutError as FuturesTimeout
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..agent_core.core import AgentCore
+from ..chimera_pilot.error_classifier import ErrorClassifier
+from ..chimera_pilot.task_ir import TaskKind
 from ..config import GhostChimeraConfig
 from ..logging_config import get_logger
-from ..chimera_pilot.task_ir import TaskKind, TaskSpec
-from ..chimera_pilot.error_classifier import ErrorClassifier, ErrorCategory
-from ..chimera_pilot.checkpoint import get_manager as get_checkpoint_manager
 
 logger = get_logger("batch_runner")
 
@@ -121,8 +115,8 @@ def _run_job_worker(job: BatchJob, output_dir: str, checkpoint_interval: int) ->
             result_file.parent.mkdir(parents=True, exist_ok=True)
             with open(result_file, "w") as f:
                 json.dump({"objective": job.objective, "results": [r.to_dict() for r in results]}, f)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Batch result write failed for job %s: %s", job.job_index, exc)
 
         duration = time.time() - start
         return {
@@ -237,7 +231,6 @@ class BatchRunner:
     def run_with_checkpoints(self, output_dir: str | None = None) -> BatchSummary:
         """Run with automatic checkpointing at each step."""
         checkpoint_dir = output_dir or f"{self.output_dir}_checkpoints"
-        checkpoint_mgr = get_checkpoint_manager(self.config)
 
         results = []
         for i, job in enumerate(self.jobs):
@@ -247,8 +240,8 @@ class BatchRunner:
                 Path(checkpoint_dir_job).mkdir(parents=True, exist_ok=True)
                 with open(f"{checkpoint_dir_job}/state.json", "w") as f:
                     json.dump({"job": job.objective, "index": i, "state": "running"}, f)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Batch checkpoint state write failed for job %s: %s", i, exc)
 
             result = self._run_single_with_checkpoint(job, checkpoint_dir_job)
             results.append(result)
@@ -256,7 +249,7 @@ class BatchRunner:
             # Save progress checkpoint
             self._save_checkpoint(results)
 
-        duration = time.time() - start if (start := getattr(self, '_run_start', time.time())) else time.time()
+        duration = time.time() - getattr(self, "_run_start", time.time())
         successful = sum(1 for r in results if r.success)
 
         return BatchSummary(
@@ -264,8 +257,8 @@ class BatchRunner:
             successful_jobs=successful,
             failed_jobs=len(results) - successful,
             success_rate=successful / len(results) if results else 0.0,
-            total_duration_seconds=time.time() - getattr(self, '_run_start', time.time()),
-            avg_duration_seconds=(time.time() - getattr(self, '_run_start', time.time())) / len(results) if results else 0.0,
+            total_duration_seconds=duration,
+            avg_duration_seconds=duration / len(results) if results else 0.0,
             jobs=results,
             output_dir=output_dir or self.output_dir,
         )

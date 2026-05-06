@@ -18,7 +18,7 @@ ghostchimera/
 
 ## Chimera Pilot
 
-Chimera Pilot is the most production-shaped subsystem in this alpha release.
+Chimera Pilot is the most production-shaped subsystem in this beta release.
 It provides:
 
 1. **Task IR** - `TaskSpec` and `TaskKind` normalize objectives.

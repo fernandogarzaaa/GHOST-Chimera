@@ -126,9 +126,11 @@ def _path_is_under_root(root: Path, path: Path) -> bool:
     by ``..`` components or trailing slashes.  Symlink resolution is handled
     by the initial ``.resolve()`` call in the callers.
     """
-    path_str = str(path)
-    root_str = str(root)
-    return path_str == root_str or path_str.startswith(root_str + "/")
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
 
 
 def requires_approval(task: dict[str, Any]) -> bool:

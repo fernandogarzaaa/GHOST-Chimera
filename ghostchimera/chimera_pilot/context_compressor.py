@@ -7,12 +7,9 @@ with optional LLM-guided summarization when available.
 
 from __future__ import annotations
 
-import json
-import logging
 import re
-import time
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..logging_config import get_logger
 from .telemetry import now
@@ -129,7 +126,7 @@ class ContextEngine(ABC):
     protect_last_n: int = _PROTECT_LAST_N
 
     @abstractmethod
-    def update_from_response(self, usage: Dict[str, Any]) -> None:
+    def update_from_response(self, usage: dict[str, Any]) -> None:
         """Update tracked token usage from an API response."""
 
     @abstractmethod
@@ -139,10 +136,10 @@ class ContextEngine(ABC):
     @abstractmethod
     def compress(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         current_tokens: int = None,
         focus_topic: str = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Compact the message list and return the new list."""
 
 
@@ -178,47 +175,44 @@ class ContextCompressor(ContextEngine):
         self.summary_budget_tokens = summary_budget_tokens
         self._last_failure_time: float = 0.0
         self._iterative_summary: str = ""  # persists across compressions
-        self._compressed_messages: List[Dict[str, Any]] | None = None
+        self._compressed_messages: list[dict[str, Any]] | None = None
 
     # ------------------------------------------------------------------
     # Core interface
     # ------------------------------------------------------------------
 
-    def update_from_response(self, usage: Dict[str, Any]) -> None:
+    def update_from_response(self, usage: dict[str, Any]) -> None:
         self.last_prompt_tokens = usage.get("prompt_tokens", 0)
         self.last_completion_tokens = usage.get("completion_tokens", 0)
         self.last_total_tokens = usage.get("total_tokens", 0)
 
     def should_compress(self, prompt_tokens: int = None) -> bool:
-        if prompt_tokens is not None:
-            threshold = prompt_tokens * self.threshold_percent
-        else:
-            threshold = self.threshold_tokens
+        threshold = prompt_tokens * self.threshold_percent if prompt_tokens is not None else self.threshold_tokens
         return threshold > 0 and (prompt_tokens or self.last_prompt_tokens) > threshold
 
-    def should_compress_preflight(self, messages: List[Dict[str, Any]]) -> bool:
+    def should_compress_preflight(self, messages: list[dict[str, Any]]) -> bool:
         """Quick rough check before the API call."""
         total = sum(_content_length(m.get("content")) for m in messages)
         return total > self.threshold_tokens
 
-    def has_content_to_compress(self, messages: List[Dict[str, Any]]) -> bool:
+    def has_content_to_compress(self, messages: list[dict[str, Any]]) -> bool:
         """Is there anything compressible?"""
         protected = self.protect_first_n + self.protect_last_n
         return len(messages) > protected + 2
 
     def compress(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         current_tokens: int = None,
         focus_topic: str = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Compact the message list."""
         if not messages:
             return messages
 
         # Check cooldown
         if self._last_failure_time and (now() - self._last_failure_time) < _FAILURE_COOLDOWN_SECONDS:
-            pass  # in cooldown — try anyway but log
+            logger.info("Compression is in failure cooldown; attempting deterministic compression anyway")
 
         try:
             return self._do_compress(messages, current_tokens, focus_topic)
@@ -233,10 +227,10 @@ class ContextCompressor(ContextEngine):
 
     def _do_compress(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         current_tokens: int | None,
         focus_topic: str | None,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         # Split into head / middle / tail
         protected = self.protect_first_n + self.protect_last_n
         if len(messages) <= protected:
@@ -286,7 +280,7 @@ class ContextCompressor(ContextEngine):
                      len(messages), len(self._compressed_messages), self.compression_count)
         return self._compressed_messages
 
-    def _prune_tool_outputs(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _prune_tool_outputs(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Clear tool result content to save context space."""
         result = []
         for msg in messages:
@@ -300,7 +294,7 @@ class ContextCompressor(ContextEngine):
 
     def _deterministic_summarize(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         budget: int,
     ) -> str:
         """Deterministic summarization: extract key information per turn."""
@@ -342,7 +336,7 @@ class ContextCompressor(ContextEngine):
 
     def _llm_summarize(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         focus_topic: str | None,
     ) -> str:
         """LLM-guided summarization via auxiliary client."""

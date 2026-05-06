@@ -129,12 +129,13 @@ class PilotPolicy:
         # Layer 2: attempt base64 decode of the entire value and re-check
         try:
             decoded = base64.b64decode(value, validate=True).decode("utf-8", errors="ignore")
+        except Exception:
+            decoded = ""
+        if decoded:
             decoded_normed = self._normalize_text(decoded).lower()
             for fragment in fragments:
                 if fragment.lower() in decoded_normed:
                     raise PermissionError(f"Task {field_name} contains denied fragment (base64): {fragment}")
-        except Exception:
-            pass  # Not valid base64; nothing to do
 
         # Layer 3: whitespace-tolerant regex for each fragment
         for fragment in fragments:
@@ -152,9 +153,6 @@ class PilotPolicy:
         except SyntaxError:
             return  # Fragment check already caught anything relevant
 
-        denied_dunder_attrs = frozenset(
-            ("eval", "exec", "compile", "__import__", "open", "input", "getattr", "setattr")
-        )
         dangerous_modules = frozenset(
             ("os", "subprocess", "socket", "shutil", "ctypes", "pickle", "marshal", "sys", "builtins")
         )
@@ -163,14 +161,14 @@ class PilotPolicy:
             if isinstance(node, ast.Call):
                 func = node.func
                 # Check for getattr(builtins, 'eval') or similar
-                if isinstance(func, ast.Attribute) and func.attr == "getattr":
+                if isinstance(func, ast.Attribute) and func.attr == "getattr":  # noqa: SIM102
                     # getattr(X, "eval") — check if X could be builtins/os/etc.
                     if isinstance(func.value, ast.Name) and func.value.id in dangerous_modules:
                         raise PermissionError(
                             f"Task {task_id} contains denied AST pattern: getattr on dangerous module"
                         )
                 # Check for __import__('os') or getattr(builtins, ...)
-                if isinstance(func, ast.Name) and func.id == "__import__":
+                if isinstance(func, ast.Name) and func.id == "__import__":  # noqa: SIM102
                     # Check the argument
                     if node.args and isinstance(node.args[0], ast.Constant):
                         mod = str(node.args[0])

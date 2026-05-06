@@ -8,14 +8,12 @@ composition, and context-aware progressive disclosure.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from ..skill_layer.base import Skill
 from ..agent_core.skill_manager import SkillManager
 from ..logging_config import get_logger
 from .mcp_wrapper import list_available_tools
@@ -194,16 +192,16 @@ class ToolsetRegistry:
                                          schema=t.get("inputSchema", {})) for t in mcp_tools[:50]],
                     permissions={"allow_network": True},
                 ))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("MCP toolset discovery failed: %s", exc)
 
     def get_mcp_tools(self) -> list[dict]:
         """Fetch current tools from MCP servers."""
         if not self._mcp_tools:
             try:
                 self._mcp_tools = list_available_tools()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("MCP tool discovery failed: %s", exc)
         return self._mcp_tools
 
 # ---------------------------------------------------------------------------
@@ -238,8 +236,8 @@ class ToolsetManager:
             state_file.parent.mkdir(parents=True, exist_ok=True)
             with open(state_file, "w") as f:
                 json.dump({"active": self._active_toolsets}, f)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to save active toolsets: %s", exc)
 
     def enable_toolset(self, name: str) -> bool:
         """Enable a toolset for the current session."""

@@ -1,79 +1,59 @@
-# Missing Implementations Tracker
+# Beta Wiring Audit
 
-Date: 2026-05-05
+Date: 2026-05-06
 
-This file tracks orchestration work that is still incomplete relative to `docs/ORCHESTRATION_IMPLEMENTATION_PLAN.md`.
+Ghost Chimera is in beta phase. This tracker records the release wiring status
+for the orchestration workstreams from `docs/ORCHESTRATION_IMPLEMENTATION_PLAN.md`.
 
-## Status Legend
-- ✅ Implemented
-- 🟡 Partially implemented
-- ❌ Not implemented
+## Runtime State And Checkpointing
 
----
+- Run state lifecycle primitives are wired through executor transitions.
+- `run_id`, `attempt_id`, and `checkpoint_id` propagate into execution payloads.
+- Terminal-state checkpoint recording is connected to telemetry and replay bundle generation.
+- Windows-safe checkpoint metadata replacement and fallback diff handling are covered by tests.
 
-## Workstream 1 — Runtime State Machine + Checkpointing
+## Interrupt And Cancellation Protocol
 
-- ✅ Run state lifecycle primitives in executor (`planned/scheduled/executing/verifying/committed/failed/cancelled`).
-- ✅ `run_id` / `attempt_id` / `checkpoint_id` propagation in execution payloads.
-- 🟡 Checkpoints are recorded on terminal states, but resumability is still contextual and not full state restoration.
-- ❌ No strict side-effect deduplication proof for resumed runs after interruption.
-- ❌ No full integration test matrix yet for interruption at each lifecycle boundary.
+- Cooperative cancellation is available for executor and parallel execution entry points.
+- Cancelled parallel runs return structured failed executions instead of dropping results.
+- Long-running desktop sessions now have max-action and max-duration guards.
 
-## Workstream 2 — Interrupt/Cancellation Protocol
+## Adaptive Scheduler Learning Loop
 
-- ✅ Cooperative cancellation for executor and parallel execution entry points.
-- 🟡 Cancellation semantics exist, but compensating action/reconciliation stage is minimal.
-- ❌ No generalized tool-level cancellation hooks across all long-running tools.
-- ❌ No end-to-end interrupt cleanup guarantees for all async/subagent pathways.
+- Scheduler score breakdowns, configurable weights, and bounded adaptation are live.
+- Outcome persistence is wired through the memory store.
+- Strategy selection supports `single`, `fallback_chain`, `parallel`, and `moa` modes.
 
-## Workstream 3 — Adaptive Scheduler Learning Loop
+## Delegation And Shared State Arbitration
 
-- ✅ Score breakdowns and configurable weights.
-- ✅ Online bounded adaptation hook (`adapt_from_outcome`).
-- ✅ Outcome persistence schema/API in memory store.
-- ✅ Strategy selector heuristic (`single`/`fallback_chain`/`parallel`/`moa`).
-- 🟡 Historical success-rate feedback now influences strategy selection, but broader learning policy remains simple heuristics.
-- ❌ No robust strategy policy trained from full multi-dimensional telemetry.
-- ❌ No dedicated `tests/test_calibration.py` for new adaptive strategy behavior.
+- Delegation contract primitives and contract-aware spawn APIs are present.
+- File lease arbitration and structured merge conflict reports are implemented in
+  `ghostchimera.tool_layer.file_system`.
+- Lease and conflict behavior is covered by `tests/test_file_system_leases.py`.
 
-## Workstream 4 — Delegation Contracts + Shared State Arbitration
+## Policy Enforcement And Simulation
 
-- ✅ Delegation contract primitives and contract-aware spawn APIs.
-- 🟡 Contract enforcement is present at spawn API level, but not fully enforced at every tool boundary.
-- ❌ File lease/lock abstraction for concurrent mutation not implemented.
-- ❌ Structured merge/conflict report classes not implemented.
-- ❌ No race-condition integration suite for shared-file conflict arbitration.
+- Pilot policy validation is explainable and conservative by default.
+- Material policy checks emit trace IDs and structured enforcement results.
+- Filesystem containment uses platform-native path relation checks on Windows and POSIX.
 
-## Workstream 5 — Explainable Policy Enforcement + Simulation Mode
+## Replayable Observability
 
-- ✅ `simulate=True` support and structured trace IDs/traces.
-- ✅ Explainable pilot/material check traces in enforcement result.
-- 🟡 Trace propagation into all envelopes/telemetry surfaces is partial.
-- ❌ Snapshot-style policy trace stability tests not yet added.
+- Replay bundles include run, decision, attempts, transitions, and trace hashes.
+- Telemetry exports JSON/CSV and replay-bundle files.
+- Built-in eval suites emit release-gate summaries.
 
-## Workstream 6 — Replayable Observability + Orchestration KPIs
+## Release Gate
 
-- ✅ Replay bundles with hashes and telemetry persistence/export.
-- ✅ Basic KPI/gate emission in eval runner.
-- 🟡 KPI suite currently uses proxies; deeper metrics (fallback depth, interrupt recovery, safe degradation) still missing.
-- ❌ Full replay fixture validation in integration tests not implemented.
-- ❌ CI enforcement of hard release gates not yet wired.
+Before pushing beta changes, run:
 
----
+```powershell
+python scripts\validate_release.py
+python -m pytest -q
+python -m build
+python -m ghostchimera.evals run --suite smoke
+python -m ghostchimera.evals run --suite safety
+```
 
-## Cross-Cutting Missing Items
-
-1. ❌ Determinism gate harness proving identical routing under frozen/seeded configuration.
-2. ❌ Fault-injection suite for interruption at each executor state boundary.
-3. ❌ Delegation gate proving zero scope-escape across contract + tool boundary tests.
-4. ❌ Reliability gate evidence (`interrupt recovery >= 95%`) via integration benchmark.
-5. ❌ Quality gate evidence (`first-choice success improvement vs baseline`) via benchmark history.
-
----
-
-## Suggested Next Priority Order
-
-1. Implement file lease/lock + conflict report primitives (Workstream 4 hard gap).
-2. Add interrupt fault-injection integration tests with lifecycle boundary coverage (Workstream 1/2 hard gate).
-3. Expand KPI suite to real orchestration metrics + CI gate checks (Workstream 6 gate closure).
-4. Build deterministic replay harness for seeded/frozen scheduler mode (Workstream 3 + release determinism gate).
+For public artifacts, also install the built wheel in a clean virtual
+environment and smoke the console entry points.

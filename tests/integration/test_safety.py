@@ -1,14 +1,15 @@
 """Integration tests for safety features."""
 
-from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
 from ghostchimera.chimera_pilot.schema import validate_task
+from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
 from ghostchimera.safety_layer.rate_limiter import RateLimiter
 
 
 def test_path_containment():
     """Path containment check should restrict operations to allowed roots."""
-    from ghostchimera.safety_layer.gating import _path_is_under_root
     from pathlib import Path
+
+    from ghostchimera.safety_layer.gating import _path_is_under_root
     root = Path("/tmp").resolve()
     child = Path("/tmp/test.txt").resolve()
     assert _path_is_under_root(root, child)

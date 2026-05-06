@@ -54,8 +54,8 @@ class MCPServer:
             return
         try:
             server.serve_forever()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("MCP server loop stopped unexpectedly: %s", exc)
 
     def start(self) -> None:
         if self._running:

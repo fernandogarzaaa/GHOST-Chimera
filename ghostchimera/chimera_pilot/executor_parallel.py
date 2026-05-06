@@ -14,16 +14,13 @@ import time
 from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from .executor import ChimeraPilotExecutor, PilotExecution
 from .policy import PilotPolicy
 from .scheduler import ChimeraScheduler
 from .task_ir import TaskSpec
 from .telemetry import InMemoryTelemetryStore
-
-if TYPE_CHECKING:
-    pass  # no extra imports needed at runtime
 
 logger = logging.getLogger(__name__)
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -66,8 +66,7 @@ class GhostChimeraConfigTests(unittest.TestCase):
         completed = subprocess.run(
             [sys.executable, "-m", "ghostchimera.control_plane.cli", "--config-show"],
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=False,
             timeout=30,
         )
@@ -88,10 +87,13 @@ class GhostChimeraConfigTests(unittest.TestCase):
                 "--allow-desktop-control",
                 "--ghost-mode",
                 "possess",
+                "--desktop-max-actions",
+                "4",
+                "--desktop-max-duration-seconds",
+                "45",
             ],
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=False,
             timeout=30,
         )
@@ -99,6 +101,9 @@ class GhostChimeraConfigTests(unittest.TestCase):
         payload = json.loads(completed.stdout)
         backend_ids = [item["id"] for item in payload["backends"]]
         self.assertIn("desktop.runtime", backend_ids)
+        desktop = next(item for item in payload["backends"] if item["id"] == "desktop.runtime")
+        self.assertEqual(desktop["metadata"]["max_live_actions"], 4)
+        self.assertEqual(desktop["metadata"]["max_session_seconds"], 45.0)
         self.assertEqual(payload["policy"]["ghost_mode"], "possess")
 
 

@@ -23,6 +23,7 @@ __all__ = [
     "ExploreValue",
     "HallucinationDetector",
     "HallucinationFlag",
+    "linearise_tasks",
     "MemoryScope",
     "ProvisionalValue",
     "ReflectionEngine",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from ghostchimera.cognition_layer.reasoning import linearise_tasks
 from ghostchimera.cognition_layer.workspace import (
     AttentionController,
     ReflectionEngine,
@@ -46,6 +47,26 @@ class ConsciousWorkspaceTests(unittest.TestCase):
         self.assertEqual(snapshot["task"], "ship safe Ghost Chimera")
         self.assertEqual(snapshot["evidence"][0]["source"], "audit")
         self.assertEqual(snapshot["reflections"][0]["outcome"], "tests pass")
+
+    def test_reasoning_linearises_explicit_task_dependencies(self) -> None:
+        tasks = [
+            {"id": "deploy", "action": "shell", "depends_on": ["test"]},
+            {"id": "build", "action": "shell"},
+            {"id": "test", "action": "shell", "depends_on": "build"},
+        ]
+
+        ordered = linearise_tasks(tasks)
+
+        self.assertEqual([task["id"] for task in ordered], ["build", "test", "deploy"])
+
+    def test_reasoning_rejects_dependency_cycles(self) -> None:
+        tasks = [
+            {"id": "a", "action": "shell", "depends_on": "b"},
+            {"id": "b", "action": "shell", "depends_on": "a"},
+        ]
+
+        with self.assertRaises(ValueError):
+            linearise_tasks(tasks)
 
 
 if __name__ == "__main__":

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-import os
-import json
 import datetime as dt
+import json
+import os
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +23,8 @@ class DesktopRuntimeBackend:
 
     id = "desktop.runtime"
     name = "Desktop Runtime Backend"
+    DEFAULT_MAX_LIVE_ACTIONS = 25
+    DEFAULT_MAX_SESSION_SECONDS = 300.0
 
     def __init__(
         self,
@@ -28,17 +32,33 @@ class DesktopRuntimeBackend:
         dry_run: bool = True,
         kill_switch_path: str | None = None,
         action_log_path: str | None = None,
+        max_live_actions: int | None = DEFAULT_MAX_LIVE_ACTIONS,
+        max_session_seconds: float | None = DEFAULT_MAX_SESSION_SECONDS,
+        clock: Callable[[], float] | None = None,
     ) -> None:
+        if max_live_actions is not None and max_live_actions < 1:
+            raise ValueError("max_live_actions must be at least 1")
+        if max_session_seconds is not None and max_session_seconds <= 0:
+            raise ValueError("max_session_seconds must be greater than 0")
         self.dry_run = dry_run
         self.kill_switch_path = Path(kill_switch_path).expanduser() if kill_switch_path else None
         self.action_log_path = Path(action_log_path).expanduser() if action_log_path else None
+        self.max_live_actions = max_live_actions
+        self.max_session_seconds = max_session_seconds
+        self._clock = clock or time.monotonic
+        self._session_started_at = self._clock()
+        self._live_actions_executed = 0
         self.capabilities = BackendCapabilities(
             kinds={TaskKind.DESKTOP_CONTROL},
             supports_offline=True,
             supports_streaming=False,
             supports_gpu=False,
             supports_network=False,
-            metadata={"dry_run": dry_run},
+            metadata={
+                "dry_run": dry_run,
+                "max_live_actions": max_live_actions,
+                "max_session_seconds": max_session_seconds,
+            },
         )
 
     def probe(self) -> BackendHealth:
@@ -87,6 +107,10 @@ class DesktopRuntimeBackend:
         if self._kill_switch_active(task):
             self._record_action(task, action, ok=False, error="kill switch active")
             return ExecutionResult(self.id, task.id, False, "", error="Desktop kill switch is active")
+        limit_error = self._live_limit_error()
+        if limit_error:
+            self._record_action(task, action, ok=False, error=limit_error)
+            return ExecutionResult(self.id, task.id, False, "", error=limit_error)
 
         try:
             import pyautogui  # type: ignore
@@ -95,6 +119,8 @@ class DesktopRuntimeBackend:
             return ExecutionResult(self.id, task.id, False, "", error="pyautogui is required for live desktop control")
 
         try:
+            self._live_actions_executed += 1
+            self.capabilities.metadata["live_actions_executed"] = self._live_actions_executed
             self._execute_live(pyautogui, action=action, target=target, text=text, inputs=task.inputs)
         except Exception as exc:  # noqa: BLE001
             self._record_action(task, action, ok=False, error=f"Desktop action failed: {exc}")
@@ -121,6 +147,15 @@ class DesktopRuntimeBackend:
                 raise ValueError("hotkey action requires non-empty keys list")
             pg.hotkey(*[str(k) for k in keys])
 
+    def _live_limit_error(self) -> str | None:
+        if self.max_live_actions is not None and self._live_actions_executed >= self.max_live_actions:
+            return f"Desktop live action budget exhausted ({self.max_live_actions} actions)"
+        if self.max_session_seconds is not None:
+            elapsed = self._clock() - self._session_started_at
+            if elapsed >= self.max_session_seconds:
+                return f"Desktop live session timed out after {self.max_session_seconds:g} seconds"
+        return None
+
     def _kill_switch_active(self, task: TaskSpec) -> bool:
         task_switch = task.constraints.get("kill_switch")
         if isinstance(task_switch, str) and task_switch.strip():
@@ -140,7 +175,7 @@ class DesktopRuntimeBackend:
         if path is None:
             return
         payload = {
-            "ts": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "ts": dt.datetime.now(dt.UTC).isoformat(),
             "task_id": task.id,
             "objective": task.objective,
             "action": action,

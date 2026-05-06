@@ -26,7 +26,8 @@ import logging
 from typing import Any
 
 from ..chimera_pilot import ChimeraPilotKernel
-from ..cognition_layer.workspace import SelfModel, WorkingMemory, AttentionController
+from ..cognition_layer.reasoning import linearise_tasks
+from ..cognition_layer.workspace import AttentionController, SelfModel, WorkingMemory
 from ..model_layer.llm import LLM
 from ..safety_layer.gating import ExecutionPolicy
 from .executor import Executor
@@ -103,7 +104,7 @@ class AgentCore:
             self.memory.add_event(memory_record)
             return pilot_result
         # Plan the request into structured tasks
-        tasks = self.planner.plan(request)
+        tasks = linearise_tasks(self.planner.plan(request))
         self.logger.debug("Planner produced tasks: %s", tasks)
         # Execute the tasks sequentially
         result = self.executor.execute(tasks)
