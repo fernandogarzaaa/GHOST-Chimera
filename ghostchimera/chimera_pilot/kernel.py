@@ -123,6 +123,7 @@ class ChimeraPilotKernel:
             policy=self.policy,
             telemetry=self.telemetry,
             outcome_store=self.memory_store,
+            hooks=self.hooks,
         )
         self.hooks.fire(HookName.TASK_EXECUTE_PRE, task=task)
         execution = executor.execute(task)
