@@ -95,6 +95,12 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-python", action="store_true", help="Allow Chimera Pilot local Python/test execution.")
     parser.add_argument("--allow-network", action="store_true", help="Allow Chimera Pilot network-requiring tasks.")
     parser.add_argument("--allow-desktop-control", action="store_true", help="Allow Chimera Pilot desktop control tasks.")
+    parser.add_argument(
+        "--desktop-action-class",
+        action="append",
+        choices=["read_only", "mutating", "destructive"],
+        help="Desktop action class to allow. Repeat to allow multiple classes.",
+    )
     parser.add_argument("--enable-desktop-backend", action="store_true", help="Register Chimera Pilot desktop backend (dry-run).")
     parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
     parser.add_argument("--desktop-kill-switch-path", default="", help="If file exists, desktop actions are blocked.")
@@ -164,6 +170,7 @@ def _main(argv: list[str] | None = None) -> int:
             allow_python_execution=args.allow_python,
             allow_network=args.allow_network,
             allow_desktop_control=args.allow_desktop_control,
+            desktop_action_classes=args.desktop_action_class,
             enable_desktop_backend=args.enable_desktop_backend,
             enable_live_desktop=args.enable_live_desktop,
             desktop_kill_switch_path=args.desktop_kill_switch_path or None,

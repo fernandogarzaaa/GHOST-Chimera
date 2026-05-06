@@ -32,6 +32,8 @@
   - env fallback `GHOSTCHIMERA_DESKTOP_SCREENSHOT_DIR`
   - before/after screenshot paths are recorded in action logs, result metrics, and replay bundles
 - Replay bundles include a policy snapshot for postmortem review.
+- Desktop actions are classified as `read_only`, `mutating`, or `destructive`.
+- Default desktop policy allows `read_only` and `mutating`; `destructive` requires an explicit CLI/API allowlist.
 
 ### CLI plumbing
 - `chimera-pilot` supports desktop flags on `run` and `status`.
@@ -67,8 +69,11 @@ Still needed:
 - explicit confirmation token workflow for irreversible actions
 
 ## 3) Stronger policy semantics
+Implemented:
+- policy split by action class (`read_only`, `mutating`, `destructive`)
+- desktop action class is persisted in runtime output, metrics, and action logs
+
 Needed:
-- policy split by action class (read-only vs mutating)
 - denylist/allowlist for specific apps/windows/processes
 - per-directory/file affinity between desktop actions and file mutations
 - policy trace IDs persisted into every desktop action log row
@@ -107,8 +112,8 @@ Needed:
 ---
 
 ## Suggested Next PR Order
-1. Add action-class policy model (`read_only`, `mutating`, `destructive`).
-2. Add emergency stop command and confirmation-token workflow for irreversible live actions.
+1. Add emergency stop command and confirmation-token workflow for irreversible live actions.
+2. Add app/window denylist and allowlist controls.
 3. Add multi-step desktop compiler/planner path and integration tests.
 4. Add retention/compression strategy for desktop action telemetry.
 

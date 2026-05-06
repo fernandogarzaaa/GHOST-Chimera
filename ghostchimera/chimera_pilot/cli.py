@@ -29,6 +29,12 @@ def main(argv: list[str] | None = None) -> int:
     status_parser.add_argument("--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist.")
     status_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
     status_parser.add_argument("--allow-desktop-control", action="store_true", help="Allow desktop cursor/keyboard control.")
+    status_parser.add_argument(
+        "--desktop-action-class",
+        action="append",
+        choices=["read_only", "mutating", "destructive"],
+        help="Desktop action class to allow. Repeat to allow multiple classes.",
+    )
     status_parser.add_argument("--enable-desktop-backend", action="store_true", help="Register desktop backend.")
     status_parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
     status_parser.add_argument("--desktop-kill-switch-path", default="", help="If this file exists, desktop actions are blocked.")
@@ -46,6 +52,12 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--allow-python", action="store_true", help="Allow local Python/test execution for this command.")
     run_parser.add_argument("--allow-network", action="store_true", help="Allow network-requiring tasks for this command.")
     run_parser.add_argument("--allow-desktop-control", action="store_true", help="Allow desktop cursor/keyboard control.")
+    run_parser.add_argument(
+        "--desktop-action-class",
+        action="append",
+        choices=["read_only", "mutating", "destructive"],
+        help="Desktop action class to allow. Repeat to allow multiple classes.",
+    )
     run_parser.add_argument("--enable-desktop-backend", action="store_true", help="Register desktop backend (dry-run).")
     run_parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
     run_parser.add_argument("--desktop-kill-switch-path", default="", help="If this file exists, desktop actions are blocked.")
@@ -138,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
         allow_python_execution=getattr(args, "allow_python", False),
         allow_network=getattr(args, "allow_network", False),
         allow_desktop_control=getattr(args, "allow_desktop_control", False),
+        desktop_action_classes=getattr(args, "desktop_action_class", None),
         enable_desktop_backend=getattr(args, "enable_desktop_backend", False),
         enable_live_desktop=getattr(args, "enable_live_desktop", False),
         desktop_kill_switch_path=getattr(args, "desktop_kill_switch_path", "") or None,

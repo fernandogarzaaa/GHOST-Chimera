@@ -131,6 +131,12 @@ Live desktop mutation requires the live backend flag, possess mode, explicit cal
 chimera-pilot run "live desktop: click submit button" --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess
 ```
 
+Desktop actions are classified as `read_only`, `mutating`, or `destructive`. The default policy allows `read_only` and `mutating` only; destructive desktop actions require an explicit action-class allowlist:
+
+```bash
+chimera-pilot run "live desktop: click delete project" --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess --desktop-action-class read_only --desktop-action-class mutating --desktop-action-class destructive
+```
+
 For replayable live sessions, provide both an action log and screenshot directory. The backend captures best-effort before/after screenshots for each live action and includes those artifact paths in action logs, result metrics, and replay bundles:
 
 ```bash

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from .desktop_policy import infer_desktop_action_class
 from .schema import validate_task
 from .task_ir import TaskKind, TaskSpec
 
@@ -142,16 +143,37 @@ class RuleBasedTaskCompiler:
             text = text[len("dryrun desktop:") :].strip()
             lower = text.lower()
 
+        if lower.startswith("move ") or lower == "move":
+            return self._desktop_inputs("move", text, target=text[5:].strip()), constraints
         if lower.startswith("click ") or lower == "click":
-            return {"action": "click", "target": text[6:].strip()}, constraints
+            return self._desktop_inputs("click", text, target=text[6:].strip()), constraints
         if lower.startswith("double click "):
-            return {"action": "double_click", "target": text[13:].strip()}, constraints
+            return self._desktop_inputs("double_click", text, target=text[13:].strip()), constraints
         if lower.startswith("right click "):
-            return {"action": "right_click", "target": text[12:].strip()}, constraints
+            return self._desktop_inputs("right_click", text, target=text[12:].strip()), constraints
         if lower.startswith("type "):
-            return {"action": "type", "text": text[5:].strip(), "target": ""}, constraints
+            return self._desktop_inputs("type", text, text=text[5:].strip(), target=""), constraints
         if lower.startswith("press ") or lower.startswith("hotkey "):
             payload = text.split(maxsplit=1)[1] if len(text.split(maxsplit=1)) == 2 else ""
             keys = [k.strip() for k in payload.split("+") if k.strip()]
-            return {"action": "hotkey", "keys": keys}, constraints
+            return self._desktop_inputs("hotkey", text, keys=keys), constraints
         return None, {}
+
+    def _desktop_inputs(
+        self,
+        action: str,
+        objective: str,
+        *,
+        target: str = "",
+        text: str = "",
+        keys: list[str] | None = None,
+    ) -> dict[str, object]:
+        inputs: dict[str, object] = {"action": action}
+        if target:
+            inputs["target"] = target
+        if text:
+            inputs["text"] = text
+        if keys is not None:
+            inputs["keys"] = keys
+        inputs["action_class"] = infer_desktop_action_class(action=action, inputs=inputs, objective=objective)
+        return inputs

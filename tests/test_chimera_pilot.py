@@ -110,8 +110,16 @@ class ChimeraPilotTests(unittest.TestCase):
         desktop_task = compiler.compile("click submit button")[0]
         self.assertEqual(desktop_task.kind, TaskKind.DESKTOP_CONTROL)
         self.assertEqual(desktop_task.inputs["action"], "click")
+        self.assertEqual(desktop_task.inputs["action_class"], "mutating")
         ok, errors = validate_task(desktop_task.kind, desktop_task.inputs)
         self.assertTrue(ok, errors)
+
+    def test_compiler_marks_destructive_desktop_action(self) -> None:
+        compiler = RuleBasedTaskCompiler()
+        task = compiler.compile("live desktop: click delete project")[0]
+
+        self.assertEqual(task.kind, TaskKind.DESKTOP_CONTROL)
+        self.assertEqual(task.inputs["action_class"], "destructive")
 
     def test_compiler_desktop_live_and_dryrun_prefix_constraints(self) -> None:
         compiler = RuleBasedTaskCompiler()
@@ -128,6 +136,10 @@ class ChimeraPilotTests(unittest.TestCase):
         ok2, errors2 = validate_task(TaskKind.DESKTOP_CONTROL, {"action": "hotkey", "keys": "ctrl+s"})
         self.assertFalse(ok2)
         self.assertTrue(any("keys" in msg for msg in errors2))
+
+        ok3, errors3 = validate_task(TaskKind.DESKTOP_CONTROL, {"action": "click", "action_class": "unknown"})
+        self.assertFalse(ok3)
+        self.assertTrue(any("action_class" in msg for msg in errors3))
 
     def test_python_runtime_backend_executes_real_python_code(self) -> None:
         task = TaskSpec.create(kind=TaskKind.PYTHON, objective="python", inputs={"code": "print(2 + 3)"})
@@ -176,6 +188,35 @@ class ChimeraPilotTests(unittest.TestCase):
         )
         with self.assertRaises(PermissionError):
             kernel.run("click submit")
+
+    def test_policy_blocks_destructive_desktop_class_by_default(self) -> None:
+        policy = PilotPolicy(allow_desktop_control=True, ghost_mode="possess")
+        task = TaskSpec.create(
+            kind=TaskKind.DESKTOP_CONTROL,
+            objective="live desktop: click delete project",
+            inputs={"action": "click", "target": "delete project", "action_class": "destructive"},
+            constraints={"live_desktop": True},
+        )
+
+        with self.assertRaises(PermissionError) as ctx:
+            policy.validate(task)
+
+        self.assertIn("destructive", str(ctx.exception))
+
+    def test_policy_can_allow_destructive_desktop_class_explicitly(self) -> None:
+        policy = PilotPolicy(
+            allow_desktop_control=True,
+            ghost_mode="possess",
+            allowed_desktop_action_classes=("read_only", "mutating", "destructive"),
+        )
+        task = TaskSpec.create(
+            kind=TaskKind.DESKTOP_CONTROL,
+            objective="live desktop: click delete project",
+            inputs={"action": "click", "target": "delete project", "action_class": "destructive"},
+            constraints={"live_desktop": True},
+        )
+
+        policy.validate(task)
 
     def test_kernel_can_register_live_desktop_backend(self) -> None:
         kernel = ChimeraPilotKernel.default(
@@ -275,6 +316,10 @@ class ChimeraPilotReleaseHardeningTests(unittest.TestCase):
                 "--include-deterministic-backend",
                 "--enable-desktop-backend",
                 "--allow-desktop-control",
+                "--desktop-action-class",
+                "read_only",
+                "--desktop-action-class",
+                "mutating",
                 "--ghost-mode",
                 "possess",
                 "--desktop-max-actions",
@@ -295,6 +340,7 @@ class ChimeraPilotReleaseHardeningTests(unittest.TestCase):
         self.assertEqual(desktop["metadata"]["max_live_actions"], 3)
         self.assertEqual(desktop["metadata"]["max_session_seconds"], 30.0)
         self.assertEqual(payload["policy"]["ghost_mode"], "possess")
+        self.assertEqual(payload["policy"]["allowed_desktop_action_classes"], ["read_only", "mutating"])
 
 
 if __name__ == "__main__":

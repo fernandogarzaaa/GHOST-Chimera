@@ -10,6 +10,11 @@ from typing import Any
 
 from ..safety_layer.production import ProductionGuardrails
 from .autonomy import AutonomyProfile, get_autonomy_profile
+from .desktop_policy import (
+    DEFAULT_ALLOWED_DESKTOP_ACTION_CLASSES,
+    infer_desktop_action_class,
+    normalize_allowed_desktop_action_classes,
+)
 from .task_ir import TaskKind, TaskSpec
 
 
@@ -39,6 +44,7 @@ class PilotPolicy:
     default_max_cost_usd: float = 0.0
     max_python_timeout_seconds: int = 30
     allowed_hosts: tuple[str, ...] = field(default_factory=tuple)
+    allowed_desktop_action_classes: tuple[str, ...] = DEFAULT_ALLOWED_DESKTOP_ACTION_CLASSES
     production_guardrails: ProductionGuardrails = ProductionGuardrails()
     autonomy_profile: AutonomyProfile = field(default_factory=lambda: get_autonomy_profile("supervised"))
     """Allowlisted hostname glob patterns for SSRF policy.
@@ -114,6 +120,14 @@ class PilotPolicy:
         if task.kind == TaskKind.DESKTOP_CONTROL and self.ghost_mode != "possess":
             raise PermissionError("Desktop control requires ghost_mode=possess")
         if task.kind == TaskKind.DESKTOP_CONTROL:
+            action = str(task.inputs.get("action", ""))
+            action_class = infer_desktop_action_class(action=action, inputs=task.inputs, objective=task.objective)
+            allowed_classes = normalize_allowed_desktop_action_classes(list(self.allowed_desktop_action_classes))
+            if action_class not in allowed_classes:
+                raise PermissionError(
+                    f"Desktop action class '{action_class}' is disabled by policy; "
+                    f"allowed classes: {', '.join(allowed_classes)}"
+                )
             self._require_production_ready(task, "desktop control")
 
         max_cost = task.max_cost_usd
@@ -132,6 +146,7 @@ class PilotPolicy:
             "default_max_cost_usd": self.default_max_cost_usd,
             "max_python_timeout_seconds": self.max_python_timeout_seconds,
             "allowed_hosts": list(self.allowed_hosts),
+            "allowed_desktop_action_classes": list(normalize_allowed_desktop_action_classes(list(self.allowed_desktop_action_classes))),
             "production": self.production_guardrails.to_dict(),
             "autonomy": self.autonomy_profile.to_dict(),
         }
@@ -145,6 +160,7 @@ class PilotPolicy:
             allow_quantum_simulation=True,
             allow_desktop_control=True,
             ghost_mode="possess",
+            allowed_desktop_action_classes=("read_only", "mutating", "destructive"),
             production_guardrails=ProductionGuardrails(),
             autonomy_profile=get_autonomy_profile("autonomous"),
         )

@@ -10,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from ..desktop_policy import infer_desktop_action_class
 from ..task_ir import TaskKind, TaskSpec
 from .base import BackendCapabilities, BackendHealth, ExecutionResult
 
@@ -75,14 +76,21 @@ class DesktopRuntimeBackend:
 
     def execute(self, task: TaskSpec) -> ExecutionResult:
         action = str(task.inputs.get("action", "")).strip().lower()
+        action_class = infer_desktop_action_class(action=action, inputs=task.inputs, objective=task.objective)
         target = str(task.inputs.get("target", "")).strip()
         text = str(task.inputs.get("text", ""))
         if action not in {"click", "double_click", "right_click", "type", "hotkey", "move"}:
-            self._record_action(task, action, ok=False, error=f"Unsupported desktop action: {action}")
+            self._record_action(
+                task,
+                action,
+                action_class=action_class,
+                ok=False,
+                error=f"Unsupported desktop action: {action}",
+            )
             return ExecutionResult(self.id, task.id, False, "", error=f"Unsupported desktop action: {action}")
 
         if self.dry_run:
-            self._record_action(task, action, ok=True, mode="dry_run")
+            self._record_action(task, action, action_class=action_class, ok=True, mode="dry_run")
             return ExecutionResult(
                 self.id,
                 task.id,
@@ -91,15 +99,16 @@ class DesktopRuntimeBackend:
                     "mode": "dry_run",
                     "executed": False,
                     "action": action,
+                    "action_class": action_class,
                     "target": target,
                     "text": text if action == "type" else "",
                 },
-                metrics=self._desktop_metrics(action),
+                metrics=self._desktop_metrics(action, action_class),
             )
 
         live_flag = str(task.constraints.get("live_desktop", "")).strip().lower()
         if live_flag not in {"1", "true", "yes"}:
-            self._record_action(task, action, ok=False, error="missing live_desktop=true")
+            self._record_action(task, action, action_class=action_class, ok=False, error="missing live_desktop=true")
             return ExecutionResult(
                 self.id,
                 task.id,
@@ -108,17 +117,17 @@ class DesktopRuntimeBackend:
                 error="Live desktop control requires task.constraints.live_desktop=true",
             )
         if self._kill_switch_active(task):
-            self._record_action(task, action, ok=False, error="kill switch active")
+            self._record_action(task, action, action_class=action_class, ok=False, error="kill switch active")
             return ExecutionResult(self.id, task.id, False, "", error="Desktop kill switch is active")
         limit_error = self._live_limit_error()
         if limit_error:
-            self._record_action(task, action, ok=False, error=limit_error)
+            self._record_action(task, action, action_class=action_class, ok=False, error=limit_error)
             return ExecutionResult(self.id, task.id, False, "", error=limit_error)
 
         try:
             import pyautogui  # type: ignore
         except Exception:
-            self._record_action(task, action, ok=False, error="pyautogui missing")
+            self._record_action(task, action, action_class=action_class, ok=False, error="pyautogui missing")
             return ExecutionResult(self.id, task.id, False, "", error="pyautogui is required for live desktop control")
 
         screenshots: dict[str, str] = {}
@@ -133,6 +142,7 @@ class DesktopRuntimeBackend:
             self._record_action(
                 task,
                 action,
+                action_class=action_class,
                 ok=False,
                 error=f"Desktop action failed: {exc}",
                 screenshots=screenshots,
@@ -144,12 +154,18 @@ class DesktopRuntimeBackend:
                 False,
                 "",
                 error=f"Desktop action failed: {exc}",
-                metrics=self._desktop_metrics(action, screenshots=screenshots, screenshot_errors=screenshot_errors),
+                metrics=self._desktop_metrics(
+                    action,
+                    action_class,
+                    screenshots=screenshots,
+                    screenshot_errors=screenshot_errors,
+                ),
             )
         self._capture_screenshot(pyautogui, task, "after", screenshots, screenshot_errors)
         self._record_action(
             task,
             action,
+            action_class=action_class,
             ok=True,
             mode="live",
             screenshots=screenshots,
@@ -159,8 +175,13 @@ class DesktopRuntimeBackend:
             self.id,
             task.id,
             True,
-            {"mode": "live", "executed": True, "action": action, "target": target},
-            metrics=self._desktop_metrics(action, screenshots=screenshots, screenshot_errors=screenshot_errors),
+            {"mode": "live", "executed": True, "action": action, "action_class": action_class, "target": target},
+            metrics=self._desktop_metrics(
+                action,
+                action_class,
+                screenshots=screenshots,
+                screenshot_errors=screenshot_errors,
+            ),
         )
 
     def _execute_live(self, pg: Any, *, action: str, target: str, text: str, inputs: dict[str, Any]) -> None:
@@ -250,11 +271,12 @@ class DesktopRuntimeBackend:
     def _desktop_metrics(
         self,
         action: str,
+        action_class: str,
         *,
         screenshots: dict[str, str] | None = None,
         screenshot_errors: list[str] | None = None,
     ) -> dict[str, Any]:
-        metrics: dict[str, Any] = {"desktop_action": action}
+        metrics: dict[str, Any] = {"desktop_action": action, "desktop_action_class": action_class}
         action_log_path = self._resolve_action_log_path()
         if action_log_path is not None:
             metrics["desktop_action_log_path"] = str(action_log_path)
@@ -269,6 +291,7 @@ class DesktopRuntimeBackend:
         task: TaskSpec,
         action: str,
         *,
+        action_class: str,
         ok: bool,
         mode: str | None = None,
         error: str | None = None,
@@ -283,6 +306,7 @@ class DesktopRuntimeBackend:
             "task_id": task.id,
             "objective": task.objective,
             "action": action,
+            "action_class": action_class,
             "ok": ok,
             "mode": mode or ("dry_run" if self.dry_run else "live"),
             "error": error,

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .desktop_policy import DESKTOP_ACTION_CLASSES
 from .task_ir import TaskKind
 
 
@@ -77,7 +78,7 @@ _KIND_SCHEMAS: dict[TaskKind, _KindSchema] = {
     ),
     TaskKind.DESKTOP_CONTROL: _KindSchema(
         required_fields=["action"],
-        optional_fields=["target", "x", "y", "text", "keys"],
+        optional_fields=["target", "x", "y", "text", "keys", "action_class"],
         field_types={"action": str},
         value_constraints={
             "action": lambda v: isinstance(v, str) and v.strip().lower() in {
@@ -89,6 +90,7 @@ _KIND_SCHEMAS: dict[TaskKind, _KindSchema] = {
                 "move",
             },
             "keys": lambda v: isinstance(v, list) and all(isinstance(item, str) for item in v),
+            "action_class": lambda v: isinstance(v, str) and v.strip().lower().replace("-", "_") in DESKTOP_ACTION_CLASSES,
         },
     ),
 }
@@ -184,9 +186,8 @@ def _validate_one(
             errors.append(f"Field {field} must be {expected_type.__name__}, got {type(inputs[field]).__name__}")
 
     for field, constraint_fn in schema.value_constraints.items():
-        if field in inputs and inputs[field] is not None:
-            if not constraint_fn(inputs[field]):
-                errors.append(f"Field {field} failed validation constraint")
+        if field in inputs and inputs[field] is not None and not constraint_fn(inputs[field]):
+            errors.append(f"Field {field} failed validation constraint")
 
     return (len(errors) == 0, errors)
 

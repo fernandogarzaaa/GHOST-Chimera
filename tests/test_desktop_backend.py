@@ -92,6 +92,7 @@ class DesktopRuntimeBackendTests(unittest.TestCase):
             self.assertEqual(len(lines), 1)
             row = json.loads(lines[0])
             self.assertEqual(row["action"], "click")
+            self.assertEqual(row["action_class"], "mutating")
             self.assertEqual(row["mode"], "dry_run")
 
     def test_live_mode_enforces_action_budget(self) -> None:
