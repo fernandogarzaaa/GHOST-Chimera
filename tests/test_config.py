@@ -42,6 +42,7 @@ class GhostChimeraConfigTests(unittest.TestCase):
                     "GHOSTCHIMERA_LOCAL_MODEL_PATH": str(root / "tiny.gguf"),
                     "GHOSTCHIMERA_LOCAL_MODEL_PROFILE": "balanced",
                     "GHOSTCHIMERA_LOCAL_MODEL_GPU_LAYERS": "4",
+                    "GHOSTCHIMERA_AUTONOMY_LEVEL": "autonomous",
                 },
                 clear=True,
             ):
@@ -56,6 +57,7 @@ class GhostChimeraConfigTests(unittest.TestCase):
         self.assertTrue(config.policy.production_guardrails.ready)
         self.assertEqual(config.local_model_profile, "balanced")
         self.assertEqual(config.local_model_gpu_layers, 4)
+        self.assertEqual(config.autonomy_level, "autonomous")
 
     def test_to_dict_is_json_ready(self) -> None:
         config = GhostChimeraConfig.from_env()
@@ -67,6 +69,7 @@ class GhostChimeraConfigTests(unittest.TestCase):
         self.assertIn("local_model", payload)
         self.assertIn("ghost_mode", payload["policy"])
         self.assertIn("production", payload["policy"])
+        self.assertIn("autonomy_level", payload)
 
     def test_control_plane_can_show_resolved_config(self) -> None:
         completed = subprocess.run(

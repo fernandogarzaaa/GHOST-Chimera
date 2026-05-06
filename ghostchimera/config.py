@@ -21,6 +21,7 @@ class GhostChimeraConfig:
     local_model_path: str
     local_model_profile: str
     local_model_gpu_layers: int
+    autonomy_level: str
 
     @classmethod
     def from_env(cls) -> GhostChimeraConfig:
@@ -35,6 +36,7 @@ class GhostChimeraConfig:
             local_model_path=os.environ.get("GHOSTCHIMERA_LOCAL_MODEL_PATH", ""),
             local_model_profile=os.environ.get("GHOSTCHIMERA_LOCAL_MODEL_PROFILE", "tiny"),
             local_model_gpu_layers=int(os.environ.get("GHOSTCHIMERA_LOCAL_MODEL_GPU_LAYERS", "0")),
+            autonomy_level=os.environ.get("GHOSTCHIMERA_AUTONOMY_LEVEL", "supervised"),
         )
 
     def ensure_state_dirs(self) -> None:
@@ -63,6 +65,7 @@ class GhostChimeraConfig:
                 "profile": self.local_model_profile,
                 "gpu_layers": self.local_model_gpu_layers,
             },
+            "autonomy_level": self.autonomy_level,
         }
 
 

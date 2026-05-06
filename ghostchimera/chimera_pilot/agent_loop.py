@@ -25,6 +25,7 @@ from ..cognition_layer.workspace import ReflectionEngine, SelfModel, WorkingMemo
 from ..config import GhostChimeraConfig
 from ..logging_config import get_logger
 from ..model_layer.router import ModelRouter
+from .autonomy import AutonomyProfile, get_autonomy_profile_from_env
 from .kernel import ChimeraPilotKernel
 from .result_envelope import ResultEnvelope
 from .task_ir import TaskKind, TaskSpec
@@ -186,17 +187,19 @@ class AIAgent:
         self,
         kernel: ChimeraPilotKernel | None = None,
         model_name: str = "claude-sonnet-4-20250514",
-        max_tool_rounds: int = 20,
+        max_tool_rounds: int | None = None,
         fallback_chain: list[str] | None = None,
         system_prompt: str = "",
         max_tokens: int = 16384,
         router: ModelRouter | None = None,
         config: GhostChimeraConfig | None = None,
         session: SessionState | None = None,
+        autonomy_profile: AutonomyProfile | None = None,
     ):
+        self.autonomy_profile = autonomy_profile or get_autonomy_profile_from_env()
         self.kernel = kernel or ChimeraPilotKernel.default()
         self.model_name = model_name
-        self.max_tool_rounds = max_tool_rounds
+        self.max_tool_rounds = max_tool_rounds if max_tool_rounds is not None else self.autonomy_profile.max_tool_rounds
         self.fallback_chain = fallback_chain or ["claude-sonnet-4-20250514", "claude-haiku-4-20250514"]
         self.system_prompt = system_prompt
         self.max_tokens = max_tokens

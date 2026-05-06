@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..safety_layer.material_policy import MaterialRegistry
+from .autonomy import AutonomyProfile, get_autonomy_profile
 from .backends.base import BackendHealth, ChimeraBackend
 from .task_ir import TaskSpec
 
@@ -53,10 +54,15 @@ def _catalog_cost_for_backend(backend: ChimeraBackend, task: TaskSpec) -> float 
 class ChimeraScheduler:
     """Select the best backend for a task using transparent weighted scoring."""
 
-    def __init__(self, backends: list[ChimeraBackend],
-                 policy_registry: MaterialRegistry | None = None) -> None:
+    def __init__(
+        self,
+        backends: list[ChimeraBackend],
+        policy_registry: MaterialRegistry | None = None,
+        autonomy_profile: AutonomyProfile | None = None,
+    ) -> None:
         self.backends = list(backends)
         self._registry = policy_registry
+        self.autonomy_profile = autonomy_profile or get_autonomy_profile("supervised")
         self._adaptation_enabled = True
         self._weights: dict[str, float] = {
             "reliability": 0.35,
@@ -198,14 +204,14 @@ class ChimeraScheduler:
     ) -> str:
         """Choose orchestration strategy: single, fallback_chain, parallel, or moa."""
         if task.requires_network and task.privacy_level in {"sensitive", "secret"}:
-            return "fallback_chain"
+            return self.autonomy_profile.cap_strategy("fallback_chain")
         if uncertainty is not None and uncertainty >= 0.6:
-            return "moa"
+            return self.autonomy_profile.cap_strategy("moa")
         if historical_success_rate is not None and historical_success_rate < 0.5:
-            return "parallel"
+            return self.autonomy_profile.cap_strategy("parallel")
         if len(self.backends) >= 3 and task.kind.value in {"reasoning", "rag_query"}:
-            return "fallback_chain"
-        return "single"
+            return self.autonomy_profile.cap_strategy("fallback_chain")
+        return self.autonomy_profile.cap_strategy("single")
 
     def _score(
         self, task: TaskSpec, backend: ChimeraBackend, health: BackendHealth

@@ -91,6 +91,7 @@ def _main(argv: list[str] | None = None) -> int:
         help="Ghost operation mode: whisper (suggest), haunt (observe), possess (act).",
     )
     parser.add_argument("--include-quantum-backend", action="store_true", help="Probe and register optional pyqpanda3 backend if installed.")
+    parser.add_argument("--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist.")
     parser.add_argument("--config-show", action="store_true", help="Print resolved Ghost Chimera runtime config as JSON and exit.")
     args = parser.parse_args(argv)
     if args.ghost_mode:
@@ -144,6 +145,7 @@ def _main(argv: list[str] | None = None) -> int:
             desktop_max_live_actions=args.desktop_max_actions,
             desktop_max_session_seconds=args.desktop_max_duration_seconds,
             ghost_mode=args.ghost_mode or "whisper",
+            autonomy_level=args.autonomy_level or None,
         )
         if args.pilot_status:
             print(json.dumps(kernel.status(), indent=2, sort_keys=True))

@@ -7,7 +7,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ghostchimera.chimera_pilot import ChimeraPilotKernel, ChimeraScheduler, ResourceRegistry, TaskKind, TaskSpec
+from ghostchimera.chimera_pilot import (
+    ChimeraPilotKernel,
+    ChimeraScheduler,
+    ResourceRegistry,
+    TaskKind,
+    TaskSpec,
+    get_autonomy_profile,
+)
 from ghostchimera.chimera_pilot.backends import BackendHealth, DeterministicBackend, PythonRuntimeBackend
 from ghostchimera.chimera_pilot.calibration import CalibrationStore, ChimeraCalibrator
 from ghostchimera.chimera_pilot.compiler import RuleBasedTaskCompiler
@@ -220,7 +227,7 @@ class ChimeraPilotTests(unittest.TestCase):
             DeterministicBackend("b", reliability=0.7),
             DeterministicBackend("c", reliability=0.9),
         ]
-        scheduler = ChimeraScheduler(backends)
+        scheduler = ChimeraScheduler(backends, autonomy_profile=get_autonomy_profile("generalist"))
         task = TaskSpec.create(kind=TaskKind.REASONING, objective="reason")
         self.assertEqual(scheduler.select_strategy(task), "fallback_chain")
         self.assertEqual(scheduler.select_strategy(task, uncertainty=0.8), "moa")
@@ -297,7 +304,11 @@ class ChimeraPilotStateTransitionTests(unittest.TestCase):
     def test_executor_emits_committed_transition_on_success(self) -> None:
         backend = DeterministicBackend("ok", output="done")
         task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
-        execution = ChimeraPilotExecutor(ChimeraScheduler([backend])).execute(task)
+        profile = get_autonomy_profile("generalist")
+        execution = ChimeraPilotExecutor(
+            ChimeraScheduler([backend], autonomy_profile=profile),
+            policy=PilotPolicy(autonomy_profile=profile),
+        ).execute(task)
 
         self.assertIsNotNone(execution.transitions)
         states = [t.state for t in execution.transitions or []]
@@ -307,7 +318,11 @@ class ChimeraPilotStateTransitionTests(unittest.TestCase):
     def test_executor_emits_failed_transition_on_failure(self) -> None:
         backend = DeterministicBackend("bad", fail=True)
         task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
-        execution = ChimeraPilotExecutor(ChimeraScheduler([backend])).execute(task)
+        profile = get_autonomy_profile("generalist")
+        execution = ChimeraPilotExecutor(
+            ChimeraScheduler([backend], autonomy_profile=profile),
+            policy=PilotPolicy(autonomy_profile=profile),
+        ).execute(task)
 
         self.assertIsNotNone(execution.transitions)
         states = [t.state for t in execution.transitions or []]
@@ -355,7 +370,11 @@ class ChimeraPilotStateTransitionTests(unittest.TestCase):
             inputs={"prompt": "execute"},
             constraints={"uncertainty": 0.9},
         )
-        execution = ChimeraPilotExecutor(ChimeraScheduler([backend])).execute(task)
+        profile = get_autonomy_profile("generalist")
+        execution = ChimeraPilotExecutor(
+            ChimeraScheduler([backend], autonomy_profile=profile),
+            policy=PilotPolicy(autonomy_profile=profile),
+        ).execute(task)
 
         bundle = execution.to_replay_bundle()
         self.assertIn("run", bundle)
@@ -457,8 +476,16 @@ class ChimeraPilotStateTransitionTests(unittest.TestCase):
                 return 1
 
         backend = DeterministicBackend("ok", output="done")
-        scheduler = ChimeraScheduler([backend, DeterministicBackend("ok2", output="done"), DeterministicBackend("ok3", output="done")])
-        executor = ChimeraPilotExecutor(scheduler, outcome_store=HistoricalOutcomeStore())
+        profile = get_autonomy_profile("autonomous")
+        scheduler = ChimeraScheduler(
+            [backend, DeterministicBackend("ok2", output="done"), DeterministicBackend("ok3", output="done")],
+            autonomy_profile=profile,
+        )
+        executor = ChimeraPilotExecutor(
+            scheduler,
+            policy=PilotPolicy(autonomy_profile=profile),
+            outcome_store=HistoricalOutcomeStore(),
+        )
         task = TaskSpec.create(kind=TaskKind.REASONING, objective="execute", inputs={"prompt": "execute"})
         execution = executor.execute(task)
         bundle = execution.to_replay_bundle()

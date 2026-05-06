@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from ..logging_config import get_logger
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from .result_envelope import ResultEnvelope
 
 
-class PilotRunState(str, Enum):
+class PilotRunState(StrEnum):
     PLANNED = "planned"
     SCHEDULED = "scheduled"
     EXECUTING = "executing"
@@ -295,6 +295,7 @@ class ChimeraPilotExecutor:
                 historical_success_rate=historical_success_rate,
                 uncertainty=uncertainty_value,
             )
+            selected_strategy = self.policy.autonomy_profile.cap_strategy(selected_strategy)
         ranked = self.scheduler.rank_backends(task)
         if not ranked:
             raise RuntimeError(f"No available backend can run task {task.id}: {task.kind.value}")

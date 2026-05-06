@@ -7,6 +7,7 @@ from typing import Any
 from ..logging_config import get_logger
 from ..memory_layer.store import MemoryStore
 from ..safety_layer.production import ProductionGuardrails
+from .autonomy import AutonomyProfile, get_autonomy_profile, get_autonomy_profile_from_env
 from .backends.cwr import CWRBackend
 from .backends.desktop_runtime import DesktopRuntimeBackend
 from .backends.deterministic import DeterministicBackend
@@ -40,6 +41,7 @@ class ChimeraPilotKernel:
         policy_registry: Any | None = None,
         memory_store: MemoryStore | None = None,
         hooks: HookRegistry | None = None,
+        autonomy_profile: AutonomyProfile | None = None,
     ) -> None:
         self.registry = registry or ResourceRegistry()
         self.compiler = compiler or RuleBasedTaskCompiler()
@@ -49,6 +51,7 @@ class ChimeraPilotKernel:
         self._policy_registry = policy_registry
         self.memory_store = memory_store
         self.hooks = hooks or HookRegistry()
+        self.autonomy_profile = autonomy_profile or self.policy.autonomy_profile
 
     @classmethod
     def default(
@@ -72,15 +75,20 @@ class ChimeraPilotKernel:
         local_model_profile: str = "tiny",
         local_model_gpu_layers: int = 0,
         hooks: HookRegistry | None = None,
+        autonomy_level: str | None = None,
     ) -> ChimeraPilotKernel:
+        autonomy_profile = get_autonomy_profile(autonomy_level) if autonomy_level else get_autonomy_profile_from_env()
+        local_model_profile = local_model_profile or autonomy_profile.local_model_profile
         policy = PilotPolicy(
             allow_python_execution=allow_python_execution,
             allow_network=allow_network,
             allow_desktop_control=allow_desktop_control,
             ghost_mode=ghost_mode,
             production_guardrails=ProductionGuardrails.from_env(),
+            default_max_cost_usd=autonomy_profile.default_max_cost_usd,
+            autonomy_profile=autonomy_profile,
         )
-        kernel = cls(policy=policy, memory_store=memory_store, hooks=hooks)
+        kernel = cls(policy=policy, memory_store=memory_store, hooks=hooks, autonomy_profile=autonomy_profile)
         kernel.registry.register(PythonRuntimeBackend(cwd=cwd, allowed_roots=[cwd] if cwd else None))
         kernel.registry.register(CWRBackend(store=memory_store))
         if enable_desktop_backend:
@@ -119,7 +127,11 @@ class ChimeraPilotKernel:
     def execute_task(self, task: TaskSpec) -> PilotExecution:
         from ..safety_layer.material_policy import MaterialRegistry
         registry = self._policy_registry or MaterialRegistry()
-        scheduler = ChimeraScheduler(self.registry.list(), policy_registry=registry)
+        scheduler = ChimeraScheduler(
+            self.registry.list(),
+            policy_registry=registry,
+            autonomy_profile=self.autonomy_profile,
+        )
         executor = ChimeraPilotExecutor(
             scheduler,
             policy=self.policy,
@@ -136,7 +148,24 @@ class ChimeraPilotKernel:
         self.hooks.fire(HookName.SESSION_START, objective=objective)
         tasks = self.compile(objective)
         logger.info("Running pilot with %d tasks", len(tasks))
-        results = [self.execute_task(task) for task in tasks]
+        if (
+            self.autonomy_profile.allow_parallel_execution
+            and len(tasks) > 1
+            and self.autonomy_profile.max_parallel_tasks > 1
+        ):
+            from .executor_parallel import execute_tasks_parallel
+
+            scheduler = ChimeraScheduler(self.registry.list(), autonomy_profile=self.autonomy_profile)
+            parallel = execute_tasks_parallel(
+                tasks,
+                scheduler,
+                max_workers=self.autonomy_profile.max_parallel_tasks,
+                policy=self.policy,
+                telemetry=self.telemetry,
+            )
+            results = parallel.results
+        else:
+            results = [self.execute_task(task) for task in tasks]
         self.hooks.fire(HookName.SESSION_END, objective=objective, results=results)
         return results
 
@@ -182,6 +211,7 @@ class ChimeraPilotKernel:
             "backend_count": len(backends),
             "backends": backends,
             "policy": self.policy.to_dict(),
+            "autonomy": self.autonomy_profile.to_dict(),
             "telemetry": self.telemetry.summary(),
         }
 

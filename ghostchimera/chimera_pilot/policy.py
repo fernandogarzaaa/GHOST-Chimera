@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..safety_layer.production import ProductionGuardrails
+from .autonomy import AutonomyProfile, get_autonomy_profile
 from .task_ir import TaskKind, TaskSpec
 
 
@@ -39,6 +40,7 @@ class PilotPolicy:
     max_python_timeout_seconds: int = 30
     allowed_hosts: tuple[str, ...] = field(default_factory=tuple)
     production_guardrails: ProductionGuardrails = ProductionGuardrails()
+    autonomy_profile: AutonomyProfile = field(default_factory=lambda: get_autonomy_profile("supervised"))
     """Allowlisted hostname glob patterns for SSRF policy.
 
     When non-empty, network tasks are restricted to these hosts only.
@@ -131,6 +133,7 @@ class PilotPolicy:
             "max_python_timeout_seconds": self.max_python_timeout_seconds,
             "allowed_hosts": list(self.allowed_hosts),
             "production": self.production_guardrails.to_dict(),
+            "autonomy": self.autonomy_profile.to_dict(),
         }
 
     @classmethod
@@ -143,6 +146,7 @@ class PilotPolicy:
             allow_desktop_control=True,
             ghost_mode="possess",
             production_guardrails=ProductionGuardrails(),
+            autonomy_profile=get_autonomy_profile("autonomous"),
         )
 
     def _require_production_ready(self, task: TaskSpec, surface: str) -> None:

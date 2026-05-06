@@ -8,6 +8,7 @@ import sys
 
 from ..memory_layer.store import MemoryStore
 from ..model_layer.local_profiles import list_local_model_profiles
+from .autonomy import get_autonomy_profile, list_autonomy_profiles
 from .kernel import ChimeraPilotKernel
 
 
@@ -25,6 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     status_parser.add_argument("--memory-db", default="", help="SQLite memory database for CWR retrieval.")
     status_parser.add_argument("--local-model-path", default="", help="Optional GGUF model path for llama.cpp local reasoning.")
     status_parser.add_argument("--local-model-profile", default="tiny", help="Local model profile name.")
+    status_parser.add_argument("--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist.")
     status_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
     status_parser.add_argument("--allow-desktop-control", action="store_true", help="Allow desktop cursor/keyboard control.")
     status_parser.add_argument("--enable-desktop-backend", action="store_true", help="Register desktop backend.")
@@ -53,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--memory-db", default="", help="SQLite memory database for CWR retrieval.")
     run_parser.add_argument("--local-model-path", default="", help="Optional GGUF model path for llama.cpp local reasoning.")
     run_parser.add_argument("--local-model-profile", default="tiny", help="Local model profile name.")
+    run_parser.add_argument("--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist.")
     run_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
 
     compile_parser = subparsers.add_parser("compile", help="Compile one objective without executing it.")
@@ -64,9 +67,11 @@ def main(argv: list[str] | None = None) -> int:
     calibrate_parser.add_argument("--memory-db", default="", help="SQLite memory database for CWR retrieval.")
     calibrate_parser.add_argument("--local-model-path", default="", help="Optional GGUF model path for llama.cpp local reasoning.")
     calibrate_parser.add_argument("--local-model-profile", default="tiny", help="Local model profile name.")
+    calibrate_parser.add_argument("--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist.")
     calibrate_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
 
     subparsers.add_parser("model-profiles", help="List built-in local model profiles.")
+    subparsers.add_parser("autonomy-profiles", help="List built-in autonomy profiles.")
 
     memory_add_parser = subparsers.add_parser("memory-add", help="Add one document to the CWR memory database.")
     memory_add_parser.add_argument("--memory-db", required=True, help="SQLite memory database to update.")
@@ -99,6 +104,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "model-profiles":
         _print_json({"profiles": [profile.to_dict() for profile in list_local_model_profiles()]})
+        return 0
+
+    if args.command == "autonomy-profiles":
+        _print_json({"profiles": [profile.to_dict() for profile in list_autonomy_profiles()]})
         return 0
 
     if args.command == "memory-add":
@@ -136,8 +145,13 @@ def main(argv: list[str] | None = None) -> int:
         ghost_mode=getattr(args, "ghost_mode", "whisper"),
         memory_store=MemoryStore(args.memory_db) if getattr(args, "memory_db", "") else None,
         local_model_path=getattr(args, "local_model_path", "") or None,
-        local_model_profile=getattr(args, "local_model_profile", "tiny"),
+        local_model_profile=(
+            getattr(args, "local_model_profile", "tiny")
+            if getattr(args, "local_model_profile", "tiny") != "tiny" or not getattr(args, "autonomy_level", "")
+            else get_autonomy_profile(getattr(args, "autonomy_level", "")).local_model_profile
+        ),
         local_model_gpu_layers=getattr(args, "local_model_gpu_layers", 0),
+        autonomy_level=getattr(args, "autonomy_level", "") or None,
     )
 
     if args.command == "status":

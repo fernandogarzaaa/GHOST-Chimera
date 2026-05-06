@@ -207,6 +207,25 @@ chimera-pilot status --local-model-path C:\models\qwen2.5-0.5b-instruct-q4.gguf 
 chimera-pilot run "explain the current project" --local-model-path C:\models\qwen2.5-0.5b-instruct-q4.gguf --local-model-profile tiny
 ```
 
+## Adjustable Autonomy
+
+Ghost Chimera exposes autonomy as an operator-adjustable profile, not as a claim of AGI or consciousness:
+
+```bash
+chimera-pilot autonomy-profiles
+chimera-pilot status --autonomy-level supervised --include-deterministic-backend
+chimera-pilot run "retrieve project memory" --autonomy-level autonomous --memory-db .ghostchimera-memory.sqlite3 --include-deterministic-backend
+```
+
+Profiles:
+
+- `assist` keeps execution single-backend with small tool-loop budgets.
+- `supervised` is the default beta posture with fallback routing and approval requirements.
+- `autonomous` enables larger tool-loop budgets, scheduler adaptation, and bounded parallel task execution when the caller has already opted into the underlying execution permissions.
+- `generalist` is the highest local-first beta profile with MoA-style strategy selection and preview-only self-improvement posture.
+
+`GHOSTCHIMERA_AUTONOMY_LEVEL` sets the default profile. The aliases `agi` and `sgi` are accepted as operator shorthand for `generalist`, but Ghost Chimera still does not claim AGI, subjective consciousness, or fully autonomous operation.
+
 ## Release Validation
 
 Before publishing or tagging a release, run:
@@ -231,6 +250,7 @@ python -m ghostchimera.evals run --suite safety
 
 - `CHIMERA_PILOT.md` - focused Chimera Pilot usage and backend notes.
 - `docs/ARCHITECTURE.md` - layered architecture and runtime convergence.
+- `docs/AUTONOMY_CAPABILITY_EXTRACTION.md` - extraction notes from AETHER, WRAITH, EVO, OpenChimera_v1, and appforge.
 - `docs/CLEAN_ROOM.md` - clean-room implementation boundary.
 - `docs/DESKTOP_CONTROL_HANDOFF.md` - desktop control policy and handoff notes.
 - `docs/MISSING_IMPLEMENTATIONS.md` - beta wiring audit.
