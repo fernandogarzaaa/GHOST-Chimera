@@ -24,6 +24,7 @@ Usage::
 
 from __future__ import annotations
 
+import threading
 from collections import defaultdict
 from collections.abc import Callable
 from enum import StrEnum
@@ -81,6 +82,7 @@ class HookRegistry:
 
     def __init__(self) -> None:
         self._hooks: dict[str, list[Handler]] = defaultdict(list)
+        self._lock = threading.Lock()
         self._session_started = False
 
     # ------------------------------------------------------------------
@@ -94,7 +96,8 @@ class HookRegistry:
         called in registration order.
         """
         key = name.value if isinstance(name, HookName) else str(name)
-        self._hooks[key].append(fn)
+        with self._lock:
+            self._hooks[key].append(fn)
         logger.debug("Registered hook %s -> %s", key, fn)
 
     def on(self, name: HookName | str) -> Callable[[Handler], Handler]:
@@ -122,7 +125,8 @@ class HookRegistry:
         never propagate to the caller.
         """
         key = name.value if isinstance(name, HookName) else str(name)
-        handlers = list(self._hooks.get(key, []))
+        with self._lock:
+            handlers = list(self._hooks.get(key, []))
         for handler in handlers:
             try:
                 handler(**kwargs)
@@ -132,15 +136,17 @@ class HookRegistry:
     def handler_count(self, name: HookName | str) -> int:
         """Return the number of handlers registered for *name*."""
         key = name.value if isinstance(name, HookName) else str(name)
-        return len(self._hooks.get(key, []))
+        with self._lock:
+            return len(self._hooks.get(key, []))
 
     def clear(self, name: HookName | str | None = None) -> None:
         """Remove handlers.  Clears a single hook if *name* is given, else all."""
-        if name is None:
-            self._hooks.clear()
-        else:
-            key = name.value if isinstance(name, HookName) else str(name)
-            self._hooks.pop(key, None)
+        with self._lock:
+            if name is None:
+                self._hooks.clear()
+            else:
+                key = name.value if isinstance(name, HookName) else str(name)
+                self._hooks.pop(key, None)
 
 
 __all__ = ["HookName", "HookRegistry", "Handler"]

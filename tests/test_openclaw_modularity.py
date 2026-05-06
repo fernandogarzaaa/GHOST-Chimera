@@ -522,5 +522,108 @@ class CredentialPoolOAuthTests(unittest.TestCase):
         self.assertEqual(instance.model, "gpt-4o-mini")
 
 
+# ---------------------------------------------------------------------------
+# BACKEND_FALLBACK end-to-end wiring
+# ---------------------------------------------------------------------------
+
+
+class BackendFallbackHookWiringTests(unittest.TestCase):
+    """Verify that BACKEND_FALLBACK fires via the executor when a backend fails."""
+
+    def test_fallback_hook_fires_on_backend_failure(self) -> None:
+        from ghostchimera.chimera_pilot.executor import ChimeraPilotExecutor
+        from ghostchimera.chimera_pilot.backends.deterministic import DeterministicBackend
+
+        # "a.primary" sorts before "b.fallback" so the scheduler tries it first.
+        # fail=True makes it return ok=False so the executor moves on.
+        primary = DeterministicBackend("a.primary", fail=True)
+        fallback = DeterministicBackend("b.fallback")
+
+        hooks = HookRegistry()
+        fired_events: list[dict] = []
+        hooks.register_hook(HookName.BACKEND_FALLBACK, lambda **kw: fired_events.append(kw))
+
+        scheduler = ChimeraScheduler([primary, fallback])
+        executor = ChimeraPilotExecutor(scheduler, hooks=hooks)
+
+        task = TaskSpec.create(
+            kind=TaskKind.REASONING,
+            objective="test fallback",
+            inputs={"prompt": "test fallback"},
+        )
+        executor.execute(task)
+
+        self.assertEqual(len(fired_events), 1)
+        event = fired_events[0]
+        self.assertEqual(event["failed_backend_id"], primary.id)
+        self.assertEqual(event["fallback_backend_id"], fallback.id)
+        self.assertIn("deterministic failure", event["error"])
+
+    def test_fallback_hook_not_fired_on_success(self) -> None:
+        from ghostchimera.chimera_pilot.executor import ChimeraPilotExecutor
+
+        backend = DeterministicBackend("only.backend")
+        hooks = HookRegistry()
+        fired_events: list[dict] = []
+        hooks.register_hook(HookName.BACKEND_FALLBACK, lambda **kw: fired_events.append(kw))
+
+        scheduler = ChimeraScheduler([backend])
+        executor = ChimeraPilotExecutor(scheduler, hooks=hooks)
+
+        task = TaskSpec.create(
+            kind=TaskKind.REASONING,
+            objective="what is 2+2",
+            inputs={"prompt": "what is 2+2"},
+        )
+        executor.execute(task)
+
+        self.assertEqual(len(fired_events), 0)
+
+    def test_kernel_wires_hooks_to_executor_for_fallback(self) -> None:
+        """Kernel.execute_task passes its HookRegistry to the executor."""
+        from ghostchimera.chimera_pilot import ChimeraPilotKernel
+        from ghostchimera.chimera_pilot.backends.base import ExecutionResult
+        from ghostchimera.chimera_pilot.backends.deterministic import DeterministicBackend
+
+        hooks = HookRegistry()
+        fired_events: list[dict] = []
+        hooks.register_hook(HookName.BACKEND_FALLBACK, lambda **kw: fired_events.append(kw))
+
+        kernel = ChimeraPilotKernel.default(include_deterministic_backend=True, hooks=hooks)
+
+        # Add a second deterministic backend that will be the fallback target
+        fallback = DeterministicBackend("fallback.kernel")
+        kernel.registry.register(fallback)
+
+        # Patch the primary backend to fail so fallback fires
+        backends = kernel.registry.list()
+        primary = next(b for b in backends if b.id == "deterministic.local")
+
+        original_execute = primary.execute
+
+        def fail_once(task):
+            primary.execute = original_execute
+            return ExecutionResult(
+                backend_id=primary.id,
+                task_id=task.id,
+                ok=False,
+                output="",
+                error="kernel test failure",
+                metrics={},
+            )
+
+        primary.execute = fail_once
+
+        task = TaskSpec.create(
+            kind=TaskKind.REASONING,
+            objective="kernel fallback test",
+            inputs={"prompt": "kernel fallback test"},
+        )
+        kernel.execute_task(task)
+
+        self.assertGreaterEqual(len(fired_events), 1)
+        self.assertEqual(fired_events[0]["failed_backend_id"], "deterministic.local")
+
+
 if __name__ == "__main__":
     unittest.main()

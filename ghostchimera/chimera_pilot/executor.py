@@ -2,22 +2,23 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-import uuid
-from enum import Enum
 import hashlib
+import uuid
+from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from ..logging_config import get_logger
 from .backends.base import ExecutionResult
+from .hooks import HookName, HookRegistry
 from .policy import PilotPolicy
 from .result_envelope import ResultEnvelope
 from .scheduler import ChimeraScheduler, ScheduleDecision
 from .schema import validate_task
+from .semantic_verifier import SemanticVerifier
 from .task_ir import TaskSpec
 from .telemetry import InMemoryTelemetryStore, PilotTelemetryEvent, now
 from .verifier import ResultVerifier
-from .semantic_verifier import SemanticVerifier
 
 logger = get_logger("executor")
 
@@ -184,6 +185,7 @@ class ChimeraPilotExecutor:
         telemetry: InMemoryTelemetryStore | None = None,
         checkpoint_manager: Any | None = None,
         outcome_store: Any | None = None,
+        hooks: HookRegistry | None = None,
     ) -> None:
         self.scheduler = scheduler
         self.policy = policy or PilotPolicy()
@@ -192,6 +194,7 @@ class ChimeraPilotExecutor:
         self.telemetry = telemetry or InMemoryTelemetryStore()
         self.checkpoint_manager = checkpoint_manager
         self.outcome_store = outcome_store
+        self.hooks = hooks or HookRegistry()
         self._cancelled_runs: set[str] = set()
 
     def _record_checkpoint(self, run_id: str, state: str) -> None:
@@ -346,7 +349,7 @@ class ChimeraPilotExecutor:
             self._record_checkpoint(run_id, "cancelled")
             return execution
 
-        for decision in ranked:
+        for idx, decision in enumerate(ranked):
             if run_id in self._cancelled_runs:
                 transitions.append(StateTransition(PilotRunState.CANCELLED, now(), "cancelled_during_execution"))
                 break
@@ -451,6 +454,16 @@ class ChimeraPilotExecutor:
                 self.telemetry.record_replay_bundle(execution.to_replay_bundle())
                 self._record_checkpoint(run_id, "committed")
                 return execution
+
+            # This backend failed; fire BACKEND_FALLBACK if there's a next one.
+            if idx < len(ranked) - 1:
+                self.hooks.fire(
+                    HookName.BACKEND_FALLBACK,
+                    task=task,
+                    failed_backend_id=decision.backend.id,
+                    fallback_backend_id=ranked[idx + 1].backend.id,
+                    error=result.error or verification_error or "",
+                )
 
         if run_id in self._cancelled_runs and last_result is None:
             envelope = ResultEnvelope(

@@ -16,12 +16,12 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 AuthKind = Literal["api_key", "oauth", "token", "custom"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class AuthProfile:
     """Immutable credential snapshot passed into provider constructors.
 
@@ -83,7 +83,7 @@ class OAuthCredential:
     token_url: str = ""
     client_id: str = ""
     expires_at: float = 0.0
-    metadata: dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def is_expired(self) -> bool:
