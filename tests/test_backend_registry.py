@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import unittest
 
-from ghostchimera.chimera_pilot.backends.deterministic import DeterministicBackend
 from ghostchimera.chimera_pilot.backend_registry import (
     BackendRegistry,
     default,
     discover_builtin_backends,
 )
+from ghostchimera.chimera_pilot.backends.deterministic import DeterministicBackend
 
 
 class TestBackendRegistry(unittest.TestCase):
@@ -33,7 +33,6 @@ class TestBackendRegistry(unittest.TestCase):
             self.assertIsInstance(c, type)
 
     def test_register_and_deregister(self):
-        backend = DeterministicBackend()
         registry = BackendRegistry()
         registry.register(DeterministicBackend)
         self.assertIn("DeterministicBackend", registry.get_registered_ids())

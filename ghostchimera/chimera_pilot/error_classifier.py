@@ -7,12 +7,11 @@ with rule-based classification, auto-recovery planning, and severity scoring.
 
 from __future__ import annotations
 
-import logging
 import re
-import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Callable, Optional
+from enum import StrEnum
+from typing import Any
 
 from ..logging_config import get_logger
 
@@ -22,7 +21,7 @@ logger = get_logger("error_classifier")
 # Error categories
 # ---------------------------------------------------------------------------
 
-class ErrorCategory(str, Enum):
+class ErrorCategory(StrEnum):
     RATE_LIMIT = "rate_limit"
     INSUFFICIENT_QUOTA = "insufficient_quota"
     CONTEXT_LENGTH = "context_length"
@@ -38,7 +37,7 @@ class ErrorCategory(str, Enum):
     DEFAULT = "default"
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"

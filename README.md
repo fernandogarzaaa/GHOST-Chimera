@@ -73,6 +73,15 @@ ghostchimera model
 ghostchimera --config-show
 ```
 
+Open the local browser console when you do not want to drive Ghost Chimera through command flags:
+
+```bash
+ghostchimera console
+ghostchimera console --no-open
+```
+
+The console runs on localhost by default and exposes status, autonomy profile controls, safe objective runs, and the existing HTTPS-only browser fetch tool through the gateway-backed UI.
+
 Inspect Chimera Pilot:
 
 ```bash

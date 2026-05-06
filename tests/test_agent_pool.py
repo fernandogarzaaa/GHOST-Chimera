@@ -38,7 +38,7 @@ class TestBatchAgent(unittest.TestCase):
                 workers=1,
                 output_dir=tmpdir,
             )
-            summary = runner.run()
+            runner.run()
             output_path = Path(tmpdir)
             self.assertTrue((output_path / "results.jsonl").exists())
             self.assertTrue((output_path / "summary.json").exists())

@@ -38,10 +38,12 @@ class LocalModelProfileTests(unittest.TestCase):
 
         fake.load_model = load_model  # type: ignore[attr-defined]
 
-        with patch.dict(sys.modules, {"minimind": fake}):
-            with patch.dict(os.environ, {"MINIMIND_MODEL_PROFILE": "tiny"}, clear=False):
-                provider = MinimindProvider()
-                response = provider.chat("system", "hello")
+        with (
+            patch.dict(sys.modules, {"minimind": fake}),
+            patch.dict(os.environ, {"MINIMIND_MODEL_PROFILE": "tiny"}, clear=False),
+        ):
+            provider = MinimindProvider()
+            response = provider.chat("system", "hello")
 
         self.assertTrue(provider.available)
         self.assertEqual(response, "local response")

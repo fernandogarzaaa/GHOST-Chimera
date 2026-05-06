@@ -45,7 +45,7 @@ class SkillManager:
         """
         # Discover built‑in skills from the package
         package = importlib.import_module(self.package)
-        for loader, name, is_pkg in pkgutil.iter_modules(package.__path__):
+        for _loader, name, is_pkg in pkgutil.iter_modules(package.__path__):
             if is_pkg:
                 continue
             full_name = f"{self.package}.{name}"

@@ -7,16 +7,14 @@ so the agent can call MCP tools as part of its tool-calling loop.
 
 from __future__ import annotations
 
-import asyncio
 import json
-import logging
 import subprocess
 import threading
 import time
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any
 
 from ..logging_config import get_logger
 
@@ -200,7 +198,7 @@ class MCPRegistry:
 
     def find_tool(self, name: str) -> MCPClient | None:
         """Find which MCP server has a tool by name."""
-        for name2, client in self._clients.items():
+        for _name2, client in self._clients.items():
             if any(t["name"] == name for t in client.tools):
                 return client
         return None

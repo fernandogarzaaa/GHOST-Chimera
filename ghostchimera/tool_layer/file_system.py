@@ -7,9 +7,9 @@ thin wrappers around the Python standard library and can be extended to
 enforce access controls.
 """
 
-from pathlib import Path
-from dataclasses import dataclass
 import threading
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from ..safety_layer.gating import PolicyViolation, _path_is_under_root, ensure_authorized

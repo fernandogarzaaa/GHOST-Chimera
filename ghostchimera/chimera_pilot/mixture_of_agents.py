@@ -7,25 +7,22 @@ scores outputs, and finds consensus via contradiction detection.
 
 from __future__ import annotations
 
-import json
-import logging
+import re
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from ..agent_core.core import AgentCore
-from ..cognition_layer.hallucination import HallucinationDetector
 from ..config import GhostChimeraConfig
 from ..logging_config import get_logger
 from ..model_layer.router import ModelRouter
-from ..model_layer.providers import PROVIDERS
 from .agent_loop import AIAgent, SessionState
-from .error_classifier import ErrorClassifier, ErrorCategory
-from .credential_pool import get_pool
 from .context_compressor import get_context_engine
-from .result_envelope import ResultEnvelope, merge_envelopes
+from .credential_pool import get_pool
+from .error_classifier import ErrorClassifier
+from .result_envelope import merge_envelopes
 
 logger = get_logger("mixture_of_agents")
 
@@ -182,6 +179,7 @@ class MixtureOfAgents:
         confidence_threshold: float = 0.65,
     ) -> MoAResult:
         """Multi-round voting: agents that disagree with the consensus get to revise."""
+        start = time.time()
         current_result = self.vote(query)
 
         for round_num in range(1, max_rounds):
@@ -411,7 +409,7 @@ class MixtureOfAgents:
         pct = (agreeing / n) * 100 if n > 0 else 0
 
         # Mark which votes agree with consensus
-        for i, (idx, out) in enumerate(outputs):
+        for i, (idx, _out) in enumerate(outputs):
             if similarity_matrix[best_idx][i] >= agreement_threshold:
                 for s in scored:
                     if s.get("agent_index") == idx:

@@ -1,6 +1,5 @@
 """Integration tests for structured logging."""
 
-import json
 import logging
 import os
 

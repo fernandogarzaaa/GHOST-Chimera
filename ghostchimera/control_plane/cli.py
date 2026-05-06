@@ -55,6 +55,11 @@ def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ghost Chimera CLI")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("setup", help="Run interactive setup wizard")
+    console_parser = sub.add_parser("console", help="Open the browser-based Ghost Console")
+    console_parser.add_argument("--host", default="127.0.0.1", help="Gateway bind host for the console.")
+    console_parser.add_argument("--port", type=int, default=8765, help="Gateway WebSocket port.")
+    console_parser.add_argument("--http-port", type=int, default=8766, help="Console HTTP port.")
+    console_parser.add_argument("--no-open", action="store_true", help="Print the console URL without opening a browser.")
     doctor_parser = sub.add_parser("doctor", help="Run health checks and report status")
     doctor_parser.add_argument("--production", action="store_true", help="Require production deployment guardrails.")
     sub.add_parser("model", help="List and switch the current model provider")
@@ -142,6 +147,18 @@ def _main(argv: list[str] | None = None) -> int:
         from .setup_wizard import run_setup_wizard
 
         run_setup_wizard()
+        return 0
+
+    if args.command == "console":
+        from .console import run_console
+
+        run_console(
+            host=args.host,
+            port=args.port,
+            http_port=args.http_port,
+            open_browser=not args.no_open,
+            block=True,
+        )
         return 0
 
     if args.command == "doctor":

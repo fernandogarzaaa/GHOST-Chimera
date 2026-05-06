@@ -46,6 +46,6 @@ def http_get(url: str, policy: dict[str, Any] | None = None) -> str:
             charset = response.headers.get_content_charset() or "utf-8"
             return response.read().decode(charset, errors="replace")
     except HTTPError as e:
-        raise ValueError(f"HTTP error {e.code} while fetching {url}: {e.reason}")
+        raise ValueError(f"HTTP error {e.code} while fetching {url}: {e.reason}") from e
     except URLError as e:
-        raise ValueError(f"Failed to fetch {url}: {e.reason}")
+        raise ValueError(f"Failed to fetch {url}: {e.reason}") from e

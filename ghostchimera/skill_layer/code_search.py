@@ -57,7 +57,7 @@ class CodeSearchSkill(Skill):
                     continue
                 paths.append(path)
                 docs.append(content)
-        self._files = list(zip(paths, docs))
+        self._files = list(zip(paths, docs, strict=True))
         self._doc_tokens = [self._tokenize(content) for content in docs]
         self._index_built = True
 

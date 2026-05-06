@@ -7,26 +7,21 @@ configurable depth cap. Supports parallel batch and depth-limited tree spawning.
 
 from __future__ import annotations
 
-import json
-import logging
 import os
-import subprocess
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from ..agent_core.core import AgentCore
 from ..config import GhostChimeraConfig
 from ..logging_config import get_logger
-from ..safety_layer.gating import ExecutionPolicy
 from .agent_loop import AIAgent, SessionState
-from .error_classifier import ErrorClassifier, ErrorCategory
-from .credential_pool import get_pool
 from .checkpoint import get_manager as get_checkpoint_manager
-from .task_ir import TaskKind, TaskSpec
+from .credential_pool import get_pool
+from .error_classifier import ErrorClassifier
 
 logger = get_logger("subagent")
 
@@ -240,7 +235,7 @@ class SubagentPool:
                     results.append(result)
                 except FuturesTimeout:
                     results.append(SubagentResult(
-                        id=f"subagent-timeout",
+                        id="subagent-timeout",
                         goal="timed out",
                         result="",
                         success=False,

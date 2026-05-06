@@ -9,12 +9,7 @@ Extends the existing structural verifier with:
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Any
-
-from ..cognition_layer.confidence import Confidence
-from ..cognition_layer.hallucination import DetectionReport, HallucinationDetector
+from ..cognition_layer.hallucination import HallucinationDetector
 from ..safety_layer.material_policy import MaterialRegistry
 from .backends.base import ExecutionResult
 from .result_envelope import ResultEnvelope

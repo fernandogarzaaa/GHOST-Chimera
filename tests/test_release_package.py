@@ -42,8 +42,7 @@ class ReleasePackageTests(unittest.TestCase):
             [sys.executable, "-m", "ghostchimera.chimera_pilot.cli", "status", "--include-deterministic-backend"],
             cwd=str(ROOT),
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=False,
             timeout=30,
         )
@@ -58,8 +57,7 @@ class ReleasePackageTests(unittest.TestCase):
             [sys.executable, "-m", "ghostchimera.chimera_pilot.cli", "run", "python: print(2 + 3)"],
             cwd=str(ROOT),
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=False,
             timeout=30,
         )

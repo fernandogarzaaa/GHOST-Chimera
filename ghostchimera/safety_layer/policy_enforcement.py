@@ -8,9 +8,9 @@ enforcement result.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
-import uuid
 
 from ..chimera_pilot.policy import PilotPolicy
 from ..chimera_pilot.task_ir import TaskSpec

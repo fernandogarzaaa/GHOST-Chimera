@@ -26,7 +26,7 @@ class TestParallelExecutionIntegration(unittest.TestCase):
         par_results = execute_tasks_parallel([task1, task2], scheduler, max_workers=2)
 
         self.assertEqual(len(par_results.results), len(seq_results))
-        for par, seq in zip(par_results.results, seq_results):
+        for par, seq in zip(par_results.results, seq_results, strict=True):
             self.assertEqual(par.result.output, seq.result.output)
             self.assertEqual(par.ok, seq.ok)
 

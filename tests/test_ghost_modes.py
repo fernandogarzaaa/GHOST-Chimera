@@ -25,9 +25,11 @@ class GhostModePolicyTests(unittest.TestCase):
         PilotPolicy(allow_desktop_control=True, ghost_mode="possess").validate(task)
 
     def test_invalid_ghost_mode_rejected_in_execution_policy(self) -> None:
-        with patch.dict(os.environ, {"GHOSTCHIMERA_GHOST_MODE": "specter"}, clear=True):
-            with self.assertRaises(ValueError):
-                ExecutionPolicy.from_env()
+        with (
+            patch.dict(os.environ, {"GHOSTCHIMERA_GHOST_MODE": "specter"}, clear=True),
+            self.assertRaises(ValueError),
+        ):
+            ExecutionPolicy.from_env()
 
     def test_invalid_ghost_mode_rejected_in_pilot_policy(self) -> None:
         task = TaskSpec.create(kind=TaskKind.REASONING, objective="think", inputs={"prompt": "think"})

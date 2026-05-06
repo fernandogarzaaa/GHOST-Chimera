@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 import unittest
-from ghostchimera.safety_layer.material_policy import MaterialRegistry
-from ghostchimera.safety_layer.policy_enforcement import PolicyEnforcer, EnforcementResult
-from ghostchimera.chimera_pilot.semantic_verifier import SemanticVerifier
+
 from ghostchimera.chimera_pilot.claim_extractor import ClaimExtractor
+from ghostchimera.chimera_pilot.semantic_verifier import SemanticVerifier
+from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
+from ghostchimera.cognition_layer.confidence import ChimeraValue, Confidence, ConfidentValue
 from ghostchimera.cognition_layer.hallucination import (
+    DetectionReport,
     HallucinationDetector,
     HallucinationKind,
-    DetectionReport,
-    HallucinationFlag,
 )
-from ghostchimera.cognition_layer.confidence import ChimeraValue, Confidence, ConfidentValue, ExploreValue
-from ghostchimera.chimera_pilot.task_ir import TaskSpec, TaskKind
+from ghostchimera.safety_layer.material_policy import MaterialRegistry
+from ghostchimera.safety_layer.policy_enforcement import PolicyEnforcer
 
 
 class MaterialRegistryTests(unittest.TestCase):
@@ -254,10 +254,10 @@ class SemanticVerifierTests(unittest.TestCase):
         self.assertFalse(ok)
 
     def test_verify_claims_ignored_no_claims(self):
-        from ghostchimera.chimera_pilot.result_envelope import ResultEnvelope
         from ghostchimera.chimera_pilot.backends.base import ExecutionResult
+        from ghostchimera.chimera_pilot.result_envelope import ResultEnvelope
         envelope = ResultEnvelope(kind="test", value="hello", confidence=1.0, claims=[])
-        result = ExecutionResult(backend_id="test", task_id="t", ok=True, output="hello", error="", metrics={})
+        ExecutionResult(backend_id="test", task_id="t", ok=True, output="hello", error="", metrics={})
         ok, warns = self.verifier.verify_claims(envelope, "hello")
         self.assertTrue(ok)
         self.assertEqual(warns, [])
@@ -271,8 +271,8 @@ class SemanticVerifierTests(unittest.TestCase):
             provenance=[],
         )
         from ghostchimera.chimera_pilot.backends.base import ExecutionResult
-        result = ExecutionResult(backend_id="test", task_id="t", ok=True, output="The sky is blue.", error="", metrics={})
-        task = TaskSpec.create(kind=TaskKind.REASONING, objective="test")
+        ExecutionResult(backend_id="test", task_id="t", ok=True, output="The sky is blue.", error="", metrics={})
+        TaskSpec.create(kind=TaskKind.REASONING, objective="test")
         ok, warns = self.verifier.verify_hallucination("The sky is blue.", envelope)
         self.assertTrue(ok)
 

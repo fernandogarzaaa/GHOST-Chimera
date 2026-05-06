@@ -34,7 +34,7 @@ class ResultEnvelope:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "ResultEnvelope":
+    def from_dict(cls, payload: dict[str, Any]) -> ResultEnvelope:
         return cls(
             envelope_version=str(payload.get("envelope_version", "1.0")),
             envelope_id=str(payload.get("envelope_id", str(uuid.uuid4())[:12])),
@@ -63,7 +63,7 @@ class ResultEnvelope:
         provenance: list[dict[str, Any]] | None = None,
         sources: list[dict[str, Any]] | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> "ResultEnvelope":
+    ) -> ResultEnvelope:
         """Factory: accepts Any type and wraps it into an envelope."""
         if isinstance(payload, cls):
             return payload
@@ -90,7 +90,7 @@ class ResultEnvelope:
             {"constraint": constraint, "passed": passed, "timestamp": time.time(), **details}
         )
 
-    def with_claims(self, claims: list[dict[str, Any]]) -> "ResultEnvelope":
+    def with_claims(self, claims: list[dict[str, Any]]) -> ResultEnvelope:
         self.claims = claims
         return self
 

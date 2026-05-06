@@ -11,19 +11,19 @@ so it can be managed by the :class:`~ghostchimera.chimera_pilot.service_registry
 from __future__ import annotations
 
 import json
-import logging
 import os
 import threading
 import time
-from croniter import croniter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
-from ..config import GhostChimeraConfig
-from ..logging_config import get_logger
+from croniter import croniter
+
 from ..agent_core.core import AgentCore
 from ..chimera_pilot.task_ir import TaskKind
+from ..config import GhostChimeraConfig
+from ..logging_config import get_logger
 from .service_registry import BackgroundService, ServiceHealth
 
 logger = get_logger("cron_scheduler")

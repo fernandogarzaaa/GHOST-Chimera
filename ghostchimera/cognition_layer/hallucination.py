@@ -20,7 +20,7 @@ from .confidence import (
 )
 
 if TYPE_CHECKING:
-    from .workspace import WorkingMemory
+    pass
 
 
 class HallucinationKind(Enum):
@@ -154,14 +154,13 @@ class HallucinationDetector:
             ))
 
         # Promotion violation: ConfidentValue with low source confidence
-        if isinstance(value, ConfidentValue):
-            if value.confidence.source == "Explore_constructor":
-                report.add(HallucinationFlag(
-                    kind=HallucinationKind.PROMOTION_VIOLATION,
-                    severity=0.9,
-                    description="Confident value was created from Explore source",
-                    evidence={"raw": value.raw, "source": value.confidence.source},
-                ))
+        if isinstance(value, ConfidentValue) and value.confidence.source == "Explore_constructor":
+            report.add(HallucinationFlag(
+                kind=HallucinationKind.PROMOTION_VIOLATION,
+                severity=0.9,
+                description="Confident value was created from Explore source",
+                evidence={"raw": value.raw, "source": value.confidence.source},
+            ))
 
         # Fingerprint integrity
         data = f"{type(value.raw).__name__}:{value.raw}:{value.confidence.value}"

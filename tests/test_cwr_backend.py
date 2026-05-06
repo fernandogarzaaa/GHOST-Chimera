@@ -93,8 +93,7 @@ class ConsciousWorkspaceRetrievalTests(unittest.TestCase):
                 "Ghost Chimera production readiness depends on CWR memory.",
             ],
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=False,
             timeout=30,
         )
@@ -112,8 +111,7 @@ class ConsciousWorkspaceRetrievalTests(unittest.TestCase):
                 "production readiness",
             ],
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=False,
             timeout=30,
         )
@@ -132,8 +130,7 @@ class ConsciousWorkspaceRetrievalTests(unittest.TestCase):
                 "--include-deterministic-backend",
             ],
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=False,
             timeout=30,
         )

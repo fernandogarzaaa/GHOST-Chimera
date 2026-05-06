@@ -8,9 +8,7 @@ remote agent management, and an HTTP route registry (Gap 6 — mirrors OpenClaw'
 
 from __future__ import annotations
 
-import asyncio
 import json
-import logging
 import os
 import secrets
 import threading
@@ -18,17 +16,14 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from ..config import GhostChimeraConfig
-from ..logging_config import get_logger
 from ..chimera_pilot.agent_loop import AIAgent, SessionState
+from ..chimera_pilot.checkpoint import get_manager as get_checkpoint_manager
 from ..chimera_pilot.credential_pool import get_pool
 from ..chimera_pilot.toolsets import ToolsetManager
-from ..chimera_pilot.subagent import SubagentPool
-from ..chimera_pilot.batch_runner import BatchRunner
-from ..chimera_pilot.checkpoint import get_manager as get_checkpoint_manager
+from ..config import GhostChimeraConfig
+from ..logging_config import get_logger
 from .service_registry import BackgroundService, ServiceHealth
 
 logger = get_logger("gateway_server")
@@ -49,8 +44,23 @@ WS_CLOSE_GRACE_PERIOD = float(os.environ.get("GHOSTCHIMERA_WS_CLOSE_GRACE", "5.0
 # HTTP route registry  (Gap 6)
 # ---------------------------------------------------------------------------
 
-RouteHandler = Callable[[dict[str, Any]], dict[str, Any]]
+RouteHandler = Callable[[dict[str, Any]], Any]
 """A callable ``(request_context) → response_dict``."""
+
+
+@dataclass(frozen=True)
+class HttpResponse:
+    """Raw HTTP response for non-JSON gateway routes."""
+
+    body: str | bytes
+    status: int = 200
+    content_type: str = "application/json"
+    headers: dict[str, str] = field(default_factory=dict)
+
+    def body_bytes(self) -> bytes:
+        if isinstance(self.body, bytes):
+            return self.body
+        return self.body.encode("utf-8")
 
 
 @dataclass(frozen=True)
@@ -493,7 +503,18 @@ class GatewayServer(BackgroundService):
                 except Exception as exc:
                     self._respond(500, {"error": str(exc)})
 
-            def _respond(self, code: int, data: dict) -> None:
+            def _respond(self, code: int, data: Any) -> None:
+                if isinstance(data, HttpResponse):
+                    body = data.body_bytes()
+                    self.send_response(data.status)
+                    self.send_header("Content-Type", data.content_type)
+                    self.send_header("Content-Length", str(len(body)))
+                    for name, value in data.headers.items():
+                        self.send_header(name, value)
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+
                 body = json.dumps(data).encode()
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json")
@@ -592,6 +613,7 @@ __all__ = [
     "GatewayServer",
     "GatewayMessage",
     "GatewaySession",
+    "HttpResponse",
     "HttpRoute",
     "HttpRouteRegistry",
     "get_server",
