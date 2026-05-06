@@ -109,6 +109,7 @@ class CredentialPool:
     def __init__(self, config: GhostChimeraConfig | None = None):
         self._creds: dict[str, CredentialEntry] = {}
         self._health: dict[str, ProviderHealth] = {}
+        self._auth_providers: dict[str, Any] = {}  # ExternalAuthProvider instances
         self._lock = threading.RLock()
         self.config = config or GhostChimeraConfig.from_env()
         self._initialized = False
@@ -283,6 +284,71 @@ class CredentialPool:
             )
         logger.info("Rotated credential for %s (rotation #%d)", provider, new_entry.metadata["rotation_count"])
         return new_entry
+
+    def register_auth_provider(self, provider_id: str, auth_provider: Any) -> None:
+        """Register an :class:`~ghostchimera.model_layer.auth_profiles.ExternalAuthProvider`.
+
+        The pool will call ``auth_provider.refresh(credential)`` automatically
+        when the stored :class:`~ghostchimera.model_layer.auth_profiles.OAuthCredential`
+        for *provider_id* is expired.
+
+        Parameters
+        ----------
+        provider_id:
+            Provider name matching the credential pool key (e.g. ``"my_service"``).
+        auth_provider:
+            An :class:`~ghostchimera.model_layer.auth_profiles.ExternalAuthProvider`
+            instance.
+        """
+        with self._lock:
+            self._auth_providers[provider_id] = auth_provider
+        logger.info("Registered external auth provider for '%s'", provider_id)
+
+    def refresh_credential(self, provider: str) -> CredentialEntry | None:
+        """Force-refresh an OAuth credential via the registered :class:`ExternalAuthProvider`.
+
+        Parameters
+        ----------
+        provider:
+            Provider name.
+
+        Returns
+        -------
+        CredentialEntry | None
+            The refreshed entry, or ``None`` if no auth provider is registered.
+        """
+        with self._lock:
+            auth_provider = self._auth_providers.get(provider)
+            entry = self._creds.get(provider)
+        if auth_provider is None:
+            logger.debug("No external auth provider for '%s'; cannot refresh", provider)
+            return None
+        if entry is None:
+            logger.debug("No credential entry for '%s'; cannot refresh", provider)
+            return None
+        try:
+            from ..model_layer.auth_profiles import OAuthCredential
+            old_oauth = OAuthCredential(
+                token=entry.oauth_token,
+                refresh_token=entry.api_secret,
+                expires_at=entry.expires_at,
+            )
+            refreshed = auth_provider.refresh(old_oauth)
+            new_entry = CredentialEntry(
+                **{
+                    **entry.__dict__,
+                    "oauth_token": refreshed.token,
+                    "expires_at": refreshed.expires_at,
+                    "last_rotated": time.time(),
+                }
+            )
+            with self._lock:
+                self._creds[provider] = new_entry
+            logger.info("Refreshed credential for '%s' via ExternalAuthProvider", provider)
+            return new_entry
+        except Exception as exc:
+            logger.warning("ExternalAuthProvider refresh for '%s' failed: %s", provider, exc)
+            return None
 
     def record_request(self, provider: str, success: bool, error: str = "") -> None:
         """Record a request outcome for quota tracking."""

@@ -303,6 +303,22 @@ class ToolsetManager:
             "registered_toolsets": self.registry.list_all(),
         }
 
+    def register_result_middleware(self, middleware: Any) -> None:
+        """Register a :class:`~ghostchimera.chimera_pilot.tool_middleware.ToolResultMiddleware`.
+
+        Delegates to the process-wide default :class:`ToolMiddlewareChain`.
+        This mirrors OpenClaw's ``registerAgentToolResultMiddleware`` surface.
+
+        Parameters
+        ----------
+        middleware:
+            A :class:`~ghostchimera.chimera_pilot.tool_middleware.ToolResultMiddleware`
+            instance to append to the default chain.
+        """
+        from .tool_middleware import get_default_chain
+        get_default_chain().add(middleware)
+        logger.info("Registered tool result middleware '%s'", getattr(middleware, "name", repr(middleware)))
+
 
 __all__ = [
     "ToolsetRegistry",

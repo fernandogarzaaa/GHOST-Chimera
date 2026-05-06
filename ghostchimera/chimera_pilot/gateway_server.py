@@ -1,8 +1,9 @@
-"""Gateway server — WebSocket persistent sessions for agent orchestration.
+"""Gateway server — WebSocket persistent sessions + HTTP route registry.
 
 Patterns adapted from Hermes-Agent's messaging gateway (Nous Research, MIT licensed).
 Provides a WebSocket server with persistent sessions, real-time tool output streaming,
-and remote agent management. Optional dependency (websockets).
+remote agent management, and an HTTP route registry (Gap 6 — mirrors OpenClaw's
+``registerHttpRoute`` contract).
 """
 
 from __future__ import annotations
@@ -13,7 +14,9 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -25,6 +28,7 @@ from ..chimera_pilot.toolsets import ToolsetManager
 from ..chimera_pilot.subagent import SubagentPool
 from ..chimera_pilot.batch_runner import BatchRunner
 from ..chimera_pilot.checkpoint import get_manager as get_checkpoint_manager
+from .service_registry import BackgroundService, ServiceHealth
 
 logger = get_logger("gateway_server")
 
@@ -33,9 +37,123 @@ logger = get_logger("gateway_server")
 # ------------------ ----------- -- ------ ------ -----------
 HOST = os.environ.get("GHOSTCHIMERA_GATEWAY_HOST", "127.0.0.1")
 PORT = int(os.environ.get("GHOSTCHIMERA_GATEWAY_PORT", "8765"))
+HTTP_PORT = int(os.environ.get("GHOSTCHIMERA_HTTP_PORT", str(int(os.environ.get("GHOSTCHIMERA_GATEWAY_PORT", "8765")) + 1)))
 WS_MAX_MESSAGE_BYTES = int(os.environ.get("GHOSTCHIMERA_WS_MAX_MESSAGE", "10_000_000"))
 WS_PING_INTERVAL = float(os.environ.get("GHOSTCHIMERA_WS_PING_INTERVAL", "20.0"))
 WS_CLOSE_GRACE_PERIOD = float(os.environ.get("GHOSTCHIMERA_WS_CLOSE_GRACE", "5.0"))
+
+
+# ---------------------------------------------------------------------------
+# HTTP route registry  (Gap 6)
+# ---------------------------------------------------------------------------
+
+RouteHandler = Callable[[dict[str, Any]], dict[str, Any]]
+"""A callable ``(request_context) → response_dict``."""
+
+
+@dataclass(frozen=True)
+class HttpRoute:
+    """A registered HTTP route.
+
+    Parameters
+    ----------
+    path:
+        URL path (exact match or prefix when ``prefix=True``).
+    handler:
+        Callable ``(request_context) → dict`` where ``request_context``
+        contains ``method``, ``path``, ``headers``, ``body``, ``query``.
+    method:
+        HTTP method (e.g. ``"GET"``).  ``"*"`` matches any method.
+    auth:
+        Auth mode: ``"gateway"`` (require gateway token),
+        ``"open"`` (no auth required), ``"token"`` (custom token from
+        ``X-Gateway-Token`` header).
+    prefix:
+        When True, match any path that starts with ``path``.
+    """
+
+    path: str
+    handler: RouteHandler
+    method: str = "*"
+    auth: str = "gateway"
+    prefix: bool = False
+    description: str = ""
+
+    def matches(self, method: str, req_path: str) -> bool:
+        if self.method != "*" and self.method.upper() != method.upper():
+            return False
+        if self.prefix:
+            return req_path.startswith(self.path)
+        return req_path == self.path
+
+
+class HttpRouteRegistry:
+    """Thread-safe registry of :class:`HttpRoute` entries."""
+
+    def __init__(self) -> None:
+        self._routes: list[HttpRoute] = []
+        self._lock = threading.Lock()
+        self._gateway_token: str = os.environ.get("GHOSTCHIMERA_GATEWAY_TOKEN", "")
+
+    def register(
+        self,
+        path: str,
+        handler: RouteHandler,
+        *,
+        method: str = "*",
+        auth: str = "open",
+        prefix: bool = False,
+        description: str = "",
+    ) -> None:
+        """Register a route.
+
+        Parameters
+        ----------
+        path:
+            URL path.
+        handler:
+            Route handler callable.
+        method:
+            HTTP method filter.
+        auth:
+            Auth mode (``"gateway"``, ``"open"``, ``"token"``).
+        prefix:
+            Whether to do prefix matching.
+        description:
+            Human-readable description.
+        """
+        route = HttpRoute(path=path, handler=handler, method=method,
+                          auth=auth, prefix=prefix, description=description)
+        with self._lock:
+            self._routes.append(route)
+        logger.debug("Registered HTTP route %s %s (auth=%s)", method, path, auth)
+
+    def find(self, method: str, path: str) -> HttpRoute | None:
+        with self._lock:
+            for route in self._routes:
+                if route.matches(method, path):
+                    return route
+        return None
+
+    def list_all(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [
+                {"path": r.path, "method": r.method, "auth": r.auth,
+                 "prefix": r.prefix, "description": r.description}
+                for r in self._routes
+            ]
+
+    def check_auth(self, route: HttpRoute, headers: dict[str, str]) -> bool:
+        """Return True when the request is authorised for *route*."""
+        if route.auth == "open":
+            return True
+        token_header = headers.get("x-gateway-token", "").strip()
+        if route.auth == "gateway":
+            return bool(self._gateway_token) and token_header == self._gateway_token
+        if route.auth == "token":
+            # Custom token — caller registered their expected value
+            return bool(token_header)
+        return False
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -103,25 +221,88 @@ class GatewaySession:
 # Gateway server
 # ------------ ----------- -- ------ ------ -----------
 
-class GatewayServer:
-    """WebSocket server with persistent agent sessions."""
+class GatewayServer(BackgroundService):
+    """WebSocket server with persistent agent sessions and HTTP route registry.
+
+    Implements :class:`~ghostchimera.chimera_pilot.service_registry.BackgroundService`.
+    """
+
+    service_id = "gateway_server"
+    service_name = "Gateway Server"
+    service_description = "WebSocket persistent sessions + HTTP route registry"
 
     def __init__(
         self,
         host: str = HOST,
         port: int = PORT,
         config: GhostChimeraConfig | None = None,
+        http_port: int | None = None,
     ):
         self.host = host
         self.port = port
+        self.http_port = http_port if http_port is not None else HTTP_PORT
         self.config = config or GhostChimeraConfig.from_env()
         self._sessions: dict[str, GatewaySession] = {}
         self._lock = threading.RLock()
         self._websocket_server = None
+        self._http_server: HTTPServer | None = None
+        self._http_thread: threading.Thread | None = None
         self._running = False
         self._credentials = get_pool()
         self._toolset_manager = ToolsetManager()
         self._checkpoints = get_checkpoint_manager(self.config)
+        self.routes = HttpRouteRegistry()
+        self._register_builtin_routes()
+
+    def _register_builtin_routes(self) -> None:
+        """Register built-in HTTP routes."""
+        self.routes.register("/health", self._handle_health, method="GET", auth="open",
+                             description="Health check endpoint")
+        self.routes.register("/status", self._handle_status, method="GET", auth="open",
+                             description="Gateway status")
+        self.routes.register("/sessions", self._handle_list_sessions, method="GET", auth="gateway",
+                             description="List active WebSocket sessions")
+
+    def _handle_health(self, ctx: dict[str, Any]) -> dict[str, Any]:
+        return {"ok": True, "timestamp": time.time()}
+
+    def _handle_status(self, ctx: dict[str, Any]) -> dict[str, Any]:
+        return self.status()
+
+    def _handle_list_sessions(self, ctx: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            sessions = [s.to_dict() for s in self._sessions.values()]
+        return {"sessions": sessions, "count": len(sessions)}
+
+    def register_route(
+        self,
+        path: str,
+        handler: RouteHandler,
+        *,
+        method: str = "*",
+        auth: str = "open",
+        prefix: bool = False,
+        description: str = "",
+    ) -> None:
+        """Register a custom HTTP route.
+
+        Parameters
+        ----------
+        path:
+            URL path (e.g. ``"/my/endpoint"``).
+        handler:
+            Callable ``(request_context) → dict``.
+        method:
+            HTTP method filter (``"*"`` matches any).
+        auth:
+            Auth mode: ``"open"``, ``"gateway"``, ``"token"``.
+        prefix:
+            Enable prefix matching.
+        description:
+            Human-readable description.
+        """
+        self.routes.register(path, handler, method=method, auth=auth,
+                             prefix=prefix, description=description)
 
     def create_session(self, session_id: str | None = None,
                       system_prompt: str = "") -> GatewaySession:
@@ -222,7 +403,7 @@ class GatewayServer:
             ).to_json())
 
     def start(self) -> None:
-        """Start the WebSocket server."""
+        """Start the WebSocket server and the HTTP route server."""
         self._running = True
         import asyncio
 
@@ -244,7 +425,82 @@ class GatewayServer:
 
         self._thread = threading.Thread(target=_run, daemon=True)
         self._thread.start()
-        logger.info("Gateway server starting on ws://%s:%d", self.host, self.port)
+
+        # Start HTTP server on adjacent port
+        self._start_http_server()
+
+        logger.info("Gateway server starting on ws://%s:%d, http://%s:%d",
+                    self.host, self.port, self.host, self.http_port)
+
+    def _start_http_server(self) -> None:
+        """Start a lightweight HTTP server for route registry."""
+        registry = self.routes
+
+        class _Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                self._dispatch("GET")
+
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length) if length > 0 else b""
+                self._dispatch("POST", body=body)
+
+            def _dispatch(self, method: str, body: bytes = b"") -> None:
+                import urllib.parse
+                parsed = urllib.parse.urlparse(self.path)
+                path = parsed.path
+                query_str = parsed.query
+                query: dict[str, str] = {}
+                if query_str:
+                    for part in query_str.split("&"):
+                        if "=" in part:
+                            k, v = part.split("=", 1)
+                            query[urllib.parse.unquote(k)] = urllib.parse.unquote(v)
+
+                headers = {k.lower(): v for k, v in self.headers.items()}
+                route = registry.find(method, path)
+
+                if route is None:
+                    self._respond(404, {"error": "Not found", "path": path})
+                    return
+
+                if not registry.check_auth(route, headers):
+                    self._respond(401, {"error": "Unauthorized"})
+                    return
+
+                ctx = {
+                    "method": method,
+                    "path": path,
+                    "headers": headers,
+                    "body": body.decode("utf-8", errors="replace"),
+                    "query": query,
+                }
+                try:
+                    result = route.handler(ctx)
+                    self._respond(200, result)
+                except Exception as exc:
+                    self._respond(500, {"error": str(exc)})
+
+            def _respond(self, code: int, data: dict) -> None:
+                body = json.dumps(data).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A002
+                logger.debug("HTTP %s", fmt % args)
+
+        try:
+            self._http_server = HTTPServer((self.host, self.http_port), _Handler)
+            self._http_thread = threading.Thread(
+                target=self._http_server.serve_forever, daemon=True
+            )
+            self._http_thread.start()
+            logger.info("HTTP route server listening on http://%s:%d", self.host, self.http_port)
+        except OSError as exc:
+            logger.warning("Could not start HTTP route server on port %d: %s", self.http_port, exc)
 
     async def _handle_connection(self, websocket, path) -> None:
         """Handle incoming WebSocket connection — create or resume session."""
@@ -253,11 +509,27 @@ class GatewayServer:
         await self.handle_client(websocket, session_id)
 
     def stop(self) -> None:
-        """Stop the gateway server."""
+        """Stop the gateway server (WebSocket + HTTP)."""
         self._running = False
         if self._websocket_server:
             self._websocket_server.close()
+        if self._http_server:
+            self._http_server.shutdown()
         logger.info("Gateway server stopped")
+
+    def probe(self) -> ServiceHealth:
+        """Return the health of the gateway server."""
+        with self._lock:
+            session_count = len(self._sessions)
+        return ServiceHealth(
+            ok=self._running,
+            state="running" if self._running else "stopped",
+            details={
+                "session_count": session_count,
+                "ws_port": self.port,
+                "http_port": self.http_port,
+            },
+        )
 
     def status(self) -> dict[str, Any]:
         with self._lock:
@@ -265,9 +537,11 @@ class GatewayServer:
         return {
             "host": self.host,
             "port": self.port,
+            "http_port": self.http_port,
             "running": self._running,
             "session_count": len(sessions),
             "sessions": sessions,
+            "routes": self.routes.list_all(),
         }
 
 
@@ -306,6 +580,8 @@ __all__ = [
     "GatewayServer",
     "GatewayMessage",
     "GatewaySession",
+    "HttpRoute",
+    "HttpRouteRegistry",
     "get_server",
     "start_gateway",
     "stop_gateway",

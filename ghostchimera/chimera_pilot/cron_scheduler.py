@@ -3,6 +3,9 @@
 Patterns adapted from Hermes-Agent's cron scheduler (Nous Research, MIT licensed).
 Supports cron expressions, recurring tasks, and trigger-based execution
 with persistent state storage.
+
+Implements :class:`~ghostchimera.chimera_pilot.service_registry.BackgroundService`
+so it can be managed by the :class:`~ghostchimera.chimera_pilot.service_registry.ServiceRegistry`.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from ..config import GhostChimeraConfig
 from ..logging_config import get_logger
 from ..agent_core.core import AgentCore
 from ..chimera_pilot.task_ir import TaskKind
+from .service_registry import BackgroundService, ServiceHealth
 
 logger = get_logger("cron_scheduler")
 
@@ -119,8 +123,15 @@ class CronJobResult:
 # Cron scheduler
 # --------------------------- ----------------------- ---------------
 
-class CronScheduler:
-    """Persistent cron-style task scheduler."""
+class CronScheduler(BackgroundService):
+    """Persistent cron-style task scheduler.
+
+    Implements :class:`~ghostchimera.chimera_pilot.service_registry.BackgroundService`.
+    """
+
+    service_id = "cron_scheduler"
+    service_name = "Cron Scheduler"
+    service_description = "Persistent cron-style task scheduler"
 
     def __init__(
         self,
@@ -247,6 +258,17 @@ class CronScheduler:
             self._thread.join(timeout=10)
             self._thread = None
         logger.info("Cron scheduler stopped")
+
+    def probe(self) -> ServiceHealth:
+        """Return the health of the cron scheduler."""
+        with self._lock:
+            job_count = len(self.jobs)
+            enabled = sum(1 for j in self.jobs.values() if j.enabled)
+        return ServiceHealth(
+            ok=True,
+            state="running" if self._running else "stopped",
+            details={"job_count": job_count, "enabled_count": enabled},
+        )
 
     def status(self) -> dict[str, Any]:
         """Scheduler status."""

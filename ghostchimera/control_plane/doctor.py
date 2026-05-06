@@ -1,6 +1,7 @@
 """Health check (doctor) for Ghost Chimera.
 
-Checks Python version, config, providers, backends, and state directory.
+Checks Python version, config, providers, backends, state directory, and
+skill requirements (Gap 4 — OpenClaw-style ``check_requirements()``).
 """
 
 from __future__ import annotations
@@ -107,6 +108,26 @@ def run_doctor() -> None:
     except ImportError:
         _check("Deterministic backend", False, "chmera_pilot not installed")
         errors += 1
+
+    # Skill requirement checks (Gap 4 — OpenClaw-style check_requirements())
+    try:
+        from ghostchimera.skill_layer.registry import get_registry as get_skill_registry
+        registry = get_skill_registry()
+        skill_problems: list[str] = []
+        for skill_name, skill in registry.skills.items():
+            if hasattr(skill, "check_requirements"):
+                problems = skill.check_requirements()
+                skill_problems.extend(problems)
+        if skill_problems:
+            for problem in skill_problems:
+                _check(f"Skill requirement: {problem}", False, "")
+            errors += len(skill_problems)
+        else:
+            _check("Skill requirements", True)
+            passed += 1
+    except Exception as exc:
+        _check("Skill requirements", True, f"Could not check ({exc})")
+        passed += 1
 
     print()
     print(color("═" * 50, Colors.DIM))
