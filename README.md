@@ -55,11 +55,12 @@ Optional extras:
 python -m pip install -e ".[gateway]"  # WebSocket gateway and cron scheduling
 python -m pip install -e ".[mcp]"      # MCP package integration
 python -m pip install -e ".[local]"    # llama.cpp-compatible local model runtime
+python -m pip install -e ".[cute]"     # optional NVIDIA CuTe DSL package on supported Linux/Python 3.12 systems
 python -m pip install -e ".[quantum]"  # optional pyqpanda3 simulator backend
 python -m pip install -e ".[dev]"      # build and lint tools
 ```
 
-Heavy runtimes such as `llama-cpp-python` and `pyqpanda3` are optional. The base package stays lightweight and stdlib-first.
+Heavy runtimes such as `llama-cpp-python`, `nvidia-cutlass-dsl`, and `pyqpanda3` are optional. The base package stays lightweight and stdlib-first.
 
 ## CLI Quickstart
 
@@ -224,6 +225,24 @@ Profiles include `tiny`, `balanced`, and `stronger`. GGUF execution requires a c
 chimera-pilot status --local-model-path C:\models\qwen2.5-0.5b-instruct-q4.gguf --local-model-profile tiny
 chimera-pilot run "explain the current project" --local-model-path C:\models\qwen2.5-0.5b-instruct-q4.gguf --local-model-profile tiny
 ```
+
+## Runtime Specialization
+
+Ghost Chimera includes a CuTeDSL-inspired local runtime specialization planner for MiniMind/llama.cpp execution. It classifies each prompt as `prefill`, `decode`, or `hybrid`, derives vector/load-width, warp, grid-barrier, and `llama_cpp` batch hints, and exposes the selected plan in backend health and execution metrics.
+
+Inspect a plan without loading a model:
+
+```bash
+chimera-pilot runtime-specialization "short prompt" --local-model-profile tiny --local-model-gpu-layers 12 --gpu-architecture sm100 --gpu-sm-count 160 --estimated-output-tokens 2
+```
+
+When a GGUF model is enabled, the same planner feeds the local runtime's `n_batch` load parameter and can persist replayable warmup manifests:
+
+```bash
+chimera-pilot run "explain the current project" --local-model-path C:\models\qwen2.5-0.5b-instruct-q4.gguf --runtime-specialization-cache-dir .ghost/runtime-specialization
+```
+
+Installing `.[cute]` enables detection of NVIDIA's `nvidia-cutlass-dsl` package on supported Linux/Python 3.12 systems. Ghost Chimera does not claim to compile custom CuTeDSL kernels unless that runtime exists in the deployment; the beta path currently uses the specialization plan to tune and report local model execution.
 
 ## Adjustable Autonomy
 

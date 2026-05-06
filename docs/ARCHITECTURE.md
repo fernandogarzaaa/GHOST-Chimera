@@ -10,7 +10,7 @@ ghostchimera/
   control_plane/    user-facing CLI entry points
   evals/            smoke and safety evaluation suites
   memory_layer/     SQLite FTS local retrieval store
-  model_layer/      OpenAI, minimind-compatible, and llama.cpp provider adapters
+  model_layer/      OpenAI, minimind-compatible, llama.cpp, and runtime specialization adapters
   safety_layer/     execution policy and audit records
   skill_layer/      higher-level skills
   tool_layer/       policy-gated filesystem, shell, and browser wrappers
@@ -54,6 +54,14 @@ This keeps local runtimes, cloud models, MCP connectors, vector stores, browser 
 ## Local memory and models
 
 The CWR backend uses `memory_layer.MemoryStore`, a local SQLite FTS5 index, for retrieval-augmented task execution without external services. The local model path is explicit: minimind-compatible runtimes consume named profiles, while optional GGUF execution goes through the llama.cpp backend when `--local-model-path` is provided.
+
+Local model execution also has a runtime-specialization planner inspired by CuTeDSL-style serving systems. It does three concrete things in the current beta:
+
+1. Classifies a local reasoning request as `prefill`, `decode`, or `hybrid` from prompt/output shape.
+2. Derives accelerator-aware hints such as vector width, load width, recommended warps, grid-barrier eligibility, and a `llama_cpp` `n_batch` value.
+3. Emits a stable cache key and optional JSON manifest so warmup/replay tooling can see which specialization was selected.
+
+The planner is wired into `LlamaCppRuntime`, `LlamaCppBackend`, Chimera Pilot status, and the `chimera-pilot runtime-specialization` command. It detects the optional `nvidia-cutlass-dsl` package when installed, but the default beta path remains llama.cpp execution with specialization metadata rather than unverified custom GPU kernel compilation.
 
 ## Safety boundary
 

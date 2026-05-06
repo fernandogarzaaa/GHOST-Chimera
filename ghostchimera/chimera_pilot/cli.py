@@ -7,7 +7,12 @@ import json
 import sys
 
 from ..memory_layer.store import MemoryStore
-from ..model_layer.local_profiles import list_local_model_profiles
+from ..model_layer.local_profiles import get_local_model_profile, list_local_model_profiles
+from ..model_layer.runtime_specialization import (
+    detect_runtime_environment,
+    plan_runtime_specialization,
+    workload_from_messages,
+)
 from .autonomy import get_autonomy_profile, list_autonomy_profiles
 from .desktop_policy import write_desktop_stop_file
 from .kernel import ChimeraPilotKernel
@@ -29,6 +34,8 @@ def main(argv: list[str] | None = None) -> int:
     status_parser.add_argument("--local-model-profile", default="tiny", help="Local model profile name.")
     status_parser.add_argument("--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist.")
     status_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
+    status_parser.add_argument("--disable-runtime-specialization", action="store_true", help="Disable local runtime specialization planning.")
+    status_parser.add_argument("--runtime-specialization-cache-dir", default="", help="Write local runtime specialization manifests here.")
     status_parser.add_argument("--allow-desktop-control", action="store_true", help="Allow desktop cursor/keyboard control.")
     status_parser.add_argument(
         "--desktop-action-class",
@@ -73,6 +80,8 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--local-model-profile", default="tiny", help="Local model profile name.")
     run_parser.add_argument("--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist.")
     run_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
+    run_parser.add_argument("--disable-runtime-specialization", action="store_true", help="Disable local runtime specialization planning.")
+    run_parser.add_argument("--runtime-specialization-cache-dir", default="", help="Write local runtime specialization manifests here.")
 
     compile_parser = subparsers.add_parser("compile", help="Compile one objective without executing it.")
     compile_parser.add_argument("objective", help="Objective to compile.")
@@ -85,8 +94,20 @@ def main(argv: list[str] | None = None) -> int:
     calibrate_parser.add_argument("--local-model-profile", default="tiny", help="Local model profile name.")
     calibrate_parser.add_argument("--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist.")
     calibrate_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
+    calibrate_parser.add_argument("--disable-runtime-specialization", action="store_true", help="Disable local runtime specialization planning.")
+    calibrate_parser.add_argument("--runtime-specialization-cache-dir", default="", help="Write local runtime specialization manifests here.")
 
     subparsers.add_parser("model-profiles", help="List built-in local model profiles.")
+    runtime_parser = subparsers.add_parser("runtime-specialization", help="Plan local runtime specialization for a prompt.")
+    runtime_parser.add_argument("prompt", nargs="?", default="hello", help="Prompt used to estimate workload shape.")
+    runtime_parser.add_argument("--local-model-profile", default="tiny", help="Local model profile name.")
+    runtime_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
+    runtime_parser.add_argument("--estimated-output-tokens", type=int, default=128, help="Expected output token budget.")
+    runtime_parser.add_argument("--batch-size", type=int, default=1, help="Estimated request batch size.")
+    runtime_parser.add_argument("--dtype", default="", help="Activation/data type hint, defaults to profile quantization.")
+    runtime_parser.add_argument("--gpu-architecture", default="", help="Optional GPU architecture hint, for example sm100.")
+    runtime_parser.add_argument("--gpu-sm-count", type=int, default=0, help="Optional GPU SM count hint.")
+    runtime_parser.add_argument("--runtime-specialization-cache-dir", default="", help="Write specialization manifest here.")
     subparsers.add_parser("autonomy-profiles", help="List built-in autonomy profiles.")
     desktop_stop_parser = subparsers.add_parser("desktop-stop", help="Create the desktop kill-switch file immediately.")
     desktop_stop_parser.add_argument("--desktop-kill-switch-path", default="", help="Kill-switch path to create.")
@@ -123,6 +144,28 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "model-profiles":
         _print_json({"profiles": [profile.to_dict() for profile in list_local_model_profiles()]})
+        return 0
+
+    if args.command == "runtime-specialization":
+        profile = get_local_model_profile(args.local_model_profile)
+        workload = workload_from_messages(
+            user_message=args.prompt,
+            estimated_output_tokens=args.estimated_output_tokens,
+            batch_size=args.batch_size,
+            dtype=args.dtype or profile.quantization,
+        )
+        environment = detect_runtime_environment(
+            n_gpu_layers=args.local_model_gpu_layers,
+            architecture=args.gpu_architecture or None,
+            sm_count=args.gpu_sm_count or None,
+        )
+        plan = plan_runtime_specialization(
+            profile=profile,
+            workload=workload,
+            environment=environment,
+            cache_dir=args.runtime_specialization_cache_dir or None,
+        )
+        _print_json(plan.to_dict())
         return 0
 
     if args.command == "autonomy-profiles":
@@ -178,6 +221,8 @@ def main(argv: list[str] | None = None) -> int:
             else get_autonomy_profile(getattr(args, "autonomy_level", "")).local_model_profile
         ),
         local_model_gpu_layers=getattr(args, "local_model_gpu_layers", 0),
+        local_runtime_specialization=not getattr(args, "disable_runtime_specialization", False),
+        local_runtime_specialization_cache_dir=getattr(args, "runtime_specialization_cache_dir", "") or None,
         autonomy_level=getattr(args, "autonomy_level", "") or None,
     )
 

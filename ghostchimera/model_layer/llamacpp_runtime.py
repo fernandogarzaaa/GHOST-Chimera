@@ -6,6 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from .local_profiles import LocalModelProfile, get_local_model_profile
+from .runtime_specialization import (
+    RuntimeEnvironment,
+    RuntimeSpecializationPlan,
+    detect_runtime_environment,
+    plan_runtime_specialization,
+    workload_from_messages,
+)
 
 
 class LlamaCppRuntime:
@@ -17,10 +24,22 @@ class LlamaCppRuntime:
         model_path: str,
         profile_name: str = "tiny",
         n_gpu_layers: int = 0,
+        runtime_specialization: bool = True,
+        specialization_cache_dir: str | None = None,
+        gpu_architecture: str | None = None,
+        gpu_sm_count: int | None = None,
     ) -> None:
         self.model_path = str(Path(model_path).expanduser()) if model_path else ""
         self.profile: LocalModelProfile = get_local_model_profile(profile_name)
         self.n_gpu_layers = int(n_gpu_layers)
+        self.runtime_specialization = bool(runtime_specialization)
+        self.specialization_cache_dir = specialization_cache_dir
+        self.environment: RuntimeEnvironment = detect_runtime_environment(
+            n_gpu_layers=self.n_gpu_layers,
+            architecture=gpu_architecture,
+            sm_count=gpu_sm_count,
+        )
+        self.last_specialization_plan: RuntimeSpecializationPlan | None = None
         self._model: Any | None = None
 
     def available_error(self) -> str | None:
@@ -42,7 +61,8 @@ class LlamaCppRuntime:
         error = self.available_error()
         if error:
             raise RuntimeError(error)
-        model = self._load_model()
+        plan = self._plan_for_messages(system_message, user_message)
+        model = self._load_model(plan)
         response = model.create_chat_completion(
             messages=[
                 {"role": "system", "content": system_message},
@@ -52,16 +72,36 @@ class LlamaCppRuntime:
         )
         return self._extract_text(response)
 
-    def _load_model(self):
+    def _plan_for_messages(self, system_message: str, user_message: str) -> RuntimeSpecializationPlan | None:
+        if not self.runtime_specialization:
+            self.last_specialization_plan = None
+            return None
+        workload = workload_from_messages(
+            system_message=system_message,
+            user_message=user_message,
+            dtype=self.profile.quantization,
+        )
+        self.last_specialization_plan = plan_runtime_specialization(
+            profile=self.profile,
+            workload=workload,
+            environment=self.environment,
+            cache_dir=self.specialization_cache_dir,
+        )
+        return self.last_specialization_plan
+
+    def _load_model(self, plan: RuntimeSpecializationPlan | None = None):
         if self._model is None:
             from llama_cpp import Llama  # type: ignore
 
-            self._model = Llama(
-                model_path=self.model_path,
-                n_ctx=self.profile.max_context_tokens,
-                n_gpu_layers=self.n_gpu_layers,
-                verbose=False,
-            )
+            kwargs: dict[str, Any] = {
+                "model_path": self.model_path,
+                "n_ctx": self.profile.max_context_tokens,
+                "n_gpu_layers": self.n_gpu_layers,
+                "verbose": False,
+            }
+            if plan is not None:
+                kwargs["n_batch"] = plan.llama_cpp_n_batch
+            self._model = Llama(**kwargs)
         return self._model
 
     def _extract_text(self, response: Any) -> str:

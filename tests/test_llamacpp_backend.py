@@ -39,8 +39,9 @@ class LlamaCppRuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ghostchimera-llama-test-") as tmp:
             model_path = Path(tmp) / "tiny.gguf"
             model_path.write_bytes(b"fake")
-            with patch.dict(sys.modules, {"llama_cpp": fake}):
-                with patch.dict(
+            with (
+                patch.dict(sys.modules, {"llama_cpp": fake}),
+                patch.dict(
                     os.environ,
                     {
                         "LLAMACPP_MODEL_PATH": str(model_path),
@@ -48,15 +49,17 @@ class LlamaCppRuntimeTests(unittest.TestCase):
                         "LLAMACPP_N_GPU_LAYERS": "12",
                     },
                     clear=False,
-                ):
-                    provider = LlamaCppProvider()
-                    response = provider.chat("system", "hello")
+                ),
+            ):
+                provider = LlamaCppProvider()
+                response = provider.chat("system", "hello")
 
         self.assertTrue(provider.available)
         self.assertEqual(response, "local llama response")
         self.assertEqual(calls[0]["init"]["model_path"], str(model_path))
         self.assertEqual(calls[0]["init"]["n_ctx"], 8192)
         self.assertEqual(calls[0]["init"]["n_gpu_layers"], 12)
+        self.assertEqual(calls[0]["init"]["n_batch"], 512)
 
     def test_backend_runs_reasoning_task_with_fake_llama_cpp(self) -> None:
         fake = types.ModuleType("llama_cpp")
@@ -81,6 +84,8 @@ class LlamaCppRuntimeTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual(result.backend_id, "llamacpp.local")
         self.assertIn("summarize local runtime", result.output)
+        self.assertEqual(result.metrics["runtime_specialization"]["phase"], "prefill")
+        self.assertEqual(result.metrics["runtime_specialization"]["execution_path"], "llama_cpp.cpu")
 
     def test_kernel_can_register_optional_llama_backend(self) -> None:
         fake = types.ModuleType("llama_cpp")
@@ -112,8 +117,7 @@ class LlamaCppRuntimeTests(unittest.TestCase):
         completed = subprocess.run(
             [sys.executable, "-m", "ghostchimera.chimera_pilot.cli", "model-profiles"],
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=False,
             timeout=30,
         )
@@ -121,6 +125,40 @@ class LlamaCppRuntimeTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         payload = json.loads(completed.stdout)
         self.assertIn("tiny", [profile["name"] for profile in payload["profiles"]])
+
+    def test_cli_plans_runtime_specialization(self) -> None:
+        import json
+        import subprocess
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ghostchimera.chimera_pilot.cli",
+                "runtime-specialization",
+                "short prompt",
+                "--local-model-profile",
+                "tiny",
+                "--local-model-gpu-layers",
+                "12",
+                "--gpu-architecture",
+                "sm100",
+                "--gpu-sm-count",
+                "160",
+                "--estimated-output-tokens",
+                "2",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertEqual(payload["phase"], "decode")
+        self.assertEqual(payload["load_width_bits"], 256)
+        self.assertEqual(payload["llama_cpp_n_batch"], 128)
 
 
 if __name__ == "__main__":

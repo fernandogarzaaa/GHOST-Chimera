@@ -120,6 +120,8 @@ def _main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--include-quantum-backend", action="store_true", help="Probe and register optional pyqpanda3 backend if installed.")
     parser.add_argument("--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist.")
+    parser.add_argument("--disable-runtime-specialization", action="store_true", help="Disable local runtime specialization planning.")
+    parser.add_argument("--runtime-specialization-cache-dir", default="", help="Write local runtime specialization manifests here.")
     parser.add_argument("--config-show", action="store_true", help="Print resolved Ghost Chimera runtime config as JSON and exit.")
     args = parser.parse_args(argv)
     if args.ghost_mode:
@@ -191,6 +193,8 @@ def _main(argv: list[str] | None = None) -> int:
             desktop_max_live_actions=args.desktop_max_actions,
             desktop_max_session_seconds=args.desktop_max_duration_seconds,
             ghost_mode=args.ghost_mode or "whisper",
+            local_runtime_specialization=not args.disable_runtime_specialization,
+            local_runtime_specialization_cache_dir=args.runtime_specialization_cache_dir or None,
             autonomy_level=autonomy_level,
         )
         if args.pilot_status:

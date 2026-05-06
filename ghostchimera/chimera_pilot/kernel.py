@@ -80,6 +80,8 @@ class ChimeraPilotKernel:
         local_model_path: str | None = None,
         local_model_profile: str = "tiny",
         local_model_gpu_layers: int = 0,
+        local_runtime_specialization: bool = True,
+        local_runtime_specialization_cache_dir: str | None = None,
         hooks: HookRegistry | None = None,
         autonomy_level: str | None = None,
     ) -> ChimeraPilotKernel:
@@ -121,6 +123,8 @@ class ChimeraPilotKernel:
                     model_path=local_model_path,
                     profile_name=local_model_profile,
                     n_gpu_layers=local_model_gpu_layers,
+                    runtime_specialization=local_runtime_specialization,
+                    specialization_cache_dir=local_runtime_specialization_cache_dir,
                 )
             )
         if include_quantum_backend and PyQPanda3Backend.is_available():
