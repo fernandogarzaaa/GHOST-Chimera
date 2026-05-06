@@ -75,6 +75,22 @@ _KIND_SCHEMAS: dict[TaskKind, _KindSchema] = {
             "prompt": lambda v: isinstance(v, str) and len(v.strip()) > 0,
         },
     ),
+    TaskKind.DESKTOP_CONTROL: _KindSchema(
+        required_fields=["action"],
+        optional_fields=["target", "x", "y", "text", "keys"],
+        field_types={"action": str},
+        value_constraints={
+            "action": lambda v: isinstance(v, str) and v.strip().lower() in {
+                "click",
+                "double_click",
+                "right_click",
+                "type",
+                "hotkey",
+                "move",
+            },
+            "keys": lambda v: isinstance(v, list) and all(isinstance(item, str) for item in v),
+        },
+    ),
 }
 
 
@@ -134,6 +150,13 @@ class ReasoningSchema:
         return _validate_one(inputs, errors)
 
 
+class DesktopControlSchema:
+    @staticmethod
+    def validate(inputs: dict[str, Any]) -> tuple[bool, list[str]]:
+        errors = _KIND_SCHEMAS[TaskKind.DESKTOP_CONTROL]
+        return _validate_one(inputs, errors)
+
+
 _KIND_VALIDATORS = {
     TaskKind.PYTHON: PythonSchema.validate,
     TaskKind.TEST_RUN: TestRunSchema.validate,
@@ -142,6 +165,7 @@ _KIND_VALIDATORS = {
     TaskKind.FILE_ANALYSIS: FileAnalysisSchema.validate,
     TaskKind.RAG_QUERY: RagQuerySchema.validate,
     TaskKind.REASONING: ReasoningSchema.validate,
+    TaskKind.DESKTOP_CONTROL: DesktopControlSchema.validate,
 }
 
 

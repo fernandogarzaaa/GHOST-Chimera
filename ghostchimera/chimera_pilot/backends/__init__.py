@@ -3,6 +3,7 @@
 from .base import BackendCapabilities, BackendHealth, ChimeraBackend, ExecutionResult
 from .cwr import CWRBackend
 from .deterministic import DeterministicBackend
+from .desktop_runtime import DesktopRuntimeBackend
 from .llamacpp import LlamaCppBackend
 from .mcp import MCPBackend
 from .pyqpanda3_backend import PyQPanda3Backend
@@ -26,6 +27,7 @@ __all__ = [
     "ChimeraBackend",
     "CWRBackend",
     "DeterministicBackend",
+    "DesktopRuntimeBackend",
     "ExecutionResult",
     "LlamaCppBackend",
     "MCPBackend",

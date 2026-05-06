@@ -48,6 +48,7 @@ class GhostChimeraConfig:
             "memory_db": str(self.memory_db),
             "audit_file": str(self.audit_file),
             "policy": {
+                "ghost_mode": self.policy.ghost_mode,
                 "allow_shell": self.policy.allow_shell,
                 "allow_network": self.policy.allow_network,
                 "allow_file_read": self.policy.allow_file_read,

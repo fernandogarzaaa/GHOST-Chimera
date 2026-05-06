@@ -24,6 +24,8 @@ class PilotPolicy:
     allow_network: bool = False
     allow_python_execution: bool = False
     allow_quantum_simulation: bool = True
+    allow_desktop_control: bool = False
+    ghost_mode: str = "whisper"
     default_max_cost_usd: float = 0.0
     max_python_timeout_seconds: int = 30
     denied_objective_fragments: tuple[str, ...] = field(
@@ -51,6 +53,8 @@ class PilotPolicy:
     )
 
     def validate(self, task: TaskSpec) -> None:
+        if self.ghost_mode not in {"whisper", "haunt", "possess"}:
+            raise PermissionError(f"Invalid ghost_mode: {self.ghost_mode}")
         self._reject_fragments(task.objective, self.denied_objective_fragments, "objective")
 
         if task.requires_network and not self.allow_network:
@@ -72,6 +76,10 @@ class PilotPolicy:
 
         if task.kind == TaskKind.QUANTUM_SIM and not self.allow_quantum_simulation:
             raise PermissionError("Quantum simulation is disabled by policy")
+        if task.kind == TaskKind.DESKTOP_CONTROL and not self.allow_desktop_control:
+            raise PermissionError("Desktop control is disabled by policy")
+        if task.kind == TaskKind.DESKTOP_CONTROL and self.ghost_mode != "possess":
+            raise PermissionError("Desktop control requires ghost_mode=possess")
 
         max_cost = task.max_cost_usd
         if max_cost is None:
@@ -84,6 +92,8 @@ class PilotPolicy:
             "allow_network": self.allow_network,
             "allow_python_execution": self.allow_python_execution,
             "allow_quantum_simulation": self.allow_quantum_simulation,
+            "allow_desktop_control": self.allow_desktop_control,
+            "ghost_mode": self.ghost_mode,
             "default_max_cost_usd": self.default_max_cost_usd,
             "max_python_timeout_seconds": self.max_python_timeout_seconds,
         }
@@ -95,6 +105,8 @@ class PilotPolicy:
             allow_network=True,
             allow_python_execution=True,
             allow_quantum_simulation=True,
+            allow_desktop_control=True,
+            ghost_mode="possess",
         )
 
     @staticmethod

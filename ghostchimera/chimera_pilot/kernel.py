@@ -8,6 +8,7 @@ from ..logging_config import get_logger
 from ..memory_layer.store import MemoryStore
 from .backends.cwr import CWRBackend
 from .backends.deterministic import DeterministicBackend
+from .backends.desktop_runtime import DesktopRuntimeBackend
 from .backends.llamacpp import LlamaCppBackend
 from .backends.pyqpanda3_backend import PyQPanda3Backend
 from .backends.python_runtime import PythonRuntimeBackend
@@ -54,15 +55,34 @@ class ChimeraPilotKernel:
         cwd: str | None = None,
         allow_python_execution: bool = False,
         allow_network: bool = False,
+        allow_desktop_control: bool = False,
+        enable_desktop_backend: bool = False,
+        enable_live_desktop: bool = False,
+        desktop_kill_switch_path: str | None = None,
+        desktop_action_log_path: str | None = None,
+        ghost_mode: str = "whisper",
         memory_store: MemoryStore | None = None,
         local_model_path: str | None = None,
         local_model_profile: str = "tiny",
         local_model_gpu_layers: int = 0,
     ) -> ChimeraPilotKernel:
-        policy = PilotPolicy(allow_python_execution=allow_python_execution, allow_network=allow_network)
+        policy = PilotPolicy(
+            allow_python_execution=allow_python_execution,
+            allow_network=allow_network,
+            allow_desktop_control=allow_desktop_control,
+            ghost_mode=ghost_mode,
+        )
         kernel = cls(policy=policy, memory_store=memory_store)
         kernel.registry.register(PythonRuntimeBackend(cwd=cwd, allowed_roots=[cwd] if cwd else None))
         kernel.registry.register(CWRBackend(store=memory_store))
+        if enable_desktop_backend:
+            kernel.registry.register(
+                DesktopRuntimeBackend(
+                    dry_run=not enable_live_desktop,
+                    kill_switch_path=desktop_kill_switch_path,
+                    action_log_path=desktop_action_log_path,
+                )
+            )
         if local_model_path:
             kernel.registry.register(
                 LlamaCppBackend(

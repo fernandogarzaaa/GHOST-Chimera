@@ -32,6 +32,7 @@ class ExecutionPolicy:
     allowed_roots: tuple[str, ...] = ()
     shell_timeout_seconds: int = 10
     output_limit_bytes: int = 20_000
+    ghost_mode: str = "whisper"
 
     @classmethod
     def from_env(cls) -> ExecutionPolicy:
@@ -56,6 +57,7 @@ class ExecutionPolicy:
             allow_file_write=allow_file_write,
             allowed_roots=roots,
             shell_timeout_seconds=int(os.environ.get("GHOSTCHIMERA_SHELL_TIMEOUT_SECONDS", "10")),
+            ghost_mode=_normalize_ghost_mode(os.environ.get("GHOSTCHIMERA_GHOST_MODE", "whisper")),
         )
 
     def authorize_task(self, task: Mapping[str, Any]) -> dict[str, Any]:
@@ -83,6 +85,7 @@ class ExecutionPolicy:
 
         sanitized["_ghostchimera_policy"] = {
             "authorized": True,
+            "ghost_mode": self.ghost_mode,
             "allowed_roots": [str(path) for path in self._resolved_roots()],
             "cwd": cwd,
             "timeout_seconds": max(1, int(self.shell_timeout_seconds)),
@@ -143,3 +146,10 @@ def ensure_authorized(policy: Mapping[str, Any] | None) -> Mapping[str, Any]:
 
 def _truthy(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_ghost_mode(value: str | None) -> str:
+    mode = str(value or "whisper").strip().lower() or "whisper"
+    if mode not in {"whisper", "haunt", "possess"}:
+        raise ValueError(f"Invalid GHOSTCHIMERA_GHOST_MODE: {mode}")
+    return mode

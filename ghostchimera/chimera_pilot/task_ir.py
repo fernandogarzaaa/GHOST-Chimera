@@ -25,6 +25,7 @@ class TaskKind(str, Enum):
     TOOL_CALL = "tool_call"
     PYTHON = "python"
     QUANTUM_SIM = "quantum_sim"
+    DESKTOP_CONTROL = "desktop_control"
 
 
 def new_task_id(prefix: str = "task") -> str:
