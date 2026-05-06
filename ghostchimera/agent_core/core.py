@@ -30,6 +30,7 @@ from ..cognition_layer.reasoning import linearise_tasks
 from ..cognition_layer.workspace import AttentionController, SelfModel, WorkingMemory
 from ..model_layer.llm import LLM
 from ..safety_layer.gating import ExecutionPolicy
+from ..skill_layer.registry import SkillRegistry
 from .executor import Executor
 from .memory import MemoryManager
 from .planner import Planner
@@ -50,6 +51,11 @@ class AgentCore:
     skill_manager : :class:`ghostchimera.agent_core.skill_manager.SkillManager`
         Registry of available skills.  A default manager loads all skills
         defined under ``ghostchimera.skill_layer``.
+    skill_registry : :class:`ghostchimera.skill_layer.registry.SkillRegistry`
+        Optional workspace-aware skill registry (OpenClaw-style skill
+        discovery from ``~/.ghostchimera/skills/``).  When provided, skills
+        found here are merged into the executor alongside those from
+        ``skill_manager``.
     logger : :class:`logging.Logger`
         Optional logger for debug output.
     """
@@ -62,17 +68,24 @@ class AgentCore:
         pilot_kernel: ChimeraPilotKernel | None = None,
         execution_policy: ExecutionPolicy | None = None,
         logger: logging.Logger | None = None,
+        skill_registry: SkillRegistry | None = None,
     ) -> None:
         self.logger = logger or logging.getLogger(__name__)
         self.llm = llm or LLM()
         self.memory = memory_manager or MemoryManager()
         self.skills = skill_manager or SkillManager(logger=self.logger)
+        self.skill_registry = skill_registry
         self.planner = Planner(self.llm)
         self.pilot_kernel = pilot_kernel or ChimeraPilotKernel.default()
         self.executor = Executor(self.skills, self.memory, logger=self.logger, policy=execution_policy)
         self.self_model = SelfModel()
         self.working_memory = WorkingMemory(task="default")
         self.attention = AttentionController()
+
+        # Merge workspace skills from the registry into the skill manager
+        if self.skill_registry:
+            for skill in self.skill_registry.list_skills().values():
+                self.skills.register(skill)
 
     def handle_request(self, request: str) -> str:
         """Handle a natural language request and return the result.

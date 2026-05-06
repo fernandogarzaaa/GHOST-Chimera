@@ -15,6 +15,7 @@ from .backends.python_runtime import PythonRuntimeBackend
 from .calibration import CalibrationStore, ChimeraCalibrator
 from .compiler import RuleBasedTaskCompiler
 from .executor import ChimeraPilotExecutor, PilotExecution
+from .hooks import HookName, HookRegistry
 from .policy import PilotPolicy
 from .resource_registry import ResourceRegistry
 from .scheduler import ChimeraScheduler
@@ -37,6 +38,7 @@ class ChimeraPilotKernel:
         calibration_store: CalibrationStore | None = None,
         policy_registry: Any | None = None,
         memory_store: MemoryStore | None = None,
+        hooks: HookRegistry | None = None,
     ) -> None:
         self.registry = registry or ResourceRegistry()
         self.compiler = compiler or RuleBasedTaskCompiler()
@@ -45,6 +47,7 @@ class ChimeraPilotKernel:
         self.calibration_store = calibration_store or CalibrationStore()
         self._policy_registry = policy_registry
         self.memory_store = memory_store
+        self.hooks = hooks or HookRegistry()
 
     @classmethod
     def default(
@@ -67,6 +70,7 @@ class ChimeraPilotKernel:
         local_model_path: str | None = None,
         local_model_profile: str = "tiny",
         local_model_gpu_layers: int = 0,
+        hooks: HookRegistry | None = None,
     ) -> ChimeraPilotKernel:
         policy = PilotPolicy(
             allow_python_execution=allow_python_execution,
@@ -74,7 +78,7 @@ class ChimeraPilotKernel:
             allow_desktop_control=allow_desktop_control,
             ghost_mode=ghost_mode,
         )
-        kernel = cls(policy=policy, memory_store=memory_store)
+        kernel = cls(policy=policy, memory_store=memory_store, hooks=hooks)
         kernel.registry.register(PythonRuntimeBackend(cwd=cwd, allowed_roots=[cwd] if cwd else None))
         kernel.registry.register(CWRBackend(store=memory_store))
         if enable_desktop_backend:
@@ -106,7 +110,9 @@ class ChimeraPilotKernel:
 
     def compile(self, objective: str) -> list[TaskSpec]:
         logger.info("Compiling objective: %s", objective[:50])
-        return self.compiler.compile(objective)
+        tasks = self.compiler.compile(objective)
+        self.hooks.fire(HookName.TASK_COMPILE, objective=objective, tasks=tasks)
+        return tasks
 
     def execute_task(self, task: TaskSpec) -> PilotExecution:
         from ..safety_layer.material_policy import MaterialRegistry
@@ -118,12 +124,18 @@ class ChimeraPilotKernel:
             telemetry=self.telemetry,
             outcome_store=self.memory_store,
         )
-        return executor.execute(task)
+        self.hooks.fire(HookName.TASK_EXECUTE_PRE, task=task)
+        execution = executor.execute(task)
+        self.hooks.fire(HookName.TASK_EXECUTE_POST, task=task, execution=execution)
+        return execution
 
     def run(self, objective: str) -> list[PilotExecution]:
+        self.hooks.fire(HookName.SESSION_START, objective=objective)
         tasks = self.compile(objective)
         logger.info("Running pilot with %d tasks", len(tasks))
-        return [self.execute_task(task) for task in tasks]
+        results = [self.execute_task(task) for task in tasks]
+        self.hooks.fire(HookName.SESSION_END, objective=objective, results=results)
+        return results
 
     def calibrate(self) -> dict[str, Any]:
         calibrator = ChimeraCalibrator(self.registry.list(), self.calibration_store)

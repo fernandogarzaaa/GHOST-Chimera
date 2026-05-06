@@ -13,12 +13,13 @@ from .compiler import RuleBasedTaskCompiler
 from .executor import ChimeraPilotExecutor, PilotExecution
 from .executor_async import AsyncChimeraPilotExecutor
 from .executor_parallel import ParallelExecutionResult, execute_tasks_parallel
+from .hooks import HookName, HookRegistry
 from .kernel import ChimeraPilotKernel
 from .policy import PilotPolicy
 from .resource_registry import ResourceRegistry
+from .result_envelope import ResultEnvelope, merge_envelopes
 from .scheduler import ChimeraScheduler, ScheduleDecision
 from .semantic_verifier import SemanticVerifier
-from .result_envelope import ResultEnvelope, merge_envelopes
 from .task_ir import TaskKind, TaskSpec
 
 __all__ = [
@@ -31,6 +32,8 @@ __all__ = [
     "ChimeraPilotKernel",
     "ChimeraScheduler",
     "ClaimExtractor",
+    "HookName",
+    "HookRegistry",
     "PilotExecution",
     "PilotPolicy",
     "ParallelAgent",
@@ -44,6 +47,7 @@ __all__ = [
     "TaskSpec",
     "merge_envelopes",
     "calibrate_backends_parallel",
+    "default",
     "discover_builtin_backends",
     "execute_tasks_parallel",
 ]
