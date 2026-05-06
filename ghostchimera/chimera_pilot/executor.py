@@ -58,6 +58,7 @@ class PilotExecution:
     run_id: str | None = None
     attempt_id: str | None = None
     checkpoint_id: str | None = None
+    policy_snapshot: dict[str, Any] | None = None
 
     @property
     def ok(self) -> bool:
@@ -91,6 +92,8 @@ class PilotExecution:
             d["envelope"] = self.envelope.to_dict()
         if self.transitions is not None:
             d["transitions"] = [t.to_dict() for t in self.transitions]
+        if self.policy_snapshot is not None:
+            d["policy"] = dict(self.policy_snapshot)
         return d
 
     def to_envelope(self) -> ResultEnvelope:
@@ -137,6 +140,16 @@ class PilotExecution:
             text = "" if value is None else str(value)
             return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
+        def _desktop_artifacts(metrics: dict[str, Any]) -> dict[str, Any]:
+            artifacts: dict[str, Any] = {}
+            if metrics.get("desktop_action_log_path"):
+                artifacts["action_log_path"] = metrics["desktop_action_log_path"]
+            if metrics.get("desktop_screenshots"):
+                artifacts["screenshots"] = dict(metrics["desktop_screenshots"])
+            if metrics.get("desktop_screenshot_errors"):
+                artifacts["screenshot_errors"] = list(metrics["desktop_screenshot_errors"])
+            return artifacts
+
         return {
             "run": {
                 "run_id": self.run_id,
@@ -153,12 +166,14 @@ class PilotExecution:
                 "score": self.decision.score if self.decision is not None else None,
                 "reasons": list(self.decision.reasons) if self.decision is not None else [],
             },
+            "policy": dict(self.policy_snapshot or {}),
             "attempts": [
                 {
                     "backend_id": attempt.backend_id,
                     "ok": attempt.ok,
                     "error": attempt.error,
                     "metrics": dict(attempt.metrics),
+                    "artifacts": _desktop_artifacts(attempt.metrics),
                     "output_hash": _sha256_text(attempt.output),
                     "error_hash": _sha256_text(attempt.error),
                 }
@@ -345,6 +360,7 @@ class ChimeraPilotExecutor:
                 run_id=run_id,
                 attempt_id=attempt_id,
                 checkpoint_id=checkpoint_id,
+                policy_snapshot=self.policy.to_dict(),
             )
             self.telemetry.record_replay_bundle(execution.to_replay_bundle())
             self._record_checkpoint(run_id, "cancelled")
@@ -451,6 +467,7 @@ class ChimeraPilotExecutor:
                     run_id=run_id,
                     attempt_id=attempt_id,
                     checkpoint_id=checkpoint_id,
+                    policy_snapshot=self.policy.to_dict(),
                 )
                 self.telemetry.record_replay_bundle(execution.to_replay_bundle())
                 self._record_checkpoint(run_id, "committed")
@@ -495,6 +512,7 @@ class ChimeraPilotExecutor:
                 run_id=run_id,
                 attempt_id=attempt_id,
                 checkpoint_id=checkpoint_id,
+                policy_snapshot=self.policy.to_dict(),
             )
             self.telemetry.record_replay_bundle(execution.to_replay_bundle())
             self._record_checkpoint(run_id, "cancelled")
@@ -544,6 +562,7 @@ class ChimeraPilotExecutor:
             run_id=run_id,
             attempt_id=attempt_id,
             checkpoint_id=checkpoint_id,
+            policy_snapshot=self.policy.to_dict(),
         )
         self.telemetry.record_replay_bundle(execution.to_replay_bundle())
         self._record_checkpoint(run_id, "failed")

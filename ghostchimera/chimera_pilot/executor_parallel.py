@@ -116,6 +116,7 @@ def _execute_group(
                         decision=None,
                         attempts=[],
                         verification_error=str(exc),
+                        policy_snapshot=policy.to_dict(),
                     ),
                 )
 

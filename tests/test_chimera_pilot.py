@@ -16,6 +16,7 @@ from ghostchimera.chimera_pilot import (
     get_autonomy_profile,
 )
 from ghostchimera.chimera_pilot.backends import BackendHealth, DeterministicBackend, PythonRuntimeBackend
+from ghostchimera.chimera_pilot.backends.desktop_runtime import DesktopRuntimeBackend
 from ghostchimera.chimera_pilot.calibration import CalibrationStore, ChimeraCalibrator
 from ghostchimera.chimera_pilot.compiler import RuleBasedTaskCompiler
 from ghostchimera.chimera_pilot.executor import ChimeraPilotExecutor, PilotRunState
@@ -396,6 +397,51 @@ class ChimeraPilotStateTransitionTests(unittest.TestCase):
         bundles = executor.telemetry.replay_bundles()
         self.assertEqual(len(bundles), 1)
         self.assertIn("run", bundles[0])
+
+    def test_replay_bundle_includes_desktop_artifacts_and_policy_snapshot(self) -> None:
+        class FakePyAutoGui:
+            def click(self) -> None:
+                return None
+
+            def screenshot(self, path: str | None = None):
+                if path:
+                    Path(path).write_bytes(b"fake-png")
+                return None
+
+        previous = sys.modules.get("pyautogui")
+        sys.modules["pyautogui"] = FakePyAutoGui()
+        try:
+            with tempfile.TemporaryDirectory(prefix="ghostchimera-desktop-replay-") as tmp:
+                root = Path(tmp)
+                backend = DesktopRuntimeBackend(
+                    dry_run=False,
+                    action_log_path=str(root / "desktop-actions.jsonl"),
+                    screenshot_dir=str(root / "screens"),
+                )
+                policy = PilotPolicy(allow_desktop_control=True, ghost_mode="possess")
+                executor = ChimeraPilotExecutor(ChimeraScheduler([backend]), policy=policy)
+                task = TaskSpec.create(
+                    kind=TaskKind.DESKTOP_CONTROL,
+                    objective="live desktop: click submit",
+                    inputs={"action": "click"},
+                    constraints={"live_desktop": True},
+                )
+
+                execution = executor.execute(task)
+                bundle = execution.to_replay_bundle()
+
+                self.assertTrue(execution.ok, execution.result.error)
+                self.assertTrue(bundle["policy"]["allow_desktop_control"])
+                artifacts = bundle["attempts"][0]["artifacts"]
+                self.assertEqual(artifacts["action_log_path"], str(root / "desktop-actions.jsonl"))
+                self.assertEqual(set(artifacts["screenshots"]), {"before", "after"})
+                self.assertTrue(Path(artifacts["screenshots"]["before"]).exists())
+                self.assertIn("policy", execution.to_dict())
+        finally:
+            if previous is None:
+                sys.modules.pop("pyautogui", None)
+            else:
+                sys.modules["pyautogui"] = previous
 
     def test_telemetry_export_json_includes_replay_bundles(self) -> None:
         backend = DeterministicBackend("ok", output="done")

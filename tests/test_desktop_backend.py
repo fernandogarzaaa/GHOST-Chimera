@@ -34,6 +34,12 @@ class DesktopRuntimeBackendTests(unittest.TestCase):
             def hotkey(self, *keys: str) -> None:
                 self.calls.append("hotkey:" + "+".join(keys))
 
+            def screenshot(self, path: str | None = None):
+                self.calls.append(f"screenshot:{Path(path).name if path else 'memory'}")
+                if path:
+                    Path(path).write_bytes(b"fake-png")
+                return None
+
         previous = sys.modules.get("pyautogui")
         fake = FakePyAutoGui()
         sys.modules["pyautogui"] = fake
@@ -133,6 +139,40 @@ class DesktopRuntimeBackendTests(unittest.TestCase):
             self.assertFalse(second.ok)
             self.assertIn("timed out", second.error or "")
             self.assertEqual(fake.calls, ["click"])
+        finally:
+            self._restore_pyautogui(previous)
+
+    def test_live_mode_captures_before_after_screenshots(self) -> None:
+        fake, previous = self._install_fake_pyautogui()
+        try:
+            with tempfile.TemporaryDirectory(prefix="ghostchimera-desktop-artifacts-") as tmp:
+                root = Path(tmp)
+                log_path = root / "desktop-actions.jsonl"
+                screenshot_dir = root / "screens"
+                backend = DesktopRuntimeBackend(
+                    dry_run=False,
+                    action_log_path=str(log_path),
+                    screenshot_dir=str(screenshot_dir),
+                )
+                task = TaskSpec.create(
+                    kind=TaskKind.DESKTOP_CONTROL,
+                    objective="click submit",
+                    inputs={"action": "click"},
+                    constraints={"live_desktop": True},
+                )
+
+                result = backend.execute(task)
+
+                self.assertTrue(result.ok)
+                screenshots = result.metrics["desktop_screenshots"]
+                self.assertEqual(set(screenshots), {"before", "after"})
+                self.assertTrue(Path(screenshots["before"]).exists())
+                self.assertTrue(Path(screenshots["after"]).exists())
+                self.assertEqual(result.metrics["desktop_action_log_path"], str(log_path))
+                row = json.loads(log_path.read_text(encoding="utf-8").splitlines()[0])
+                self.assertEqual(row["screenshots"], screenshots)
+                self.assertEqual(fake.calls[0].split(":", 1)[0], "screenshot")
+                self.assertEqual(fake.calls[-1].split(":", 1)[0], "screenshot")
         finally:
             self._restore_pyautogui(previous)
 

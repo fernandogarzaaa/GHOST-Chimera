@@ -32,6 +32,7 @@ class DesktopRuntimeBackend:
         dry_run: bool = True,
         kill_switch_path: str | None = None,
         action_log_path: str | None = None,
+        screenshot_dir: str | None = None,
         max_live_actions: int | None = DEFAULT_MAX_LIVE_ACTIONS,
         max_session_seconds: float | None = DEFAULT_MAX_SESSION_SECONDS,
         clock: Callable[[], float] | None = None,
@@ -43,6 +44,7 @@ class DesktopRuntimeBackend:
         self.dry_run = dry_run
         self.kill_switch_path = Path(kill_switch_path).expanduser() if kill_switch_path else None
         self.action_log_path = Path(action_log_path).expanduser() if action_log_path else None
+        self.screenshot_dir = Path(screenshot_dir).expanduser() if screenshot_dir else None
         self.max_live_actions = max_live_actions
         self.max_session_seconds = max_session_seconds
         self._clock = clock or time.monotonic
@@ -58,6 +60,7 @@ class DesktopRuntimeBackend:
                 "dry_run": dry_run,
                 "max_live_actions": max_live_actions,
                 "max_session_seconds": max_session_seconds,
+                "screenshot_dir": str(self.screenshot_dir) if self.screenshot_dir else None,
             },
         )
 
@@ -91,7 +94,7 @@ class DesktopRuntimeBackend:
                     "target": target,
                     "text": text if action == "type" else "",
                 },
-                metrics={"desktop_action": action},
+                metrics=self._desktop_metrics(action),
             )
 
         live_flag = str(task.constraints.get("live_desktop", "")).strip().lower()
@@ -118,15 +121,47 @@ class DesktopRuntimeBackend:
             self._record_action(task, action, ok=False, error="pyautogui missing")
             return ExecutionResult(self.id, task.id, False, "", error="pyautogui is required for live desktop control")
 
+        screenshots: dict[str, str] = {}
+        screenshot_errors: list[str] = []
         try:
             self._live_actions_executed += 1
             self.capabilities.metadata["live_actions_executed"] = self._live_actions_executed
+            self._capture_screenshot(pyautogui, task, "before", screenshots, screenshot_errors)
             self._execute_live(pyautogui, action=action, target=target, text=text, inputs=task.inputs)
         except Exception as exc:  # noqa: BLE001
-            self._record_action(task, action, ok=False, error=f"Desktop action failed: {exc}")
-            return ExecutionResult(self.id, task.id, False, "", error=f"Desktop action failed: {exc}")
-        self._record_action(task, action, ok=True, mode="live")
-        return ExecutionResult(self.id, task.id, True, {"mode": "live", "executed": True, "action": action, "target": target})
+            self._capture_screenshot(pyautogui, task, "after", screenshots, screenshot_errors)
+            self._record_action(
+                task,
+                action,
+                ok=False,
+                error=f"Desktop action failed: {exc}",
+                screenshots=screenshots,
+                screenshot_errors=screenshot_errors,
+            )
+            return ExecutionResult(
+                self.id,
+                task.id,
+                False,
+                "",
+                error=f"Desktop action failed: {exc}",
+                metrics=self._desktop_metrics(action, screenshots=screenshots, screenshot_errors=screenshot_errors),
+            )
+        self._capture_screenshot(pyautogui, task, "after", screenshots, screenshot_errors)
+        self._record_action(
+            task,
+            action,
+            ok=True,
+            mode="live",
+            screenshots=screenshots,
+            screenshot_errors=screenshot_errors,
+        )
+        return ExecutionResult(
+            self.id,
+            task.id,
+            True,
+            {"mode": "live", "executed": True, "action": action, "target": target},
+            metrics=self._desktop_metrics(action, screenshots=screenshots, screenshot_errors=screenshot_errors),
+        )
 
     def _execute_live(self, pg: Any, *, action: str, target: str, text: str, inputs: dict[str, Any]) -> None:
         x = inputs.get("x")
@@ -167,11 +202,80 @@ class DesktopRuntimeBackend:
             return Path(env_switch).expanduser().exists()
         return False
 
-    def _record_action(self, task: TaskSpec, action: str, *, ok: bool, mode: str | None = None, error: str | None = None) -> None:
+    def _resolve_action_log_path(self) -> Path | None:
         path = self.action_log_path
         env_path = os.environ.get("GHOSTCHIMERA_DESKTOP_ACTION_LOG", "").strip()
         if path is None and env_path:
             path = Path(env_path).expanduser()
+        return path
+
+    def _resolve_screenshot_dir(self) -> Path | None:
+        path = self.screenshot_dir
+        env_path = os.environ.get("GHOSTCHIMERA_DESKTOP_SCREENSHOT_DIR", "").strip()
+        if path is None and env_path:
+            path = Path(env_path).expanduser()
+        return path
+
+    def _safe_screenshot_name(self, task: TaskSpec, phase: str) -> str:
+        timestamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%S%fZ")
+        safe_task_id = "".join(c if c.isalnum() or c in {"-", "_"} else "_" for c in task.id)
+        return f"{timestamp}_{safe_task_id}_{phase}.png"
+
+    def _capture_screenshot(
+        self,
+        pyautogui: Any,
+        task: TaskSpec,
+        phase: str,
+        screenshots: dict[str, str],
+        screenshot_errors: list[str],
+    ) -> None:
+        directory = self._resolve_screenshot_dir()
+        if directory is None:
+            return
+        path = directory / self._safe_screenshot_name(task, phase)
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            try:
+                pyautogui.screenshot(str(path))
+            except TypeError as exc:
+                image = pyautogui.screenshot()
+                if not hasattr(image, "save"):
+                    raise RuntimeError("pyautogui screenshot result cannot be saved") from exc
+                image.save(str(path))
+        except Exception as exc:  # noqa: BLE001
+            screenshot_errors.append(f"{phase}: {exc}")
+            return
+        screenshots[phase] = str(path)
+
+    def _desktop_metrics(
+        self,
+        action: str,
+        *,
+        screenshots: dict[str, str] | None = None,
+        screenshot_errors: list[str] | None = None,
+    ) -> dict[str, Any]:
+        metrics: dict[str, Any] = {"desktop_action": action}
+        action_log_path = self._resolve_action_log_path()
+        if action_log_path is not None:
+            metrics["desktop_action_log_path"] = str(action_log_path)
+        if screenshots:
+            metrics["desktop_screenshots"] = dict(screenshots)
+        if screenshot_errors:
+            metrics["desktop_screenshot_errors"] = list(screenshot_errors)
+        return metrics
+
+    def _record_action(
+        self,
+        task: TaskSpec,
+        action: str,
+        *,
+        ok: bool,
+        mode: str | None = None,
+        error: str | None = None,
+        screenshots: dict[str, str] | None = None,
+        screenshot_errors: list[str] | None = None,
+    ) -> None:
+        path = self._resolve_action_log_path()
         if path is None:
             return
         payload = {
@@ -183,6 +287,10 @@ class DesktopRuntimeBackend:
             "mode": mode or ("dry_run" if self.dry_run else "live"),
             "error": error,
         }
+        if screenshots:
+            payload["screenshots"] = dict(screenshots)
+        if screenshot_errors:
+            payload["screenshot_errors"] = list(screenshot_errors)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, sort_keys=True) + "\n")

@@ -67,6 +67,7 @@ class ChimeraPilotKernel:
         enable_live_desktop: bool = False,
         desktop_kill_switch_path: str | None = None,
         desktop_action_log_path: str | None = None,
+        desktop_screenshot_dir: str | None = None,
         desktop_max_live_actions: int | None = DesktopRuntimeBackend.DEFAULT_MAX_LIVE_ACTIONS,
         desktop_max_session_seconds: float | None = DesktopRuntimeBackend.DEFAULT_MAX_SESSION_SECONDS,
         ghost_mode: str = "whisper",
@@ -97,6 +98,7 @@ class ChimeraPilotKernel:
                     dry_run=not enable_live_desktop,
                     kill_switch_path=desktop_kill_switch_path,
                     action_log_path=desktop_action_log_path,
+                    screenshot_dir=desktop_screenshot_dir,
                     max_live_actions=desktop_max_live_actions,
                     max_session_seconds=desktop_max_session_seconds,
                 )

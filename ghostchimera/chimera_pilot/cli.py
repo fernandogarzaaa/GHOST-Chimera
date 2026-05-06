@@ -33,6 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     status_parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
     status_parser.add_argument("--desktop-kill-switch-path", default="", help="If this file exists, desktop actions are blocked.")
     status_parser.add_argument("--desktop-action-log-path", default="", help="JSONL log file for desktop actions.")
+    status_parser.add_argument("--desktop-screenshot-dir", default="", help="Directory for live desktop before/after screenshots.")
     status_parser.add_argument("--desktop-max-actions", type=int, default=25, help="Maximum live desktop actions per backend session.")
     status_parser.add_argument("--desktop-max-duration-seconds", type=float, default=300.0, help="Maximum live desktop session duration.")
     status_parser.add_argument("--ghost-mode", default="whisper", choices=["whisper", "haunt", "possess"], help="Ghost mode for policy gating.")
@@ -49,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
     run_parser.add_argument("--desktop-kill-switch-path", default="", help="If this file exists, desktop actions are blocked.")
     run_parser.add_argument("--desktop-action-log-path", default="", help="JSONL log file for desktop actions.")
+    run_parser.add_argument("--desktop-screenshot-dir", default="", help="Directory for live desktop before/after screenshots.")
     run_parser.add_argument("--desktop-max-actions", type=int, default=25, help="Maximum live desktop actions per backend session.")
     run_parser.add_argument("--desktop-max-duration-seconds", type=float, default=300.0, help="Maximum live desktop session duration.")
     run_parser.add_argument("--ghost-mode", default="whisper", choices=["whisper", "haunt", "possess"], help="Ghost mode for policy gating.")
@@ -140,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
         enable_live_desktop=getattr(args, "enable_live_desktop", False),
         desktop_kill_switch_path=getattr(args, "desktop_kill_switch_path", "") or None,
         desktop_action_log_path=getattr(args, "desktop_action_log_path", "") or None,
+        desktop_screenshot_dir=getattr(args, "desktop_screenshot_dir", "") or None,
         desktop_max_live_actions=getattr(args, "desktop_max_actions", 25),
         desktop_max_session_seconds=getattr(args, "desktop_max_duration_seconds", 300.0),
         ghost_mode=getattr(args, "ghost_mode", "whisper"),

@@ -26,16 +26,23 @@
 - Action audit log support (JSONL):
   - backend `action_log_path`
   - env fallback `GHOSTCHIMERA_DESKTOP_ACTION_LOG`
+- Live desktop artifact capture:
+  - backend `screenshot_dir`
+  - CLI `--desktop-screenshot-dir`
+  - env fallback `GHOSTCHIMERA_DESKTOP_SCREENSHOT_DIR`
+  - before/after screenshot paths are recorded in action logs, result metrics, and replay bundles
+- Replay bundles include a policy snapshot for postmortem review.
 
 ### CLI plumbing
 - `chimera-pilot` supports desktop flags on `run` and `status`.
 - top-level control-plane CLI also forwards desktop flags to Pilot kernel.
 
 ### Test coverage
-- Desktop backend dry-run/live/kill-switch/log tests.
+- Desktop backend dry-run/live/kill-switch/log/screenshot tests.
 - Compiler+schema tests for desktop intents.
 - Policy and ghost-mode validation tests.
 - CLI status tests confirming desktop backend and `ghost_mode` visibility.
+- Replay tests confirming desktop artifacts and policy snapshots are preserved.
 
 ---
 
@@ -67,9 +74,11 @@ Needed:
 - policy trace IDs persisted into every desktop action log row
 
 ## 4) Better observability + replay
-Needed:
-- screenshot capture hooks before/after each live action
-- replay bundle integration (action log + screenshots + policy snapshot)
+Implemented:
+- screenshot capture hooks before/after each live action when `screenshot_dir` is configured
+- replay bundle integration for action log paths, screenshots, and policy snapshots
+
+Still needed:
 - compression/retention strategy for desktop action telemetry
 
 ## 5) Integration and fault-injection tests
@@ -98,8 +107,8 @@ Needed:
 ---
 
 ## Suggested Next PR Order
-1. Add screenshot hooks + replay integration for each live action.
-2. Add action-class policy model (`read_only`, `mutating`, `destructive`).
-3. Add emergency stop command and confirmation-token workflow for irreversible live actions.
-4. Add multi-step desktop compiler/planner path and integration tests.
+1. Add action-class policy model (`read_only`, `mutating`, `destructive`).
+2. Add emergency stop command and confirmation-token workflow for irreversible live actions.
+3. Add multi-step desktop compiler/planner path and integration tests.
+4. Add retention/compression strategy for desktop action telemetry.
 

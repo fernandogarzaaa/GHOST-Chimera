@@ -131,6 +131,12 @@ Live desktop mutation requires the live backend flag, possess mode, explicit cal
 chimera-pilot run "live desktop: click submit button" --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess
 ```
 
+For replayable live sessions, provide both an action log and screenshot directory. The backend captures best-effort before/after screenshots for each live action and includes those artifact paths in action logs, result metrics, and replay bundles:
+
+```bash
+chimera-pilot run "live desktop: click submit button" --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess --desktop-action-log-path .ghost/desktop-actions.jsonl --desktop-screenshot-dir .ghost/desktop-screens
+```
+
 For unattended or high-impact use, run Ghost Chimera inside an external sandbox such as a container, VM, or locked-down service account. See `SECURITY.md`.
 
 ## Production Mode
