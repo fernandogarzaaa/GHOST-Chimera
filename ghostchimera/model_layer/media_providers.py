@@ -32,6 +32,7 @@ Usage::
 
 from __future__ import annotations
 
+import inspect
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -540,11 +541,22 @@ def get_media_provider(
     cls = MEDIA_PROVIDERS.get(provider_type, {}).get(name)
     if cls is None:
         return None
+    # Check whether the provider's __init__ accepts a 'profile' parameter so that
+    # a TypeError inside cls(profile) (e.g. missing required args in a custom provider)
+    # is not silently swallowed by a broad except clause.
     try:
-        try:
-            return cls(profile)
-        except TypeError:
-            return cls()
+        sig = inspect.signature(cls.__init__)
+        accepts_profile = "profile" in sig.parameters
+    except (ValueError, TypeError):
+        # Signature is not inspectable (e.g. C-extension type); log and fall back
+        # to attempting profile injection so that well-formed providers still work.
+        logger.debug(
+            "Cannot inspect signature of %s.__init__; assuming profile injection is supported",
+            cls.__name__,
+        )
+        accepts_profile = True
+    try:
+        return cls(profile) if accepts_profile else cls()
     except Exception as exc:
         logger.warning("Failed to instantiate media provider %s/%s: %s", provider_type, name, exc)
         return None
