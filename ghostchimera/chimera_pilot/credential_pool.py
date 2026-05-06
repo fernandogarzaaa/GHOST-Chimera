@@ -7,18 +7,15 @@ auth secrets, tracks per-provider quotas, and rotates keys automatically.
 
 from __future__ import annotations
 
-import logging
 import os
 import threading
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from ..config import GhostChimeraConfig
 from ..logging_config import get_logger
-from ..model_layer.providers import PROVIDERS, BaseProvider, get_provider
-from ..model_layer.local_profiles import get_local_model_profile
+from ..model_layer.providers import PROVIDERS, BaseProvider
 
 logger = get_logger("credential_pool")
 
@@ -119,7 +116,7 @@ class CredentialPool:
     def initialize_from_env(self) -> int:
         """Load credentials from environment variables. Returns count loaded."""
         loaded = 0
-        for provider_name, provider_cls in PROVIDERS.items():
+        for provider_name, _provider_cls in PROVIDERS.items():
             key_var = f"{provider_name.upper()}_API_KEY"
             api_key = os.environ.get(key_var)
             if not api_key:
@@ -188,24 +185,75 @@ class CredentialPool:
         return entry
 
     def get_credential(self, provider: str) -> CredentialEntry | None:
-        """Get credential for a provider, checking availability."""
+        """Get credential for a provider, checking availability.
+
+        If the entry carries an ``oauth_token`` and is expired, an OAuth
+        refresh is attempted (via :class:`~ghostchimera.model_layer.auth_profiles.OAuthCredential`).
+        The refresh is a no-op stub today — it logs a warning and returns
+        ``None`` — but the hook is in place for future OAuth flows.
+        """
         with self._lock:
             entry = self._creds.get(provider)
-        if entry and not entry.is_available:
+        if entry is None:
+            return None
+        if entry.is_expired and entry.oauth_token:
+            # Attempt OAuth refresh (stub — raises NotImplementedError in practice)
+            try:
+                from ..model_layer.auth_profiles import OAuthCredential
+                oauth = OAuthCredential(
+                    token=entry.oauth_token,
+                    expires_at=entry.expires_at,
+                )
+                refreshed = oauth.refresh()
+                # If refresh succeeds, update the stored entry with the new token
+                new_entry = CredentialEntry(
+                    **{
+                        **entry.__dict__,
+                        "oauth_token": refreshed.token,
+                        "expires_at": refreshed.expires_at,
+                    }
+                )
+                with self._lock:
+                    self._creds[provider] = new_entry
+                return new_entry
+            except NotImplementedError:
+                logger.warning(
+                    "OAuth token for %s is expired and no refresh implementation is available", provider
+                )
+                return None
+            except Exception as exc:
+                logger.warning("OAuth refresh for %s failed: %s", provider, exc)
+                return None
+        if not entry.is_available:
             logger.warning("Credential for %s is not available (expired/revoked)", provider)
             return None
         return entry
 
     def get_provider_instance(self, provider: str) -> BaseProvider | None:
-        """Get a provider instance configured with the credential."""
+        """Get a provider instance configured with the credential.
+
+        Builds an :class:`~ghostchimera.model_layer.auth_profiles.AuthProfile`
+        from the stored :class:`CredentialEntry` and passes it to the provider
+        constructor, making the pool the single authoritative credential source
+        (OpenClaw-style auth injection).
+        """
         entry = self.get_credential(provider)
         if not entry:
             return None
         provider_cls = PROVIDERS.get(provider)
         if not provider_cls:
             return None
-        instance = provider_cls()
-        return instance
+        from ..model_layer.auth_profiles import AuthProfile
+        profile = AuthProfile(
+            provider=provider,
+            auth_kind="oauth" if entry.oauth_token and not entry.api_key else "api_key",
+            api_key=entry.api_key,
+            oauth_token=entry.oauth_token,
+            base_url=entry.base_url,
+            model=entry.model,
+            expires_at=entry.expires_at,
+        )
+        return provider_cls(profile)
 
     def rotate_credential(self, provider: str, new_api_key: str) -> CredentialEntry:
         """Rotate a credential. Returns the new entry."""

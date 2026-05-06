@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..safety_layer.material_policy import MaterialRegistry
@@ -18,6 +18,36 @@ class ScheduleDecision:
     reasons: list[str]
     health: BackendHealth
     breakdown: dict[str, float]
+
+
+def _catalog_cost_for_backend(backend: ChimeraBackend, task: TaskSpec) -> float | None:
+    """Look up a catalog-based cost estimate for *backend* / *task*.
+
+    Returns a USD float per estimated 1k token exchange, or ``None`` if no
+    catalog entry exists for this backend's provider.  The backend ``id``
+    prefix (e.g. ``"openai.gpt-4o-mini"``) is used to derive
+    ``(provider, model_id)``.
+    """
+    try:
+        from ..model_layer.model_catalog import get_catalog_entry
+
+        # Backend ids follow the pattern "<provider>.<model>" or similar.
+        parts = backend.id.split(".", 1)
+        if len(parts) < 2:
+            return None
+        provider, model_id = parts[0], parts[1]
+        entry = get_catalog_entry(provider, model_id)
+        if entry is None:
+            # Also try just "<provider>" with a generic "local" model id
+            entry = get_catalog_entry(provider, "local")
+        if entry is None:
+            return None
+        # Rough estimate: assume ~500 input tokens and ~200 output tokens per task
+        input_tokens = int(task.constraints.get("estimated_input_tokens", 500))
+        output_tokens = int(task.constraints.get("estimated_output_tokens", 200))
+        return entry.estimate_cost_usd(input_tokens, output_tokens)
+    except Exception:
+        return None
 
 
 class ChimeraScheduler:
@@ -92,6 +122,18 @@ class ChimeraScheduler:
             health = backend.estimate(task)
             if not health.available:
                 continue
+
+            # Enrich cost estimate with catalog data when available
+            catalog_cost = _catalog_cost_for_backend(backend, task)
+            if catalog_cost is not None and health.estimated_cost_usd == 0.0:
+                health = BackendHealth(
+                    available=health.available,
+                    reliability=health.reliability,
+                    latency_ms=health.latency_ms,
+                    estimated_cost_usd=catalog_cost,
+                    last_error=health.last_error,
+                    metadata=health.metadata,
+                )
 
             score, reasons, breakdown = self._score(task, backend, health)
             decisions.append(
