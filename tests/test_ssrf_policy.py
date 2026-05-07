@@ -128,21 +128,28 @@ class NetworkDispatcherTests(unittest.TestCase):
             self.dispatcher.fetch("http://10.0.0.1/test")
 
     def test_fetch_result_attributes(self):
-        # Create a dispatcher that allow_all to avoid SSRFViolation
         """
-        Ensure NetworkDispatcher.fetch produces a FetchResult with the requested URL and either a successful result or a connection error when using an allow-all SSRFPolicy.
-        
-        Asserts:
-        - The return value is a FetchResult.
-        - The FetchResult.url equals the requested URL.
-        - Either `result.ok` is true or `result.error` is set (allowing for network failures).
+        Ensure NetworkDispatcher.fetch produces a FetchResult with the requested URL,
+        verified without performing real network I/O by mocking urllib internals.
         """
+        from unittest.mock import MagicMock, patch
+
         permissive = SSRFPolicy(allow_all=True)
         disp = NetworkDispatcher(permissive)
-        result = disp.fetch("http://invalid-host-that-does-not-exist.test/test", timeout_seconds=2)
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = b"ok"
+        mock_response.status = 200
+        mock_response.__enter__ = lambda s: s
+        mock_response.__exit__ = MagicMock(return_value=False)
+
+        url = "http://mocked-host.test/test"
+        with patch("urllib.request.urlopen", return_value=mock_response):
+            result = disp.fetch(url, timeout_seconds=2)
+
         self.assertIsInstance(result, FetchResult)
-        self.assertEqual(result.url, "http://invalid-host-that-does-not-exist.test/test")
-        self.assertTrue(result.ok or result.error)  # May succeed or fail with connection error
+        self.assertEqual(result.url, url)
+        self.assertTrue(result.ok or result.error)
 
 
 class FetchResultTests(unittest.TestCase):

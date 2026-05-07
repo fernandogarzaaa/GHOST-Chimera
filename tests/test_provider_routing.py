@@ -177,12 +177,16 @@ class ProviderRegistryTests(unittest.TestCase):
                 return "custom response"
 
         register_text_provider("custom", CustomProvider)
-        p = get_provider("custom")
-        self.assertIsNotNone(p)
-        self.assertEqual(p.name, "custom")
-        # Verify it's in both registries
-        self.assertIn("custom", PROVIDERS)
-        self.assertIn("custom", TEXT_PROVIDERS)
+        try:
+            p = get_provider("custom")
+            self.assertIsNotNone(p)
+            self.assertEqual(p.name, "custom")
+            # Verify it's in both registries
+            self.assertIn("custom", PROVIDERS)
+            self.assertIn("custom", TEXT_PROVIDERS)
+        finally:
+            PROVIDERS.pop("custom", None)
+            TEXT_PROVIDERS.pop("custom", None)
 
 
 class PROVIDERSAndTEXT_PROVIDERSTests(unittest.TestCase):

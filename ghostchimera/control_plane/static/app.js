@@ -43,10 +43,10 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
   // --- Tabs ---
   $$$("#tabBar .tab").forEach(function(tab) {
     tab.addEventListener("click", function() {
-      $$$("#.tab").forEach(function(t) { t.classList.remove("active"); });
+      $$$(".tab").forEach(function(t) { t.classList.remove("active"); });
       $$$(".tab-content").forEach(function(c) { c.classList.remove("active"); });
       tab.classList.add("active");
-      $("#" + tab.dataset.tab).classList.add("active");
+      $("#tab-" + tab.dataset.tab).classList.add("active");
     });
   });
 
@@ -296,7 +296,7 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
 
       var runBtn = el("button");
       runBtn.textContent = "Run Now";
-      runBtn.addEventListener("click", function() { schedAction(s.id, "run"); });
+      runBtn.addEventListener("click", function() { schedAction(s.id, "run-now"); });
       actions.appendChild(runBtn);
 
       item.appendChild(actions);

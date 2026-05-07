@@ -392,10 +392,6 @@ def _case_readiness_runbook_includes_release_gate() -> tuple[bool, str]:
     return not missing, "missing=" + ", ".join(missing)
 
 
-    missing = sorted(required.difference(commands))
-    return not missing, "missing=" + ", ".join(missing)
-
-
 # ── Coverage eval cases ──────────────────────────────────────────────
 
 def _case_ssrf_policy_blocks_private_ip() -> tuple[bool, str]:
@@ -593,15 +589,21 @@ def _case_checkpoint_save_restore() -> tuple[bool, str]:
     Returns:
     	tuple(ok (bool), detail (str)): `ok` is `True` if a snapshot was created and at least one snapshot is listed, `detail` is a JSON string containing `checkpoint_name` and `snapshots` (the number of snapshots).
     """
+    import ghostchimera.chimera_pilot.checkpoint as _cp_mod
     from ghostchimera.chimera_pilot.checkpoint import CheckpointManager
 
-    with tempfile.TemporaryDirectory(prefix="ghostchimera-eval-"):
-        # CheckpointManager takes config, not state_dir; uses class-level CHECKPOINT_BASE
-        cm = CheckpointManager()
-        snapshot = cm.create_checkpoint("test-checkpoint")
-        snapshots = cm.list_checkpoints()
-        ok = snapshot is not None and len(snapshots) > 0
-    return ok, json.dumps({"checkpoint_name": snapshot.name, "snapshots": len(snapshots)})
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-eval-") as tmp_dir:
+        old_base = _cp_mod.CHECKPOINT_BASE
+        _cp_mod.CHECKPOINT_BASE = Path(tmp_dir) / "checkpoints"
+        try:
+            cm = CheckpointManager()
+            snapshot = cm.create_checkpoint("test-checkpoint")
+            snapshots = cm.list_checkpoints()
+            ok = snapshot is not None and len(snapshots) > 0
+            detail = json.dumps({"checkpoint_name": snapshot.name, "snapshots": len(snapshots)})
+        finally:
+            _cp_mod.CHECKPOINT_BASE = old_base
+    return ok, detail
 
 
 def _case_telemetry_export_format() -> tuple[bool, str]:

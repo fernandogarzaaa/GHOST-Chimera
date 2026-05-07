@@ -254,10 +254,18 @@ class ApproveFunctionTests(unittest.TestCase):
         approval_mod._default_handler = AutoDenyHandler(ApprovalPolicy())
 
     def test_approve_uses_default_handler(self):
-        set_default_handler(AutoDenyHandler(ApprovalPolicy()))
-        result = approve("write_code", requester="test")
-        self.assertFalse(result.approved)
-        set_default_handler(AutoApproveHandler(ApprovalPolicy()))
+        import ghostchimera.safety_layer.approval as approval_mod
+        original_handler = approval_mod._default_handler
+        try:
+            set_default_handler(AutoDenyHandler(ApprovalPolicy()))
+            result = approve("write_code", requester="test")
+            self.assertFalse(result.approved)
+
+            set_default_handler(AutoApproveHandler(ApprovalPolicy()))
+            result = approve("write_code", requester="test")
+            self.assertTrue(result.approved)
+        finally:
+            approval_mod._default_handler = original_handler
 
 
 if __name__ == "__main__":

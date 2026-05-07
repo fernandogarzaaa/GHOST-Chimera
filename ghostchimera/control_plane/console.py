@@ -94,7 +94,7 @@ RELEASE_CHECKS: list[dict[str, str]] = [
 ]
 
 
-CONSOLE_HTML = "<!-- Ghost Console -- served by static/index.html --!>"
+CONSOLE_HTML = "<!-- Ghost Console -- served by static/index.html -->"
 
 
 def _json_body(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -626,8 +626,8 @@ def run_console(
         resolved = Path(state_dir).expanduser()
         config = replace(config, state_dir=resolved, memory_db=resolved / "memory.sqlite3", audit_file=resolved / "audit.json")
     server = GatewayServer(host=host, port=port, http_port=http_port, config=config)
-    register_console_routes(server, state_dir=state_dir or config.state_dir)
     _register_static_routes(server)
+    register_console_routes(server, state_dir=state_dir or config.state_dir)
     server.start()
     url = _console_url(server)
     print(f"Ghost Console: {url}")
