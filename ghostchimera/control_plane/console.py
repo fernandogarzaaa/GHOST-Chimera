@@ -88,7 +88,7 @@ RELEASE_CHECKS: list[dict[str, str]] = [
     },
     {
         "name": "workspace memory sync smoke",
-        "command": "ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8",
+        "command": "ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30",
         "purpose": "Verifies high-confidence workspace evidence can feed local CWR memory with provenance.",
     },
 ]
@@ -756,6 +756,7 @@ def register_console_routes(
             return workspace_store.sync_to_memory(
                 memory_db=str(body.get("memory_db") or server.config.memory_db),
                 min_confidence=float(body.get("min_confidence", 0.0)),
+                stale_after_days=float(body.get("stale_after_days", 30.0)),
             )
         except (TypeError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}

@@ -26,6 +26,8 @@ tests.
 - High-confidence workspace evidence and reflections can now sync into the CWR
   memory store through CLI and console routes with explicit provenance and
   duplicate-safe persistence.
+- Workspace sync now emits quality metadata for low-confidence, stale, and
+  conflicting records before workspace-derived context enters retrieval.
 - The local operator console exposes status, autonomy profiles, safe objective
   runs, durable autonomy jobs, recurring schedules, degraded-friendly optional
   browser workspace status, and release-readiness runbook output.
@@ -48,7 +50,7 @@ python -m ghostchimera.evals run --suite autonomy
 python -m ghostchimera.evals run --suite user-journey
 python scripts\smoke_installed_wheel.py
 python scripts\smoke_installed_wheel.py --extras gateway
-ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8
+ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30
 $env:GHOSTCHIMERA_DEPLOYMENT_MODE="production"
 $env:GHOSTCHIMERA_EXTERNAL_ISOLATION="container"
 $env:GHOSTCHIMERA_SECURITY_REVIEWED="1"
@@ -73,8 +75,8 @@ and the user-journey eval work in a clean environment with gateway extras.
 2. **Conscious workspace feedback loop**
    - Feed synced workspace memory into more planning decisions beyond retrieval
      and expose where a plan used workspace-derived context.
-   - Add eval cases for stale, conflicting, and low-confidence workspace
-     evidence without inventing hidden subjective experience.
+   - Add deeper planning evals for stale, conflicting, and low-confidence
+     workspace evidence without inventing hidden subjective experience.
 
 3. **Local model bootstrap**
    - Add operator-friendly model profile checks, install guidance, benchmark
@@ -99,13 +101,13 @@ and the user-journey eval work in a clean environment with gateway extras.
 |---|---:|---:|---:|
 | Safety and policy | 20 | 80% | 100% |
 | Runtime convergence | 15 | 75% | 100% |
-| Real memory/retrieval | 15 | 62% | 100% |
+| Real memory/retrieval | 15 | 66% | 100% |
 | Local model runtime | 15 | 50% | 100% |
-| Conscious workspace | 15 | 70% | 100% |
+| Conscious workspace | 15 | 74% | 100% |
 | Evaluation harness | 10 | 70% | 100% |
 | Production packaging | 10 | 70% | 100% |
 
-Estimated beta readiness now: 72-82%, assuming the current release gate passes
+Estimated beta readiness now: 74-84%, assuming the current release gate passes
 in a clean local environment and CI.
 
 ## Plan Mutation Protocol

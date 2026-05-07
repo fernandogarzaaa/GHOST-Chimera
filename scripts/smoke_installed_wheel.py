@@ -80,6 +80,8 @@ def _smoke_commands(python: Path, extras: str, state_dir: Path) -> list[list[str
             str(state_dir / "memory.sqlite3"),
             "--min-confidence",
             "0.9",
+            "--stale-after-days",
+            "30",
         ],
         [str(python), "-m", "ghostchimera", "minimind", "architectures"],
         [str(python), "-m", "ghostchimera", "minimind", "status"],

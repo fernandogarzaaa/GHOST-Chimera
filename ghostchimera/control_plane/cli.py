@@ -126,6 +126,7 @@ def _main(argv: list[str] | None = None) -> int:
     workspace_parser.add_argument("--state-dir", default="", help="Optional state directory for workspace state.")
     workspace_parser.add_argument("--memory-db", default="", help="Memory database path for sync-memory.")
     workspace_parser.add_argument("--min-confidence", type=float, default=0.0, help="Minimum confidence for sync-memory.")
+    workspace_parser.add_argument("--stale-after-days", type=float, default=30.0, help="Mark synced workspace records stale after this many days.")
     workspace_parser.add_argument("--source", default="", help="Evidence source for add-evidence.")
     workspace_parser.add_argument("--content", default="", help="Evidence content for add-evidence.")
     workspace_parser.add_argument("--confidence", type=float, default=0.5, help="Confidence from 0.0 to 1.0.")
@@ -383,6 +384,7 @@ def _run_workspace_cli(args: argparse.Namespace) -> int:
             payload = store.sync_to_memory(
                 memory_db=args.memory_db or None,
                 min_confidence=args.min_confidence,
+                stale_after_days=args.stale_after_days,
             )
         elif args.action == "clear":
             payload = store.clear()

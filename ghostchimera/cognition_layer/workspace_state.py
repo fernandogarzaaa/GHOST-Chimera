@@ -18,6 +18,7 @@ from ..memory_layer.store import MemoryStore
 from .workspace import AttentionController, ReflectionEngine, SelfModel, WorkingMemory
 
 WORKSPACE_STATE_FILENAME = "operator_workspace.json"
+DEFAULT_STALE_AFTER_DAYS = 30.0
 
 DEFAULT_CAPABILITIES: dict[str, str] = {
     "chimera_pilot": "Compiles local objectives into policy-gated task specs and backend executions.",
@@ -52,6 +53,40 @@ def _bounded_confidence(value: Any, *, default: float = 0.5) -> float:
     return max(0.0, min(1.0, confidence))
 
 
+def _bounded_days(value: Any, *, default: float = DEFAULT_STALE_AFTER_DAYS) -> float:
+    try:
+        days = float(value)
+    except (TypeError, ValueError):
+        days = default
+    return max(0.0, days)
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _age_days(value: Any) -> float | None:
+    parsed = _parse_timestamp(value)
+    if parsed is None:
+        return None
+    return max(0.0, (datetime.now(UTC) - parsed).total_seconds() / 86400.0)
+
+
+def _normalized_text(value: Any) -> str:
+    return " ".join(str(value or "").casefold().split())
+
+
 class OperatorWorkspaceStore:
     """Durable state wrapper around the consciousness-inspired primitives."""
 
@@ -79,6 +114,7 @@ class OperatorWorkspaceStore:
             "working_memory": memory_snapshot,
             "attention": attention,
             "uncertainty": self._uncertainty(memory_snapshot),
+            "quality": self.quality_report(),
             "positioning": (
                 "Inspectable workspace state for local beta operation; "
                 "not subjective consciousness or fully autonomous production operation."
@@ -128,42 +164,77 @@ class OperatorWorkspaceStore:
         *,
         memory_db: str | Path | None = None,
         min_confidence: float = 0.0,
+        stale_after_days: float = DEFAULT_STALE_AFTER_DAYS,
     ) -> dict[str, Any]:
         """Promote workspace evidence/reflections into CWR memory with provenance."""
 
         threshold = _bounded_confidence(min_confidence, default=0.0)
+        stale_days = _bounded_days(stale_after_days)
         target_db = Path(memory_db).expanduser() if memory_db else GhostChimeraConfig.from_env().memory_db
         store = MemoryStore(target_db)
         synced: list[dict[str, Any]] = []
         skipped: list[dict[str, Any]] = []
+        filtered: list[dict[str, Any]] = []
+        documents = self._memory_documents(threshold, stale_days)
 
-        for item in self._memory_documents(threshold):
+        for item in documents:
+            record = {
+                "source": item["source"],
+                "workspace_type": item["metadata"]["workspace_type"],
+                "quality_flags": item["metadata"]["workspace_quality_flags"],
+                "sync_recommendation": item["metadata"]["sync_recommendation"],
+                "content": item["content"],
+            }
+            if "low_confidence" in item["metadata"]["workspace_quality_flags"]:
+                filtered.append(record)
+                continue
             row_id, inserted = store.add_document_once(
                 str(item["source"]),
                 str(item["content"]),
                 metadata=dict(item["metadata"]),
             )
-            record = {
+            persisted = {
                 "id": row_id,
-                "source": item["source"],
-                "workspace_type": item["metadata"]["workspace_type"],
                 "inserted": inserted,
+                **record,
             }
             if inserted:
-                synced.append(record)
+                synced.append(persisted)
             else:
-                skipped.append(record)
+                skipped.append(persisted)
 
         return {
             "ok": True,
             "memory_db": str(target_db),
             "state_file": str(self.path),
             "min_confidence": threshold,
+            "stale_after_days": stale_days,
             "synced": len(synced),
             "skipped": len(skipped),
+            "filtered": len(filtered),
             "synced_documents": synced,
             "skipped_documents": skipped,
+            "filtered_documents": filtered,
+            "quality": self._quality_summary(documents),
             "note": "Workspace records were promoted into CWR memory with explicit provenance.",
+        }
+
+    def quality_report(
+        self,
+        *,
+        min_confidence: float = 0.0,
+        stale_after_days: float = DEFAULT_STALE_AFTER_DAYS,
+    ) -> dict[str, Any]:
+        """Summarize evidence freshness, conflicts, and confidence before sync."""
+
+        threshold = _bounded_confidence(min_confidence, default=0.0)
+        stale_days = _bounded_days(stale_after_days)
+        documents = self._memory_documents(threshold, stale_days)
+        return {
+            **self._quality_summary(documents),
+            "min_confidence": threshold,
+            "stale_after_days": stale_days,
+            "note": "Quality flags are retrieval provenance, not a truth guarantee.",
         }
 
     def save(self) -> None:
@@ -273,23 +344,29 @@ class OperatorWorkspaceStore:
             )
         return AttentionController().rank(items)[:12]
 
-    def _memory_documents(self, min_confidence: float) -> list[dict[str, Any]]:
+    def _memory_documents(self, min_confidence: float, stale_after_days: float) -> list[dict[str, Any]]:
         documents: list[dict[str, Any]] = []
         for index, evidence in enumerate(self.memory.evidence):
             confidence = _bounded_confidence(evidence.get("confidence"))
-            if confidence < min_confidence:
-                continue
             source = str(evidence.get("source") or "unknown")
             timestamp = str(evidence.get("timestamp") or "")
+            age = _age_days(timestamp)
+            flags = self._quality_flags(confidence, min_confidence, age, stale_after_days)
             documents.append(
                 {
                     "source": f"workspace:evidence:{source}",
                     "content": f"Workspace evidence from {source}: {evidence.get('content')}",
+                    "conflict_key": ("evidence", _normalized_text(source)),
+                    "conflict_value": _normalized_text(evidence.get("content")),
                     "metadata": {
                         "workspace_type": "evidence",
                         "workspace_index": index,
                         "workspace_source": source,
                         "workspace_timestamp": timestamp,
+                        "workspace_age_days": round(age, 6) if age is not None else None,
+                        "workspace_stale_after_days": stale_after_days,
+                        "workspace_quality_flags": flags,
+                        "sync_recommendation": "review" if flags else "use",
                         "confidence": confidence,
                         "state_file": str(self.path),
                     },
@@ -297,25 +374,85 @@ class OperatorWorkspaceStore:
             )
         for index, reflection in enumerate(self.memory.reflections):
             confidence = _bounded_confidence(reflection.get("confidence"))
-            if confidence < min_confidence:
-                continue
             action = str(reflection.get("action") or "unknown")
             timestamp = str(reflection.get("timestamp") or "")
+            age = _age_days(timestamp)
+            flags = self._quality_flags(confidence, min_confidence, age, stale_after_days)
             documents.append(
                 {
                     "source": f"workspace:reflection:{action}",
                     "content": f"Workspace reflection after {action}: {reflection.get('outcome')}",
+                    "conflict_key": ("reflection", _normalized_text(action)),
+                    "conflict_value": _normalized_text(reflection.get("outcome")),
                     "metadata": {
                         "workspace_type": "reflection",
                         "workspace_index": index,
                         "workspace_action": action,
                         "workspace_timestamp": timestamp,
+                        "workspace_age_days": round(age, 6) if age is not None else None,
+                        "workspace_stale_after_days": stale_after_days,
+                        "workspace_quality_flags": flags,
+                        "sync_recommendation": "review" if flags else "use",
                         "confidence": confidence,
                         "state_file": str(self.path),
                     },
                 }
             )
+        self._mark_conflicts(documents)
         return documents
+
+    def _quality_flags(
+        self,
+        confidence: float,
+        min_confidence: float,
+        age: float | None,
+        stale_after_days: float,
+    ) -> list[str]:
+        flags: list[str] = []
+        if confidence < min_confidence:
+            flags.append("low_confidence")
+        if age is not None and stale_after_days > 0 and age > stale_after_days:
+            flags.append("stale")
+        return flags
+
+    def _mark_conflicts(self, documents: list[dict[str, Any]]) -> None:
+        grouped: dict[tuple[str, str], set[str]] = {}
+        for item in documents:
+            key = item["conflict_key"]
+            if isinstance(key, tuple):
+                grouped.setdefault(key, set()).add(str(item["conflict_value"]))
+        conflicting_keys = {key for key, values in grouped.items() if len(values) > 1}
+        for item in documents:
+            if item["conflict_key"] in conflicting_keys:
+                flags = item["metadata"]["workspace_quality_flags"]
+                if "conflicting" not in flags:
+                    flags.append("conflicting")
+                item["metadata"]["sync_recommendation"] = "review"
+
+    def _quality_summary(self, documents: list[dict[str, Any]]) -> dict[str, Any]:
+        total = len(documents)
+        filtered_low_confidence = 0
+        stale = 0
+        conflicting = 0
+        needs_review = 0
+        for item in documents:
+            flags = set(item["metadata"]["workspace_quality_flags"])
+            if "low_confidence" in flags:
+                filtered_low_confidence += 1
+            if "stale" in flags:
+                stale += 1
+            if "conflicting" in flags:
+                conflicting += 1
+            if flags:
+                needs_review += 1
+        return {
+            "total": total,
+            "eligible": total - filtered_low_confidence,
+            "filtered_low_confidence": filtered_low_confidence,
+            "stale": stale,
+            "conflicting": conflicting,
+            "needs_review": needs_review,
+        }
 
     def _uncertainty(self, memory_snapshot: dict[str, Any]) -> dict[str, Any]:
         confidences = [

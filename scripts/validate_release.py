@@ -195,6 +195,8 @@ def check_release_hardening() -> dict[str, Any]:
             "python scripts/smoke_installed_wheel.py --extras gateway",
             "ghostchimera workspace show",
             "ghostchimera workspace sync-memory",
+            "--stale-after-days 30",
+            "stale/conflicting",
             "clean virtual environment",
             "gateway extras",
         )
@@ -211,7 +213,7 @@ def check_release_hardening() -> dict[str, Any]:
         "python scripts/smoke_installed_wheel.py",
         "python scripts/smoke_installed_wheel.py --extras gateway",
         "ghostchimera workspace show",
-        "ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8",
+        "ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30",
     ):
         if command not in commands:
             errors.append(f"console readiness missing {command!r}")
@@ -221,6 +223,8 @@ def check_release_hardening() -> dict[str, Any]:
         errors.append("user-journey eval does not exercise console workspace state")
     if "workspace_sync_feeds_retrieval" not in eval_runner:
         errors.append("user-journey eval does not verify workspace sync feeds retrieval")
+    if "workspace_sync_quality_flags" not in eval_runner:
+        errors.append("user-journey eval does not verify workspace sync quality flags")
 
     smoke_script = (ROOT / "scripts" / "smoke_installed_wheel.py").read_text(encoding="utf-8")
     if "ghostchimera[{normalized}] @" not in smoke_script:

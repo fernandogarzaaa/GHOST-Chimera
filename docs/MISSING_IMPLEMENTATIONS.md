@@ -35,6 +35,8 @@ for the orchestration workstreams from `docs/ORCHESTRATION_IMPLEMENTATION_PLAN.m
   `/api/console/workspace/sync-memory` promote high-confidence evidence and
   reflections into the SQLite CWR store with provenance metadata and
   duplicate-safe inserts.
+- Workspace sync now reports low-confidence filtered records and marks stale or
+  conflicting records with quality metadata before they enter retrieval.
 - The implementation keeps truthful beta boundaries: this is inspectable local
   runtime state, not AGI, SGI, subjective consciousness, or unattended
   production operation.
@@ -93,7 +95,7 @@ python -m ghostchimera.evals run --suite user-journey
 python scripts\smoke_installed_wheel.py
 python scripts\smoke_installed_wheel.py --extras gateway
 ghostchimera workspace show
-ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8
+ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30
 ```
 
 CI installs `.[gateway,dev]` for full source validation, then smokes the built

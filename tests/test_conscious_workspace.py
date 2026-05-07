@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import UTC, datetime, timedelta
 
 from ghostchimera.cognition_layer.reasoning import linearise_tasks
 from ghostchimera.cognition_layer.workspace import (
@@ -178,6 +179,32 @@ class ConsciousWorkspaceTests(unittest.TestCase):
         self.assertEqual(second["synced"], 0)
         self.assertEqual(second["skipped"], 2)
         self.assertEqual({item["metadata"]["workspace_type"] for item in results}, {"evidence", "reflection"})
+
+    def test_workspace_sync_reports_low_confidence_stale_and_conflicting_evidence(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-workspace-quality-") as tmp:
+            memory_db = f"{tmp}/memory.sqlite3"
+            store = OperatorWorkspaceStore(state_dir=tmp)
+            store.add_evidence("operator-note", "release gate passed yesterday", confidence=0.95)
+            store.add_evidence("operator-note", "release gate failed yesterday", confidence=0.94)
+            store.add_evidence("draft-note", "unreviewed low confidence finding", confidence=0.2)
+            old_timestamp = (datetime.now(UTC) - timedelta(days=45)).isoformat().replace("+00:00", "Z")
+            store.memory.evidence[0]["timestamp"] = old_timestamp
+            store.save()
+
+            sync = store.sync_to_memory(memory_db=memory_db, min_confidence=0.8, stale_after_days=30)
+            results = MemoryStore(memory_db).search("release gate yesterday", limit=5)
+
+        self.assertEqual(sync["synced"], 2)
+        self.assertEqual(sync["filtered"], 1)
+        self.assertEqual(sync["quality"]["filtered_low_confidence"], 1)
+        self.assertEqual(sync["quality"]["stale"], 1)
+        self.assertEqual(sync["quality"]["conflicting"], 2)
+        self.assertEqual(sync["filtered_documents"][0]["workspace_type"], "evidence")
+        self.assertIn("low_confidence", sync["filtered_documents"][0]["quality_flags"])
+        flags_by_content = {item["content"]: set(item["metadata"]["workspace_quality_flags"]) for item in results}
+        self.assertIn("stale", flags_by_content["Workspace evidence from operator-note: release gate passed yesterday"])
+        self.assertIn("conflicting", flags_by_content["Workspace evidence from operator-note: release gate passed yesterday"])
+        self.assertEqual(flags_by_content["Workspace evidence from operator-note: release gate failed yesterday"], {"conflicting"})
 
     def test_workspace_cli_syncs_to_memory_db(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-workspace-cli-memory-") as tmp:

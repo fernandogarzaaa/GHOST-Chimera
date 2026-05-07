@@ -341,6 +341,30 @@ def _case_workspace_sync_feeds_retrieval() -> tuple[bool, str]:
     return ok, json.dumps({"sync": sync, "execution": execution.to_dict()}, sort_keys=True)
 
 
+def _case_workspace_sync_quality_flags() -> tuple[bool, str]:
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-workspace-quality-") as tmp:
+        memory_db = Path(tmp) / "memory.sqlite3"
+        workspace = OperatorWorkspaceStore(state_dir=tmp)
+        workspace.add_evidence("release-audit", "operator found release gate passed", confidence=0.95)
+        workspace.add_evidence("release-audit", "operator found release gate failed", confidence=0.92)
+        workspace.add_evidence("draft-note", "operator has unreviewed low confidence note", confidence=0.2)
+        workspace.memory.evidence[0]["timestamp"] = "2024-01-01T00:00:00Z"
+        workspace.save()
+        sync = workspace.sync_to_memory(memory_db=memory_db, min_confidence=0.8, stale_after_days=30)
+        results = MemoryStore(memory_db).search("release gate", limit=5)
+    quality = sync["quality"]
+    result_flags = [set(item["metadata"].get("workspace_quality_flags", [])) for item in results]
+    ok = (
+        sync["synced"] == 2
+        and sync["filtered"] == 1
+        and quality["stale"] == 1
+        and quality["conflicting"] == 2
+        and quality["filtered_low_confidence"] == 1
+        and any({"stale", "conflicting"}.issubset(flags) for flags in result_flags)
+    )
+    return ok, json.dumps({"sync": sync, "results": results}, sort_keys=True)
+
+
 def _case_readiness_runbook_includes_release_gate() -> tuple[bool, str]:
     commands = [check["command"] for check in RELEASE_CHECKS]
     required = {
@@ -354,6 +378,7 @@ def _case_readiness_runbook_includes_release_gate() -> tuple[bool, str]:
         "python scripts/smoke_installed_wheel.py",
         "python scripts/smoke_installed_wheel.py --extras gateway",
         "ghostchimera workspace show",
+        "ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30",
     }
     missing = sorted(required.difference(commands))
     return not missing, "missing=" + ", ".join(missing)
@@ -380,6 +405,7 @@ EVAL_SUITES: dict[str, list[tuple[str, CaseFn]]] = {
         ("config_show_reports_state_paths", _case_config_show_reports_state_paths),
         ("console_operator_routes", _case_console_operator_routes),
         ("workspace_sync_feeds_retrieval", _case_workspace_sync_feeds_retrieval),
+        ("workspace_sync_quality_flags", _case_workspace_sync_quality_flags),
         ("readiness_runbook_includes_release_gate", _case_readiness_runbook_includes_release_gate),
     ],
 }

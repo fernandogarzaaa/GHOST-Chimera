@@ -77,7 +77,10 @@ console exposes the same contract at `/api/console/workspace`. High-confidence
 workspace evidence and reflection records can be promoted into the local CWR
 memory store with `ghostchimera workspace sync-memory` or
 `POST /api/console/workspace/sync-memory`; each document carries source,
-confidence, timestamp, and state-file provenance, and the sync is idempotent.
+confidence, timestamp, state-file provenance, quality flags, and a
+`sync_recommendation`. Low-confidence records are reported but filtered, while
+stale or conflicting records remain searchable with review metadata. The sync
+is idempotent.
 The store is designed as an operator visibility and retrieval-input surface; it
 does not create a hidden autonomous production loop.
 
