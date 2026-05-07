@@ -4,6 +4,7 @@ import os
 import sys
 import types
 import unittest
+from importlib.machinery import ModuleSpec
 from unittest.mock import patch
 
 from ghostchimera.model_layer.local_profiles import get_local_model_profile
@@ -25,6 +26,7 @@ class LocalModelProfileTests(unittest.TestCase):
 
     def test_minimind_provider_loads_configured_profile_contract(self) -> None:
         fake = types.ModuleType("minimind")
+        fake.__spec__ = ModuleSpec("minimind", loader=None)
         calls: list[dict] = []
 
         class Runtime:
@@ -50,6 +52,55 @@ class LocalModelProfileTests(unittest.TestCase):
         self.assertEqual(calls[0]["profile"]["name"], "tiny")
         self.assertEqual(calls[0]["profile"]["quantization"], "q4")
         self.assertEqual(calls[1]["messages"][0]["role"], "system")
+
+    def test_minimind_architecture_specs_are_embedded(self) -> None:
+        from ghostchimera.model_layer.minimind_runtime import (
+            MINIMIND_LICENSE,
+            MINIMIND_SOURCE_COMMIT,
+            get_minimind_architecture,
+            list_minimind_architectures,
+        )
+
+        spec = get_minimind_architecture("minimind-3")
+        names = {item.name for item in list_minimind_architectures()}
+
+        self.assertIn("minimind-3", names)
+        self.assertTrue(MINIMIND_SOURCE_COMMIT.startswith("dddedc6"))
+        self.assertEqual(MINIMIND_LICENSE, "Apache-2.0")
+        self.assertEqual(spec.parameter_count, "64M")
+        self.assertEqual(spec.vocab_size, 6400)
+        self.assertEqual(spec.max_position_embeddings, 32768)
+        self.assertEqual(spec.rope_theta, 1_000_000.0)
+        self.assertEqual(spec.num_hidden_layers, 8)
+        self.assertEqual(spec.hidden_size, 768)
+        self.assertEqual(spec.num_attention_heads, 8)
+        self.assertEqual(spec.num_key_value_heads, 4)
+        self.assertEqual(spec.head_dim, 96)
+        self.assertEqual(spec.intermediate_size, 2432)
+        self.assertFalse(spec.uses_moe)
+
+    def test_minimind_inspection_reports_broken_package_without_claiming_inference(self) -> None:
+        from ghostchimera.model_layer import minimind_runtime
+
+        fake_spec = ModuleSpec("minimind", loader=None)
+
+        with (
+            patch.object(minimind_runtime.importlib.util, "find_spec", return_value=fake_spec),
+            patch.object(
+                minimind_runtime.importlib,
+                "import_module",
+                side_effect=ModuleNotFoundError("No module named 'matplotlib'"),
+            ),
+        ):
+            inspection = minimind_runtime.inspect_minimind_runtime()
+
+        self.assertTrue(inspection.architecture_embedded)
+        self.assertTrue(inspection.package_found)
+        self.assertFalse(inspection.package_importable)
+        self.assertFalse(inspection.package_compatible)
+        self.assertFalse(inspection.inference_available)
+        self.assertIn("matplotlib", inspection.package_error)
+        self.assertEqual(inspection.runtime_hint, "embedded-architecture")
 
 
 if __name__ == "__main__":

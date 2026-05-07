@@ -43,6 +43,8 @@ environment.
 - [ ] `ghostchimera --pilot-status` prints JSON.
 - [ ] `chimera-pilot status --include-deterministic-backend` prints JSON.
 - [ ] `chimera-pilot model-profiles` lists the constrained local model profiles.
+- [ ] `ghostchimera minimind architectures` lists embedded MiniMind architecture contracts without optional dependencies.
+- [ ] `ghostchimera minimind status` distinguishes embedded architecture availability from real MiniMind inference availability.
 - [ ] `chimera-pilot run "retrieve memory about project" --include-deterministic-backend` succeeds.
 - [ ] CWR memory add/search/run works with a local `--memory-db`.
 - [ ] `chimera-pilot run "python: print(2 + 3)"` is denied by default.
@@ -51,7 +53,7 @@ environment.
 - [ ] `CHANGELOG.md` includes the release date and scope.
 - [ ] No secrets are committed.
 - [ ] Optional quantum dependency remains optional.
-- [ ] Optional local inference dependency remains optional.
+- [ ] Optional local inference dependencies, including MiniMind and llama.cpp, remain optional.
 
 ## Release positioning
 

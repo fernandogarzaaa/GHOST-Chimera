@@ -28,6 +28,7 @@ from urllib import request as urllib_request
 from ..logging_config import get_logger
 from .llamacpp_runtime import LlamaCppRuntime
 from .local_profiles import get_local_model_profile
+from .minimind_runtime import load_minimind_chat_runtime
 
 if TYPE_CHECKING:
     from .auth_profiles import AuthProfile
@@ -204,21 +205,23 @@ class MinimindProvider(BaseProvider):
             or os.environ.get("MINIMIND_MODEL_PROFILE", "tiny")
         )
         self.profile = get_local_model_profile(profile_name)
-        try:
-            import minimind  # type: ignore
-
-            self.mm = minimind
-            self.runtime = self._load_runtime(minimind)
-            self.available = self.runtime is not None
-        except Exception:
-            self.mm = None
-            self.runtime = None
-            self.available = False
+        model_path = profile.base_url if profile and profile.base_url else None
+        self.runtime, self.inspection = load_minimind_chat_runtime(
+            profile_name=profile_name,
+            model_path=model_path,
+            local_profile=self.profile.to_dict(),
+        )
+        self.available = self.runtime is not None
         logger.debug("Provider %s initialized", self.name)
 
     def validate_config(self) -> list[str]:
         if not self.available:
-            return ["minimind package is not installed or no compatible runtime was found"]
+            messages = [
+                "MiniMind architecture metadata is embedded, but no chat-capable MiniMind runtime is configured",
+            ]
+            messages.extend(self.inspection.errors)
+            messages.extend(self.inspection.notes)
+            return messages
         return []
 
     def chat(self, system_message: str, user_message: str) -> str:
@@ -239,6 +242,7 @@ class MinimindProvider(BaseProvider):
             "name": self.name,
             "available": self.available,
             "profile": self.profile.name,
+            "runtime": self.inspection.to_dict(),
         }
 
     def _load_runtime(self, minimind_module: Any) -> Any:

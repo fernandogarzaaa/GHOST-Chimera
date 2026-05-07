@@ -20,6 +20,7 @@ if str(ROOT) not in sys.path:
 REQUIRED_FILES = [
     "README.md",
     "LICENSE",
+    "NOTICE",
     "SECURITY.md",
     "CONTRIBUTING.md",
     "CHANGELOG.md",

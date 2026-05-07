@@ -53,7 +53,9 @@ This keeps local runtimes, cloud models, MCP connectors, vector stores, browser 
 
 ## Local memory and models
 
-The CWR backend uses `memory_layer.MemoryStore`, a local SQLite FTS5 index, for retrieval-augmented task execution without external services. The local model path is explicit: minimind-compatible runtimes consume named profiles, while optional GGUF execution goes through the llama.cpp backend when `--local-model-path` is provided.
+The CWR backend uses `memory_layer.MemoryStore`, a local SQLite FTS5 index, for retrieval-augmented task execution without external services. The local model path is explicit: Ghost-native MiniMind architecture metadata is always available for planning and status, MiniMind inference requires operator-provided weights plus optional runtime dependencies, and optional GGUF execution goes through the llama.cpp backend when `--local-model-path` is provided.
+
+`ghostchimera minimind architectures` exposes the embedded MiniMind family without importing PyTorch or depending on a local upstream checkout. `ghostchimera minimind status` reports package importability, workspace compatibility, model-weight discovery, optional dependency availability, and whether real inference is currently available. This keeps MiniMind portable for open-source users while preserving the base package's stdlib-first install.
 
 Local model execution also has a runtime-specialization planner inspired by CuTeDSL-style serving systems. It does three concrete things in the current beta:
 

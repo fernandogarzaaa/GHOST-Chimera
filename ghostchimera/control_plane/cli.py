@@ -117,7 +117,7 @@ def _main(argv: list[str] | None = None) -> int:
     autonomy_parser.add_argument("--local-model-profile", choices=["tiny", "balanced", "stronger"])
     autonomy_parser.add_argument("--execute", action="store_true", help="Allow jobs that otherwise return preview-only plans.")
     minimind_parser = sub.add_parser("minimind", help="Inspect MiniMind local runtime support")
-    minimind_parser.add_argument("action", choices=["status", "dataset", "log-failure"], nargs="?", default="status")
+    minimind_parser.add_argument("action", choices=["status", "architectures", "dataset", "log-failure"], nargs="?", default="status")
     minimind_parser.add_argument("--profile", default="", help="MiniMind/local model profile.")
     minimind_parser.add_argument("--output", default="", help="Output JSONL path.")
     minimind_parser.add_argument("--prompt", default="", help="Prompt/instruction text.")
@@ -344,10 +344,24 @@ def _run_autonomy_cli(args: argparse.Namespace) -> int:
 
 def _run_minimind_cli(args: argparse.Namespace) -> int:
     from ..model_layer.minimind_lifecycle import MiniMindLifecycle
+    from ..model_layer.minimind_runtime import list_minimind_architectures, minimind_source_metadata
 
     lifecycle = MiniMindLifecycle(profile_name=args.profile or None)
     if args.action == "status":
         print(json.dumps(lifecycle.status().to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.action == "architectures":
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "source": minimind_source_metadata(),
+                    "architectures": [architecture.to_dict() for architecture in list_minimind_architectures()],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
     if args.action == "dataset":
         path = lifecycle.generate_dataset(

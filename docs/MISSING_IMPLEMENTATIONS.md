@@ -79,3 +79,17 @@ python scripts\smoke_installed_wheel.py --extras gateway
 CI installs `.[gateway,dev]` for full source validation, then smokes the built
 wheel twice: once without optional extras and once with gateway extras for the
 console/scheduler/user-journey path.
+
+## MiniMind Portability
+
+- Ghost Chimera now embeds MiniMind-compatible architecture contracts for the
+  current tiny MiniMind family and attributes the Apache-2.0 upstream project in
+  `NOTICE`.
+- `ghostchimera minimind architectures` works without a local upstream checkout,
+  PyTorch, Transformers, or model weights.
+- `ghostchimera minimind status` reports whether package imports, upstream
+  workspaces, model files, and optional dependencies are actually present before
+  claiming inference availability.
+- Remaining boundary: Ghost Chimera does not bundle MiniMind weights. Operators
+  must provide `MINIMIND_MODEL_PATH` and install `.[minimind]` for real local
+  MiniMind inference.

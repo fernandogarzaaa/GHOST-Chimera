@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import time
@@ -11,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .local_profiles import get_local_model_profile, list_local_model_profiles
+from .minimind_runtime import inspect_minimind_runtime, minimind_source_metadata
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,18 @@ class MiniMindRuntimeStatus:
     root: str
     runtime_hint: str
     errors: list[str]
+    architecture_embedded: bool
+    architecture: dict[str, Any]
+    inference_available: bool
+    package_importable: bool
+    package_compatible: bool
+    package_error: str
+    workspace_found: bool
+    workspace_compatible: bool
+    model_path: str
+    model_files_found: bool
+    optional_dependencies: dict[str, bool]
+    notes: list[str]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -32,6 +44,19 @@ class MiniMindRuntimeStatus:
             "root": self.root,
             "runtime_hint": self.runtime_hint,
             "errors": list(self.errors),
+            "architecture_embedded": self.architecture_embedded,
+            "architecture": dict(self.architecture),
+            "inference_available": self.inference_available,
+            "package_importable": self.package_importable,
+            "package_compatible": self.package_compatible,
+            "package_error": self.package_error,
+            "workspace_found": self.workspace_found,
+            "workspace_compatible": self.workspace_compatible,
+            "model_path": self.model_path,
+            "model_files_found": self.model_files_found,
+            "optional_dependencies": dict(self.optional_dependencies),
+            "notes": list(self.notes),
+            "source": minimind_source_metadata(),
             "profiles": [profile.to_dict() for profile in list_local_model_profiles()],
         }
 
@@ -51,23 +76,26 @@ class MiniMindLifecycle:
         self.root = Path(root or os.environ.get("MINIMIND_ROOT", "")).expanduser() if (root or os.environ.get("MINIMIND_ROOT")) else None
 
     def status(self) -> MiniMindRuntimeStatus:
-        errors: list[str] = []
-        package_found = importlib.util.find_spec("minimind") is not None
-        root_text = str(self.root) if self.root is not None else ""
-        if self.root is not None and not self.root.exists():
-            errors.append(f"MINIMIND_ROOT does not exist: {self.root}")
-        if not package_found:
-            errors.append("minimind package is not installed")
-        runtime_hint = "package" if package_found else "unavailable"
-        if self.root is not None and self.root.exists():
-            runtime_hint = "workspace"
+        inspection = inspect_minimind_runtime(profile_name=self.profile.name, state_dir=self.state_dir, root=self.root)
         return MiniMindRuntimeStatus(
-            available=package_found or (self.root is not None and self.root.exists()),
+            available=inspection.architecture_embedded or inspection.inference_available or inspection.workspace_found,
             profile=self.profile.name,
-            package_found=package_found,
-            root=root_text,
-            runtime_hint=runtime_hint,
-            errors=errors,
+            package_found=inspection.package_found,
+            root=inspection.workspace_root,
+            runtime_hint=inspection.runtime_hint,
+            errors=inspection.errors,
+            architecture_embedded=inspection.architecture_embedded,
+            architecture=inspection.architecture,
+            inference_available=inspection.inference_available,
+            package_importable=inspection.package_importable,
+            package_compatible=inspection.package_compatible,
+            package_error=inspection.package_error,
+            workspace_found=inspection.workspace_found,
+            workspace_compatible=inspection.workspace_compatible,
+            model_path=inspection.model_path,
+            model_files_found=inspection.model_files_found,
+            optional_dependencies=inspection.optional_dependencies,
+            notes=inspection.notes,
         )
 
     def generate_dataset(

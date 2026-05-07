@@ -88,6 +88,16 @@ class AutonomyProfileTests(unittest.TestCase):
         self.assertEqual(result.status, "preview")
         self.assertTrue(result.artifacts["requires_execute"])
 
+    def test_dependency_scan_distinguishes_minimind_architecture_from_inference(self) -> None:
+        runner = AutonomyJobRunner(profile="supervised")
+
+        result = runner.run("dependency-scan")
+
+        dependencies = result.artifacts["dependencies"]
+        minimind_status = result.artifacts["minimind_status"]
+        self.assertTrue(dependencies["minimind_architecture"])
+        self.assertEqual(dependencies["minimind"], minimind_status["inference_available"])
+
     def test_persistent_autonomy_config_round_trips(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-autonomy-config-") as tmp:
             path = Path(tmp) / "config.json"
@@ -127,7 +137,26 @@ class AutonomyProfileTests(unittest.TestCase):
             timeout=30,
         )
         self.assertEqual(status.returncode, 0, status.stderr)
-        self.assertIn("available", json.loads(status.stdout))
+        status_payload = json.loads(status.stdout)
+        self.assertIn("available", status_payload)
+        self.assertTrue(status_payload["architecture_embedded"])
+        self.assertIn("architecture", status_payload)
+
+    def test_control_plane_cli_exposes_embedded_minimind_architectures(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, "-m", "ghostchimera.control_plane.cli", "minimind", "architectures"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["source"]["license"], "Apache-2.0")
+        names = {architecture["name"] for architecture in payload["architectures"]}
+        self.assertIn("minimind-3", names)
 
 
 if __name__ == "__main__":

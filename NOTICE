@@ -1,0 +1,12 @@
+Ghost Chimera
+
+Ghost Chimera includes Ghost-native MiniMind architecture metadata and optional
+runtime adapter behavior derived from public MiniMind project documentation and
+interfaces.
+
+MiniMind source project: https://github.com/jingyaogong/minimind
+Source commit reviewed: dddedc688121028dd8adab55b95d139ecd87205c
+MiniMind license: Apache License 2.0
+
+Ghost Chimera does not bundle MiniMind model weights. Local MiniMind inference
+requires operator-provided weights and optional runtime dependencies.

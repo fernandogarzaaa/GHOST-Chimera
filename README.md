@@ -24,7 +24,7 @@ This is a developer beta for local experimentation, runtime research, and extens
 | `evals` | Built-in release smoke and safety evaluation suites. |
 | `mcp` | Lightweight JSON-RPC style MCP server/client surfaces and Chimera Pilot MCP backend. |
 | `memory_layer` | SQLite-backed memory retrieval and namespace persistence. |
-| `model_layer` | Provider abstraction, provider routing, auth profiles, model catalog, media-provider interfaces, minimind-compatible profiles, runtime specialization, and optional llama.cpp/GGUF runtime. |
+| `model_layer` | Provider abstraction, provider routing, auth profiles, model catalog, media-provider interfaces, Ghost-native MiniMind architecture/runtime adapters, runtime specialization, and optional llama.cpp/GGUF runtime. |
 | `safety_layer` | Execution policy, approval gates, MaterialRegistry policy patterns, audit records, policy enforcement, SSRF/network dispatch, and rate limiting. |
 | `skill_layer` | Built-in skills for browser fetches, code search, software tasks, tech support, issue conversion, and dynamic skill registry support. |
 | `tool_layer` | Policy-aware filesystem, shell, and browser tools. |
@@ -55,12 +55,13 @@ Optional extras:
 python -m pip install -e ".[gateway]"  # WebSocket gateway and cron scheduling
 python -m pip install -e ".[mcp]"      # MCP package integration
 python -m pip install -e ".[local]"    # llama.cpp-compatible local model runtime
+python -m pip install -e ".[minimind]" # optional MiniMind Transformers/PyTorch inference adapter
 python -m pip install -e ".[cute]"     # optional NVIDIA CuTe DSL package on supported Linux/Python 3.12 systems
 python -m pip install -e ".[quantum]"  # optional pyqpanda3 simulator backend
 python -m pip install -e ".[dev]"      # build and lint tools
 ```
 
-Heavy runtimes such as `llama-cpp-python`, `nvidia-cutlass-dsl`, and `pyqpanda3` are optional. The base package stays lightweight and stdlib-first.
+Heavy runtimes such as `llama-cpp-python`, MiniMind's PyTorch/Transformers path, `nvidia-cutlass-dsl`, and `pyqpanda3` are optional. The base package stays lightweight and stdlib-first.
 
 ## CLI Quickstart
 
@@ -237,6 +238,25 @@ chimera-pilot status --local-model-path C:\models\qwen2.5-0.5b-instruct-q4.gguf 
 chimera-pilot run "explain the current project" --local-model-path C:\models\qwen2.5-0.5b-instruct-q4.gguf --local-model-profile tiny
 ```
 
+## Ghost MiniMind
+
+Ghost Chimera includes a Ghost-native MiniMind compatibility layer so open-source checkouts are not tied to a developer's local `MINIMIND_ROOT`. The base package embeds MiniMind architecture contracts for `minimind-3`, `minimind-3-moe`, `minimind2-small`, `minimind2-moe`, and `minimind2`, plus runtime inspection that distinguishes architecture availability from real local inference.
+
+```bash
+ghostchimera minimind architectures
+ghostchimera minimind status
+```
+
+The integration is derived from the public Apache-2.0 MiniMind project and attributed in `NOTICE`. Ghost Chimera does not bundle MiniMind weights. To run MiniMind inference, install the optional adapter and point Ghost Chimera at a local Transformers-format model directory:
+
+```bash
+python -m pip install -e ".[minimind]"
+export MINIMIND_MODEL_PATH=/models/minimind-3
+ghostchimera minimind status
+```
+
+`MINIMIND_ROOT` remains optional for users who keep an upstream MiniMind workspace nearby. It is not required for status, architecture planning, dataset export, low-confidence logging, or release validation.
+
 ## Runtime Specialization
 
 Ghost Chimera includes a CuTeDSL-inspired local runtime specialization planner for MiniMind/llama.cpp execution. It classifies each prompt as `prefill`, `decode`, or `hybrid`, derives vector/load-width, warp, grid-barrier, and `llama_cpp` batch hints, and exposes the selected plan in backend health and execution metrics.
@@ -270,6 +290,7 @@ Ghost Chimera exposes autonomy as an operator-adjustable profile, not as a claim
 chimera-pilot autonomy-profiles
 ghostchimera autonomy jobs
 ghostchimera autonomy run repair-preview
+ghostchimera minimind architectures
 ghostchimera minimind status
 chimera-pilot status --autonomy-level supervised --include-deterministic-backend
 chimera-pilot run "retrieve project memory" --autonomy-level autonomous --memory-db .ghostchimera-memory.sqlite3 --include-deterministic-backend
@@ -295,7 +316,7 @@ Profile-aware jobs include `self-audit`, `dependency-scan`, `test-regression`, `
 
 The browser console adds a local job center for the same profile-aware jobs. It records durable history in the Ghost Chimera state directory, supports queued preview runs, exposes run-now for operator-approved jobs, and creates disabled recurring schedules that reuse the same profile and policy checks before execution.
 
-MiniMind helpers provide lightweight local runtime status, dataset generation, and low-confidence logging:
+MiniMind helpers provide embedded architecture status, optional runtime inspection, dataset generation, and low-confidence logging:
 
 ```bash
 ghostchimera minimind dataset --prompt "Summarize this finding" --response "..."

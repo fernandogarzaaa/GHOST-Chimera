@@ -52,6 +52,8 @@ def _smoke_commands(python: Path, extras: str) -> list[list[str]]:
         [str(python), "-m", "ghostchimera", "run", "--help"],
         [str(python), "-m", "ghostchimera", "batch", "--help"],
         [str(python), "-m", "ghostchimera", "--config-show"],
+        [str(python), "-m", "ghostchimera", "minimind", "architectures"],
+        [str(python), "-m", "ghostchimera", "minimind", "status"],
     ]
     if extras:
         commands.extend(

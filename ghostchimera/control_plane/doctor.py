@@ -101,8 +101,10 @@ def run_doctor(*, production: bool = False) -> int:
         _check(f"Autonomy profile: {profile.name}", True)
         passed += 1
         minimind = MiniMindLifecycle(profile_name=profile.local_model_profile).status()
-        _check(f"MiniMind runtime: {minimind.runtime_hint}", minimind.available, "; ".join(minimind.errors))
-        if minimind.available:
+        minimind_hint = "; ".join(minimind.errors or minimind.notes)
+        minimind_ok = minimind.available and not minimind.errors
+        _check(f"MiniMind architecture/runtime: {minimind.runtime_hint}", minimind_ok, minimind_hint)
+        if minimind_ok:
             passed += 1
         else:
             warned += 1

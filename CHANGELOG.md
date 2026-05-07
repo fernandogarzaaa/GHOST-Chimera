@@ -13,6 +13,7 @@ Initial alpha release package.
 - Policy-gated AgentCore shell, filesystem, and browser execution with audit records.
 - SQLite FTS local CWR memory retrieval backend and memory CLI commands.
 - Local model profiles, minimind-compatible provider contract, and optional llama.cpp/GGUF backend.
+- Ghost-native MiniMind architecture metadata, runtime inspection, attribution, and optional Transformers/PyTorch adapter.
 - Conscious workspace primitives for inspectable self-model, working memory, attention, and reflection state.
 - Smoke and safety eval harness with `ghostchimera-eval`.
 - Typed environment configuration and `ghostchimera --config-show`.

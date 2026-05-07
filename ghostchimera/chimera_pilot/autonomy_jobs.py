@@ -144,13 +144,18 @@ class AutonomyJobRunner:
         )
 
     def _run_dependency_scan(self, *, execute: bool = False) -> AutonomyJobResult:
+        minimind_status = MiniMindLifecycle(
+            profile_name=self.profile.local_model_profile,
+            state_dir=self.state_dir,
+        ).status().to_dict()
         checks = {
             "build": importlib.util.find_spec("build") is not None,
             "croniter": importlib.util.find_spec("croniter") is not None,
             "ruff": importlib.util.find_spec("ruff") is not None,
             "llama_cpp": importlib.util.find_spec("llama_cpp") is not None,
             "pyqpanda3": importlib.util.find_spec("pyqpanda3") is not None,
-            "minimind": importlib.util.find_spec("minimind") is not None,
+            "minimind": bool(minimind_status.get("inference_available")),
+            "minimind_architecture": bool(minimind_status.get("architecture_embedded")),
         }
         findings = [
             {"severity": "info", "dependency": name, "available": available}
@@ -162,7 +167,7 @@ class AutonomyJobRunner:
             profile=self.profile.name,
             summary="Scanned optional runtime and development dependencies.",
             findings=findings,
-            artifacts={"dependencies": checks},
+            artifacts={"dependencies": checks, "minimind_status": minimind_status},
         )
 
     def _run_test_regression(self, *, execute: bool = False) -> AutonomyJobResult:
