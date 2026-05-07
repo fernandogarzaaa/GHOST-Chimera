@@ -42,6 +42,37 @@ class MemoryStore:
             )
             return rowid
 
+    def add_document_once(
+        self,
+        source: str,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> tuple[int, bool]:
+        """Insert a memory document unless the same source/content already exists."""
+
+        if not source.strip():
+            raise ValueError("source is required")
+        if not content.strip():
+            raise ValueError("content is required")
+        metadata_json = json.dumps(metadata or {}, sort_keys=True)
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT id FROM memory_documents WHERE source = ? AND content = ? LIMIT 1",
+                (source, content),
+            ).fetchone()
+            if existing:
+                return int(existing["id"]), False
+            cursor = conn.execute(
+                "INSERT INTO memory_documents(source, content, metadata_json) VALUES (?, ?, ?)",
+                (source, content, metadata_json),
+            )
+            rowid = int(cursor.lastrowid)
+            conn.execute(
+                "INSERT INTO memory_documents_fts(rowid, source, content) VALUES (?, ?, ?)",
+                (rowid, source, content),
+            )
+            return rowid, True
+
     def search(self, query: str, *, limit: int = 5) -> list[dict[str, Any]]:
         query = query.strip()
         if not query:

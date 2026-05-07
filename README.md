@@ -91,9 +91,10 @@ Inspect the local operator workspace state:
 ghostchimera workspace show
 ghostchimera workspace add-evidence --source release-audit --content "release gate passed" --confidence 0.92
 ghostchimera workspace reflect --reflection-action "ran beta gate" --outcome "operator workspace stayed inspectable" --confidence 0.9
+ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8
 ```
 
-The workspace state is persisted under the Ghost Chimera state directory and is also available through `/api/console/workspace`. It exposes the self model, working memory, attention ranking, goals, and uncertainty for local operators. It is not a claim of subjective consciousness, AGI, SGI, or fully autonomous production operation.
+The workspace state is persisted under the Ghost Chimera state directory and is also available through `/api/console/workspace`. It exposes the self model, working memory, attention ranking, goals, and uncertainty for local operators. `sync-memory` promotes high-confidence evidence and reflections into the local CWR memory store with provenance metadata, and repeated syncs skip duplicates. It is not a claim of subjective consciousness, AGI, SGI, or fully autonomous production operation.
 
 Inspect Chimera Pilot:
 
@@ -124,6 +125,7 @@ Ghost Chimera includes Conscious Workspace Retrieval through a local SQLite FTS 
 chimera-pilot memory-add --memory-db .ghostchimera-memory.sqlite3 --source project-note --content "Ghost Chimera stores local project memory."
 chimera-pilot memory-search --memory-db .ghostchimera-memory.sqlite3 "project memory"
 chimera-pilot run "retrieve project memory" --memory-db .ghostchimera-memory.sqlite3 --include-deterministic-backend
+ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8
 ```
 
 ## Execution Safety

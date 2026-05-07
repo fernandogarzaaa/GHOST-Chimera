@@ -11,6 +11,7 @@ from unittest.mock import patch
 from ghostchimera.chimera_pilot.gateway_server import GatewayServer, HttpResponse
 from ghostchimera.control_plane.cli import _main
 from ghostchimera.control_plane.console import register_console_routes, run_console
+from ghostchimera.memory_layer.store import MemoryStore
 from ghostchimera.tool_layer.browser_workspace import AgentBrowserWorkspace
 
 
@@ -264,11 +265,13 @@ class ConsoleRouteTests(unittest.TestCase):
             evidence_route = server.routes.find("POST", "/api/console/workspace/evidence")
             reflection_route = server.routes.find("POST", "/api/console/workspace/reflections")
             goal_route = server.routes.find("POST", "/api/console/workspace/goals")
+            sync_route = server.routes.find("POST", "/api/console/workspace/sync-memory")
 
             self.assertIsNotNone(workspace_route)
             self.assertIsNotNone(evidence_route)
             self.assertIsNotNone(reflection_route)
             self.assertIsNotNone(goal_route)
+            self.assertIsNotNone(sync_route)
 
             initial = workspace_route.handler({"method": "GET", "path": "/api/console/workspace", "headers": {}, "body": "", "query": {}})
             self.assertTrue(initial["ok"])
@@ -279,7 +282,13 @@ class ConsoleRouteTests(unittest.TestCase):
                     "method": "POST",
                     "path": "/api/console/workspace/evidence",
                     "headers": {},
-                    "body": json.dumps({"source": "operator", "content": "console workspace route works", "confidence": 0.93}),
+                    "body": json.dumps(
+                        {
+                            "source": "operator",
+                            "content": "console workspace route works and state visible",
+                            "confidence": 0.93,
+                        }
+                    ),
                     "query": {},
                 }
             )
@@ -307,11 +316,25 @@ class ConsoleRouteTests(unittest.TestCase):
             )
             self.assertTrue(goal["ok"])
 
+            memory_db = f"{tmp}/memory.sqlite3"
+            sync = sync_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/workspace/sync-memory",
+                    "headers": {},
+                    "body": json.dumps({"memory_db": memory_db, "min_confidence": 0.9}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(sync["ok"])
             snapshot = workspace_route.handler({"method": "GET", "path": "/api/console/workspace", "headers": {}, "body": "", "query": {}})
+            results = MemoryStore(memory_db).search("workspace state visible", limit=5)
 
         self.assertEqual(snapshot["working_memory"]["evidence"][0]["source"], "operator")
         self.assertEqual(snapshot["working_memory"]["reflections"][0]["outcome"], "workspace state visible")
         self.assertEqual(snapshot["self_model"]["goals"]["operator_visibility"], "show evidence and uncertainty")
+        self.assertEqual(sync["synced"], 2)
+        self.assertEqual({item["metadata"]["workspace_type"] for item in results}, {"evidence", "reflection"})
 
     def test_console_readiness_route_returns_release_runbook(self) -> None:
         server = GatewayServer()

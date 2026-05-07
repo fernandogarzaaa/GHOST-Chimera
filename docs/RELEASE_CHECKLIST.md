@@ -16,6 +16,7 @@ python -m ghostchimera.evals run --suite user-journey
 python scripts/smoke_installed_wheel.py
 python scripts/smoke_installed_wheel.py --extras gateway
 ghostchimera workspace show
+ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8
 GHOSTCHIMERA_DEPLOYMENT_MODE=production GHOSTCHIMERA_EXTERNAL_ISOLATION=container GHOSTCHIMERA_SECURITY_REVIEWED=1 GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED=1 ghostchimera doctor --production
 ```
 
@@ -37,6 +38,7 @@ environment.
 - [ ] CI installs `.[gateway,dev]` for full source validation and separately smokes the base wheel with no extras.
 - [ ] `ghostchimera --config-show` prints JSON with expected state paths and policy defaults.
 - [ ] `ghostchimera workspace show` prints the local operator workspace state with truthful capability limits.
+- [ ] `ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8` promotes high-confidence workspace evidence/reflections into CWR memory with provenance and skips duplicates on repeat runs.
 - [ ] With `.[gateway]` installed, `ghostchimera console --state-dir .ghost-console-smoke --no-open` starts and prints a localhost URL.
 - [ ] Console `/api/console/workspace` reports self-model, working memory, attention, and uncertainty.
 - [ ] Console `/api/console/autonomy/jobs` lists profile-aware jobs and records a preview run.

@@ -31,6 +31,10 @@ for the orchestration workstreams from `docs/ORCHESTRATION_IMPLEMENTATION_PLAN.m
   state directory in `operator_workspace.json`.
 - The browser console exposes the same state through `/api/console/workspace`
   plus evidence, reflection, and goal update routes.
+- `ghostchimera workspace sync-memory` and
+  `/api/console/workspace/sync-memory` promote high-confidence evidence and
+  reflections into the SQLite CWR store with provenance metadata and
+  duplicate-safe inserts.
 - The implementation keeps truthful beta boundaries: this is inspectable local
   runtime state, not AGI, SGI, subjective consciousness, or unattended
   production operation.
@@ -89,6 +93,7 @@ python -m ghostchimera.evals run --suite user-journey
 python scripts\smoke_installed_wheel.py
 python scripts\smoke_installed_wheel.py --extras gateway
 ghostchimera workspace show
+ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8
 ```
 
 CI installs `.[gateway,dev]` for full source validation, then smokes the built

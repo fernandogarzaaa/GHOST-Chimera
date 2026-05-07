@@ -73,9 +73,13 @@ local goals, working-memory evidence, reflection records, attention rankings,
 and an uncertainty summary under the Ghost Chimera state directory.
 
 `ghostchimera workspace show` exposes that state through the CLI, and the local
-console exposes the same contract at `/api/console/workspace`. The store is
-designed as an operator visibility surface and future retrieval/planning input;
-it does not create a hidden autonomous production loop.
+console exposes the same contract at `/api/console/workspace`. High-confidence
+workspace evidence and reflection records can be promoted into the local CWR
+memory store with `ghostchimera workspace sync-memory` or
+`POST /api/console/workspace/sync-memory`; each document carries source,
+confidence, timestamp, and state-file provenance, and the sync is idempotent.
+The store is designed as an operator visibility and retrieval-input surface; it
+does not create a hidden autonomous production loop.
 
 ## Safety boundary
 

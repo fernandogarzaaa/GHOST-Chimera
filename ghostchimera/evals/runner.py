@@ -20,6 +20,7 @@ from ghostchimera.chimera_pilot.backends import DeterministicBackend
 from ghostchimera.chimera_pilot.gateway_server import GatewayServer
 from ghostchimera.chimera_pilot.scheduler import ChimeraScheduler
 from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
+from ghostchimera.cognition_layer.workspace_state import OperatorWorkspaceStore
 from ghostchimera.control_plane.console import RELEASE_CHECKS, register_console_routes
 from ghostchimera.memory_layer.store import MemoryStore
 from ghostchimera.safety_layer.gating import ExecutionPolicy
@@ -232,20 +233,48 @@ def _route_ctx(method: str, path: str, body: dict[str, object] | None = None) ->
 
 def _case_console_operator_routes() -> tuple[bool, str]:
     with tempfile.TemporaryDirectory(prefix="ghostchimera-console-journey-") as tmp:
+        memory_db = str(Path(tmp) / "memory.sqlite3")
         server = GatewayServer()
         workspace = AgentBrowserWorkspace(binary="definitely-missing-agent-browser")
         register_console_routes(server, state_dir=tmp, browser_workspace=workspace)
 
         status_route = server.routes.find("GET", "/api/console/status")
         workspace_route = server.routes.find("GET", "/api/console/workspace")
+        workspace_evidence_route = server.routes.find("POST", "/api/console/workspace/evidence")
+        workspace_sync_route = server.routes.find("POST", "/api/console/workspace/sync-memory")
         jobs_route = server.routes.find("POST", "/api/console/autonomy/jobs")
         schedules_route = server.routes.find("POST", "/api/console/autonomy/schedules")
         browser_route = server.routes.find("GET", "/api/console/browser/status")
         readiness_route = server.routes.find("GET", "/api/console/readiness")
-        if not all((status_route, workspace_route, jobs_route, schedules_route, browser_route, readiness_route)):
+        if not all(
+            (
+                status_route,
+                workspace_route,
+                workspace_evidence_route,
+                workspace_sync_route,
+                jobs_route,
+                schedules_route,
+                browser_route,
+                readiness_route,
+            )
+        ):
             return False, "One or more console operator routes are missing"
 
         status = status_route.handler(_route_ctx("GET", "/api/console/status"))
+        workspace_evidence_route.handler(
+            _route_ctx(
+                "POST",
+                "/api/console/workspace/evidence",
+                {"source": "user-journey", "content": "workspace evidence feeds CWR retrieval", "confidence": 0.93},
+            )
+        )
+        workspace_sync = workspace_sync_route.handler(
+            _route_ctx(
+                "POST",
+                "/api/console/workspace/sync-memory",
+                {"memory_db": memory_db, "min_confidence": 0.9},
+            )
+        )
         workspace_state = workspace_route.handler(_route_ctx("GET", "/api/console/workspace"))
         browser = browser_route.handler(_route_ctx("GET", "/api/console/browser/status"))
         job = jobs_route.handler(
@@ -270,11 +299,15 @@ def _case_console_operator_routes() -> tuple[bool, str]:
             )
         )
         readiness = readiness_route.handler(_route_ctx("GET", "/api/console/readiness"))
+        workspace_results = MemoryStore(memory_db).search("CWR retrieval", limit=3)
 
     ok = (
         bool(status["ok"])
         and workspace_state["ok"] is True
         and "no_subjective_consciousness" in workspace_state["self_model"]["limits"]
+        and workspace_sync["synced"] == 1
+        and workspace_results
+        and workspace_results[0]["metadata"]["workspace_type"] == "evidence"
         and browser["available"] is False
         and job["ok"] is True
         and job["job"]["status"] == "preview"
@@ -290,9 +323,22 @@ def _case_console_operator_routes() -> tuple[bool, str]:
         "workspace": {
             "evidence_count": len(workspace_state["working_memory"]["evidence"]),
             "limits": sorted(workspace_state["self_model"]["limits"]),
+            "sync": workspace_sync,
         },
     }
     return ok, json.dumps(detail, sort_keys=True)
+
+
+def _case_workspace_sync_feeds_retrieval() -> tuple[bool, str]:
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-workspace-memory-") as tmp:
+        memory_db = Path(tmp) / "memory.sqlite3"
+        workspace = OperatorWorkspaceStore(state_dir=tmp)
+        workspace.add_evidence("eval", "operator workspace sync should feed retrieval", confidence=0.94)
+        workspace.add_reflection(action="sync eval", outcome="reflection memory is retrievable", confidence=0.91)
+        sync = workspace.sync_to_memory(memory_db=memory_db, min_confidence=0.9)
+        execution = ChimeraPilotKernel.default(memory_store=MemoryStore(memory_db)).run("retrieve reflection memory")[0]
+    ok = execution.ok and sync["synced"] == 2 and execution.result.backend_id == "cwr.local"
+    return ok, json.dumps({"sync": sync, "execution": execution.to_dict()}, sort_keys=True)
 
 
 def _case_readiness_runbook_includes_release_gate() -> tuple[bool, str]:
@@ -333,6 +379,7 @@ EVAL_SUITES: dict[str, list[tuple[str, CaseFn]]] = {
         ("top_level_cli_dispatch_help", _case_top_level_cli_dispatch_help),
         ("config_show_reports_state_paths", _case_config_show_reports_state_paths),
         ("console_operator_routes", _case_console_operator_routes),
+        ("workspace_sync_feeds_retrieval", _case_workspace_sync_feeds_retrieval),
         ("readiness_runbook_includes_release_gate", _case_readiness_runbook_includes_release_gate),
     ],
 }

@@ -86,6 +86,11 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "command": "ghostchimera workspace show",
         "purpose": "Verifies the inspectable operator workspace CLI is reachable.",
     },
+    {
+        "name": "workspace memory sync smoke",
+        "command": "ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8",
+        "purpose": "Verifies high-confidence workspace evidence can feed local CWR memory with provenance.",
+    },
 ]
 
 
@@ -745,6 +750,16 @@ def register_console_routes(
         except (TypeError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
 
+    def operator_workspace_sync_memory(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        try:
+            return workspace_store.sync_to_memory(
+                memory_db=str(body.get("memory_db") or server.config.memory_db),
+                min_confidence=float(body.get("min_confidence", 0.0)),
+            )
+        except (TypeError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+
     def readiness(ctx: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": True,
@@ -912,6 +927,13 @@ def register_console_routes(
         method="POST",
         auth="open",
         description="Set operator workspace goal",
+    )
+    server.routes.register(
+        "/api/console/workspace/sync-memory",
+        operator_workspace_sync_memory,
+        method="POST",
+        auth="open",
+        description="Promote operator workspace records into CWR memory",
     )
     server.routes.register("/api/console/readiness", readiness, method="GET", auth="open", description="Ghost Console release readiness runbook")
     server.routes.register("/api/console/autonomy/jobs", jobs_list, method="GET", auth="open", description="List autonomy jobs")

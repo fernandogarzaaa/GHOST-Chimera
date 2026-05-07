@@ -23,6 +23,9 @@ tests.
 - Conscious workspace primitives now have an operator-facing state store:
   `ghostchimera workspace show` and `/api/console/workspace` expose self model,
   working memory, attention ranking, reflection, goal state, and uncertainty.
+- High-confidence workspace evidence and reflections can now sync into the CWR
+  memory store through CLI and console routes with explicit provenance and
+  duplicate-safe persistence.
 - The local operator console exposes status, autonomy profiles, safe objective
   runs, durable autonomy jobs, recurring schedules, degraded-friendly optional
   browser workspace status, and release-readiness runbook output.
@@ -45,6 +48,7 @@ python -m ghostchimera.evals run --suite autonomy
 python -m ghostchimera.evals run --suite user-journey
 python scripts\smoke_installed_wheel.py
 python scripts\smoke_installed_wheel.py --extras gateway
+ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8
 $env:GHOSTCHIMERA_DEPLOYMENT_MODE="production"
 $env:GHOSTCHIMERA_EXTERNAL_ISOLATION="container"
 $env:GHOSTCHIMERA_SECURITY_REVIEWED="1"
@@ -67,8 +71,8 @@ and the user-journey eval work in a clean environment with gateway extras.
      `/api/console/readiness` synchronized with the real gate.
 
 2. **Conscious workspace feedback loop**
-   - Feed persisted reflection records and high-confidence workspace evidence
-     into future retrieval and planning paths with explicit provenance.
+   - Feed synced workspace memory into more planning decisions beyond retrieval
+     and expose where a plan used workspace-derived context.
    - Add eval cases for stale, conflicting, and low-confidence workspace
      evidence without inventing hidden subjective experience.
 
@@ -95,13 +99,13 @@ and the user-journey eval work in a clean environment with gateway extras.
 |---|---:|---:|---:|
 | Safety and policy | 20 | 80% | 100% |
 | Runtime convergence | 15 | 75% | 100% |
-| Real memory/retrieval | 15 | 55% | 100% |
+| Real memory/retrieval | 15 | 62% | 100% |
 | Local model runtime | 15 | 50% | 100% |
-| Conscious workspace | 15 | 60% | 100% |
+| Conscious workspace | 15 | 70% | 100% |
 | Evaluation harness | 10 | 70% | 100% |
 | Production packaging | 10 | 70% | 100% |
 
-Estimated beta readiness now: 70-80%, assuming the current release gate passes
+Estimated beta readiness now: 72-82%, assuming the current release gate passes
 in a clean local environment and CI.
 
 ## Plan Mutation Protocol

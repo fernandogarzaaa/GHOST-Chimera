@@ -14,6 +14,7 @@ from ghostchimera.cognition_layer.workspace import (
     WorkingMemory,
 )
 from ghostchimera.cognition_layer.workspace_state import OperatorWorkspaceStore
+from ghostchimera.memory_layer.store import MemoryStore
 
 
 class ConsciousWorkspaceTests(unittest.TestCase):
@@ -159,6 +160,76 @@ class ConsciousWorkspaceTests(unittest.TestCase):
 
         self.assertEqual(final["working_memory"]["evidence"][0]["source"], "cli-test")
         self.assertEqual(final["working_memory"]["reflections"][0]["outcome"], "state persisted")
+
+    def test_operator_workspace_syncs_to_memory_store_idempotently(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-workspace-memory-") as tmp:
+            memory_db = f"{tmp}/memory.sqlite3"
+            store = OperatorWorkspaceStore(state_dir=tmp)
+            store.add_evidence("operator-note", "workspace evidence should become CWR retrieval memory", confidence=0.94)
+            store.add_reflection(action="sync workspace", outcome="reflection feeds retrieval", confidence=0.91)
+
+            first = store.sync_to_memory(memory_db=memory_db, min_confidence=0.9)
+            second = store.sync_to_memory(memory_db=memory_db, min_confidence=0.9)
+            results = MemoryStore(memory_db).search("reflection retrieval", limit=5)
+
+        self.assertTrue(first["ok"])
+        self.assertEqual(first["synced"], 2)
+        self.assertEqual(first["skipped"], 0)
+        self.assertEqual(second["synced"], 0)
+        self.assertEqual(second["skipped"], 2)
+        self.assertEqual({item["metadata"]["workspace_type"] for item in results}, {"evidence", "reflection"})
+
+    def test_workspace_cli_syncs_to_memory_db(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-workspace-cli-memory-") as tmp:
+            memory_db = f"{tmp}/memory.sqlite3"
+            add = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ghostchimera.control_plane.cli",
+                    "workspace",
+                    "add-evidence",
+                    "--state-dir",
+                    tmp,
+                    "--source",
+                    "cli-sync",
+                    "--content",
+                    "workspace sync command feeds retrieval",
+                    "--confidence",
+                    "0.95",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
+            self.assertEqual(add.returncode, 0, add.stderr)
+
+            sync = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ghostchimera.control_plane.cli",
+                    "workspace",
+                    "sync-memory",
+                    "--state-dir",
+                    tmp,
+                    "--memory-db",
+                    memory_db,
+                    "--min-confidence",
+                    "0.9",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
+            self.assertEqual(sync.returncode, 0, sync.stderr)
+            payload = json.loads(sync.stdout)
+            results = MemoryStore(memory_db).search("feeds retrieval", limit=3)
+
+        self.assertEqual(payload["synced"], 1)
+        self.assertEqual(results[0]["metadata"]["workspace_type"], "evidence")
 
 
 if __name__ == "__main__":

@@ -194,6 +194,7 @@ def check_release_hardening() -> dict[str, Any]:
             "python scripts/smoke_installed_wheel.py",
             "python scripts/smoke_installed_wheel.py --extras gateway",
             "ghostchimera workspace show",
+            "ghostchimera workspace sync-memory",
             "clean virtual environment",
             "gateway extras",
         )
@@ -210,6 +211,7 @@ def check_release_hardening() -> dict[str, Any]:
         "python scripts/smoke_installed_wheel.py",
         "python scripts/smoke_installed_wheel.py --extras gateway",
         "ghostchimera workspace show",
+        "ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8",
     ):
         if command not in commands:
             errors.append(f"console readiness missing {command!r}")
@@ -217,12 +219,16 @@ def check_release_hardening() -> dict[str, Any]:
     eval_runner = (ROOT / "ghostchimera" / "evals" / "runner.py").read_text(encoding="utf-8")
     if "/api/console/workspace" not in eval_runner:
         errors.append("user-journey eval does not exercise console workspace state")
+    if "workspace_sync_feeds_retrieval" not in eval_runner:
+        errors.append("user-journey eval does not verify workspace sync feeds retrieval")
 
     smoke_script = (ROOT / "scripts" / "smoke_installed_wheel.py").read_text(encoding="utf-8")
     if "ghostchimera[{normalized}] @" not in smoke_script:
         errors.append("installed-wheel smoke script does not install extras from built wheel metadata")
     if '"workspace", "show", "--state-dir"' not in smoke_script:
         errors.append("installed-wheel smoke script does not exercise workspace CLI")
+    if '"sync-memory"' not in smoke_script:
+        errors.append("installed-wheel smoke script does not exercise workspace memory sync")
 
     return {"ok": not errors, "errors": errors}
 

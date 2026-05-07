@@ -14,6 +14,7 @@ from statistics import fmean
 from typing import Any
 
 from ..config import GhostChimeraConfig
+from ..memory_layer.store import MemoryStore
 from .workspace import AttentionController, ReflectionEngine, SelfModel, WorkingMemory
 
 WORKSPACE_STATE_FILENAME = "operator_workspace.json"
@@ -122,6 +123,49 @@ class OperatorWorkspaceStore:
         self.save()
         return self.snapshot()
 
+    def sync_to_memory(
+        self,
+        *,
+        memory_db: str | Path | None = None,
+        min_confidence: float = 0.0,
+    ) -> dict[str, Any]:
+        """Promote workspace evidence/reflections into CWR memory with provenance."""
+
+        threshold = _bounded_confidence(min_confidence, default=0.0)
+        target_db = Path(memory_db).expanduser() if memory_db else GhostChimeraConfig.from_env().memory_db
+        store = MemoryStore(target_db)
+        synced: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+
+        for item in self._memory_documents(threshold):
+            row_id, inserted = store.add_document_once(
+                str(item["source"]),
+                str(item["content"]),
+                metadata=dict(item["metadata"]),
+            )
+            record = {
+                "id": row_id,
+                "source": item["source"],
+                "workspace_type": item["metadata"]["workspace_type"],
+                "inserted": inserted,
+            }
+            if inserted:
+                synced.append(record)
+            else:
+                skipped.append(record)
+
+        return {
+            "ok": True,
+            "memory_db": str(target_db),
+            "state_file": str(self.path),
+            "min_confidence": threshold,
+            "synced": len(synced),
+            "skipped": len(skipped),
+            "synced_documents": synced,
+            "skipped_documents": skipped,
+            "note": "Workspace records were promoted into CWR memory with explicit provenance.",
+        }
+
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
@@ -228,6 +272,50 @@ class OperatorWorkspaceStore:
                 }
             )
         return AttentionController().rank(items)[:12]
+
+    def _memory_documents(self, min_confidence: float) -> list[dict[str, Any]]:
+        documents: list[dict[str, Any]] = []
+        for index, evidence in enumerate(self.memory.evidence):
+            confidence = _bounded_confidence(evidence.get("confidence"))
+            if confidence < min_confidence:
+                continue
+            source = str(evidence.get("source") or "unknown")
+            timestamp = str(evidence.get("timestamp") or "")
+            documents.append(
+                {
+                    "source": f"workspace:evidence:{source}",
+                    "content": f"Workspace evidence from {source}: {evidence.get('content')}",
+                    "metadata": {
+                        "workspace_type": "evidence",
+                        "workspace_index": index,
+                        "workspace_source": source,
+                        "workspace_timestamp": timestamp,
+                        "confidence": confidence,
+                        "state_file": str(self.path),
+                    },
+                }
+            )
+        for index, reflection in enumerate(self.memory.reflections):
+            confidence = _bounded_confidence(reflection.get("confidence"))
+            if confidence < min_confidence:
+                continue
+            action = str(reflection.get("action") or "unknown")
+            timestamp = str(reflection.get("timestamp") or "")
+            documents.append(
+                {
+                    "source": f"workspace:reflection:{action}",
+                    "content": f"Workspace reflection after {action}: {reflection.get('outcome')}",
+                    "metadata": {
+                        "workspace_type": "reflection",
+                        "workspace_index": index,
+                        "workspace_action": action,
+                        "workspace_timestamp": timestamp,
+                        "confidence": confidence,
+                        "state_file": str(self.path),
+                    },
+                }
+            )
+        return documents
 
     def _uncertainty(self, memory_snapshot: dict[str, Any]) -> dict[str, Any]:
         confidences = [
