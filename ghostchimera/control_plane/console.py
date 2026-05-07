@@ -94,438 +94,7 @@ RELEASE_CHECKS: list[dict[str, str]] = [
 ]
 
 
-CONSOLE_HTML = """<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ghost Console</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #111315;
-      --panel: #181b1f;
-      --line: #2a3037;
-      --text: #f1f5f9;
-      --muted: #9aa6b2;
-      --accent: #54d29b;
-      --warn: #f1b84b;
-      --danger: #f87171;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      background: var(--bg);
-      color: var(--text);
-      font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-    header {
-      height: 56px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 24px;
-      border-bottom: 1px solid var(--line);
-      background: #15181c;
-    }
-    h1 { margin: 0; font-size: 17px; font-weight: 650; }
-    button, select, input, textarea {
-      border: 1px solid var(--line);
-      background: #101215;
-      color: var(--text);
-      border-radius: 6px;
-      font: inherit;
-    }
-    button {
-      cursor: pointer;
-      min-height: 34px;
-      padding: 0 12px;
-      background: #20262c;
-    }
-    button.primary { background: #1b5f45; border-color: #247858; }
-    button:disabled { opacity: .55; cursor: not-allowed; }
-    main {
-      display: grid;
-      grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
-      min-height: calc(100vh - 56px);
-    }
-    aside {
-      border-right: 1px solid var(--line);
-      background: var(--panel);
-      padding: 18px;
-      overflow: auto;
-    }
-    section { padding: 20px 24px; border-bottom: 1px solid var(--line); }
-    h2 { margin: 0 0 12px; font-size: 14px; font-weight: 650; color: var(--muted); text-transform: uppercase; }
-    label { display: block; margin: 12px 0 6px; color: var(--muted); font-size: 12px; }
-    select, input, textarea { width: 100%; padding: 9px 10px; }
-    textarea { min-height: 112px; resize: vertical; }
-    pre {
-      margin: 0;
-      white-space: pre-wrap;
-      word-break: break-word;
-      background: #0d0f12;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 14px;
-      min-height: 180px;
-      max-height: 56vh;
-      overflow: auto;
-    }
-    .row { display: flex; align-items: center; gap: 10px; }
-    .row > * { flex: 1; }
-    .metric { padding: 10px 0; border-bottom: 1px solid var(--line); }
-    .metric:last-child { border-bottom: 0; }
-    .metric strong { display: block; font-size: 18px; }
-    .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
-    .ok { color: var(--accent); }
-    .warn { color: var(--warn); }
-    .error { color: var(--danger); }
-    .stack { display: grid; gap: 10px; }
-    .pill {
-      display: inline-block;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 2px 8px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-    .compact-list {
-      display: grid;
-      gap: 8px;
-      max-height: 220px;
-      overflow: auto;
-    }
-    .compact-item {
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 9px;
-      background: #111418;
-    }
-    @media (max-width: 780px) {
-      main { grid-template-columns: 1fr; }
-      aside { border-right: 0; border-bottom: 1px solid var(--line); }
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>Ghost Console</h1>
-    <div class="row" style="max-width: 260px;">
-      <button id="refresh">Refresh</button>
-      <span id="health" class="hint">connecting</span>
-    </div>
-  </header>
-  <main>
-    <aside>
-      <section style="padding: 0 0 18px;">
-        <h2>Runtime</h2>
-        <div class="metric"><span>Gateway</span><strong id="gatewayState">unknown</strong></div>
-        <div class="metric"><span>Sessions</span><strong id="sessionCount">0</strong></div>
-        <div class="metric"><span>Autonomy</span><strong id="autonomyState">unknown</strong></div>
-      </section>
-      <section style="padding: 18px 0;">
-        <h2>Workspace State</h2>
-        <div class="metric"><span>Evidence</span><strong id="workspaceEvidence">0</strong></div>
-        <div class="metric"><span>Reflections</span><strong id="workspaceReflections">0</strong></div>
-        <div class="metric"><span>Uncertainty</span><strong id="workspaceUncertainty">1.00</strong></div>
-        <button id="refreshWorkspace" style="margin-top: 10px; width: 100%;">Inspect Workspace</button>
-      </section>
-      <section style="padding: 18px 0;">
-        <h2>Autonomy</h2>
-        <label for="autonomyLevel">Profile</label>
-        <select id="autonomyLevel"></select>
-        <div class="hint" id="autonomyDescription"></div>
-        <button id="saveAutonomy" class="primary" style="margin-top: 12px; width: 100%;">Save Profile</button>
-      </section>
-      <section style="padding: 18px 0 0;">
-        <h2>Browser Workspace</h2>
-        <label for="url">HTTPS URL</label>
-        <input id="url" value="https://example.com">
-        <label for="browserSession">Session</label>
-        <input id="browserSession" value="default">
-        <div class="row" style="margin-top: 12px;">
-          <button id="openBrowser">Open</button>
-          <button id="snapshotBrowser">Snapshot</button>
-        </div>
-        <button id="fetchUrl" style="margin-top: 10px; width: 100%;">HTTPS Fetch</button>
-        <div class="hint" id="browserWorkspaceState">checking browser workspace</div>
-      </section>
-      <section style="padding: 18px 0 0;">
-        <h2>Job Center</h2>
-        <label for="jobName">Autonomy Job</label>
-        <select id="jobName"></select>
-        <label><input id="jobExecute" type="checkbox" style="width: auto; margin-right: 6px;"> execute high-impact checks</label>
-        <div class="row" style="margin-top: 12px;">
-          <button id="queueJob">Queue</button>
-          <button id="runJob" class="primary">Run Now</button>
-        </div>
-        <div class="hint">High-impact jobs still require an operator-enabled profile.</div>
-      </section>
-      <section style="padding: 18px 0 0;">
-        <h2>Schedules</h2>
-        <label for="scheduleName">Name</label>
-        <input id="scheduleName" value="daily self audit">
-        <label for="scheduleCron">Cron</label>
-        <input id="scheduleCron" value="0 9 * * *">
-        <button id="createSchedule" style="margin-top: 10px; width: 100%;">Create Disabled Schedule</button>
-        <div class="hint">Schedules reuse the job center and policy gates.</div>
-      </section>
-    </aside>
-    <div>
-      <section>
-        <h2>Run Objective</h2>
-        <textarea id="objective" placeholder="Ask Ghost Chimera to inspect status, run a safe plan, or summarize a workflow."></textarea>
-        <div class="row" style="margin-top: 10px;">
-          <button id="runObjective" class="primary">Run</button>
-          <button id="clearOutput">Clear</button>
-        </div>
-      </section>
-      <section>
-        <h2>Output</h2>
-        <pre id="output">Ready.</pre>
-      </section>
-      <section>
-        <h2>Workspace Attention</h2>
-        <div id="workspaceAttention" class="compact-list"></div>
-      </section>
-      <section>
-        <h2>Recent Jobs</h2>
-        <div id="jobHistory" class="compact-list"></div>
-      </section>
-      <section>
-        <h2>Schedules</h2>
-        <div id="scheduleList" class="compact-list"></div>
-      </section>
-      <section>
-        <h2>Release Readiness</h2>
-        <div id="readinessList" class="compact-list"></div>
-      </section>
-    </div>
-  </main>
-  <script>
-    const output = document.getElementById("output");
-    const state = { profiles: [], workspace: null };
-    function write(value) {
-      output.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-    }
-    function escapeHtml(value) {
-      return String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
-    }
-    async function request(path, options) {
-      const response = await fetch(path, options);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Request failed");
-      return data;
-    }
-    async function refresh() {
-      try {
-        const data = await request("/api/console/status");
-        state.profiles = data.profiles || [];
-        document.getElementById("health").textContent = "online";
-        document.getElementById("health").className = "hint ok";
-        document.getElementById("gatewayState").textContent = data.gateway.running ? "running" : "available";
-        document.getElementById("sessionCount").textContent = data.gateway.session_count;
-        document.getElementById("autonomyState").textContent = data.autonomy.resolved_profile.name;
-        const browser = data.browser_workspace || {};
-        document.getElementById("browserWorkspaceState").textContent = browser.available
-          ? "agent-browser available"
-          : "agent-browser unavailable; HTTPS Fetch still works";
-        document.getElementById("browserWorkspaceState").className = browser.available ? "hint ok" : "hint warn";
-        const select = document.getElementById("autonomyLevel");
-        select.innerHTML = "";
-        for (const profile of state.profiles) {
-          const option = document.createElement("option");
-          option.value = profile.name;
-          option.textContent = profile.name;
-          select.appendChild(option);
-        }
-        select.value = data.autonomy.resolved_profile.name;
-        updateAutonomyDescription();
-        await refreshJobs();
-        await refreshSchedules();
-        await refreshWorkspace();
-        await refreshReadiness();
-      } catch (err) {
-        document.getElementById("health").textContent = "offline";
-        document.getElementById("health").className = "hint error";
-        write(String(err));
-      }
-    }
-    async function refreshJobs() {
-      const data = await request("/api/console/autonomy/jobs");
-      const select = document.getElementById("jobName");
-      select.innerHTML = "";
-      for (const job of data.available_jobs || []) {
-        const option = document.createElement("option");
-        option.value = job.name;
-        option.textContent = job.name;
-        select.appendChild(option);
-      }
-      const history = document.getElementById("jobHistory");
-      history.innerHTML = "";
-      for (const job of (data.history || []).slice().reverse().slice(0, 8)) {
-        const item = document.createElement("div");
-        item.className = "compact-item";
-        item.innerHTML = `<strong>${escapeHtml(job.name)}</strong> <span class="pill">${escapeHtml(job.status)}</span><div class="hint">${escapeHtml(job.profile)} ${job.execute ? "execute" : "preview"}</div>`;
-        history.appendChild(item);
-      }
-      if (!history.children.length) history.textContent = "No autonomy jobs yet.";
-    }
-    async function refreshWorkspace() {
-      const data = await request("/api/console/workspace");
-      state.workspace = data;
-      document.getElementById("workspaceEvidence").textContent = data.working_memory.evidence.length;
-      document.getElementById("workspaceReflections").textContent = data.working_memory.reflections.length;
-      document.getElementById("workspaceUncertainty").textContent = Number(data.uncertainty.score).toFixed(2);
-      const list = document.getElementById("workspaceAttention");
-      list.innerHTML = "";
-      for (const item of data.attention || []) {
-        const row = document.createElement("div");
-        row.className = "compact-item";
-        row.innerHTML = `<strong>${escapeHtml(item.type)}</strong> <span class="pill">${escapeHtml(item.attention_score)}</span><div class="hint">${escapeHtml(item.content || item.action || item.source || "")}</div>`;
-        list.appendChild(row);
-      }
-      if (!list.children.length) list.textContent = "No workspace evidence or reflections yet.";
-      return data;
-    }
-    async function refreshSchedules() {
-      const data = await request("/api/console/autonomy/schedules");
-      const list = document.getElementById("scheduleList");
-      list.innerHTML = "";
-      for (const schedule of data.schedules || []) {
-        const item = document.createElement("div");
-        item.className = "compact-item";
-        item.innerHTML = `<strong>${escapeHtml(schedule.name)}</strong> <span class="pill">${schedule.enabled ? "enabled" : "disabled"}</span><div class="hint">${escapeHtml(schedule.cron_expression)} next ${escapeHtml(schedule.next_run || "pending")}</div>`;
-        const run = document.createElement("button");
-        run.textContent = "Run Now";
-        run.onclick = async () => {
-          write(await request(`/api/console/autonomy/schedules/${schedule.id}/run-now`, { method: "POST" }));
-          await refresh();
-        };
-        item.appendChild(run);
-        list.appendChild(item);
-      }
-      if (!list.children.length) list.textContent = "No schedules yet.";
-    }
-    async function refreshReadiness() {
-      const data = await request("/api/console/readiness");
-      const list = document.getElementById("readinessList");
-      list.innerHTML = "";
-      for (const check of data.checks || []) {
-        const item = document.createElement("div");
-        item.className = "compact-item";
-        item.innerHTML = `<strong>${escapeHtml(check.name)}</strong><div class="hint">${escapeHtml(check.command)}</div>`;
-        list.appendChild(item);
-      }
-    }
-    function updateAutonomyDescription() {
-      const selected = document.getElementById("autonomyLevel").value;
-      const profile = state.profiles.find((item) => item.name === selected);
-      document.getElementById("autonomyDescription").textContent = profile ? profile.description : "";
-    }
-    document.getElementById("refresh").onclick = refresh;
-    document.getElementById("refreshWorkspace").onclick = async () => write(await refreshWorkspace());
-    document.getElementById("clearOutput").onclick = () => write("Ready.");
-    document.getElementById("autonomyLevel").onchange = updateAutonomyDescription;
-    document.getElementById("saveAutonomy").onclick = async () => {
-      const level = document.getElementById("autonomyLevel").value;
-      write(await request("/api/console/autonomy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ level })
-      }));
-      await refresh();
-    };
-    document.getElementById("runObjective").onclick = async () => {
-      const objective = document.getElementById("objective").value.trim();
-      if (!objective) return write("Enter an objective first.");
-      write("Running...");
-      write(await request("/api/console/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ objective })
-      }));
-      await refresh();
-    };
-    document.getElementById("fetchUrl").onclick = async () => {
-      const url = document.getElementById("url").value.trim();
-      write("Fetching...");
-      write(await request("/api/console/browser/fetch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url })
-      }));
-    };
-    document.getElementById("openBrowser").onclick = async () => {
-      const url = document.getElementById("url").value.trim();
-      const session = document.getElementById("browserSession").value.trim() || "default";
-      write("Opening browser workspace...");
-      write(await request("/api/console/browser/open", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, session })
-      }));
-      await refresh();
-    };
-    document.getElementById("snapshotBrowser").onclick = async () => {
-      const url = document.getElementById("url").value.trim();
-      const session = document.getElementById("browserSession").value.trim() || "default";
-      write("Capturing browser snapshot...");
-      write(await request("/api/console/browser/snapshot", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, session })
-      }));
-      await refresh();
-    };
-    document.getElementById("queueJob").onclick = async () => {
-      write(await request("/api/console/autonomy/jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          job: document.getElementById("jobName").value,
-          profile: document.getElementById("autonomyLevel").value,
-          execute: document.getElementById("jobExecute").checked,
-          run_now: false
-        })
-      }));
-      await refresh();
-    };
-    document.getElementById("runJob").onclick = async () => {
-      write(await request("/api/console/autonomy/jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          job: document.getElementById("jobName").value,
-          profile: document.getElementById("autonomyLevel").value,
-          execute: document.getElementById("jobExecute").checked,
-          run_now: true
-        })
-      }));
-      await refresh();
-    };
-    document.getElementById("createSchedule").onclick = async () => {
-      write(await request("/api/console/autonomy/schedules", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: document.getElementById("scheduleName").value,
-          cron_expression: document.getElementById("scheduleCron").value,
-          job: document.getElementById("jobName").value,
-          profile: document.getElementById("autonomyLevel").value,
-          execute: document.getElementById("jobExecute").checked,
-          enabled: false
-        })
-      }));
-      await refresh();
-    };
-    refresh();
-  </script>
-</body>
-</html>
-"""
+CONSOLE_HTML = "<!-- Ghost Console -- served by static/index.html --!>"
 
 
 def _json_body(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -1032,6 +601,7 @@ def run_console(
         config = replace(config, state_dir=resolved, memory_db=resolved / "memory.sqlite3", audit_file=resolved / "audit.json")
     server = GatewayServer(host=host, port=port, http_port=http_port, config=config)
     register_console_routes(server, state_dir=state_dir or config.state_dir)
+    _register_static_routes(server)
     server.start()
     url = _console_url(server)
     print(f"Ghost Console: {url}")
@@ -1044,6 +614,36 @@ def run_console(
         except KeyboardInterrupt:
             server.stop()
     return server
+
+
+_STATIC_DIR: Path | None = None
+
+
+def _static_dir() -> Path:
+    global _STATIC_DIR
+    if _STATIC_DIR is None:
+        _STATIC_DIR = Path(__file__).parent / "static"
+    return _STATIC_DIR
+
+
+def _register_static_routes(server: GatewayServer) -> None:
+    base = _static_dir()
+    if not base.is_dir():
+        return
+    for rel in ("index.html", "app.js", "styles.css"):
+        full = base / rel
+        if not full.is_file():
+            continue
+        body = full.read_bytes()
+        ct = {"index.html": "text/html; charset=utf-8", "app.js": "application/javascript; charset=utf-8", "styles.css": "text/css; charset=utf-8"}.get(rel, "application/octet-stream")
+
+        def make_handler(data: bytes, ct_: str) -> Callable[[dict[str, Any]], HttpResponse]:
+            return lambda ctx: HttpResponse(body=data, content_type=ct_)
+
+        if rel == "index.html":
+            server.routes.register("/", make_handler(body, ct), method="GET", auth="open", description="Ghost Console static page")
+            server.routes.register("/console", make_handler(body, ct), method="GET", auth="open", description="Ghost Console static page")
+        server.routes.register("/static/" + rel, make_handler(body, ct), method="GET", auth="open", description="Static asset")
 
 
 __all__ = ["CONSOLE_HTML", "register_console_routes", "run_console"]

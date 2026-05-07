@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ghost Console</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <h1>Ghost Console</h1>
+    <div class="row">
+      <span id="health" class="badge">checking</span>
+      <button id="refresh">Refresh</button>
+    </div>
+  </header>
+  <nav class="tab-bar" id="tabBar">
+    <button class="tab active" data-tab="status">Status</button>
+    <button class="tab" data-tab="run">Run</button>
+    <button class="tab" data-tab="jobs">Jobs</button>
+    <button class="tab" data-tab="workspace">Workspace</button>
+    <button class="tab" data-tab="schedules">Schedules</button>
+    <button class="tab" data-tab="readiness">Readiness</button>
+  </nav>
+  <div class="tab-content active" id="tab-status">
+    <div class="grid" id="statusCards"></div>
+    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Autonomy Profile</h3>
+    <div class="form-group">
+      <select id="autonomyLevel"></select>
+      <label id="autonomyDesc" class="hint"></label>
+    </div>
+    <div class="row"><button id="saveAutonomy" class="primary">Save Profile</button></div>
+  </div>
+  <div class="tab-content" id="tab-run">
+    <div class="form-group">
+      <label>Objective</label>
+      <textarea id="objective" placeholder="Ask Ghost Chimera to inspect status, run a safe plan, or summarize a workflow."></textarea>
+    </div>
+    <div class="row">
+      <button id="runObjective" class="primary">Run</button>
+      <button id="clearOutput">Clear</button>
+    </div>
+    <pre class="output" id="output">Ready.</pre>
+  </div>
+  <div class="tab-content" id="tab-jobs">
+    <h3 style="margin-bottom:10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Available Jobs</h3>
+    <div class="row" style="margin-bottom:16px;">
+      <select id="jobName" style="flex:2;min-width:180px;"></select>
+      <select id="jobProfile" style="flex:1;min-width:120px;"></select>
+      <label class="inline-check"><input id="jobExecute" type="checkbox"> execute</label>
+      <button id="runJob" class="primary">Run Now</button>
+    </div>
+    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Job History</h3>
+    <div id="jobHistory"></div>
+  </div>
+  <div class="tab-content" id="tab-workspace">
+    <h3 style="margin:0 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Add Evidence</h3>
+    <div class="row" style="margin-bottom:14px;">
+      <input id="evidenceSource" placeholder="source" style="flex:1;">
+      <input id="evidenceContent" placeholder="content" style="flex:2;">
+      <input id="evidenceConfidence" type="number" step="0.01" min="0" max="1" placeholder="confidence" style="flex:0 0 80px;">
+      <button id="addEvidence" class="primary">Add</button>
+    </div>
+    <h3 style="margin:0 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Add Reflection</h3>
+    <div class="row" style="margin-bottom:14px;">
+      <input id="reflectionAction" placeholder="action" style="flex:1;">
+      <input id="reflectionOutcome" placeholder="outcome" style="flex:2;">
+      <input id="reflectionConfidence" type="number" step="0.01" min="0" max="1" placeholder="confidence" style="flex:0 0 80px;">
+      <button id="addReflection" class="primary">Add</button>
+    </div>
+    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Workspace State</h3>
+    <div id="workspaceDetail"></div>
+    <div class="row" style="margin-top:10px;"><button id="syncMemory" class="primary">Sync to CWR Memory</button></div>
+  </div>
+  <div class="tab-content" id="tab-schedules">
+    <h3 style="margin:0 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Create Schedule</h3>
+    <div class="row" style="margin-bottom:14px;">
+      <input id="scheduleName" placeholder="name" style="flex:1;">
+      <input id="scheduleCron" placeholder="cron" style="flex:1;">
+      <select id="scheduleJob" style="flex:1;"></select>
+      <button id="createSchedule" class="primary">Create (disabled)</button>
+    </div>
+    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Existing Schedules</h3>
+    <div id="scheduleList"></div>
+  </div>
+  <div class="tab-content" id="tab-readiness">
+    <h3 style="margin-bottom:10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Release Readiness Checklist</h3>
+    <div id="readinessList"></div>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
