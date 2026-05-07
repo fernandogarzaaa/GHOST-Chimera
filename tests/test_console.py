@@ -11,6 +11,7 @@ from unittest.mock import patch
 from ghostchimera.chimera_pilot.gateway_server import GatewayServer, HttpResponse
 from ghostchimera.control_plane.cli import _main
 from ghostchimera.control_plane.console import register_console_routes, run_console
+from ghostchimera.tool_layer.browser_workspace import AgentBrowserWorkspace
 
 
 class FakeBrowserWorkspace:
@@ -120,6 +121,18 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertEqual(snapshot["output"], "@e1 [heading] Example")
         self.assertEqual(workspace.calls[0][0], "open")
         self.assertEqual(workspace.calls[1][0], "snapshot")
+
+    def test_console_browser_workspace_degrades_when_agent_browser_is_missing(self) -> None:
+        workspace = AgentBrowserWorkspace(binary="definitely-missing-agent-browser")
+        server = GatewayServer()
+        register_console_routes(server, browser_workspace=workspace)
+
+        route = server.routes.find("GET", "/api/console/browser/status")
+        self.assertIsNotNone(route)
+        payload = route.handler({"method": "GET", "path": "/api/console/browser/status", "headers": {}, "body": "", "query": {}})
+
+        self.assertFalse(payload["available"])
+        self.assertIn("agent-browser binary not found", payload["detail"])
 
     def test_console_run_route_validates_objective_and_delegates_to_runner(self) -> None:
         calls: list[str] = []
@@ -253,6 +266,9 @@ class ConsoleRouteTests(unittest.TestCase):
         commands = [check["command"] for check in payload["checks"]]
         self.assertIn("python scripts/validate_release.py", commands)
         self.assertIn("python -m ghostchimera.evals run --suite safety", commands)
+        self.assertIn("python -m ghostchimera.evals run --suite user-journey", commands)
+        self.assertIn("python scripts/smoke_installed_wheel.py", commands)
+        self.assertIn("python scripts/smoke_installed_wheel.py --extras gateway", commands)
 
 
 class ConsoleCliTests(unittest.TestCase):
@@ -265,6 +281,16 @@ class ConsoleCliTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         parallel_main.assert_called_once_with(["run", "inspect status", "--parallel", "1"])
+
+    def test_cli_delegates_top_level_batch_command_from_sys_argv(self) -> None:
+        with (
+            patch.object(sys, "argv", ["ghostchimera", "batch", "objectives.jsonl", "--workers", "2"]),
+            patch("ghostchimera.control_plane.parallel_cli._main", return_value=0) as parallel_main,
+        ):
+            result = _main()
+
+        self.assertEqual(result, 0)
+        parallel_main.assert_called_once_with(["batch", "objectives.jsonl", "--workers", "2"])
 
     def test_cli_does_not_delegate_nested_autonomy_run_to_parallel_cli(self) -> None:
         with (

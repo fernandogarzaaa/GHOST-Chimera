@@ -1,6 +1,6 @@
 # Beta Wiring Audit
 
-Date: 2026-05-06
+Date: 2026-05-07
 
 Ghost Chimera is in beta phase. This tracker records the release wiring status
 for the orchestration workstreams from `docs/ORCHESTRATION_IMPLEMENTATION_PLAN.md`.
@@ -17,6 +17,9 @@ for the orchestration workstreams from `docs/ORCHESTRATION_IMPLEMENTATION_PLAN.m
   scheduled runs in the same autonomy job history.
 - Optional `agent-browser` support remains degraded-friendly; core console
   controls continue to work when the binary is absent.
+- The user-journey eval now exercises the first-run console/operator path:
+  CLI help dispatch, config/state reporting, preview job creation, disabled
+  schedule creation, degraded browser workspace status, and readiness output.
 
 ## Runtime State And Checkpointing
 
@@ -54,7 +57,8 @@ for the orchestration workstreams from `docs/ORCHESTRATION_IMPLEMENTATION_PLAN.m
 
 - Replay bundles include run, decision, attempts, transitions, and trace hashes.
 - Telemetry exports JSON/CSV and replay-bundle files.
-- Built-in eval suites emit release-gate summaries.
+- Built-in smoke, safety, autonomy, and user-journey eval suites emit
+  release-gate summaries.
 
 ## Release Gate
 
@@ -66,7 +70,12 @@ python -m pytest -q
 python -m build
 python -m ghostchimera.evals run --suite smoke
 python -m ghostchimera.evals run --suite safety
+python -m ghostchimera.evals run --suite autonomy
+python -m ghostchimera.evals run --suite user-journey
+python scripts\smoke_installed_wheel.py
+python scripts\smoke_installed_wheel.py --extras gateway
 ```
 
-For public artifacts, also install the built wheel in a clean virtual
-environment and smoke the console entry points.
+CI installs `.[gateway,dev]` for full source validation, then smokes the built
+wheel twice: once without optional extras and once with gateway extras for the
+console/scheduler/user-journey path.

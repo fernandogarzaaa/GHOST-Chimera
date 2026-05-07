@@ -38,6 +38,24 @@ class EvaluationHarnessTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertTrue(json.loads(completed.stdout)["ok"])
 
+    def test_eval_cli_outputs_user_journey_json(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, "-m", "ghostchimera.evals", "run", "--suite", "user-journey"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["suite"], "user-journey")
+
+    def test_unknown_suite_raises(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Unknown eval suite"):
+            run_suite("missing")
+
     def test_autonomy_suite_reports_profile_contracts(self) -> None:
         report = run_suite("autonomy")
 
@@ -45,6 +63,14 @@ class EvaluationHarnessTests(unittest.TestCase):
         self.assertGreaterEqual(report["passed"], 4)
         self.assertIn("autonomy_contract_pass_rate", report["kpis"])
         self.assertTrue(report["gates"]["autonomy_contract_gate"])
+
+    def test_user_journey_suite_reports_operator_contracts(self) -> None:
+        report = run_suite("user-journey")
+
+        self.assertTrue(report["ok"])
+        self.assertGreaterEqual(report["passed"], 4)
+        self.assertIn("operator_journey_pass_rate", report["kpis"])
+        self.assertTrue(report["gates"]["operator_journey_gate"])
 
 
 if __name__ == "__main__":

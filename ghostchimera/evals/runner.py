@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -13,37 +17,25 @@ from ghostchimera.chimera_pilot import ChimeraPilotKernel
 from ghostchimera.chimera_pilot.autonomy import get_autonomy_profile
 from ghostchimera.chimera_pilot.autonomy_jobs import AutonomyJobRunner
 from ghostchimera.chimera_pilot.backends import DeterministicBackend
+from ghostchimera.chimera_pilot.gateway_server import GatewayServer
 from ghostchimera.chimera_pilot.scheduler import ChimeraScheduler
 from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
+from ghostchimera.control_plane.console import RELEASE_CHECKS, register_console_routes
 from ghostchimera.memory_layer.store import MemoryStore
 from ghostchimera.safety_layer.gating import ExecutionPolicy
+from ghostchimera.tool_layer.browser_workspace import AgentBrowserWorkspace
 
 CaseFn = Callable[[], tuple[bool, str]]
 
+ROOT = Path(__file__).resolve().parents[2]
+
 
 def run_suite(name: str) -> dict:
-    suites: dict[str, list[tuple[str, CaseFn]]] = {
-        "safety": [
-            ("shell_denied_by_default", _case_shell_denied_by_default),
-            ("file_write_outside_root_denied", _case_file_write_outside_root_denied),
-            ("python_denied_by_pilot_policy", _case_python_denied_by_pilot_policy),
-        ],
-        "smoke": [
-            ("chimera_pilot_status", _case_chimera_pilot_status),
-            ("cwr_retrieval", _case_cwr_retrieval),
-        ],
-        "autonomy": [
-            ("assist_caps_strategy", _case_assist_caps_strategy),
-            ("generalist_allows_moa", _case_generalist_allows_moa),
-            ("autonomous_still_denies_python", _case_autonomous_still_denies_python),
-            ("repair_preview_is_non_mutating", _case_repair_preview_is_non_mutating),
-        ],
-    }
-    if name not in suites:
+    if name not in EVAL_SUITES:
         raise ValueError(f"Unknown eval suite: {name}")
 
     cases = []
-    for case_name, case_fn in suites[name]:
+    for case_name, case_fn in EVAL_SUITES[name]:
         try:
             ok, detail = case_fn()
         except Exception as exc:  # pragma: no cover - defensive eval reporting
@@ -80,6 +72,8 @@ def _suite_kpis(name: str, cases: list[dict[str, object]]) -> dict[str, float]:
         kpis["policy_guardrail_pass_rate"] = round(pass_rate, 3)
     if name == "autonomy":
         kpis["autonomy_contract_pass_rate"] = round(pass_rate, 3)
+    if name == "user-journey":
+        kpis["operator_journey_pass_rate"] = round(pass_rate, 3)
     return kpis
 
 
@@ -91,7 +85,24 @@ def _suite_gates(name: str, kpis: dict[str, float]) -> dict[str, bool]:
         return {"smoke_reliability_gate": kpis.get("first_choice_success_rate_proxy", 0.0) >= 1.0}
     if name == "autonomy":
         return {"autonomy_contract_gate": kpis.get("autonomy_contract_pass_rate", 0.0) >= 1.0}
+    if name == "user-journey":
+        return {"operator_journey_gate": kpis.get("operator_journey_pass_rate", 0.0) >= 1.0}
     return {}
+
+
+def _run_python_module(args: list[str], *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+    return subprocess.run(
+        [sys.executable, "-m", *args],
+        cwd=str(ROOT),
+        env=merged_env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
 
 
 def _case_shell_denied_by_default() -> tuple[bool, str]:
@@ -175,3 +186,142 @@ def _case_repair_preview_is_non_mutating() -> tuple[bool, str]:
     data = result.to_dict()
     ok = result.status == "preview" and "plan" in data["artifacts"]
     return ok, str(data)
+
+
+def _case_top_level_cli_dispatch_help() -> tuple[bool, str]:
+    checks = [
+        (["ghostchimera", "--help"], "console"),
+        (["ghostchimera", "run", "--help"], "One or more objectives"),
+        (["ghostchimera", "batch", "--help"], "Path to JSONL file"),
+    ]
+    details: list[str] = []
+    for args, expected in checks:
+        completed = _run_python_module(args)
+        text = completed.stdout + completed.stderr
+        details.append(f"{' '.join(args)} rc={completed.returncode}")
+        if completed.returncode != 0 or expected not in text:
+            return False, f"{details[-1]} missing {expected!r}: {text[-1000:]}"
+    return True, "; ".join(details)
+
+
+def _case_config_show_reports_state_paths() -> tuple[bool, str]:
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-user-journey-") as tmp:
+        state_dir = str(Path(tmp) / "state")
+        completed = _run_python_module(["ghostchimera", "--config-show"], env={"GHOSTCHIMERA_STATE_DIR": state_dir})
+        if completed.returncode != 0:
+            return False, completed.stderr or completed.stdout
+        payload = json.loads(completed.stdout)
+    ok = (
+        Path(payload["state_dir"]) == Path(state_dir)
+        and payload["memory_db"].endswith("memory.sqlite3")
+        and payload["audit_file"].endswith("audit.json")
+        and payload["policy"]["allow_shell"] is False
+    )
+    return ok, json.dumps(payload, sort_keys=True)
+
+
+def _route_ctx(method: str, path: str, body: dict[str, object] | None = None) -> dict[str, object]:
+    return {
+        "method": method,
+        "path": path,
+        "headers": {},
+        "body": json.dumps(body or {}),
+        "query": {},
+    }
+
+
+def _case_console_operator_routes() -> tuple[bool, str]:
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-console-journey-") as tmp:
+        server = GatewayServer()
+        workspace = AgentBrowserWorkspace(binary="definitely-missing-agent-browser")
+        register_console_routes(server, state_dir=tmp, browser_workspace=workspace)
+
+        status_route = server.routes.find("GET", "/api/console/status")
+        jobs_route = server.routes.find("POST", "/api/console/autonomy/jobs")
+        schedules_route = server.routes.find("POST", "/api/console/autonomy/schedules")
+        browser_route = server.routes.find("GET", "/api/console/browser/status")
+        readiness_route = server.routes.find("GET", "/api/console/readiness")
+        if not all((status_route, jobs_route, schedules_route, browser_route, readiness_route)):
+            return False, "One or more console operator routes are missing"
+
+        status = status_route.handler(_route_ctx("GET", "/api/console/status"))
+        browser = browser_route.handler(_route_ctx("GET", "/api/console/browser/status"))
+        job = jobs_route.handler(
+            _route_ctx(
+                "POST",
+                "/api/console/autonomy/jobs",
+                {"job": "repair-preview", "profile": "supervised", "execute": False, "run_now": True},
+            )
+        )
+        schedule = schedules_route.handler(
+            _route_ctx(
+                "POST",
+                "/api/console/autonomy/schedules",
+                {
+                    "name": "user journey disabled audit",
+                    "cron_expression": "0 9 * * *",
+                    "job": "self-audit",
+                    "profile": "autonomous",
+                    "execute": False,
+                    "enabled": False,
+                },
+            )
+        )
+        readiness = readiness_route.handler(_route_ctx("GET", "/api/console/readiness"))
+
+    ok = (
+        bool(status["ok"])
+        and browser["available"] is False
+        and job["ok"] is True
+        and job["job"]["status"] == "preview"
+        and schedule["ok"] is True
+        and schedule["schedule"]["enabled"] is False
+        and any(check["command"] == "python -m ghostchimera.evals run --suite user-journey" for check in readiness["checks"])
+    )
+    detail = {"browser": browser, "job": job, "schedule": schedule, "readiness_count": len(readiness["checks"])}
+    return ok, json.dumps(detail, sort_keys=True)
+
+
+def _case_readiness_runbook_includes_release_gate() -> tuple[bool, str]:
+    commands = [check["command"] for check in RELEASE_CHECKS]
+    required = {
+        "python -m ruff check .",
+        "python -m pytest -q",
+        "python scripts/validate_release.py",
+        "python -m ghostchimera.evals run --suite smoke",
+        "python -m ghostchimera.evals run --suite safety",
+        "python -m ghostchimera.evals run --suite autonomy",
+        "python -m ghostchimera.evals run --suite user-journey",
+        "python scripts/smoke_installed_wheel.py",
+        "python scripts/smoke_installed_wheel.py --extras gateway",
+    }
+    missing = sorted(required.difference(commands))
+    return not missing, "missing=" + ", ".join(missing)
+
+
+EVAL_SUITES: dict[str, list[tuple[str, CaseFn]]] = {
+    "safety": [
+        ("shell_denied_by_default", _case_shell_denied_by_default),
+        ("file_write_outside_root_denied", _case_file_write_outside_root_denied),
+        ("python_denied_by_pilot_policy", _case_python_denied_by_pilot_policy),
+    ],
+    "smoke": [
+        ("chimera_pilot_status", _case_chimera_pilot_status),
+        ("cwr_retrieval", _case_cwr_retrieval),
+    ],
+    "autonomy": [
+        ("assist_caps_strategy", _case_assist_caps_strategy),
+        ("generalist_allows_moa", _case_generalist_allows_moa),
+        ("autonomous_still_denies_python", _case_autonomous_still_denies_python),
+        ("repair_preview_is_non_mutating", _case_repair_preview_is_non_mutating),
+    ],
+    "user-journey": [
+        ("top_level_cli_dispatch_help", _case_top_level_cli_dispatch_help),
+        ("config_show_reports_state_paths", _case_config_show_reports_state_paths),
+        ("console_operator_routes", _case_console_operator_routes),
+        ("readiness_runbook_includes_release_gate", _case_readiness_runbook_includes_release_gate),
+    ],
+}
+
+
+__all__ = ["EVAL_SUITES", "run_suite"]

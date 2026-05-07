@@ -41,6 +41,7 @@ all = [
 ]
 dev = [
   "build>=1.2",
+  "pytest>=8.0",
   "ruff>=0.5",
 ]
 

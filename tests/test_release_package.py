@@ -44,6 +44,19 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertIn("GHOSTCHIMERA_MEMORY_DB=", env_example)
         self.assertIn("GHOSTCHIMERA_AUDIT_FILE=", env_example)
 
+    def test_release_checklist_documents_installed_wheel_and_user_journey_gate(self) -> None:
+        checklist = (ROOT / "docs" / "RELEASE_CHECKLIST.md").read_text(encoding="utf-8")
+
+        self.assertIn("python -m ghostchimera.evals run --suite user-journey", checklist)
+        self.assertIn("python scripts/smoke_installed_wheel.py", checklist)
+        self.assertIn("python scripts/smoke_installed_wheel.py --extras gateway", checklist)
+        self.assertIn("gateway extras", checklist)
+
+    def test_manifest_includes_release_scripts(self) -> None:
+        manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+
+        self.assertIn("recursive-include scripts *.py", manifest)
+
     def test_chimera_pilot_cli_status_outputs_json(self) -> None:
         completed = subprocess.run(
             [sys.executable, "-m", "ghostchimera.chimera_pilot.cli", "status", "--include-deterministic-backend"],

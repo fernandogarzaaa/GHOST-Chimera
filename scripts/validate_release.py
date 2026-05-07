@@ -30,6 +30,7 @@ REQUIRED_FILES = [
     "docs/ARCHITECTURE.md",
     "docs/CLEAN_ROOM.md",
     "docs/RELEASE_CHECKLIST.md",
+    "scripts/smoke_installed_wheel.py",
 ]
 
 
@@ -173,6 +174,49 @@ def check_beta_features() -> dict[str, Any]:
     return {"ok": not errors, "errors": errors}
 
 
+def check_release_hardening() -> dict[str, Any]:
+    """Check that the beta release gate includes operator-journey coverage."""
+
+    from ghostchimera.control_plane.console import RELEASE_CHECKS
+    from ghostchimera.evals.runner import EVAL_SUITES
+
+    errors: list[str] = []
+    if "user-journey" not in EVAL_SUITES:
+        errors.append("user-journey eval suite missing")
+
+    release_checklist = (ROOT / "docs" / "RELEASE_CHECKLIST.md").read_text(encoding="utf-8")
+    missing_docs = [
+        token
+        for token in (
+            "python -m ghostchimera.evals run --suite user-journey",
+            "python scripts/smoke_installed_wheel.py",
+            "python scripts/smoke_installed_wheel.py --extras gateway",
+            "clean virtual environment",
+            "gateway extras",
+        )
+        if token not in release_checklist
+    ]
+    errors.extend(f"release checklist missing {token!r}" for token in missing_docs)
+
+    commands = [check["command"] for check in RELEASE_CHECKS]
+    for command in (
+        "python -m ruff check .",
+        "python -m pytest -q",
+        "python -m ghostchimera.evals run --suite autonomy",
+        "python -m ghostchimera.evals run --suite user-journey",
+        "python scripts/smoke_installed_wheel.py",
+        "python scripts/smoke_installed_wheel.py --extras gateway",
+    ):
+        if command not in commands:
+            errors.append(f"console readiness missing {command!r}")
+
+    smoke_script = (ROOT / "scripts" / "smoke_installed_wheel.py").read_text(encoding="utf-8")
+    if "ghostchimera[{normalized}] @" not in smoke_script:
+        errors.append("installed-wheel smoke script does not install extras from built wheel metadata")
+
+    return {"ok": not errors, "errors": errors}
+
+
 def check_unittest() -> dict[str, Any]:
     stream = io.StringIO()
     suite = unittest.defaultTestLoader.loadTestsFromNames([
@@ -181,6 +225,7 @@ def check_unittest() -> dict[str, Any]:
         "tests.test_code_search",
         "tests.test_config",
         "tests.test_conscious_workspace",
+        "tests.test_console",
         "tests.test_cwr_backend",
         "tests.test_evals",
         "tests.test_llamacpp_backend",
@@ -205,6 +250,7 @@ def main() -> int:
         "pyproject": check_pyproject(),
         "imports": check_imports(),
         "beta_features": check_beta_features(),
+        "release_hardening": check_release_hardening(),
         "policy_defaults": check_policy_defaults(),
         "compileall": check_compileall(),
         "unittest": check_unittest(),

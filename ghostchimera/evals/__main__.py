@@ -6,14 +6,14 @@ import argparse
 import json
 import sys
 
-from .runner import run_suite
+from .runner import EVAL_SUITES, run_suite
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run Ghost Chimera evaluation suites")
     subparsers = parser.add_subparsers(dest="command", required=True)
     run_parser = subparsers.add_parser("run", help="Run one suite")
-    run_parser.add_argument("--suite", default="smoke", choices=["smoke", "safety", "autonomy"])
+    run_parser.add_argument("--suite", default="smoke", choices=sorted(EVAL_SUITES))
     args = parser.parse_args(argv)
 
     if args.command == "run":

@@ -26,6 +26,16 @@ FetchUrl = Callable[[str], str]
 
 RELEASE_CHECKS: list[dict[str, str]] = [
     {
+        "name": "ruff lint",
+        "command": "python -m ruff check .",
+        "purpose": "Checks import order and static Python lint rules.",
+    },
+    {
+        "name": "pytest suite",
+        "command": "python -m pytest -q",
+        "purpose": "Runs the full source test suite.",
+    },
+    {
         "name": "release validator",
         "command": "python scripts/validate_release.py",
         "purpose": "Runs the repo release gate checks.",
@@ -46,9 +56,29 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "purpose": "Runs the built-in safety evaluation suite.",
     },
     {
-        "name": "clean wheel smoke",
-        "command": "python -m venv .venv-release-smoke; pip install dist/*.whl; ghostchimera --help",
-        "purpose": "Verifies the installed artifact in a clean environment.",
+        "name": "autonomy eval",
+        "command": "python -m ghostchimera.evals run --suite autonomy",
+        "purpose": "Checks autonomy profile and job-runner contracts.",
+    },
+    {
+        "name": "user journey eval",
+        "command": "python -m ghostchimera.evals run --suite user-journey",
+        "purpose": "Exercises first-run local operator CLI and console paths.",
+    },
+    {
+        "name": "production doctor",
+        "command": "GHOSTCHIMERA_DEPLOYMENT_MODE=production GHOSTCHIMERA_EXTERNAL_ISOLATION=container GHOSTCHIMERA_SECURITY_REVIEWED=1 GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED=1 ghostchimera doctor --production",
+        "purpose": "Verifies production-mode guardrail configuration.",
+    },
+    {
+        "name": "base wheel smoke",
+        "command": "python scripts/smoke_installed_wheel.py",
+        "purpose": "Verifies the installed artifact without optional extras.",
+    },
+    {
+        "name": "gateway wheel smoke",
+        "command": "python scripts/smoke_installed_wheel.py --extras gateway",
+        "purpose": "Verifies console and scheduler paths with gateway extras.",
     },
 ]
 
