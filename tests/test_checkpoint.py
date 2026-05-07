@@ -40,9 +40,17 @@ class CheckpointManagerTests(unittest.TestCase):
         self.config = type("MockConfig", (), {"state_dir": self.tmpdir})()
         self.state_dir = os.path.join(self.tmpdir, "state")
         os.makedirs(self.state_dir, exist_ok=True)
+        # Patch the module-level CHECKPOINT_BASE so no real checkpoints leak
+        import ghostchimera.chimera_pilot.checkpoint as cp
+        self._orig_checkpoint_base = cp.CHECKPOINT_BASE
+        cp.CHECKPOINT_BASE = Path(self.tmpdir) / "checkpoints"
         self.manager = CheckpointManager(self.config)
-        self.manager.checkpoint_dir = Path(os.path.join(self.tmpdir, "checkpoints"))
-        os.makedirs(self.manager.checkpoint_dir, exist_ok=True)
+        os.makedirs(cp.CHECKPOINT_BASE, exist_ok=True)
+        self.manager.checkpoint_dir = cp.CHECKPOINT_BASE
+
+    def tearDown(self) -> None:
+        import ghostchimera.chimera_pilot.checkpoint as cp
+        cp.CHECKPOINT_BASE = self._orig_checkpoint_base
 
     def test_create_checkpoint(self) -> None:
         ckpt = self.manager.create_checkpoint(description="test checkpoint")
