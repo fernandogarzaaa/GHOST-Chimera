@@ -255,6 +255,64 @@ class ConsoleRouteTests(unittest.TestCase):
             disabled = list_route.handler({"method": "GET", "path": "/api/console/autonomy/schedules", "headers": {}, "body": "", "query": {}})
             self.assertEqual(disabled["schedules"][0]["enabled"], False)
 
+    def test_console_registers_operator_workspace_routes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-console-workspace-") as tmp:
+            server = GatewayServer()
+            register_console_routes(server, state_dir=tmp)
+
+            workspace_route = server.routes.find("GET", "/api/console/workspace")
+            evidence_route = server.routes.find("POST", "/api/console/workspace/evidence")
+            reflection_route = server.routes.find("POST", "/api/console/workspace/reflections")
+            goal_route = server.routes.find("POST", "/api/console/workspace/goals")
+
+            self.assertIsNotNone(workspace_route)
+            self.assertIsNotNone(evidence_route)
+            self.assertIsNotNone(reflection_route)
+            self.assertIsNotNone(goal_route)
+
+            initial = workspace_route.handler({"method": "GET", "path": "/api/console/workspace", "headers": {}, "body": "", "query": {}})
+            self.assertTrue(initial["ok"])
+            self.assertIn("no_subjective_consciousness", initial["self_model"]["limits"])
+
+            evidence = evidence_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/workspace/evidence",
+                    "headers": {},
+                    "body": json.dumps({"source": "operator", "content": "console workspace route works", "confidence": 0.93}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(evidence["ok"])
+
+            reflection = reflection_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/workspace/reflections",
+                    "headers": {},
+                    "body": json.dumps({"action": "inspected console", "outcome": "workspace state visible", "confidence": 0.9}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(reflection["ok"])
+
+            goal = goal_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/workspace/goals",
+                    "headers": {},
+                    "body": json.dumps({"name": "operator_visibility", "description": "show evidence and uncertainty"}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(goal["ok"])
+
+            snapshot = workspace_route.handler({"method": "GET", "path": "/api/console/workspace", "headers": {}, "body": "", "query": {}})
+
+        self.assertEqual(snapshot["working_memory"]["evidence"][0]["source"], "operator")
+        self.assertEqual(snapshot["working_memory"]["reflections"][0]["outcome"], "workspace state visible")
+        self.assertEqual(snapshot["self_model"]["goals"]["operator_visibility"], "show evidence and uncertainty")
+
     def test_console_readiness_route_returns_release_runbook(self) -> None:
         server = GatewayServer()
         register_console_routes(server)
@@ -269,6 +327,7 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIn("python -m ghostchimera.evals run --suite user-journey", commands)
         self.assertIn("python scripts/smoke_installed_wheel.py", commands)
         self.assertIn("python scripts/smoke_installed_wheel.py --extras gateway", commands)
+        self.assertIn("ghostchimera workspace show", commands)
 
 
 class ConsoleCliTests(unittest.TestCase):

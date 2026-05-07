@@ -116,6 +116,21 @@ def _main(argv: list[str] | None = None) -> int:
     autonomy_parser.add_argument("--max-parallel-tasks", type=int)
     autonomy_parser.add_argument("--local-model-profile", choices=["tiny", "balanced", "stronger"])
     autonomy_parser.add_argument("--execute", action="store_true", help="Allow jobs that otherwise return preview-only plans.")
+    workspace_parser = sub.add_parser("workspace", help="Inspect and update the local operator workspace state")
+    workspace_parser.add_argument(
+        "action",
+        choices=["show", "add-evidence", "reflect", "set-goal", "clear"],
+        nargs="?",
+        default="show",
+    )
+    workspace_parser.add_argument("--state-dir", default="", help="Optional state directory for workspace state.")
+    workspace_parser.add_argument("--source", default="", help="Evidence source for add-evidence.")
+    workspace_parser.add_argument("--content", default="", help="Evidence content for add-evidence.")
+    workspace_parser.add_argument("--confidence", type=float, default=0.5, help="Confidence from 0.0 to 1.0.")
+    workspace_parser.add_argument("--reflection-action", default="", help="Action name for reflect.")
+    workspace_parser.add_argument("--outcome", default="", help="Outcome text for reflect.")
+    workspace_parser.add_argument("--goal", default="", help="Goal name for set-goal.")
+    workspace_parser.add_argument("--description", default="", help="Goal description for set-goal.")
     minimind_parser = sub.add_parser("minimind", help="Inspect MiniMind local runtime support")
     minimind_parser.add_argument("action", choices=["status", "architectures", "dataset", "log-failure"], nargs="?", default="status")
     minimind_parser.add_argument("--profile", default="", help="MiniMind/local model profile.")
@@ -229,6 +244,9 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "autonomy":
         return _run_autonomy_cli(args)
 
+    if args.command == "workspace":
+        return _run_workspace_cli(args)
+
     if args.command == "minimind":
         return _run_minimind_cli(args)
 
@@ -340,6 +358,34 @@ def _run_autonomy_cli(args: argparse.Namespace) -> int:
         return 0 if result.ok else 1
 
     return 2
+
+
+def _run_workspace_cli(args: argparse.Namespace) -> int:
+    from ..cognition_layer.workspace_state import OperatorWorkspaceStore
+
+    store = OperatorWorkspaceStore(state_dir=args.state_dir or None)
+    try:
+        if args.action == "show":
+            payload = store.snapshot()
+        elif args.action == "add-evidence":
+            payload = store.add_evidence(args.source, args.content, confidence=args.confidence)
+        elif args.action == "reflect":
+            payload = store.add_reflection(
+                action=args.reflection_action,
+                outcome=args.outcome,
+                confidence=args.confidence,
+            )
+        elif args.action == "set-goal":
+            payload = store.set_goal(args.goal, args.description)
+        elif args.action == "clear":
+            payload = store.clear()
+        else:
+            return 2
+    except ValueError as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, indent=2, sort_keys=True))
+        return 2
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
 
 
 def _run_minimind_cli(args: argparse.Namespace) -> int:

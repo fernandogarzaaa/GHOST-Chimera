@@ -19,7 +19,21 @@ for the orchestration workstreams from `docs/ORCHESTRATION_IMPLEMENTATION_PLAN.m
   controls continue to work when the binary is absent.
 - The user-journey eval now exercises the first-run console/operator path:
   CLI help dispatch, config/state reporting, preview job creation, disabled
-  schedule creation, degraded browser workspace status, and readiness output.
+  schedule creation, operator workspace status, degraded browser workspace
+  status, and readiness output.
+
+## Operator Workspace UX
+
+- `ghostchimera workspace show` exposes the local self-model, working memory,
+  attention ranking, goals, and uncertainty summary through the real
+  control-plane CLI.
+- Workspace evidence, reflections, and goals persist under the Ghost Chimera
+  state directory in `operator_workspace.json`.
+- The browser console exposes the same state through `/api/console/workspace`
+  plus evidence, reflection, and goal update routes.
+- The implementation keeps truthful beta boundaries: this is inspectable local
+  runtime state, not AGI, SGI, subjective consciousness, or unattended
+  production operation.
 
 ## Runtime State And Checkpointing
 
@@ -74,6 +88,7 @@ python -m ghostchimera.evals run --suite autonomy
 python -m ghostchimera.evals run --suite user-journey
 python scripts\smoke_installed_wheel.py
 python scripts\smoke_installed_wheel.py --extras gateway
+ghostchimera workspace show
 ```
 
 CI installs `.[gateway,dev]` for full source validation, then smokes the built

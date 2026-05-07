@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
+import tempfile
 import unittest
 
 from ghostchimera.cognition_layer.reasoning import linearise_tasks
@@ -9,6 +13,7 @@ from ghostchimera.cognition_layer.workspace import (
     SelfModel,
     WorkingMemory,
 )
+from ghostchimera.cognition_layer.workspace_state import OperatorWorkspaceStore
 
 
 class ConsciousWorkspaceTests(unittest.TestCase):
@@ -67,6 +72,93 @@ class ConsciousWorkspaceTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             linearise_tasks(tasks)
+
+    def test_operator_workspace_persists_truthful_state(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-workspace-") as tmp:
+            store = OperatorWorkspaceStore(state_dir=tmp)
+            initial = store.snapshot()
+            self.assertIn("no_subjective_consciousness", initial["self_model"]["limits"])
+
+            store.add_evidence("release-audit", "console routes are registered", confidence=0.92)
+            store.add_reflection(
+                action="exposed workspace state",
+                outcome="operator can inspect evidence without AGI claims",
+                confidence=0.88,
+            )
+            store.set_goal("workspace_visibility", "show current evidence and uncertainty to local operators")
+
+            reloaded = OperatorWorkspaceStore(state_dir=tmp)
+            snapshot = reloaded.snapshot()
+
+        self.assertEqual(snapshot["working_memory"]["evidence"][0]["source"], "release-audit")
+        self.assertEqual(snapshot["working_memory"]["reflections"][0]["action"], "exposed workspace state")
+        self.assertEqual(snapshot["self_model"]["goals"]["workspace_visibility"], "show current evidence and uncertainty to local operators")
+        self.assertGreater(snapshot["attention"][0]["attention_score"], 0)
+        self.assertLess(snapshot["uncertainty"]["score"], 1.0)
+
+    def test_workspace_cli_reports_and_updates_state(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-workspace-cli-") as tmp:
+            show = subprocess.run(
+                [sys.executable, "-m", "ghostchimera.control_plane.cli", "workspace", "show", "--state-dir", tmp],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
+            self.assertEqual(show.returncode, 0, show.stderr)
+            payload = json.loads(show.stdout)
+            self.assertIn("self_model", payload)
+
+            add = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ghostchimera.control_plane.cli",
+                    "workspace",
+                    "add-evidence",
+                    "--state-dir",
+                    tmp,
+                    "--source",
+                    "cli-test",
+                    "--content",
+                    "workspace command is reachable",
+                    "--confidence",
+                    "0.91",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
+            self.assertEqual(add.returncode, 0, add.stderr)
+
+            reflect = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ghostchimera.control_plane.cli",
+                    "workspace",
+                    "reflect",
+                    "--state-dir",
+                    tmp,
+                    "--reflection-action",
+                    "ran CLI smoke",
+                    "--outcome",
+                    "state persisted",
+                    "--confidence",
+                    "0.89",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
+            self.assertEqual(reflect.returncode, 0, reflect.stderr)
+
+            final = json.loads(reflect.stdout)
+
+        self.assertEqual(final["working_memory"]["evidence"][0]["source"], "cli-test")
+        self.assertEqual(final["working_memory"]["reflections"][0]["outcome"], "state persisted")
 
 
 if __name__ == "__main__":

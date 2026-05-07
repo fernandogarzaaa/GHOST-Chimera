@@ -45,13 +45,14 @@ def _run(command: list[str], *, timeout: int = 120) -> dict[str, object]:
     }
 
 
-def _smoke_commands(python: Path, extras: str) -> list[list[str]]:
+def _smoke_commands(python: Path, extras: str, state_dir: Path) -> list[list[str]]:
     commands = [
         [str(python), "-c", "import ghostchimera; print(ghostchimera.__version__)"],
         [str(python), "-m", "ghostchimera", "--help"],
         [str(python), "-m", "ghostchimera", "run", "--help"],
         [str(python), "-m", "ghostchimera", "batch", "--help"],
         [str(python), "-m", "ghostchimera", "--config-show"],
+        [str(python), "-m", "ghostchimera", "workspace", "show", "--state-dir", str(state_dir)],
         [str(python), "-m", "ghostchimera", "minimind", "architectures"],
         [str(python), "-m", "ghostchimera", "minimind", "status"],
     ]
@@ -85,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
         ]
         results.extend(install_results)
         if all(item["ok"] for item in install_results):
-            for command in _smoke_commands(python, args.extras):
+            for command in _smoke_commands(python, args.extras, Path(tmp) / "state"):
                 results.append(_run(command, timeout=120))
 
     ok = all(item["ok"] for item in results)

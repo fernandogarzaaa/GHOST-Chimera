@@ -6,7 +6,7 @@ Ghost Chimera is organized as a layered local-first agent runtime.
 ghostchimera/
   agent_core/       planning, Chimera Pilot handoff, execution, skill dispatch
   chimera_pilot/    task IR, policy, scheduling, execution, verification
-  cognition_layer/  self-model, working memory, attention, reflection primitives
+  cognition_layer/  self-model, working memory, attention, reflection, workspace state
   control_plane/    user-facing CLI entry points
   evals/            smoke and safety evaluation suites
   memory_layer/     SQLite FTS local retrieval store
@@ -64,6 +64,18 @@ Local model execution also has a runtime-specialization planner inspired by CuTe
 3. Emits a stable cache key, JSON plan manifests, and a warmup index so deployment/replay tooling can see which specialization was selected.
 
 The planner is wired into `LlamaCppRuntime`, `LlamaCppBackend`, Chimera Pilot status, `chimera-pilot runtime-specialization`, `chimera-pilot runtime-warmup`, and `ghostchimera runtime-warmup`. It detects the optional `nvidia-cutlass-dsl` package when installed, but the default beta path remains llama.cpp execution with specialization metadata rather than unverified custom GPU kernel compilation.
+
+## Operator workspace
+
+The cognition layer separates inspectable workspace state from any claim of
+subjective consciousness. `OperatorWorkspaceStore` persists self-model limits,
+local goals, working-memory evidence, reflection records, attention rankings,
+and an uncertainty summary under the Ghost Chimera state directory.
+
+`ghostchimera workspace show` exposes that state through the CLI, and the local
+console exposes the same contract at `/api/console/workspace`. The store is
+designed as an operator visibility surface and future retrieval/planning input;
+it does not create a hidden autonomous production loop.
 
 ## Safety boundary
 

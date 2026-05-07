@@ -237,14 +237,16 @@ def _case_console_operator_routes() -> tuple[bool, str]:
         register_console_routes(server, state_dir=tmp, browser_workspace=workspace)
 
         status_route = server.routes.find("GET", "/api/console/status")
+        workspace_route = server.routes.find("GET", "/api/console/workspace")
         jobs_route = server.routes.find("POST", "/api/console/autonomy/jobs")
         schedules_route = server.routes.find("POST", "/api/console/autonomy/schedules")
         browser_route = server.routes.find("GET", "/api/console/browser/status")
         readiness_route = server.routes.find("GET", "/api/console/readiness")
-        if not all((status_route, jobs_route, schedules_route, browser_route, readiness_route)):
+        if not all((status_route, workspace_route, jobs_route, schedules_route, browser_route, readiness_route)):
             return False, "One or more console operator routes are missing"
 
         status = status_route.handler(_route_ctx("GET", "/api/console/status"))
+        workspace_state = workspace_route.handler(_route_ctx("GET", "/api/console/workspace"))
         browser = browser_route.handler(_route_ctx("GET", "/api/console/browser/status"))
         job = jobs_route.handler(
             _route_ctx(
@@ -271,6 +273,8 @@ def _case_console_operator_routes() -> tuple[bool, str]:
 
     ok = (
         bool(status["ok"])
+        and workspace_state["ok"] is True
+        and "no_subjective_consciousness" in workspace_state["self_model"]["limits"]
         and browser["available"] is False
         and job["ok"] is True
         and job["job"]["status"] == "preview"
@@ -278,7 +282,16 @@ def _case_console_operator_routes() -> tuple[bool, str]:
         and schedule["schedule"]["enabled"] is False
         and any(check["command"] == "python -m ghostchimera.evals run --suite user-journey" for check in readiness["checks"])
     )
-    detail = {"browser": browser, "job": job, "schedule": schedule, "readiness_count": len(readiness["checks"])}
+    detail = {
+        "browser": browser,
+        "job": job,
+        "readiness_count": len(readiness["checks"]),
+        "schedule": schedule,
+        "workspace": {
+            "evidence_count": len(workspace_state["working_memory"]["evidence"]),
+            "limits": sorted(workspace_state["self_model"]["limits"]),
+        },
+    }
     return ok, json.dumps(detail, sort_keys=True)
 
 
@@ -294,6 +307,7 @@ def _case_readiness_runbook_includes_release_gate() -> tuple[bool, str]:
         "python -m ghostchimera.evals run --suite user-journey",
         "python scripts/smoke_installed_wheel.py",
         "python scripts/smoke_installed_wheel.py --extras gateway",
+        "ghostchimera workspace show",
     }
     missing = sorted(required.difference(commands))
     return not missing, "missing=" + ", ".join(missing)

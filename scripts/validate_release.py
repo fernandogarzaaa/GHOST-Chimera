@@ -62,6 +62,7 @@ def check_imports() -> dict[str, Any]:
         "ghostchimera.agent_core.core",
         "ghostchimera.chimera_pilot",
         "ghostchimera.chimera_pilot.cli",
+        "ghostchimera.cognition_layer.workspace_state",
         "ghostchimera.control_plane.cli",
         "ghostchimera.mcp.server",
         "ghostchimera.mcp.client",
@@ -192,6 +193,7 @@ def check_release_hardening() -> dict[str, Any]:
             "python -m ghostchimera.evals run --suite user-journey",
             "python scripts/smoke_installed_wheel.py",
             "python scripts/smoke_installed_wheel.py --extras gateway",
+            "ghostchimera workspace show",
             "clean virtual environment",
             "gateway extras",
         )
@@ -207,13 +209,20 @@ def check_release_hardening() -> dict[str, Any]:
         "python -m ghostchimera.evals run --suite user-journey",
         "python scripts/smoke_installed_wheel.py",
         "python scripts/smoke_installed_wheel.py --extras gateway",
+        "ghostchimera workspace show",
     ):
         if command not in commands:
             errors.append(f"console readiness missing {command!r}")
 
+    eval_runner = (ROOT / "ghostchimera" / "evals" / "runner.py").read_text(encoding="utf-8")
+    if "/api/console/workspace" not in eval_runner:
+        errors.append("user-journey eval does not exercise console workspace state")
+
     smoke_script = (ROOT / "scripts" / "smoke_installed_wheel.py").read_text(encoding="utf-8")
     if "ghostchimera[{normalized}] @" not in smoke_script:
         errors.append("installed-wheel smoke script does not install extras from built wheel metadata")
+    if '"workspace", "show", "--state-dir"' not in smoke_script:
+        errors.append("installed-wheel smoke script does not exercise workspace CLI")
 
     return {"ok": not errors, "errors": errors}
 

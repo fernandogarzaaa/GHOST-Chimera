@@ -12,6 +12,7 @@ from .confidence import (
 from .hallucination import DetectionReport, HallucinationDetector, HallucinationFlag  # noqa: F401
 from .reasoning import linearise_tasks  # noqa: F401
 from .workspace import AttentionController, ReflectionEngine, SelfModel, WorkingMemory
+from .workspace_state import OperatorWorkspaceStore
 
 __all__ = [
     "AttentionController",
@@ -25,6 +26,7 @@ __all__ = [
     "HallucinationFlag",
     "linearise_tasks",
     "MemoryScope",
+    "OperatorWorkspaceStore",
     "ProvisionalValue",
     "ReflectionEngine",
     "SelfModel",

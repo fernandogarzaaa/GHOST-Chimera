@@ -15,6 +15,7 @@ from ..chimera_pilot.autonomy import get_autonomy_profile, list_autonomy_profile
 from ..chimera_pilot.autonomy_jobs import JOB_SPECS
 from ..chimera_pilot.autonomy_queue import AutonomyJobQueue
 from ..chimera_pilot.gateway_server import GatewayServer, HttpResponse
+from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 from ..config import GhostChimeraConfig
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
@@ -79,6 +80,11 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "name": "gateway wheel smoke",
         "command": "python scripts/smoke_installed_wheel.py --extras gateway",
         "purpose": "Verifies console and scheduler paths with gateway extras.",
+    },
+    {
+        "name": "workspace state smoke",
+        "command": "ghostchimera workspace show",
+        "purpose": "Verifies the inspectable operator workspace CLI is reachable.",
     },
 ]
 
@@ -215,6 +221,13 @@ CONSOLE_HTML = """<!doctype html>
         <div class="metric"><span>Autonomy</span><strong id="autonomyState">unknown</strong></div>
       </section>
       <section style="padding: 18px 0;">
+        <h2>Workspace State</h2>
+        <div class="metric"><span>Evidence</span><strong id="workspaceEvidence">0</strong></div>
+        <div class="metric"><span>Reflections</span><strong id="workspaceReflections">0</strong></div>
+        <div class="metric"><span>Uncertainty</span><strong id="workspaceUncertainty">1.00</strong></div>
+        <button id="refreshWorkspace" style="margin-top: 10px; width: 100%;">Inspect Workspace</button>
+      </section>
+      <section style="padding: 18px 0;">
         <h2>Autonomy</h2>
         <label for="autonomyLevel">Profile</label>
         <select id="autonomyLevel"></select>
@@ -269,6 +282,10 @@ CONSOLE_HTML = """<!doctype html>
         <pre id="output">Ready.</pre>
       </section>
       <section>
+        <h2>Workspace Attention</h2>
+        <div id="workspaceAttention" class="compact-list"></div>
+      </section>
+      <section>
         <h2>Recent Jobs</h2>
         <div id="jobHistory" class="compact-list"></div>
       </section>
@@ -284,7 +301,7 @@ CONSOLE_HTML = """<!doctype html>
   </main>
   <script>
     const output = document.getElementById("output");
-    const state = { profiles: [] };
+    const state = { profiles: [], workspace: null };
     function write(value) {
       output.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
     }
@@ -323,6 +340,7 @@ CONSOLE_HTML = """<!doctype html>
         updateAutonomyDescription();
         await refreshJobs();
         await refreshSchedules();
+        await refreshWorkspace();
         await refreshReadiness();
       } catch (err) {
         document.getElementById("health").textContent = "offline";
@@ -349,6 +367,23 @@ CONSOLE_HTML = """<!doctype html>
         history.appendChild(item);
       }
       if (!history.children.length) history.textContent = "No autonomy jobs yet.";
+    }
+    async function refreshWorkspace() {
+      const data = await request("/api/console/workspace");
+      state.workspace = data;
+      document.getElementById("workspaceEvidence").textContent = data.working_memory.evidence.length;
+      document.getElementById("workspaceReflections").textContent = data.working_memory.reflections.length;
+      document.getElementById("workspaceUncertainty").textContent = Number(data.uncertainty.score).toFixed(2);
+      const list = document.getElementById("workspaceAttention");
+      list.innerHTML = "";
+      for (const item of data.attention || []) {
+        const row = document.createElement("div");
+        row.className = "compact-item";
+        row.innerHTML = `<strong>${escapeHtml(item.type)}</strong> <span class="pill">${escapeHtml(item.attention_score)}</span><div class="hint">${escapeHtml(item.content || item.action || item.source || "")}</div>`;
+        list.appendChild(row);
+      }
+      if (!list.children.length) list.textContent = "No workspace evidence or reflections yet.";
+      return data;
     }
     async function refreshSchedules() {
       const data = await request("/api/console/autonomy/schedules");
@@ -386,6 +421,7 @@ CONSOLE_HTML = """<!doctype html>
       document.getElementById("autonomyDescription").textContent = profile ? profile.description : "";
     }
     document.getElementById("refresh").onclick = refresh;
+    document.getElementById("refreshWorkspace").onclick = async () => write(await refreshWorkspace());
     document.getElementById("clearOutput").onclick = () => write("Ready.");
     document.getElementById("autonomyLevel").onchange = updateAutonomyDescription;
     document.getElementById("saveAutonomy").onclick = async () => {
@@ -585,6 +621,7 @@ def register_console_routes(
     state_dir: str | Path | None = None,
     autonomy_queue: AutonomyJobQueue | None = None,
     cron_scheduler: Any | None = None,
+    operator_workspace: OperatorWorkspaceStore | None = None,
 ) -> None:
     """Register browser console routes on an existing GatewayServer."""
 
@@ -592,6 +629,7 @@ def register_console_routes(
     url_fetcher = fetch_url or http_get
     workspace = browser_workspace or AgentBrowserWorkspace()
     queue = autonomy_queue or AutonomyJobQueue(state_dir=state_dir or server.config.state_dir)
+    workspace_store = operator_workspace or OperatorWorkspaceStore(state_dir=state_dir or server.config.state_dir)
     scheduler = cron_scheduler
     scheduler_error = ""
     if scheduler is None:
@@ -670,6 +708,41 @@ def register_console_routes(
         try:
             return workspace.snapshot(url=url, session=session)
         except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def operator_workspace_snapshot(ctx: dict[str, Any]) -> dict[str, Any]:
+        return workspace_store.snapshot()
+
+    def operator_workspace_evidence(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        try:
+            return workspace_store.add_evidence(
+                str(body.get("source") or "").strip(),
+                str(body.get("content") or "").strip(),
+                confidence=float(body.get("confidence", 0.5)),
+            )
+        except (TypeError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def operator_workspace_reflection(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        try:
+            return workspace_store.add_reflection(
+                action=str(body.get("action") or body.get("reflection_action") or "").strip(),
+                outcome=str(body.get("outcome") or "").strip(),
+                confidence=float(body.get("confidence", 0.5)),
+            )
+        except (TypeError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def operator_workspace_goal(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        try:
+            return workspace_store.set_goal(
+                str(body.get("name") or body.get("goal") or "").strip(),
+                str(body.get("description") or "").strip(),
+            )
+        except (TypeError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
 
     def readiness(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -812,6 +885,34 @@ def register_console_routes(
     server.routes.register("/api/console/status", status, method="GET", auth="open", description="Ghost Console status")
     server.routes.register("/api/console/autonomy", autonomy, method="GET", auth="open", description="Ghost Console autonomy")
     server.routes.register("/api/console/autonomy", autonomy, method="POST", auth="open", description="Ghost Console autonomy")
+    server.routes.register(
+        "/api/console/workspace",
+        operator_workspace_snapshot,
+        method="GET",
+        auth="open",
+        description="Inspect operator workspace state",
+    )
+    server.routes.register(
+        "/api/console/workspace/evidence",
+        operator_workspace_evidence,
+        method="POST",
+        auth="open",
+        description="Record operator workspace evidence",
+    )
+    server.routes.register(
+        "/api/console/workspace/reflections",
+        operator_workspace_reflection,
+        method="POST",
+        auth="open",
+        description="Record operator workspace reflection",
+    )
+    server.routes.register(
+        "/api/console/workspace/goals",
+        operator_workspace_goal,
+        method="POST",
+        auth="open",
+        description="Set operator workspace goal",
+    )
     server.routes.register("/api/console/readiness", readiness, method="GET", auth="open", description="Ghost Console release readiness runbook")
     server.routes.register("/api/console/autonomy/jobs", jobs_list, method="GET", auth="open", description="List autonomy jobs")
     server.routes.register("/api/console/autonomy/jobs", jobs_create, method="POST", auth="open", description="Queue autonomy job")

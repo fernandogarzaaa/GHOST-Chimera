@@ -11,7 +11,7 @@ This is a developer beta for local experimentation, runtime research, and extens
 - Python: 3.11 through 3.13
 - License: MIT
 - Runtime posture: local-first, conservative-by-default, optional integrations
-- Validation gate: release script, test suite, build, smoke evals, safety evals
+- Validation gate: release script, test suite, build, smoke/safety/autonomy/user-journey evals, installed-wheel smokes
 
 ## What Is Wired
 
@@ -19,7 +19,7 @@ This is a developer beta for local experimentation, runtime research, and extens
 | --- | --- |
 | `agent_core` | Planner, task linearization, memory, skill dispatch, and Chimera Pilot handoff. |
 | `chimera_pilot` | Task IR, compiler, backend registry, scheduler, policy gate, fallback executor, verifier, telemetry, checkpointing, batch orchestration, subagents, credential pool, gateway server, cron scheduling, toolsets, lifecycle hooks, tool-result middleware, plugin manifests, and service registry. |
-| `cognition_layer` | Confidence values, hallucination flags, task ordering, self-model, working memory, attention, and reflection primitives. |
+| `cognition_layer` | Confidence values, hallucination flags, task ordering, self-model, working memory, attention, reflection primitives, and durable operator workspace state. |
 | `control_plane` | User-facing CLIs for setup, diagnostics, model selection, policy management, parallel runs, and Pilot execution. |
 | `evals` | Built-in release smoke and safety evaluation suites. |
 | `mcp` | Lightweight JSON-RPC style MCP server/client surfaces and Chimera Pilot MCP backend. |
@@ -84,6 +84,16 @@ ghostchimera console --state-dir .ghost-console-state
 ```
 
 The console runs on localhost by default and exposes status, autonomy profile controls, safe objective runs, a durable autonomy job center, recurring schedules, release-readiness checks, the existing HTTPS-only browser fetch tool, and optional `agent-browser` workspace controls through the gateway-backed UI. Install the `gateway` extra for WebSocket and cron scheduling dependencies. The browser workspace is optional; when `agent-browser` is not installed, the console reports a degraded browser-workspace state while core controls continue to work.
+
+Inspect the local operator workspace state:
+
+```bash
+ghostchimera workspace show
+ghostchimera workspace add-evidence --source release-audit --content "release gate passed" --confidence 0.92
+ghostchimera workspace reflect --reflection-action "ran beta gate" --outcome "operator workspace stayed inspectable" --confidence 0.9
+```
+
+The workspace state is persisted under the Ghost Chimera state directory and is also available through `/api/console/workspace`. It exposes the self model, working memory, attention ranking, goals, and uncertainty for local operators. It is not a claim of subjective consciousness, AGI, SGI, or fully autonomous production operation.
 
 Inspect Chimera Pilot:
 
@@ -328,18 +338,24 @@ ghostchimera minimind log-failure --prompt "..." --response "..." --confidence 0
 Before publishing or tagging a release, run:
 
 ```bash
-python scripts/validate_release.py
+python -m ruff check .
 python -m pytest -q
+python scripts/validate_release.py
 python -m build
 python -m ghostchimera.evals run --suite smoke
 python -m ghostchimera.evals run --suite safety
+python -m ghostchimera.evals run --suite autonomy
+python -m ghostchimera.evals run --suite user-journey
+python scripts/smoke_installed_wheel.py
+python scripts/smoke_installed_wheel.py --extras gateway
 ```
 
-For package validation, install the built wheel into a fresh virtual environment and smoke the console entry points:
+For package validation, install the built wheel into a fresh virtual environment and smoke the console and workspace entry points:
 
 ```bash
 python -m ghostchimera.control_plane.cli --help
 python -m ghostchimera.control_plane.cli console --help
+python -m ghostchimera.control_plane.cli workspace show
 python -m ghostchimera.chimera_pilot.cli --help
 python -m ghostchimera.evals run --suite safety
 ```
