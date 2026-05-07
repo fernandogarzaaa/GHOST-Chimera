@@ -16,6 +16,9 @@ from ghostchimera.safety_layer.ssrf import (
 
 class SSRFPolicyTests(unittest.TestCase):
     def setUp(self):
+        """
+        Create a fresh SSRFPolicy instance and assign it to `self.policy` for use by each test.
+        """
         self.policy = SSRFPolicy()
 
     def test_default_allow_all_false(self):
@@ -106,6 +109,11 @@ class SSRFPolicyTests(unittest.TestCase):
 
 class NetworkDispatcherTests(unittest.TestCase):
     def setUp(self):
+        """
+        Prepare test fixtures by resetting the global dispatcher and creating a fresh SSRFPolicy and NetworkDispatcher assigned to the test instance.
+        
+        The method resets any existing dispatcher state, constructs a new SSRFPolicy stored as `self.policy`, and creates a NetworkDispatcher using that policy stored as `self.dispatcher`.
+        """
         reset_dispatcher()
         self.policy = SSRFPolicy()
         self.dispatcher = NetworkDispatcher(self.policy)
@@ -121,6 +129,14 @@ class NetworkDispatcherTests(unittest.TestCase):
 
     def test_fetch_result_attributes(self):
         # Create a dispatcher that allow_all to avoid SSRFViolation
+        """
+        Ensure NetworkDispatcher.fetch produces a FetchResult with the requested URL and either a successful result or a connection error when using an allow-all SSRFPolicy.
+        
+        Asserts:
+        - The return value is a FetchResult.
+        - The FetchResult.url equals the requested URL.
+        - Either `result.ok` is true or `result.error` is set (allowing for network failures).
+        """
         permissive = SSRFPolicy(allow_all=True)
         disp = NetworkDispatcher(permissive)
         result = disp.fetch("http://invalid-host-that-does-not-exist.test/test", timeout_seconds=2)

@@ -42,6 +42,11 @@ class CronJobTests(unittest.TestCase):
 
 class CronSchedulerTests(unittest.TestCase):
     def setUp(self):
+        """
+        Create a temporary state directory and instantiate a CronScheduler configured for tests.
+        
+        Initializes a TemporaryDirectory assigned to self.tmp and constructs self.scheduler as a CronScheduler using that directory as its state_dir with poll_interval set to 1.
+        """
         self.tmp = tempfile.TemporaryDirectory(prefix="ghostchimera-cron-test-")
         self.scheduler = CronScheduler(state_dir=self.tmp.name, poll_interval=1)
 

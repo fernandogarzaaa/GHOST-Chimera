@@ -126,6 +126,11 @@ class AnthropicProviderTests(unittest.TestCase):
 
 class ProviderRegistryTests(unittest.TestCase):
     def tearDown(self):
+        """
+        Remove OpenAI and Anthropic API key environment variables to restore a clean environment after each test.
+        
+        This deletes the "OPENAI_API_KEY" and "ANTHROPIC_API_KEY" keys from os.environ if they exist.
+        """
         os.environ.pop("OPENAI_API_KEY", None)
         os.environ.pop("ANTHROPIC_API_KEY", None)
 
@@ -159,6 +164,16 @@ class ProviderRegistryTests(unittest.TestCase):
             available = True
 
             def chat(self, system_message: str, user_message: str) -> str:
+                """
+                Return a chat response for the given system and user messages.
+                
+                Parameters:
+                    system_message (str): System prompt or context for the response.
+                    user_message (str): User message to which the provider should respond.
+                
+                Returns:
+                    response (str): The provider's chat response.
+                """
                 return "custom response"
 
         register_text_provider("custom", CustomProvider)
