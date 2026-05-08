@@ -366,6 +366,14 @@ def _case_workspace_sync_quality_flags() -> tuple[bool, str]:
 
 
 def _case_readiness_runbook_includes_release_gate() -> tuple[bool, str]:
+    """
+    Check that the release readiness runbook contains all required release-gate commands.
+    
+    Compares the `command` values from `RELEASE_CHECKS` against a fixed set of required commands and reports any missing entries.
+    
+    Returns:
+        `True` if no required commands are missing, `False` otherwise; the second element is a string of the form `"missing=<cmd1>, <cmd2>, ..."`.
+    """
     commands = [check["command"] for check in RELEASE_CHECKS]
     required = {
         "python -m ruff check .",
@@ -384,13 +392,21 @@ def _case_readiness_runbook_includes_release_gate() -> tuple[bool, str]:
     return not missing, "missing=" + ", ".join(missing)
 
 
-    missing = sorted(required.difference(commands))
-    return not missing, "missing=" + ", ".join(missing)
-
-
 # ── Coverage eval cases ──────────────────────────────────────────────
 
 def _case_ssrf_policy_blocks_private_ip() -> tuple[bool, str]:
+    """
+    Verifies the SSRF policy denies requests to loopback, private, and cloud metadata IP addresses.
+    
+    Checks whether requests to 127.0.0.1, 10.0.0.1, and 169.254.169.254 are blocked by the SSRFPolicy.
+    
+    Returns:
+        tuple_ok_detail (tuple[bool, str]): First element is `True` if all three addresses are denied, `False` otherwise.
+            Second element is a JSON string with boolean fields:
+            - `deny_loopback`: whether loopback (127.0.0.1) was denied
+            - `deny_private`: whether private-range (10.0.0.1) was denied
+            - `deny_metadata`: whether metadata address (169.254.169.254) was denied
+    """
     from ghostchimera.safety_layer.ssrf import SSRFPolicy
 
     policy = SSRFPolicy()
@@ -408,6 +424,12 @@ def _case_ssrf_policy_blocks_private_ip() -> tuple[bool, str]:
 
 
 def _case_approval_requires_token() -> tuple[bool, str]:
+    """
+    Validates that different approval handlers grant or deny an approval request as configured.
+    
+    Returns:
+        tuple[bool, str]: `ok` is `True` if auto-approve approves, auto-deny denies, callback-approve approves, and callback-deny denies; `detail` is the tuple of the four boolean results serialized to a string.
+    """
     from ghostchimera.safety_layer.approval import (
         ApprovalPolicy,
         ApprovalRequest,
@@ -434,6 +456,12 @@ def _case_approval_requires_token() -> tuple[bool, str]:
 
 
 def _case_production_mode_blocks_shell() -> tuple[bool, str]:
+    """
+    Checks that production mode requires external isolation and that a production configuration without a security review is considered not ready.
+    
+    Returns:
+        tuple[bool, str]: `(ok, detail)` where `ok` is true if production is active, a production guard lacking security review reports not ready, and external isolation is present; `detail` is a JSON string with keys `is_production`, `has_isolation`, `ready`, and `not_ready_no_review`.
+    """
     from ghostchimera.safety_layer.production import ProductionGuardrails
 
     guard = ProductionGuardrails(
@@ -448,6 +476,12 @@ def _case_production_mode_blocks_shell() -> tuple[bool, str]:
 
 
 def _case_material_policy_applies_rules() -> tuple[bool, str]:
+    """
+    Checks that the material policy classifies a temporal claim, detects prompt-injection attack patterns, and reports a numeric overall security risk.
+    
+    Returns:
+        (ok, detail): `ok` is `True` if the classification equals `"temporal"`, at least one attack match was found, and `security["overall_risk"]` is an int or float; `detail` is a JSON-serialized object with keys `classification`, `attack_matches`, and `overall_risk`.
+    """
     from ghostchimera.safety_layer.material_policy import MaterialRegistry
 
     reg = MaterialRegistry()
@@ -463,6 +497,17 @@ def _case_material_policy_applies_rules() -> tuple[bool, str]:
 
 
 def _case_error_classifies_network_failure() -> tuple[bool, str]:
+    """
+    Classifies a network-related error and verifies it maps to a rate-limit recovery plan.
+    
+    Calls the error classifier on the message "429 Too Many Requests" and checks that the produced recovery plan is an AutoRecoveryPlan whose first category is `ErrorCategory.RATE_LIMIT`, that `plan.retry` is True, and that the classifier taxonomy contains the key `"rate_limit"`.
+    
+    Returns:
+        tuple_ok_detail (tuple[bool, str]): A tuple where the first element is `true` if all verification checks pass, `false` otherwise; the second element is a JSON string with keys:
+            - `categories`: list of category values from the plan,
+            - `retry`: the plan's `retry` boolean,
+            - `taxonomy_keys`: list of keys present in the classifier taxonomy.
+    """
     from ghostchimera.chimera_pilot.error_classifier import AutoRecoveryPlan, ErrorCategory, ErrorClassifier
 
     clf = ErrorClassifier()
@@ -478,6 +523,14 @@ def _case_error_classifies_network_failure() -> tuple[bool, str]:
 
 
 def _case_mixture_of_agents_scores_outputs() -> tuple[bool, str]:
+    """
+    Check that MixtureOfAgents produces a valid numeric output score and that the internal Jaccard similarity is in the expected range.
+    
+    Runs the MixtureOfAgents scoring on a sample input and computes its internal Jaccard similarity, then verifies the numeric ranges of both results.
+    
+    Returns:
+        tuple[bool, str]: `(ok, detail)` where `ok` is `True` if the score is a `float` between 0 and 100 inclusive and the Jaccard similarity is a `float` between 0 and 1 inclusive, `False` otherwise. `detail` is a JSON string with keys `"score"` and `"jaccard"` containing the corresponding values rounded to two decimal places.
+    """
     from ghostchimera.chimera_pilot.mixture_of_agents import MixtureOfAgents, MoAConfig
 
     cfg = MoAConfig()
@@ -492,16 +545,38 @@ def _case_mixture_of_agents_scores_outputs() -> tuple[bool, str]:
 
 
 def _case_context_compressor_truncates() -> tuple[bool, str]:
+    """
+    Check that ContextCompressor reduces message count when over budget, or preserves messages when within budget.
+
+    Uses 12 messages (enough to exceed the protected head+tail window) so real compression can occur.
+    Validates that when should_compress(current_tokens) is True the output is strictly shorter,
+    and records should_compress result for observability.
+    """
     from ghostchimera.chimera_pilot.context_compressor import ContextCompressor
 
     comp = ContextCompressor(model_context_length=100, use_llm_summarization=False)
-    messages = [{"role": "user", "content": "x" * 50}, {"role": "assistant", "content": "y" * 50}, {"role": "user", "content": "z" * 50}]
-    compressed = comp.compress(messages, current_tokens=200, focus_topic="summary")
-    ok = len(compressed) < len(messages) or compressed == messages  # may not compress if within budget
-    return ok, json.dumps({"original": len(messages), "compressed": len(compressed), "should_compress": comp.should_compress(200)})
+    # 12 messages: protect_first_n(3) + middle(3) + protect_last_n(6) = 12, so middle is non-empty
+    messages = [
+        {"role": "user" if i % 2 == 0 else "assistant", "content": "x" * 20 + str(i).zfill(2)}
+        for i in range(12)
+    ]
+    current_tokens = 200
+    should = comp.should_compress(current_tokens)
+    compressed = comp.compress(messages, current_tokens=current_tokens, focus_topic="summary")
+    if should:
+        ok = len(compressed) < len(messages)
+    else:
+        ok = compressed == messages
+    return ok, json.dumps({"original": len(messages), "compressed": len(compressed), "should_compress": should})
 
 
 def _case_autonomy_queue_persists_records() -> tuple[bool, str]:
+    """
+    Enqueues a job in AutonomyJobQueue and verifies that the record is not in an error state and the queue history contains entries.
+    
+    Returns:
+        tuple[bool, str]: The first element is `True` if the enqueued record's status is not `"error"` and the history length is greater than 0, `False` otherwise. The second element is a JSON string with keys `"record_status"` (the record status) and `"history_len"` (the number of jobs in history).
+    """
     from ghostchimera.chimera_pilot.autonomy_queue import AutonomyJobQueue
 
     with tempfile.TemporaryDirectory(prefix="ghostchimera-eval-") as tmp:
@@ -513,18 +588,38 @@ def _case_autonomy_queue_persists_records() -> tuple[bool, str]:
 
 
 def _case_checkpoint_save_restore() -> tuple[bool, str]:
+    """
+    Create a checkpoint named "test-checkpoint" and verify it appears in the manager's checkpoint list.
+    
+    Creates a checkpoint and then lists snapshots to confirm the checkpoint was saved.
+    
+    Returns:
+    	tuple(ok (bool), detail (str)): `ok` is `True` if a snapshot was created and at least one snapshot is listed, `detail` is a JSON string containing `checkpoint_name` and `snapshots` (the number of snapshots).
+    """
+    import ghostchimera.chimera_pilot.checkpoint as _cp_mod
     from ghostchimera.chimera_pilot.checkpoint import CheckpointManager
 
-    with tempfile.TemporaryDirectory(prefix="ghostchimera-eval-"):
-        # CheckpointManager takes config, not state_dir; uses class-level CHECKPOINT_BASE
-        cm = CheckpointManager()
-        snapshot = cm.create_checkpoint("test-checkpoint")
-        snapshots = cm.list_checkpoints()
-        ok = snapshot is not None and len(snapshots) > 0
-    return ok, json.dumps({"checkpoint_name": snapshot.name, "snapshots": len(snapshots)})
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-eval-") as tmp_dir:
+        old_base = _cp_mod.CHECKPOINT_BASE
+        _cp_mod.CHECKPOINT_BASE = Path(tmp_dir) / "checkpoints"
+        try:
+            cm = CheckpointManager()
+            snapshot = cm.create_checkpoint("test-checkpoint")
+            snapshots = cm.list_checkpoints()
+            ok = snapshot is not None and len(snapshots) > 0
+            detail = json.dumps({"checkpoint_name": snapshot.name, "snapshots": len(snapshots)})
+        finally:
+            _cp_mod.CHECKPOINT_BASE = old_base
+    return ok, detail
 
 
 def _case_telemetry_export_format() -> tuple[bool, str]:
+    """
+    Validate telemetry store export format by recording a sample event and inspecting the produced summary and dashboard.
+    
+    Returns:
+        tuple_ok_detail (tuple[bool, str]): `True` if the telemetry store records one event, reports one success, and the exported dashboard contains the keys `"events_by_hour"`, `"summary"`, and `"diagnostics"`; `False` otherwise. The second element is a JSON string containing `total_events`, `successes`, and `dashboard_keys`.
+    """
     from ghostchimera.chimera_pilot.telemetry import InMemoryTelemetryStore, PilotTelemetryEvent
     from ghostchimera.chimera_pilot.telemetry import now as telemetry_now
 
@@ -552,6 +647,12 @@ def _case_telemetry_export_format() -> tuple[bool, str]:
 
 
 def _case_production_mode_blocks_file_write() -> tuple[bool, str]:
+    """
+    Check that a production-configured guardrail reports production mode and that a production guardrail created without explicit isolation or approvals is not considered ready.
+    
+    Returns:
+        tuple[bool, str]: `ok` is `True` if `guard.is_production` is true and the default `not_ready` guard reports not ready; `detail` is a JSON string containing `{"is_production": <bool>, "not_ready_no_isolation": <bool>}`.
+    """
     from ghostchimera.safety_layer.production import ProductionGuardrails
 
     guard = ProductionGuardrails(
@@ -566,6 +667,14 @@ def _case_production_mode_blocks_file_write() -> tuple[bool, str]:
 
 
 def _case_production_mode_blocks_desktop() -> tuple[bool, str]:
+    """
+    Check that production guardrails require external desktop isolation in production.
+    
+    The function instantiates two ProductionGuardrails configurations: a production-ready one with external isolation set to "vm" and a not-ready production configuration without isolation. It verifies that the ready guard reports production mode, the not-ready guard reports not ready, and the ready guard exposes external isolation.
+    
+    Returns:
+        tuple[bool, str]: `(ok, detail)` where `ok` is `True` if the ready guard is in production, the not-ready guard is not ready, and the ready guard has external isolation; `detail` is a JSON string with keys `"is_production"`, `"has_isolation"`, and `"not_ready"`.
+    """
     from ghostchimera.safety_layer.production import ProductionGuardrails
 
     guard = ProductionGuardrails(
@@ -580,6 +689,12 @@ def _case_production_mode_blocks_desktop() -> tuple[bool, str]:
 
 
 def _case_production_doctor_checks_guardrails() -> tuple[bool, str]:
+    """
+    Check production guardrails and report readiness.
+    
+    Returns:
+        tuple: A pair (ok, detail) where `ok` is `True` if the readiness report's `"ok"` field is True, `False` otherwise; `detail` is a JSON-formatted string containing the report's `"ok"` value and the integer `"requirement_rows_count"` (the number of rows in `guardrails["requirements"]`).
+    """
     from ghostchimera.safety_layer.production import ProductionGuardrails, production_readiness_report
 
     guard = ProductionGuardrails(

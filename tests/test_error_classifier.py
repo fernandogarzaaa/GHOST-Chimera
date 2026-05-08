@@ -14,6 +14,9 @@ from ghostchimera.chimera_pilot.error_classifier import (
 
 class ErrorClassifierTests(unittest.TestCase):
     def setUp(self):
+        """
+        Set up the test fixture by creating an ErrorClassifier and assigning it to self.classifier.
+        """
         self.classifier = ErrorClassifier()
 
     def test_rate_limit_classification(self):
@@ -65,6 +68,9 @@ class ErrorClassifierTests(unittest.TestCase):
         self.assertTrue(plan.requires_user_action)
 
     def test_unclassified_error(self):
+        """
+        Verify that an unknown error message is classified as ErrorCategory.DEFAULT and that the resulting plan is marked non-recoverable.
+        """
         plan = self.classifier.classify("some unknown error", None)
         self.assertEqual(plan.categories[0], ErrorCategory.DEFAULT)
         self.assertFalse(plan.is_recoverable)
