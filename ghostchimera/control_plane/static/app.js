@@ -64,7 +64,15 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
     opts.headers["Content-Type"] = "application/json";
     if (opts.body && typeof opts.body === "object") opts.body = JSON.stringify(opts.body);
     var r = await fetch(path, opts);
-    return r.json();
+    if (!r.ok) {
+      var errText = await r.text().catch(function() { return ""; });
+      throw new Error("HTTP " + r.status + ": " + errText);
+    }
+    var ct = r.headers.get("content-type") || "";
+    if (ct.indexOf("application/json") !== -1) {
+      try { return await r.json(); } catch (e) { return null; }
+    }
+    return await r.text().catch(function() { return null; });
   }
   /**
    * Update an element to display a badge with the given text and optional CSS classes.
@@ -173,7 +181,7 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
     });
 
     var history = $("#jobHistory");
-    if (!data.history.length) return empty("#jobHistory", "No autonomy jobs yet.");
+    if (!Array.isArray(data.history) || !data.history.length) return empty("#jobHistory", "No autonomy jobs yet.");
     history.innerHTML = "";
     var items = data.history.slice().reverse().slice(0, 20);
     items.forEach(function(j) {
@@ -218,7 +226,7 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
       ["Identity", data.self_model && data.self_model.identity],
       ["Evidence", (data.working_memory && data.working_memory.evidence ? data.working_memory.evidence.length : 0)],
       ["Reflections", (data.working_memory && data.working_memory.reflections ? data.working_memory.reflections.length : 0)],
-      ["Uncertainty", (data.uncertainty && data.uncertainty.score ? Number(data.uncertainty.score).toFixed(2) : "—")],
+      ["Uncertainty", (data.uncertainty && data.uncertainty.score != null ? Number(data.uncertainty.score).toFixed(2) : "—")],
       ["Quality", (data.quality ? (data.quality.needs_review || 0) + " needs review" : "—")],
       ["Updated", data.updated_at || "—"],
     ];
@@ -273,7 +281,7 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
   async function refreshSchedules() {
     var data = await api("/api/console/autonomy/schedules");
     var list = $("#scheduleList");
-    if (!data.schedules.length) return empty("#scheduleList", "No schedules yet.");
+    if (!Array.isArray(data.schedules) || !data.schedules.length) return empty("#scheduleList", "No schedules yet.");
     list.innerHTML = "";
     data.schedules.forEach(function(s) {
       var cls = s.enabled ? "ok" : "warn";
@@ -352,7 +360,7 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
     var data = await api("/api/console/readiness");
     var list = $("#readinessList");
     list.innerHTML = "";
-    data.checks.forEach(function(c) {
+    (data.checks || []).forEach(function(c) {
       var item = el("div", { class: "list-item" });
       item.appendChild(el("span", { class: "name" }, c.name));
       var cmd = el("span", { class: "meta" });

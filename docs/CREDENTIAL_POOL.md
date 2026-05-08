@@ -8,7 +8,7 @@ The credential pool lives in `ghostchimera/chimera_pilot/credential_pool.py` and
 
 The `CredentialPool` manages API keys, tokens, and service credentials across multiple providers (OpenAI, Anthropic, etc.). It:
 
-- Stores credentials in memory (not on disk) — secrets never touch persistent storage
+- Stores credentials in memory (not on disk) — this implementation does not intentionally write credentials to persistent storage (note: surrounding systems such as environment variables, logging, or crash dumps may still expose secrets)
 - Loads credentials from environment variables at initialization via `initialize_from_env()`
 - Tracks quota usage per key (`quota_used`, `quota_limit`) and availability (`enabled`, `expires_at`)
 - Provides `get_credential(provider)` to retrieve a specific provider's active `CredentialEntry`

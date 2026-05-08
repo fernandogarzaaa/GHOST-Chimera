@@ -546,21 +546,28 @@ def _case_mixture_of_agents_scores_outputs() -> tuple[bool, str]:
 
 def _case_context_compressor_truncates() -> tuple[bool, str]:
     """
-    Check that ContextCompressor reduces message count when over budget or otherwise preserves messages when within budget.
-    
-    Returns:
-        tuple[bool, str]: A pair where the first element is `true` if the compressed message list has fewer items than the original or is identical to it, `false` otherwise. The second element is a JSON string with keys:
-            - "original": original message count (int)
-            - "compressed": compressed message count (int)
-            - "should_compress": boolean indicating whether the compressor considers the given token budget to require compression
+    Check that ContextCompressor reduces message count when over budget, or preserves messages when within budget.
+
+    Uses 12 messages (enough to exceed the protected head+tail window) so real compression can occur.
+    Validates that when should_compress(current_tokens) is True the output is strictly shorter,
+    and records should_compress result for observability.
     """
     from ghostchimera.chimera_pilot.context_compressor import ContextCompressor
 
     comp = ContextCompressor(model_context_length=100, use_llm_summarization=False)
-    messages = [{"role": "user", "content": "x" * 50}, {"role": "assistant", "content": "y" * 50}, {"role": "user", "content": "z" * 50}]
-    compressed = comp.compress(messages, current_tokens=200, focus_topic="summary")
-    ok = len(compressed) < len(messages) or compressed == messages  # may not compress if within budget
-    return ok, json.dumps({"original": len(messages), "compressed": len(compressed), "should_compress": comp.should_compress(200)})
+    # 12 messages: protect_first_n(3) + middle(3) + protect_last_n(6) = 12, so middle is non-empty
+    messages = [
+        {"role": "user" if i % 2 == 0 else "assistant", "content": "x" * 20 + str(i).zfill(2)}
+        for i in range(12)
+    ]
+    current_tokens = 200
+    should = comp.should_compress(current_tokens)
+    compressed = comp.compress(messages, current_tokens=current_tokens, focus_topic="summary")
+    if should:
+        ok = len(compressed) < len(messages)
+    else:
+        ok = compressed == messages
+    return ok, json.dumps({"original": len(messages), "compressed": len(compressed), "should_compress": should})
 
 
 def _case_autonomy_queue_persists_records() -> tuple[bool, str]:
