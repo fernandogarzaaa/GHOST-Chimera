@@ -628,6 +628,7 @@ def run_console(
     server = GatewayServer(host=host, port=port, http_port=http_port, config=config)
     _register_static_routes(server)
     register_console_routes(server, state_dir=state_dir or config.state_dir)
+    _register_static_routes(server)
     server.start()
     url = _console_url(server)
     print(f"Ghost Console: {url}")
