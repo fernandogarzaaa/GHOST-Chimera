@@ -20,6 +20,8 @@ from ghostchimera.chimera_pilot.context_compressor import (
 from ghostchimera.chimera_pilot.error_classifier import (
     ErrorClassifier,
 )
+from ghostchimera.chimera_pilot.hooks import HookName
+from ghostchimera.chimera_pilot.tool_middleware import ToolResultMiddleware, reset_default_chain
 
 
 class MessageTests(unittest.TestCase):
@@ -159,6 +161,9 @@ class AIAgentSessionTests(unittest.TestCase):
 
 
 class AIAgentToolCallTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        reset_default_chain()
+
     def test_execute_tool_calls_with_handler(self) -> None:
         agent = AIAgent(model_name="claude-haiku-4-20250514")
         tools = [{
@@ -179,6 +184,48 @@ class AIAgentToolCallTests(unittest.TestCase):
         calls = [{"id": "c1", "name": "unknown_tool", "arguments": {}}]
         results = agent._execute_tool_calls(calls, tools=tools)
         self.assertEqual(results[0]["status"], "error")
+
+    def test_execute_tool_calls_fires_before_after_hooks(self) -> None:
+        agent = AIAgent(model_name="claude-haiku-4-20250514")
+        seen: list[tuple[str, dict[str, object]]] = []
+        agent.kernel.hooks.register_hook(HookName.BEFORE_TOOL_CALL, lambda **kw: seen.append(("before", kw)))
+        agent.kernel.hooks.register_hook(HookName.AFTER_TOOL_CALL, lambda **kw: seen.append(("after", kw)))
+        tools = [{"name": "echo", "handler": lambda **kw: kw.get("msg", "")}]
+        calls = [{"id": "c1", "name": "echo", "arguments": {"msg": "hello"}}]
+        results = agent._execute_tool_calls(calls, tools=tools)
+        self.assertEqual(results[0]["status"], "success")
+        self.assertEqual([item[0] for item in seen], ["before", "after"])
+        self.assertEqual(seen[0][1]["tool_name"], "echo")
+        self.assertEqual(seen[1][1]["ok"], True)
+
+    def test_execute_tool_calls_applies_middleware(self) -> None:
+        class MarkerMiddleware(ToolResultMiddleware):
+            name = "marker"
+
+            def transform(self, tool_name: str, result, context):
+                return f"{result}|marked:{tool_name}:{context.get('session_id')}"
+
+        from ghostchimera.chimera_pilot.tool_middleware import get_default_chain
+
+        agent = AIAgent(model_name="claude-haiku-4-20250514")
+        get_default_chain().add(MarkerMiddleware())
+        tools = [{"name": "echo", "handler": lambda **kw: kw.get("msg", "")}]
+        calls = [{"id": "c1", "name": "echo", "arguments": {"msg": "hello"}}]
+        results = agent._execute_tool_calls(calls, tools=tools)
+        self.assertEqual(results[0]["content"], f"hello|marked:echo:{agent.session.session_id}")
+
+    @patch("ghostchimera.chimera_pilot.agent_loop.approve")
+    def test_execute_tool_calls_requires_approval_when_flagged(self, mock_approve) -> None:
+        from ghostchimera.safety_layer.approval import ApprovalResult
+
+        mock_approve.return_value = ApprovalResult(approved=False, reason="Denied by policy")
+        agent = AIAgent(model_name="claude-haiku-4-20250514")
+        tools = [{"name": "write_code", "requires_approval": True, "handler": lambda **kw: "ok"}]
+        calls = [{"id": "c1", "name": "write_code", "arguments": {"path": "x.py"}}]
+        results = agent._execute_tool_calls(calls, tools=tools)
+        self.assertEqual(results[0]["status"], "error")
+        self.assertIn("Denied by policy", results[0]["content"])
+        mock_approve.assert_called_once()
 
     def test_add_message_to_session(self) -> None:
         agent = AIAgent(model_name="claude-haiku-4-20250514")
@@ -233,6 +280,21 @@ class ErrorRecoveryTests(unittest.TestCase):
         classification = classifier.classify("authentication failed")
         recovered = agent._recover(Exception("auth error"), classification)
         self.assertFalse(recovered)
+
+
+class AIAgentHookEmissionTests(unittest.TestCase):
+    def test_call_model_fires_llm_input_output_hooks(self) -> None:
+        class DummyRouter:
+            def complete(self, **kwargs):
+                return {"content": "done", "finish_reason": "stop"}
+
+        agent = AIAgent(model_name="claude-haiku-4-20250514", router=DummyRouter())
+        seen: list[str] = []
+        agent.kernel.hooks.register_hook(HookName.LLM_INPUT, lambda **kw: seen.append(f"in:{kw['model']}"))
+        agent.kernel.hooks.register_hook(HookName.LLM_OUTPUT, lambda **kw: seen.append(f"out:{kw['model']}"))
+        response = agent._call_model(tools=[])
+        self.assertEqual(response["content"], "done")
+        self.assertEqual(seen, ["in:claude-sonnet-4-20250514", "out:claude-sonnet-4-20250514"])
 
 
 class ContextCompressorTests(unittest.TestCase):
