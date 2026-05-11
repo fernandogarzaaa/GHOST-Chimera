@@ -449,7 +449,7 @@ class AIAgent:
         results = []
         tool_map = {t["name"]: t for t in (tools or [])}
         middleware_chain = get_default_chain()
-        context = {"session_id": self._session.session_id, "agent_id": self._active_session_id}
+        context = {"session_id": self._session.session_id, "active_session_id": self._active_session_id}
 
         for tc in tool_calls:
             name = tc.get("name", "")
