@@ -185,7 +185,7 @@ class RuleBasedTaskCompiler:
 
     def _split_desktop_sequence(self, text: str) -> list[str]:
         """Split desktop objectives by supported chain separators: 'then', 'and then', and '->'."""
-        parts = [segment.strip() for segment in re.split(r"\s+(?:and then|then)\s+|\s*->\s*", text) if segment.strip()]
+        parts = [segment.strip() for segment in re.split(r"\s+(?:and then|then)\b\s*|\s*->\s*", text) if segment.strip()]
         return parts or [text]
 
     def _desktop_inputs(

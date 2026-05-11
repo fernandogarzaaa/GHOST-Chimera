@@ -259,7 +259,7 @@ class DesktopRuntimeBackend:
         if target_descriptor and step_inputs.get("x") is None and step_inputs.get("y") is None:
             error = (
                 "Semantic target could not be resolved to coordinates; provide x/y coordinates "
-                "or run in dry-run mode until a semantic resolver is configured"
+                "for live execution (dry-run only validates the action plan without coordinate resolution)"
             )
             return self._failed_step(
                 task,
