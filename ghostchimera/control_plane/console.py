@@ -14,6 +14,7 @@ from ..chimera_pilot import ChimeraPilotKernel
 from ..chimera_pilot.autonomy import get_autonomy_profile, list_autonomy_profiles
 from ..chimera_pilot.autonomy_jobs import JOB_SPECS
 from ..chimera_pilot.autonomy_queue import AutonomyJobQueue
+from ..chimera_pilot.desktop_policy import DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN
 from ..chimera_pilot.gateway_server import GatewayServer, HttpResponse
 from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 from ..config import GhostChimeraConfig
@@ -133,7 +134,36 @@ def _suffix(ctx: dict[str, Any], prefix: str) -> str:
 
 
 def _default_run_objective(objective: str) -> dict[str, Any]:
-    kernel = ChimeraPilotKernel.default(include_deterministic_backend=True)
+    autonomy = get_autonomy_config(load_config())
+    true_autonomy_desktop = _as_bool(autonomy.get("true_autonomy_desktop"), default=False)
+    try:
+        desktop_max_live_actions = int(autonomy.get("desktop_max_live_actions") or 25)
+    except (TypeError, ValueError):
+        desktop_max_live_actions = 25
+    try:
+        desktop_max_session_seconds = float(autonomy.get("desktop_max_session_seconds") or 300.0)
+    except (TypeError, ValueError):
+        desktop_max_session_seconds = 300.0
+    if true_autonomy_desktop:
+        kernel = ChimeraPilotKernel.default(
+            include_deterministic_backend=True,
+            allow_network=True,
+            allow_python_execution=True,
+            allow_desktop_control=True,
+            enable_desktop_backend=True,
+            enable_live_desktop=True,
+            ghost_mode="possess",
+            desktop_action_classes=("read_only", "mutating", "destructive"),
+            desktop_confirmation_token=DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN,
+            desktop_max_live_actions=desktop_max_live_actions,
+            desktop_max_session_seconds=desktop_max_session_seconds,
+            autonomy_level=str(autonomy.get("level") or "supervised"),
+        )
+    else:
+        kernel = ChimeraPilotKernel.default(
+            include_deterministic_backend=True,
+            autonomy_level=str(autonomy.get("level") or "supervised"),
+        )
     executions = kernel.run(objective)
     payload = [execution.to_dict() for execution in executions]
     return {"ok": all(item.get("ok") for item in payload), "executions": payload}
@@ -244,7 +274,15 @@ def register_console_routes(
         if "level" in body:
             profile = get_autonomy_profile(str(body["level"]))
             active["level"] = profile.name
-        for key in ("max_tool_rounds", "max_parallel_tasks", "local_model_profile", "require_approval_for_high_impact"):
+        for key in (
+            "max_tool_rounds",
+            "max_parallel_tasks",
+            "local_model_profile",
+            "require_approval_for_high_impact",
+            "true_autonomy_desktop",
+            "desktop_max_live_actions",
+            "desktop_max_session_seconds",
+        ):
             if key in body:
                 active[key] = body[key]
         config["autonomy"] = active

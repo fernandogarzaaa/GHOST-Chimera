@@ -70,6 +70,9 @@ def get_default_config() -> dict[str, Any]:
             "max_parallel_tasks": None,
             "local_model_profile": "",
             "require_approval_for_high_impact": True,
+            "true_autonomy_desktop": False,
+            "desktop_max_live_actions": 25,
+            "desktop_max_session_seconds": 300.0,
         },
     }
 

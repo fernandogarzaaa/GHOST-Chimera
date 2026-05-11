@@ -123,6 +123,7 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
         sel.appendChild(opt);
       });
       $("#autonomyDesc").textContent = data.autonomy.resolved_profile.description || "";
+      $("#trueAutonomyDesktop").checked = !!(data.autonomy.config && data.autonomy.config.true_autonomy_desktop);
 
       var jSel = $("#jobProfile");
       jSel.innerHTML = "";
@@ -148,7 +149,13 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
     $("#autonomyDesc").textContent = p ? p.description : "";
   });
   $("#saveAutonomy").addEventListener("click", async function() {
-    var r = await api("/api/console/autonomy", { method: "POST", body: { level: $("#autonomyLevel").value } });
+    var r = await api("/api/console/autonomy", {
+      method: "POST",
+      body: {
+        level: $("#autonomyLevel").value,
+        true_autonomy_desktop: $("#trueAutonomyDesktop").checked,
+      },
+    });
     writeOutput(JSON.stringify(r, null, 2));
     await refreshStatus();
   });
