@@ -82,6 +82,7 @@ class DesktopRuntimeBackend:
         action = str(task.inputs.get("action", "")).strip().lower()
         if action not in self._SUPPORTED_ACTIONS:
             return ExecutionResult(self.id, task.id, False, "", error=f"Unsupported desktop action: {action}")
+        # Accept either task constraints or task inputs so callers can pass trace IDs via compiler constraints or direct backend APIs.
         trace_id = str(task.constraints.get("trace_id") or task.inputs.get("trace_id") or f"desktop-trace-{uuid.uuid4().hex[:10]}")
         if action == "plan":
             return self._execute_plan(task, trace_id=trace_id)
@@ -256,7 +257,10 @@ class DesktopRuntimeBackend:
                 target_descriptor=target_descriptor,
             )
         if target_descriptor and step_inputs.get("x") is None and step_inputs.get("y") is None:
-            error = "Semantic target could not be resolved to coordinates; provide x/y or configure a semantic resolver"
+            error = (
+                "Semantic target could not be resolved to coordinates; provide x/y coordinates "
+                "or run in dry-run mode until a semantic resolver is configured"
+            )
             return self._failed_step(
                 task,
                 action=action,
@@ -590,4 +594,3 @@ class DesktopRuntimeBackend:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, sort_keys=True) + "\n")
-

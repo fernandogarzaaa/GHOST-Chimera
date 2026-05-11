@@ -185,6 +185,7 @@ class PilotPolicy:
         )
 
     def _validate_desktop_scope_allowlists(self, task: TaskSpec) -> None:
+        """Apply app/window scope denylists always and allowlists only when explicitly configured."""
         scopes = collect_target_scopes_from_inputs(task.inputs)
         if not scopes:
             return

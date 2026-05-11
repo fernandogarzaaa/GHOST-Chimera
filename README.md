@@ -190,6 +190,8 @@ Desktop policy can now enforce app/window allowlists and denylists:
 chimera-pilot status --enable-desktop-backend --allow-desktop-control --ghost-mode possess --desktop-allow-app chrome --desktop-deny-window Admin
 ```
 
+Allowlist flags are opt-in: if no allowlist values are provided, targets are permitted unless denied.
+
 Create the configured desktop kill switch from another terminal to stop live actions before the next backend action:
 
 ```bash

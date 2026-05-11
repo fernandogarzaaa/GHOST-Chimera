@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 _TARGET_FIELDS = ("app", "window", "control", "text")
+# Matches key=value descriptors where value may be quoted or unquoted until the next key, comma, or end-of-string.
 _TARGET_PATTERN = re.compile(
     r"\b(app|window|control|text)\s*=\s*(\"[^\"]+\"|'[^']+'|[^,;]+?)(?=\s+\w+\s*=|$|[,;])",
     re.IGNORECASE,
@@ -60,4 +61,3 @@ def collect_target_scopes_from_inputs(inputs: dict[str, Any]) -> list[dict[str, 
             if step_descriptor:
                 scopes.append(step_descriptor)
     return scopes
-
