@@ -66,6 +66,18 @@ class DesktopRuntimeBackendTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("live_desktop", result.error or "")
 
+    def test_live_mode_requires_semantic_resolution_without_coordinates(self) -> None:
+        backend = DesktopRuntimeBackend(dry_run=False)
+        task = TaskSpec.create(
+            kind=TaskKind.DESKTOP_CONTROL,
+            objective="click app=chrome window=Docs",
+            inputs={"action": "click", "target": "app=chrome window=Docs"},
+            constraints={"live_desktop": True},
+        )
+        result = backend.execute(task)
+        self.assertFalse(result.ok)
+        self.assertIn("Semantic target", result.error or "")
+
     def test_live_mode_respects_kill_switch(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-kill-switch-") as tmp:
             switch = Path(tmp) / "STOP"
@@ -116,6 +128,25 @@ class DesktopRuntimeBackendTests(unittest.TestCase):
             self.assertEqual(fake.calls, ["click"])
         finally:
             self._restore_pyautogui(previous)
+
+    def test_plan_dry_run_returns_step_outcomes(self) -> None:
+        backend = DesktopRuntimeBackend(dry_run=True)
+        task = TaskSpec.create(
+            kind=TaskKind.DESKTOP_CONTROL,
+            objective="plan",
+            inputs={
+                "action": "plan",
+                "plan": [
+                    {"action": "click", "target": "submit"},
+                    {"action": "type", "text": "hello"},
+                    {"action": "hotkey", "keys": ["ctrl", "s"]},
+                ],
+            },
+        )
+        result = backend.execute(task)
+        self.assertTrue(result.ok)
+        self.assertEqual(len(result.metrics["desktop_step_outcomes"]), 3)
+        self.assertIn("desktop_trace_id", result.metrics)
 
     def test_live_mode_enforces_session_duration(self) -> None:
         now = [100.0]

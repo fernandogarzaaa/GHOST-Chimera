@@ -178,6 +178,18 @@ Desktop actions are classified as `read_only`, `mutating`, or `destructive`. The
 chimera-pilot run "live desktop: click delete project" --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess --desktop-action-class read_only --desktop-action-class mutating --desktop-action-class destructive --desktop-confirm-token confirm-destructive-desktop
 ```
 
+Multi-step desktop plans are supported with `then` or `->` chaining:
+
+```bash
+chimera-pilot run "live desktop: click app=chrome window=Docs then type hello world then press ctrl+s" --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess --desktop-allow-app chrome --desktop-allow-window Docs
+```
+
+Desktop policy can now enforce app/window allowlists and denylists:
+
+```bash
+chimera-pilot status --enable-desktop-backend --allow-desktop-control --ghost-mode possess --desktop-allow-app chrome --desktop-deny-window Admin
+```
+
 Create the configured desktop kill switch from another terminal to stop live actions before the next backend action:
 
 ```bash

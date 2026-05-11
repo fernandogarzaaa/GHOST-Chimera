@@ -29,6 +29,10 @@ _GLOBAL_OPTIONS_WITH_VALUES = {
     "--pilot-run",
     "--pilot-cwd",
     "--desktop-action-class",
+    "--desktop-allow-app",
+    "--desktop-deny-app",
+    "--desktop-allow-window",
+    "--desktop-deny-window",
     "--desktop-kill-switch-path",
     "--desktop-confirm-token",
     "--desktop-action-log-path",
@@ -174,6 +178,10 @@ def _main(argv: list[str] | None = None) -> int:
         choices=["read_only", "mutating", "destructive"],
         help="Desktop action class to allow. Repeat to allow multiple classes.",
     )
+    parser.add_argument("--desktop-allow-app", action="append", default=[], help="Allowlisted desktop app target.")
+    parser.add_argument("--desktop-deny-app", action="append", default=[], help="Denied desktop app target.")
+    parser.add_argument("--desktop-allow-window", action="append", default=[], help="Allowlisted desktop window target.")
+    parser.add_argument("--desktop-deny-window", action="append", default=[], help="Denied desktop window target.")
     parser.add_argument("--enable-desktop-backend", action="store_true", help="Register Chimera Pilot desktop backend (dry-run).")
     parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
     parser.add_argument("--desktop-kill-switch-path", default="", help="If file exists, desktop actions are blocked.")
@@ -291,6 +299,10 @@ def _main(argv: list[str] | None = None) -> int:
             allow_network=args.allow_network,
             allow_desktop_control=args.allow_desktop_control,
             desktop_action_classes=args.desktop_action_class,
+            desktop_allowed_apps=args.desktop_allow_app,
+            desktop_denied_apps=args.desktop_deny_app,
+            desktop_allowed_windows=args.desktop_allow_window,
+            desktop_denied_windows=args.desktop_deny_window,
             desktop_confirmation_token=args.desktop_confirm_token or None,
             enable_desktop_backend=args.enable_desktop_backend,
             enable_live_desktop=args.enable_live_desktop,

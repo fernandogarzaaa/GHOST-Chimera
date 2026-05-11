@@ -129,6 +129,18 @@ class ChimeraPilotTests(unittest.TestCase):
         self.assertTrue(bool(live_task.constraints.get("live_desktop")))
         self.assertFalse(bool(dryrun_task.constraints.get("live_desktop")))
 
+    def test_compiler_can_build_multi_step_desktop_plan(self) -> None:
+        compiler = RuleBasedTaskCompiler()
+        task = compiler.compile("live desktop: click app=chrome window=Docs then type hello then press ctrl+s")[0]
+        self.assertEqual(task.kind, TaskKind.DESKTOP_CONTROL)
+        self.assertEqual(task.inputs["action"], "plan")
+        plan = task.inputs["plan"]
+        self.assertEqual(len(plan), 3)
+        self.assertEqual(plan[0]["target_descriptor"]["app"], "chrome")
+        self.assertEqual(plan[0]["target_descriptor"]["window"], "Docs")
+        self.assertEqual(plan[1]["action"], "type")
+        self.assertEqual(plan[2]["action"], "hotkey")
+
     def test_desktop_schema_rejects_invalid_action_and_keys_type(self) -> None:
         ok, errors = validate_task(TaskKind.DESKTOP_CONTROL, {"action": "launch_missiles"})
         self.assertFalse(ok)
@@ -233,6 +245,36 @@ class ChimeraPilotTests(unittest.TestCase):
         )
         policy.validate(confirmed)
 
+    def test_policy_enforces_desktop_app_allowlist_and_denylist(self) -> None:
+        policy = PilotPolicy(
+            allow_desktop_control=True,
+            ghost_mode="possess",
+            allowed_desktop_apps=("chrome",),
+            denied_desktop_windows=("admin",),
+        )
+        allowed = TaskSpec.create(
+            kind=TaskKind.DESKTOP_CONTROL,
+            objective="click app=chrome window=Docs",
+            inputs={"action": "click", "target": "app=chrome window=Docs"},
+        )
+        policy.validate(allowed)
+
+        blocked_app = TaskSpec.create(
+            kind=TaskKind.DESKTOP_CONTROL,
+            objective="click app=terminal window=Docs",
+            inputs={"action": "click", "target": "app=terminal window=Docs"},
+        )
+        with self.assertRaises(PermissionError):
+            policy.validate(blocked_app)
+
+        blocked_window = TaskSpec.create(
+            kind=TaskKind.DESKTOP_CONTROL,
+            objective="click app=chrome window=Admin",
+            inputs={"action": "click", "target": "app=chrome window=Admin"},
+        )
+        with self.assertRaises(PermissionError):
+            policy.validate(blocked_window)
+
     def test_kernel_can_register_live_desktop_backend(self) -> None:
         kernel = ChimeraPilotKernel.default(
             enable_desktop_backend=True,
@@ -335,6 +377,10 @@ class ChimeraPilotReleaseHardeningTests(unittest.TestCase):
                 "read_only",
                 "--desktop-action-class",
                 "mutating",
+                "--desktop-allow-app",
+                "chrome",
+                "--desktop-deny-window",
+                "Admin",
                 "--ghost-mode",
                 "possess",
                 "--desktop-max-actions",
@@ -356,6 +402,8 @@ class ChimeraPilotReleaseHardeningTests(unittest.TestCase):
         self.assertEqual(desktop["metadata"]["max_session_seconds"], 30.0)
         self.assertEqual(payload["policy"]["ghost_mode"], "possess")
         self.assertEqual(payload["policy"]["allowed_desktop_action_classes"], ["read_only", "mutating"])
+        self.assertEqual(payload["policy"]["allowed_desktop_apps"], ["chrome"])
+        self.assertEqual(payload["policy"]["denied_desktop_windows"], ["Admin"])
 
     def test_chimera_pilot_cli_desktop_stop_creates_kill_switch(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-cli-stop-") as tmp:
@@ -523,6 +571,7 @@ class ChimeraPilotStateTransitionTests(unittest.TestCase):
                 self.assertEqual(set(artifacts["screenshots"]), {"before", "after"})
                 self.assertTrue(Path(artifacts["screenshots"]["before"]).exists())
                 self.assertIn("policy", execution.to_dict())
+                self.assertIn("desktop_trace_id", execution.result.metrics)
         finally:
             if previous is None:
                 sys.modules.pop("pyautogui", None)

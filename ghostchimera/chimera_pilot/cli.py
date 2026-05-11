@@ -44,6 +44,10 @@ def main(argv: list[str] | None = None) -> int:
         choices=["read_only", "mutating", "destructive"],
         help="Desktop action class to allow. Repeat to allow multiple classes.",
     )
+    status_parser.add_argument("--desktop-allow-app", action="append", default=[], help="Allowlisted desktop app target.")
+    status_parser.add_argument("--desktop-deny-app", action="append", default=[], help="Denied desktop app target.")
+    status_parser.add_argument("--desktop-allow-window", action="append", default=[], help="Allowlisted desktop window target.")
+    status_parser.add_argument("--desktop-deny-window", action="append", default=[], help="Denied desktop window target.")
     status_parser.add_argument("--enable-desktop-backend", action="store_true", help="Register desktop backend.")
     status_parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
     status_parser.add_argument("--desktop-kill-switch-path", default="", help="If this file exists, desktop actions are blocked.")
@@ -67,6 +71,10 @@ def main(argv: list[str] | None = None) -> int:
         choices=["read_only", "mutating", "destructive"],
         help="Desktop action class to allow. Repeat to allow multiple classes.",
     )
+    run_parser.add_argument("--desktop-allow-app", action="append", default=[], help="Allowlisted desktop app target.")
+    run_parser.add_argument("--desktop-deny-app", action="append", default=[], help="Denied desktop app target.")
+    run_parser.add_argument("--desktop-allow-window", action="append", default=[], help="Allowlisted desktop window target.")
+    run_parser.add_argument("--desktop-deny-window", action="append", default=[], help="Denied desktop window target.")
     run_parser.add_argument("--enable-desktop-backend", action="store_true", help="Register desktop backend (dry-run).")
     run_parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
     run_parser.add_argument("--desktop-kill-switch-path", default="", help="If this file exists, desktop actions are blocked.")
@@ -226,6 +234,10 @@ def main(argv: list[str] | None = None) -> int:
         allow_network=getattr(args, "allow_network", False),
         allow_desktop_control=getattr(args, "allow_desktop_control", False),
         desktop_action_classes=getattr(args, "desktop_action_class", None),
+        desktop_allowed_apps=getattr(args, "desktop_allow_app", None),
+        desktop_denied_apps=getattr(args, "desktop_deny_app", None),
+        desktop_allowed_windows=getattr(args, "desktop_allow_window", None),
+        desktop_denied_windows=getattr(args, "desktop_deny_window", None),
         desktop_confirmation_token=getattr(args, "desktop_confirm_token", "") or None,
         enable_desktop_backend=getattr(args, "enable_desktop_backend", False),
         enable_live_desktop=getattr(args, "enable_live_desktop", False),

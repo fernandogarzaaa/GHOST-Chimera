@@ -125,6 +125,10 @@ class GhostChimeraConfigTests(unittest.TestCase):
                 "--pilot-status",
                 "--enable-desktop-backend",
                 "--allow-desktop-control",
+                "--desktop-allow-app",
+                "chrome",
+                "--desktop-deny-window",
+                "Admin",
                 "--ghost-mode",
                 "possess",
                 "--desktop-max-actions",
@@ -145,6 +149,8 @@ class GhostChimeraConfigTests(unittest.TestCase):
         self.assertEqual(desktop["metadata"]["max_live_actions"], 4)
         self.assertEqual(desktop["metadata"]["max_session_seconds"], 45.0)
         self.assertEqual(payload["policy"]["ghost_mode"], "possess")
+        self.assertEqual(payload["policy"]["allowed_desktop_apps"], ["chrome"])
+        self.assertEqual(payload["policy"]["denied_desktop_windows"], ["Admin"])
 
 
 if __name__ == "__main__":

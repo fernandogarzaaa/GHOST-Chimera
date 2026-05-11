@@ -7,6 +7,7 @@
 - `RuleBasedTaskCompiler` compiles desktop intents (`click`, `double click`, `right click`, `type`, `hotkey`) plus prefixes:
   - `live desktop: ...` -> `constraints.live_desktop=true`
   - `dryrun desktop: ...` -> `constraints.live_desktop=false`
+  - multi-step plans via `then` / `->` chaining into `inputs.plan`
 - `DesktopRuntimeBackend` exists and is policy-gated.
 
 ### Safety and policy
@@ -34,6 +35,8 @@
 - Replay bundles include a policy snapshot for postmortem review.
 - Desktop actions are classified as `read_only`, `mutating`, or `destructive`.
 - Default desktop policy allows `read_only` and `mutating`; `destructive` requires an explicit CLI/API allowlist.
+- Policy supports app/window allowlist + denylist controls for semantic desktop targets.
+- Action logs and result metrics include trace IDs and step-level outcomes for plan execution.
 
 ### CLI plumbing
 - `chimera-pilot` supports desktop flags on `run` and `status`.
@@ -51,7 +54,7 @@
 ## What Is Left to Implement
 
 ## 1) True UI targeting (high priority)
-Current runtime mainly supports coordinate-level or basic action execution.
+Current runtime now parses semantic target descriptors (`app=`, `window=`, `control=`, `text=`) and surfaces deterministic unresolved-target failures in live mode, but it still lacks a real semantic resolver.
 
 Needed:
 - semantic target model (window/app/widget/text anchors)
@@ -100,7 +103,7 @@ Needed:
 - regression tests for control-plane `--pilot-run` with live desktop options
 
 ## 6) Multi-step planner support
-Current compiler maps mostly single-step desktop intents.
+Compiler now supports chained multi-step plans (`then` / `->`) and runtime step loops with retry + stop-on-failure semantics.
 
 Needed:
 - multi-step task graphs (`open app -> navigate -> type -> submit`)
@@ -120,4 +123,3 @@ Needed:
 2. Add multi-step desktop compiler/planner path and integration tests.
 3. Add in-process cancellation checks around long pyautogui calls.
 4. Add retention/compression strategy for desktop action telemetry.
-
