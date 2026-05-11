@@ -47,7 +47,9 @@ class PyAutoGuiDesktopAdapter:
         except TypeError:
             image = self.pg.screenshot()
         if not hasattr(image, "save"):
-            raise RuntimeError("pyautogui screenshot result cannot be saved")
+            raise RuntimeError(
+                f"pyautogui screenshot result cannot be saved; expected object with save(), got {type(image).__name__}"
+            )
         image.save(path)
 
 
@@ -72,4 +74,3 @@ def build_desktop_adapter(pg: Any, system_name: str | None = None) -> PyAutoGuiD
     if system_value == "linux":
         return LinuxDesktopAdapter(pg)
     return PyAutoGuiDesktopAdapter(pg)
-

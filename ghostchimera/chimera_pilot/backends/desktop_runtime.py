@@ -135,7 +135,8 @@ class DesktopRuntimeBackend:
                 last_step_result = step_result
                 if step_result["ok"]:
                     break
-            assert last_step_result is not None
+            if last_step_result is None:
+                return ExecutionResult(self.id, task.id, False, "", error=f"Desktop plan step {idx + 1} produced no result")
             if not last_step_result["ok"] and stop_on_failure:
                 metrics = self._desktop_metrics(
                     "plan",

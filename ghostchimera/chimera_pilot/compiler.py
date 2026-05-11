@@ -9,6 +9,8 @@ from .desktop_targeting import resolve_target_descriptor
 from .schema import validate_task
 from .task_ir import TaskKind, TaskSpec
 
+_DESKTOP_SEQUENCE_PATTERN = re.compile(r"\s+(?:and then|then)\b\s*|\s*->\s*")
+
 
 class RuleBasedTaskCompiler:
     """Small deterministic compiler for common Ghost Chimera objectives."""
@@ -185,7 +187,7 @@ class RuleBasedTaskCompiler:
 
     def _split_desktop_sequence(self, text: str) -> list[str]:
         """Split desktop objectives by supported chain separators: 'then', 'and then', and '->'."""
-        parts = [segment.strip() for segment in re.split(r"\s+(?:and then|then)\b\s*|\s*->\s*", text) if segment.strip()]
+        parts = [segment.strip() for segment in _DESKTOP_SEQUENCE_PATTERN.split(text) if segment.strip()]
         return parts or [text]
 
     def _desktop_inputs(
