@@ -2,6 +2,8 @@
 
 Ghost Chimera is a local-first beta agent orchestration runtime. It combines a modular agent stack with Chimera Pilot, a resource-control layer that compiles objectives into task specs, chooses an execution backend, enforces policy, verifies results, and records telemetry.
 
+For hackathon positioning, Ghost Chimera is packaged as a single product: **Governed Enterprise Change Agent**. The product workflow is: repo + docs intake -> evidence retrieval -> governed plan -> policy/security checks -> PR-ready package with audit trail.
+
 This is a developer beta for local experimentation, runtime research, and extension work. It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
 
 ## Current Status
@@ -62,6 +64,20 @@ python -m pip install -e ".[dev]"      # build and lint tools
 ```
 
 Heavy runtimes such as `llama-cpp-python`, MiniMind's PyTorch/Transformers path, `nvidia-cutlass-dsl`, and `pyqpanda3` are optional. The base package stays lightweight and stdlib-first.
+
+## Container Quickstart (Demo Deployment)
+
+Build and run the browser console with the included deployment artifacts:
+
+```bash
+docker compose up --build
+```
+
+Then open:
+
+- `http://localhost:8766/`
+
+For public demo URL runbooks and judge-ready packaging, see `docs/HACKATHON_ALL_IN_ONE.md` and `docs/hackathons/DEPLOYMENT_RUNBOOK.md`.
 
 ## CLI Quickstart
 
@@ -372,6 +388,12 @@ python -m ghostchimera.evals run --suite safety
 - `docs/MISSING_IMPLEMENTATIONS.md` - beta wiring audit.
 - `docs/RELEASE_CHECKLIST.md` - release checks and manual verification.
 - `SECURITY.md` - supported status, high-risk capabilities, and hardening guidance.
+- `docs/HACKATHON_ALL_IN_ONE.md` - single-product framing and four-track mapping.
+- `docs/hackathons/SUBMISSION_KIT.md` - short/long descriptions, tags, and judging-mapped bullets.
+- `docs/hackathons/DEMO_SCRIPTS.md` - one shared demo flow plus four track narratives.
+- `docs/hackathons/TRUST_STORY.md` - judge-facing trust, policy, and evidence checklist.
+- `docs/hackathons/IBM_BOB_TRACK_PACK.md` - IBM Bob workflow + required Bob artifact guidance.
+- `docs/hackathons/DEPLOYMENT_RUNBOOK.md` - public demo URL deployment runbook.
 
 ## Appropriate Uses
 

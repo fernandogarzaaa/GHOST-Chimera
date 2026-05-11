@@ -1,0 +1,18 @@
+services:
+  ghost-chimera:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghost-chimera:latest
+    container_name: ghost-chimera-console
+    ports:
+      - "8765:8765"
+      - "8766:8766"
+    environment:
+      GHOSTCHIMERA_DEPLOYMENT_MODE: production
+      GHOSTCHIMERA_EXTERNAL_ISOLATION: container
+      GHOSTCHIMERA_SECURITY_REVIEWED: "1"
+      GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED: "1"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
