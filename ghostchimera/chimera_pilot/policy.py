@@ -17,6 +17,7 @@ from .desktop_policy import (
     infer_desktop_action_class,
     normalize_allowed_desktop_action_classes,
 )
+from .desktop_targeting import collect_target_scopes_from_inputs
 from .task_ir import TaskKind, TaskSpec
 
 
@@ -47,6 +48,10 @@ class PilotPolicy:
     max_python_timeout_seconds: int = 30
     allowed_hosts: tuple[str, ...] = field(default_factory=tuple)
     allowed_desktop_action_classes: tuple[str, ...] = DEFAULT_ALLOWED_DESKTOP_ACTION_CLASSES
+    allowed_desktop_apps: tuple[str, ...] = field(default_factory=tuple)
+    denied_desktop_apps: tuple[str, ...] = field(default_factory=tuple)
+    allowed_desktop_windows: tuple[str, ...] = field(default_factory=tuple)
+    denied_desktop_windows: tuple[str, ...] = field(default_factory=tuple)
     production_guardrails: ProductionGuardrails = ProductionGuardrails()
     autonomy_profile: AutonomyProfile = field(default_factory=lambda: get_autonomy_profile("supervised"))
     """Allowlisted hostname glob patterns for SSRF policy.
@@ -137,6 +142,7 @@ class PilotPolicy:
                 )
                 if confirmation_error:
                     raise PermissionError(confirmation_error)
+            self._validate_desktop_scope_allowlists(task)
             self._require_production_ready(task, "desktop control")
 
         max_cost = task.max_cost_usd
@@ -156,6 +162,10 @@ class PilotPolicy:
             "max_python_timeout_seconds": self.max_python_timeout_seconds,
             "allowed_hosts": list(self.allowed_hosts),
             "allowed_desktop_action_classes": list(normalize_allowed_desktop_action_classes(list(self.allowed_desktop_action_classes))),
+            "allowed_desktop_apps": list(self.allowed_desktop_apps),
+            "denied_desktop_apps": list(self.denied_desktop_apps),
+            "allowed_desktop_windows": list(self.allowed_desktop_windows),
+            "denied_desktop_windows": list(self.denied_desktop_windows),
             "production": self.production_guardrails.to_dict(),
             "autonomy": self.autonomy_profile.to_dict(),
         }
@@ -173,6 +183,27 @@ class PilotPolicy:
             production_guardrails=ProductionGuardrails(),
             autonomy_profile=get_autonomy_profile("autonomous"),
         )
+
+    def _validate_desktop_scope_allowlists(self, task: TaskSpec) -> None:
+        """Apply app/window scope denylists always and allowlists only when explicitly configured."""
+        scopes = collect_target_scopes_from_inputs(task.inputs)
+        if not scopes:
+            return
+        allowed_apps = {item.strip().lower() for item in self.allowed_desktop_apps if item.strip()}
+        denied_apps = {item.strip().lower() for item in self.denied_desktop_apps if item.strip()}
+        allowed_windows = {item.strip().lower() for item in self.allowed_desktop_windows if item.strip()}
+        denied_windows = {item.strip().lower() for item in self.denied_desktop_windows if item.strip()}
+        for scope in scopes:
+            app = str(scope.get("app", "")).strip().lower()
+            window = str(scope.get("window", "")).strip().lower()
+            if app and app in denied_apps:
+                raise PermissionError(f"Desktop target app '{scope.get('app')}' is denied by policy")
+            if window and window in denied_windows:
+                raise PermissionError(f"Desktop target window '{scope.get('window')}' is denied by policy")
+            if app and allowed_apps and app not in allowed_apps:
+                raise PermissionError(f"Desktop target app '{scope.get('app')}' is not allowlisted by policy")
+            if window and allowed_windows and window not in allowed_windows:
+                raise PermissionError(f"Desktop target window '{scope.get('window')}' is not allowlisted by policy")
 
     def _require_production_ready(self, task: TaskSpec, surface: str) -> None:
         task_payload = {

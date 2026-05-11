@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from ghostchimera.chimera_pilot.gateway_server import GatewayServer, HttpResponse
 from ghostchimera.control_plane.cli import _main
-from ghostchimera.control_plane.console import register_console_routes, run_console
+from ghostchimera.control_plane.console import _default_run_objective, register_console_routes, run_console
 from ghostchimera.memory_layer.store import MemoryStore
 from ghostchimera.tool_layer.browser_workspace import AgentBrowserWorkspace
 
@@ -164,6 +164,57 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(calls, ["summarize runtime status"])
         self.assertEqual(result["executions"][0]["objective"], "summarize runtime status")
+
+    def test_console_autonomy_route_persists_true_autonomy_toggle(self) -> None:
+        with (
+            patch("ghostchimera.control_plane.console.load_config", return_value={"autonomy": {"level": "supervised"}}),
+            patch("ghostchimera.control_plane.console.save_config") as save_config,
+        ):
+            server = GatewayServer()
+            register_console_routes(server)
+            route = server.routes.find("POST", "/api/console/autonomy")
+            self.assertIsNotNone(route)
+            result = route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/autonomy",
+                    "headers": {},
+                    "body": json.dumps({"level": "autonomous", "true_autonomy_desktop": True}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["autonomy"]["config"]["true_autonomy_desktop"])
+            saved = save_config.call_args.args[0]
+            self.assertTrue(saved["autonomy"]["true_autonomy_desktop"])
+
+    def test_default_run_objective_enables_true_autonomy_desktop_kernel(self) -> None:
+        class _Execution:
+            def __init__(self, objective: str) -> None:
+                self._objective = objective
+
+            def to_dict(self) -> dict[str, object]:
+                return {"ok": True, "objective": self._objective}
+
+        class _Kernel:
+            def run(self, objective: str) -> list[_Execution]:
+                return [_Execution(objective)]
+
+        with (
+            patch(
+                "ghostchimera.control_plane.console.get_autonomy_config",
+                return_value={"level": "autonomous", "true_autonomy_desktop": True, "desktop_max_live_actions": 42},
+            ),
+            patch("ghostchimera.control_plane.console.load_config", return_value={"autonomy": {}}),
+            patch("ghostchimera.control_plane.console.ChimeraPilotKernel.default", return_value=_Kernel()) as factory,
+        ):
+            result = _default_run_objective("open settings and configure sync")
+            self.assertTrue(result["ok"])
+            kwargs = factory.call_args.kwargs
+            self.assertTrue(kwargs["allow_desktop_control"])
+            self.assertTrue(kwargs["enable_live_desktop"])
+            self.assertEqual(kwargs["ghost_mode"], "possess")
+            self.assertEqual(kwargs["desktop_max_live_actions"], 42)
 
     def test_console_registers_autonomy_job_routes(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-console-") as tmp:

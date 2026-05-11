@@ -19,6 +19,28 @@ class _KindSchema:
     value_constraints: dict  # field_name -> callable(value) -> bool
 
 
+def _is_desktop_plan(value: Any) -> bool:
+    if not isinstance(value, list):
+        return False
+    for step in value:
+        if not isinstance(step, dict):
+            return False
+        action = str(step.get("action", "")).strip().lower()
+        if action not in {"click", "double_click", "right_click", "type", "hotkey", "move"}:
+            return False
+        keys = step.get("keys")
+        if keys is not None and (not isinstance(keys, list) or not all(isinstance(item, str) for item in keys)):
+            return False
+    return True
+
+
+def _is_target_descriptor(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    allowed = {"app", "window", "control", "text"}
+    return all(k in allowed and isinstance(v, str) for k, v in value.items())
+
+
 _KIND_SCHEMAS: dict[TaskKind, _KindSchema] = {
     TaskKind.PYTHON: _KindSchema(
         required_fields=["code"],
@@ -78,7 +100,7 @@ _KIND_SCHEMAS: dict[TaskKind, _KindSchema] = {
     ),
     TaskKind.DESKTOP_CONTROL: _KindSchema(
         required_fields=["action"],
-        optional_fields=["target", "x", "y", "text", "keys", "action_class"],
+        optional_fields=["target", "x", "y", "text", "keys", "action_class", "plan", "target_descriptor", "trace_id"],
         field_types={"action": str},
         value_constraints={
             "action": lambda v: isinstance(v, str) and v.strip().lower() in {
@@ -88,9 +110,12 @@ _KIND_SCHEMAS: dict[TaskKind, _KindSchema] = {
                 "type",
                 "hotkey",
                 "move",
+                "plan",
             },
             "keys": lambda v: isinstance(v, list) and all(isinstance(item, str) for item in v),
             "action_class": lambda v: isinstance(v, str) and v.strip().lower().replace("-", "_") in DESKTOP_ACTION_CLASSES,
+            "plan": _is_desktop_plan,
+            "target_descriptor": _is_target_descriptor,
         },
     ),
 }

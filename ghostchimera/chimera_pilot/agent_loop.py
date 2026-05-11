@@ -25,11 +25,14 @@ from ..cognition_layer.workspace import ReflectionEngine, SelfModel, WorkingMemo
 from ..config import GhostChimeraConfig
 from ..logging_config import get_logger
 from ..model_layer.router import ModelRouter
+from ..safety_layer.approval import approve
 from .autonomy import AutonomyProfile, get_autonomy_profile_from_env
+from .hooks import HookName
 from .kernel import ChimeraPilotKernel
 from .result_envelope import ResultEnvelope
 from .task_ir import TaskKind, TaskSpec
 from .telemetry import InMemoryTelemetryStore, now
+from .tool_middleware import get_default_chain
 
 logger = get_logger("agent_loop")
 
@@ -387,6 +390,12 @@ class AIAgent:
                 messages = self._session.message_dicts()
                 if self._session.system_prompt:
                     messages = [Message(role="system", content=self._session.system_prompt).to_dict()] + messages
+                self.kernel.hooks.fire(
+                    HookName.LLM_INPUT,
+                    messages=messages,
+                    model=model,
+                    session_id=self._session.session_id,
+                )
 
                 # Use kernel if available for structured routing
                 if self.router:
@@ -397,6 +406,12 @@ class AIAgent:
                         max_tokens=self.max_tokens,
                     )
                     if response:
+                        self.kernel.hooks.fire(
+                            HookName.LLM_OUTPUT,
+                            response=response,
+                            model=model,
+                            session_id=self._session.session_id,
+                        )
                         self.model_name = model
                         return response
 
@@ -409,7 +424,14 @@ class AIAgent:
                 result = self.kernel.execute_task(task)
                 if result.ok:
                     self.model_name = model
-                    return {"content": result.result.output, "finish_reason": "stop"}
+                    response = {"content": result.result.output, "finish_reason": "stop"}
+                    self.kernel.hooks.fire(
+                        HookName.LLM_OUTPUT,
+                        response=response,
+                        model=model,
+                        session_id=self._session.session_id,
+                    )
+                    return response
 
             except Exception as exc:
                 last_exception = exc
@@ -426,32 +448,53 @@ class AIAgent:
         """Execute tool calls returned by the model."""
         results = []
         tool_map = {t["name"]: t for t in (tools or [])}
+        middleware_chain = get_default_chain()
+        context = {"session_id": self._session.session_id, "active_session_id": self._active_session_id}
 
         for tc in tool_calls:
             name = tc.get("name", "")
             args = tc.get("arguments", {})
             call_id = tc.get("id", f"call_{len(results)}")
+            self.kernel.hooks.fire(
+                HookName.BEFORE_TOOL_CALL,
+                tool_name=name,
+                arguments=args,
+                session_id=self._session.session_id,
+                requester=self._active_session_id,
+            )
 
             tool_def = tool_map.get(name)
             if not tool_def:
+                missing_tool_message = f"Tool {name} not found in available tools"
                 results.append({
                     "tool_call_id": call_id,
                     "tool_name": name,
                     "status": "error",
-                    "content": f"Tool {name} not found in available tools",
+                    "content": missing_tool_message,
                 })
+                self.kernel.hooks.fire(
+                    HookName.AFTER_TOOL_CALL,
+                    tool_name=name,
+                    arguments=args,
+                    result=missing_tool_message,
+                    ok=False,
+                    session_id=self._session.session_id,
+                )
                 continue
 
+            status = "success"
+            output: Any = ""
             try:
+                if (
+                    self.autonomy_profile.require_approval_for_high_impact
+                    and bool(tool_def.get("requires_approval", False))
+                ):
+                    approval_result = approve(name, args, requester=self._active_session_id)
+                    if not approval_result.approved:
+                        raise PermissionError(approval_result.reason)
                 handler = tool_def.get("handler")
                 if handler:
                     output = handler(**args) if args else handler()
-                    results.append({
-                        "tool_call_id": call_id,
-                        "tool_name": name,
-                        "status": "success",
-                        "content": json.dumps(output) if isinstance(output, dict) else str(output),
-                    })
                 else:
                     # Route through Chimera Pilot for structured backends
                     task = TaskSpec.create(
@@ -460,19 +503,34 @@ class AIAgent:
                         inputs={"tool_name": name, "arguments": args},
                     )
                     result = self.kernel.execute_task(task)
-                    results.append({
-                        "tool_call_id": call_id,
-                        "tool_name": name,
-                        "status": "success" if result.ok else "error",
-                        "content": result.result.output if result.ok else result.result.error,
-                    })
+                    status = "success" if result.ok else "error"
+                    output = result.result.output if result.ok else result.result.error
             except Exception as exc:
-                results.append({
-                    "tool_call_id": call_id,
-                    "tool_name": name,
-                    "status": "error",
-                    "content": str(exc),
-                })
+                status = "error"
+                output = str(exc)
+
+            transformed = middleware_chain.run(name, output, context=context)
+            if isinstance(transformed, str):
+                content = transformed
+            else:
+                try:
+                    content = json.dumps(transformed, ensure_ascii=False, default=str)
+                except Exception:
+                    content = str(transformed)
+            results.append({
+                "tool_call_id": call_id,
+                "tool_name": name,
+                "status": status,
+                "content": content,
+            })
+            self.kernel.hooks.fire(
+                HookName.AFTER_TOOL_CALL,
+                tool_name=name,
+                arguments=args,
+                result=content,
+                ok=status == "success",
+                session_id=self._session.session_id,
+            )
 
         return results
 

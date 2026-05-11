@@ -99,6 +99,15 @@ class SSRFPolicy:
 
         parsed = urllib.parse.urlparse(url)
         hostname = parsed.hostname or ""
+        with self._lock:
+            denied = list(self._denied)
+            allowed = list(self._allowed)
+
+        for pattern in denied:
+            if fnmatch.fnmatch(hostname, pattern):
+                return False, f"Host '{hostname}' matches deny pattern '{pattern}'"
+
+        allow_match = next((pattern for pattern in allowed if fnmatch.fnmatch(hostname, pattern)), None)
 
         # Block private/loopback ranges
         if self.block_private_ranges and hostname:
@@ -126,6 +135,11 @@ class SSRFPolicy:
                             hostname,
                             _DNS_RESOLVE_TIMEOUT,
                         )
+                        if allow_match:
+                            return True, (
+                                f"Host '{hostname}' matches allow pattern '{allow_match}' and "
+                                "DNS timed out during private-range verification"
+                            )
                         return False, f"DNS resolution timed out for hostname: {hostname}"
                     for info in infos:
                         addr_str = info[4][0]
@@ -141,6 +155,11 @@ class SSRFPolicy:
                             continue
                 except OSError as exc:
                     logger.warning("DNS resolution for '%s' failed; denying request: %s", hostname, exc)
+                    if allow_match:
+                        return True, (
+                            f"Host '{hostname}' matches allow pattern '{allow_match}' and "
+                            "DNS resolution is unavailable for private-range verification"
+                        )
                     return False, f"DNS resolution failed for hostname: {hostname}"
                 finally:
                     # Shut down without waiting so a still-running getaddrinfo thread
@@ -148,17 +167,8 @@ class SSRFPolicy:
                     if pool is not None:
                         pool.shutdown(wait=False, cancel_futures=True)
 
-        with self._lock:
-            denied = list(self._denied)
-            allowed = list(self._allowed)
-
-        for pattern in denied:
-            if fnmatch.fnmatch(hostname, pattern):
-                return False, f"Host '{hostname}' matches deny pattern '{pattern}'"
-
-        for pattern in allowed:
-            if fnmatch.fnmatch(hostname, pattern):
-                return True, f"Host '{hostname}' matches allow pattern '{pattern}'"
+        if allow_match:
+            return True, f"Host '{hostname}' matches allow pattern '{allow_match}'"
 
         if self.default_allow:
             return True, "default_allow is set"
