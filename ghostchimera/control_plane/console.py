@@ -101,13 +101,13 @@ CONSOLE_HTML = "<!-- Ghost Console -- served by static/index.html -->"
 def _json_body(ctx: dict[str, Any]) -> dict[str, Any]:
     """
     Parse and return the JSON object from a request-like context's body.
-    
+
     Parameters:
         ctx (dict[str, Any]): Request context containing a "body" key whose value is the raw request payload.
-    
+
     Returns:
         dict[str, Any]: The parsed JSON object, or an empty dict if the body is absent or blank.
-    
+
     Raises:
         ValueError: If the parsed JSON is not a JSON object (i.e., not a dict).
         json.JSONDecodeError: If the body contains invalid JSON.
@@ -646,7 +646,7 @@ def run_console(
 ) -> GatewayServer:
     """
     Start and run a GatewayServer hosting the Ghost Console UI, API routes, and optional static assets.
-    
+
     Parameters:
         host (str): Hostname or IP address the gateway listens on.
         port (int): TCP port for the gateway's primary (websocket) service.
@@ -654,7 +654,7 @@ def run_console(
         state_dir (str | Path | None): Optional directory for persistent state (overrides environment config); used for workspace, queue, and scheduler storage.
         open_browser (bool): If True, attempt to open the console URL in the user's default web browser after the server starts.
         block (bool): If True, block the current thread until interrupted; on KeyboardInterrupt the server is stopped before returning.
-    
+
     Returns:
         GatewayServer: The started gateway server instance.
     """
@@ -687,9 +687,9 @@ _STATIC_DIR: Path | None = None
 def _static_dir() -> Path:
     """
     Return the cached Path to the package's "static" directory adjacent to this file.
-    
+
     This computes Path(__file__).parent / "static" on first call, caches it in module-level state, and returns the cached Path on subsequent calls.
-    
+
     Returns:
         Path: Filesystem path to the "static" directory next to this module.
     """
@@ -702,7 +702,7 @@ def _static_dir() -> Path:
 def _register_static_routes(server: GatewayServer) -> None:
     """
     Register HTTP routes that serve packaged static console assets.
-    
+
     If a "static" directory exists next to this module, this function registers GET routes for any of the files index.html, app.js, and styles.css that are present. index.html is exposed at "/" and "/console"; each asset is exposed at "/static/<filename>" with an appropriate Content-Type header. If the static directory is missing, the function is a no-op.
     """
     base = _static_dir()
@@ -718,11 +718,11 @@ def _register_static_routes(server: GatewayServer) -> None:
         def make_handler(data: bytes, ct_: str) -> Callable[[dict[str, Any]], HttpResponse]:
             """
             Create an HTTP route handler that always responds with the given static bytes and content type.
-            
+
             Parameters:
                 data (bytes): Response body to return for every request.
                 ct_ (str): MIME content type for the response (e.g., "text/html; charset=utf-8").
-            
+
             Returns:
                 Callable[[dict[str, Any]], HttpResponse]: A handler that accepts a request context and returns an HttpResponse with `body` set to `data` and `content_type` set to `ct_`.
             """

@@ -1,7 +1,5 @@
 """Unit tests for approval flow runtime."""
 
-import os
-import sys
 import unittest
 import unittest.mock
 
@@ -125,7 +123,7 @@ class AutoApproveHandlerTests(unittest.TestCase):
     def setUp(self):
         """
         Create a fresh ApprovalPolicy and an AutoApproveHandler bound to it for use in each test.
-        
+
         Initializes self.policy with a new ApprovalPolicy instance and self.handler with an AutoApproveHandler that uses that policy.
         """
         self.policy = ApprovalPolicy()
@@ -154,7 +152,7 @@ class AutoDenyHandlerTests(unittest.TestCase):
     def setUp(self):
         """
         Prepare a fresh ApprovalPolicy and an AutoDenyHandler instance for each test.
-        
+
         Creates:
         - self.policy: a new ApprovalPolicy
         - self.handler: an AutoDenyHandler constructed with the new policy
@@ -221,7 +219,7 @@ class DefaultPolicyAndHandlerTests(unittest.TestCase):
         # by pre-seeding the singleton.
         """
         Prepare the test fixture by pre-seeding the approval module's default handler.
-        
+
         Sets ghostchimera.safety_layer.approval._default_handler to an AutoDenyHandler(ApprovalPolicy()) to avoid blocking behavior (for example, sys.stdin.isatty()) when tests call get_default_handler().
         """
         import ghostchimera.safety_layer.approval as approval_mod
@@ -247,7 +245,7 @@ class ApproveFunctionTests(unittest.TestCase):
     def setUp(self):
         """
         Prepare the test fixture by installing a non-interactive default approval handler.
-        
+
         Sets ghostchimera.safety_layer.approval._default_handler to an AutoDenyHandler backed by a fresh ApprovalPolicy so tests do not block on interactive checks (e.g., sys.stdin.isatty()).
         """
         import ghostchimera.safety_layer.approval as approval_mod

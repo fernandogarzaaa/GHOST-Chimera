@@ -37,7 +37,7 @@ class CheckpointTests(unittest.TestCase):
 class CheckpointManagerTests(unittest.TestCase):
     def setUp(self) -> None:
         """Set up a temporary testing environment for CheckpointManager tests.
-        
+
         Creates a temporary directory and mock config with `state_dir`, prepares an internal `state` directory, patches the module-level `CHECKPOINT_BASE` to point to a temp `checkpoints` path, instantiates a `CheckpointManager` using the mock config, ensures the patched checkpoints directory exists, and sets the manager's `checkpoint_dir` to the patched path.
         """
         self.tmpdir = tempfile.mkdtemp()
@@ -55,7 +55,7 @@ class CheckpointManagerTests(unittest.TestCase):
     def tearDown(self) -> None:
         """
         Restore the original module-level CHECKPOINT_BASE value for the checkpoint module.
-        
+
         This undoes the modification performed in setUp by assigning the saved original value back to ghostchimera.chimera_pilot.checkpoint.CHECKPOINT_BASE.
         """
         import ghostchimera.chimera_pilot.checkpoint as cp

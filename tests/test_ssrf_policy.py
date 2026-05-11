@@ -111,7 +111,7 @@ class NetworkDispatcherTests(unittest.TestCase):
     def setUp(self):
         """
         Prepare test fixtures by resetting the global dispatcher and creating a fresh SSRFPolicy and NetworkDispatcher assigned to the test instance.
-        
+
         The method resets any existing dispatcher state, constructs a new SSRFPolicy stored as `self.policy`, and creates a NetworkDispatcher using that policy stored as `self.dispatcher`.
         """
         reset_dispatcher()
