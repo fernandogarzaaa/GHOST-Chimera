@@ -15,6 +15,18 @@ The subsystem re-iterates quantum/classical resource-orchestration ideas for pra
 
 It does not require a quantum computer.
 
+## Governed Enterprise Change Agent Workflow
+
+When used as the product control plane, Chimera Pilot drives one enterprise change loop:
+
+1. Ingest repo/document objective context.
+2. Compile objective to normalized `TaskSpec` units.
+3. Schedule and execute with fallback/parallel strategy ceilings based on autonomy profile.
+4. Enforce policy and production guardrails.
+5. Verify and emit confidence-bearing, audit-ready outputs for change review.
+
+This shared flow is reused across Agentic Olympics, enterprise/security, IBM Bob, and AI GENESIS hackathon demos with track-specific framing.
+
 ## Commands
 
 ```bash
