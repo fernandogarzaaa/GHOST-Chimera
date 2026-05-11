@@ -226,6 +226,10 @@ class AIAgentToolCallTests(unittest.TestCase):
         self.assertEqual(results[0]["status"], "error")
         self.assertIn("Denied by policy", results[0]["content"])
         mock_approve.assert_called_once()
+        called_tool, called_arguments = mock_approve.call_args.args
+        self.assertEqual(called_tool, "write_code")
+        self.assertEqual(called_arguments, {"path": "x.py"})
+        self.assertEqual(mock_approve.call_args.kwargs["requester"], agent.active_session_id)
 
     def test_add_message_to_session(self) -> None:
         agent = AIAgent(model_name="claude-haiku-4-20250514")

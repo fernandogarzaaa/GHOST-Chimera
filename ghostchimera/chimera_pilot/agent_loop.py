@@ -465,18 +465,18 @@ class AIAgent:
 
             tool_def = tool_map.get(name)
             if not tool_def:
-                output = f"Tool {name} not found in available tools"
+                missing_tool_message = f"Tool {name} not found in available tools"
                 results.append({
                     "tool_call_id": call_id,
                     "tool_name": name,
                     "status": "error",
-                    "content": output,
+                    "content": missing_tool_message,
                 })
                 self.kernel.hooks.fire(
                     HookName.AFTER_TOOL_CALL,
                     tool_name=name,
                     arguments=args,
-                    result=output,
+                    result=missing_tool_message,
                     ok=False,
                     session_id=self._session.session_id,
                 )
