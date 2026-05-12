@@ -4,12 +4,16 @@ import os
 import unittest
 
 from ghostchimera.model_layer.openai_compatible_providers import (
+    AI21Provider,
+    CerebrasProvider,
     CohereProvider,
     DeepSeekProvider,
+    FireworksProvider,
     GroqProvider,
     MistralProvider,
     OllamaProvider,
     OpenRouterProvider,
+    PerplexityProvider,
     TogetherProvider,
     XAIProvider,
 )
@@ -219,6 +223,10 @@ class PROVIDERSAndTEXT_PROVIDERSTests(unittest.TestCase):
             "openrouter": OpenRouterProvider,
             "ollama": OllamaProvider,
             "cohere": CohereProvider,
+            "perplexity": PerplexityProvider,
+            "fireworks": FireworksProvider,
+            "cerebras": CerebrasProvider,
+            "ai21": AI21Provider,
         }
         for name, cls in expected.items():
             self.assertIn(name, PROVIDERS, f"Expected '{name}' in PROVIDERS")
@@ -644,6 +652,216 @@ class NewProviderRegistryTests(unittest.TestCase):
             self.assertEqual(p.name, "cohere")
         finally:
             os.environ.pop("COHERE_API_KEY", None)
+
+
+# ---------------------------------------------------------------------------
+# Perplexity
+# ---------------------------------------------------------------------------
+
+
+class PerplexityProviderTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("PERPLEXITY_API_KEY", None)
+
+    def tearDown(self):
+        os.environ.pop("PERPLEXITY_API_KEY", None)
+
+    def test_no_key_is_unavailable(self):
+        p = PerplexityProvider()
+        self.assertFalse(p.available)
+        self.assertEqual(p.model, "llama-3.1-sonar-small-128k-online")
+
+    def test_valid_key_makes_available(self):
+        os.environ["PERPLEXITY_API_KEY"] = "pplx-test"
+        p = PerplexityProvider()
+        self.assertTrue(p.available)
+
+    def test_validate_config_missing_key(self):
+        p = PerplexityProvider()
+        errors = p.validate_config()
+        self.assertTrue(any("PERPLEXITY_API_KEY" in e for e in errors))
+
+    def test_to_dict(self):
+        os.environ["PERPLEXITY_API_KEY"] = "pplx-test"
+        p = PerplexityProvider()
+        d = p.to_dict()
+        self.assertEqual(d["name"], "perplexity")
+        self.assertTrue(d["available"])
+        self.assertIn("model", d)
+
+    def test_chat_without_key_raises(self):
+        p = PerplexityProvider()
+        with self.assertRaises(RuntimeError):
+            p.chat("system", "user")
+
+
+# ---------------------------------------------------------------------------
+# Fireworks AI
+# ---------------------------------------------------------------------------
+
+
+class FireworksProviderTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("FIREWORKS_API_KEY", None)
+
+    def tearDown(self):
+        os.environ.pop("FIREWORKS_API_KEY", None)
+
+    def test_no_key_is_unavailable(self):
+        p = FireworksProvider()
+        self.assertFalse(p.available)
+        self.assertEqual(p.model, "accounts/fireworks/models/llama-v3p1-70b-instruct")
+
+    def test_valid_key_makes_available(self):
+        os.environ["FIREWORKS_API_KEY"] = "fw-test"
+        p = FireworksProvider()
+        self.assertTrue(p.available)
+
+    def test_validate_config_missing_key(self):
+        p = FireworksProvider()
+        errors = p.validate_config()
+        self.assertTrue(any("FIREWORKS_API_KEY" in e for e in errors))
+
+    def test_to_dict(self):
+        os.environ["FIREWORKS_API_KEY"] = "fw-test"
+        p = FireworksProvider()
+        d = p.to_dict()
+        self.assertEqual(d["name"], "fireworks")
+        self.assertIn("model", d)
+
+    def test_chat_without_key_raises(self):
+        p = FireworksProvider()
+        with self.assertRaises(RuntimeError):
+            p.chat("system", "user")
+
+
+# ---------------------------------------------------------------------------
+# Cerebras
+# ---------------------------------------------------------------------------
+
+
+class CerebrasProviderTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("CEREBRAS_API_KEY", None)
+
+    def tearDown(self):
+        os.environ.pop("CEREBRAS_API_KEY", None)
+
+    def test_no_key_is_unavailable(self):
+        p = CerebrasProvider()
+        self.assertFalse(p.available)
+        self.assertEqual(p.model, "llama3.1-70b")
+
+    def test_valid_key_makes_available(self):
+        os.environ["CEREBRAS_API_KEY"] = "csk-test"
+        p = CerebrasProvider()
+        self.assertTrue(p.available)
+
+    def test_validate_config_missing_key(self):
+        p = CerebrasProvider()
+        errors = p.validate_config()
+        self.assertTrue(any("CEREBRAS_API_KEY" in e for e in errors))
+
+    def test_to_dict(self):
+        os.environ["CEREBRAS_API_KEY"] = "csk-test"
+        p = CerebrasProvider()
+        d = p.to_dict()
+        self.assertEqual(d["name"], "cerebras")
+        self.assertIn("model", d)
+
+    def test_chat_without_key_raises(self):
+        p = CerebrasProvider()
+        with self.assertRaises(RuntimeError):
+            p.chat("system", "user")
+
+
+# ---------------------------------------------------------------------------
+# AI21 Labs
+# ---------------------------------------------------------------------------
+
+
+class AI21ProviderTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("AI21_API_KEY", None)
+
+    def tearDown(self):
+        os.environ.pop("AI21_API_KEY", None)
+
+    def test_no_key_is_unavailable(self):
+        p = AI21Provider()
+        self.assertFalse(p.available)
+        self.assertEqual(p.model, "jamba-1.5-mini")
+
+    def test_valid_key_makes_available(self):
+        os.environ["AI21_API_KEY"] = "ai21-test"
+        p = AI21Provider()
+        self.assertTrue(p.available)
+
+    def test_validate_config_missing_key(self):
+        p = AI21Provider()
+        errors = p.validate_config()
+        self.assertTrue(any("AI21_API_KEY" in e for e in errors))
+
+    def test_validate_config_ok(self):
+        os.environ["AI21_API_KEY"] = "ai21-test"
+        p = AI21Provider()
+        self.assertEqual(p.validate_config(), [])
+
+    def test_to_dict(self):
+        os.environ["AI21_API_KEY"] = "ai21-test"
+        p = AI21Provider()
+        d = p.to_dict()
+        self.assertEqual(d["name"], "ai21")
+        self.assertTrue(d["available"])
+        self.assertIn("model", d)
+
+    def test_chat_without_key_raises(self):
+        p = AI21Provider()
+        with self.assertRaises(RuntimeError):
+            p.chat("system", "user")
+
+
+# ---------------------------------------------------------------------------
+# get_provider integration for new providers
+# ---------------------------------------------------------------------------
+
+
+class AdditionalProviderRegistryTests(unittest.TestCase):
+    def test_get_provider_perplexity(self):
+        os.environ["PERPLEXITY_API_KEY"] = "pplx-test"
+        try:
+            p = get_provider("perplexity")
+            self.assertIsNotNone(p)
+            self.assertEqual(p.name, "perplexity")
+        finally:
+            os.environ.pop("PERPLEXITY_API_KEY", None)
+
+    def test_get_provider_fireworks(self):
+        os.environ["FIREWORKS_API_KEY"] = "fw-test"
+        try:
+            p = get_provider("fireworks")
+            self.assertIsNotNone(p)
+            self.assertEqual(p.name, "fireworks")
+        finally:
+            os.environ.pop("FIREWORKS_API_KEY", None)
+
+    def test_get_provider_cerebras(self):
+        os.environ["CEREBRAS_API_KEY"] = "csk-test"
+        try:
+            p = get_provider("cerebras")
+            self.assertIsNotNone(p)
+            self.assertEqual(p.name, "cerebras")
+        finally:
+            os.environ.pop("CEREBRAS_API_KEY", None)
+
+    def test_get_provider_ai21(self):
+        os.environ["AI21_API_KEY"] = "ai21-test"
+        try:
+            p = get_provider("ai21")
+            self.assertIsNotNone(p)
+            self.assertEqual(p.name, "ai21")
+        finally:
+            os.environ.pop("AI21_API_KEY", None)
 
 
 if __name__ == "__main__":

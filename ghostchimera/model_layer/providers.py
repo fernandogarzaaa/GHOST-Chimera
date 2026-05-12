@@ -31,12 +31,16 @@ from .llamacpp_runtime import LlamaCppRuntime
 from .local_profiles import get_local_model_profile
 from .minimind_runtime import load_minimind_chat_runtime
 from .openai_compatible_providers import (
+    AI21Provider,
+    CerebrasProvider,
     CohereProvider,
     DeepSeekProvider,
+    FireworksProvider,
     GroqProvider,
     MistralProvider,
     OllamaProvider,
     OpenRouterProvider,
+    PerplexityProvider,
     TogetherProvider,
     XAIProvider,
 )
@@ -291,9 +295,12 @@ class LlamaCppProvider(BaseProvider):
 
 
 PROVIDERS: dict[str, type[BaseProvider]] = {
+    AI21Provider.name: AI21Provider,
     AnthropicProvider.name: AnthropicProvider,
+    CerebrasProvider.name: CerebrasProvider,
     CohereProvider.name: CohereProvider,
     DeepSeekProvider.name: DeepSeekProvider,
+    FireworksProvider.name: FireworksProvider,
     GeminiProvider.name: GeminiProvider,
     GroqProvider.name: GroqProvider,
     LlamaCppProvider.name: LlamaCppProvider,
@@ -302,15 +309,19 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
     OllamaProvider.name: OllamaProvider,
     OpenAIProvider.name: OpenAIProvider,
     OpenRouterProvider.name: OpenRouterProvider,
+    PerplexityProvider.name: PerplexityProvider,
     TogetherProvider.name: TogetherProvider,
     XAIProvider.name: XAIProvider,
 }
 
 # Split registry by provider type — enables typed lookup for media providers
 TEXT_PROVIDERS: dict[str, type[BaseProvider]] = {
+    AI21Provider.name: AI21Provider,
     AnthropicProvider.name: AnthropicProvider,
+    CerebrasProvider.name: CerebrasProvider,
     CohereProvider.name: CohereProvider,
     DeepSeekProvider.name: DeepSeekProvider,
+    FireworksProvider.name: FireworksProvider,
     GeminiProvider.name: GeminiProvider,
     GroqProvider.name: GroqProvider,
     LlamaCppProvider.name: LlamaCppProvider,
@@ -319,6 +330,7 @@ TEXT_PROVIDERS: dict[str, type[BaseProvider]] = {
     OllamaProvider.name: OllamaProvider,
     OpenAIProvider.name: OpenAIProvider,
     OpenRouterProvider.name: OpenRouterProvider,
+    PerplexityProvider.name: PerplexityProvider,
     TogetherProvider.name: TogetherProvider,
     XAIProvider.name: XAIProvider,
 }

@@ -156,6 +156,10 @@ mcp/                 Lightweight JSON-RPC MCP server/client surfaces
 | `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | OpenRouter gateway — 100+ models (default: `openai/gpt-4o-mini`) |
 | `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | Local Ollama server (default URL: `http://localhost:11434`, model: `llama3.2`) |
 | `COHERE_API_KEY` / `COHERE_MODEL` | Cohere provider (default model: `command-r-plus`) |
+| `PERPLEXITY_API_KEY` / `PERPLEXITY_MODEL` | Perplexity AI — search-augmented models (default: `llama-3.1-sonar-small-128k-online`) |
+| `FIREWORKS_API_KEY` / `FIREWORKS_MODEL` | Fireworks AI fast inference (default: `accounts/fireworks/models/llama-v3p1-70b-instruct`) |
+| `CEREBRAS_API_KEY` / `CEREBRAS_MODEL` | Cerebras ultra-fast inference (default model: `llama3.1-70b`) |
+| `AI21_API_KEY` / `AI21_MODEL` | AI21 Labs Jamba models (default model: `jamba-1.5-mini`) |
 | `GHOSTCHIMERA_MODEL_PROVIDER` | Default provider (e.g. `groq`, `mistral`, `ollama`) |
 | `GHOSTCHIMERA_STATE_DIR` | State directory (default `~/.ghostchimera`) |
 | `GHOSTCHIMERA_MEMORY_DB` | CWR SQLite path |

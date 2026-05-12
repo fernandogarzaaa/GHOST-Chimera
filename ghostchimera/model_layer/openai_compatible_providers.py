@@ -22,6 +22,10 @@ OpenAI-compatible (same HTTP request shape as OpenAI, different base URL + key):
     TogetherProvider   — https://api.together.xyz/v1/chat/completions
     OpenRouterProvider — https://openrouter.ai/api/v1/chat/completions
     OllamaProvider     — http://localhost:11434/v1/chat/completions  (local, no key)
+    PerplexityProvider — https://api.perplexity.ai/chat/completions (online/search)
+    FireworksProvider  — https://api.fireworks.ai/inference/v1/chat/completions
+    CerebrasProvider   — https://api.cerebras.ai/v1/chat/completions (ultra-fast)
+    AI21Provider       — https://api.ai21.com/studio/v1/chat/completions
 
 Custom API:
 
@@ -470,6 +474,101 @@ class CohereProvider(BaseProvider):
         return content[0].get("text", "").strip()
 
 
+# ---------------------------------------------------------------------------
+# Tier-4: Additional popular inference providers
+# ---------------------------------------------------------------------------
+
+
+class PerplexityProvider(OpenAICompatibleProvider):
+    """Provider for Perplexity AI — search-augmented online models.
+
+    Perplexity exposes an OpenAI-compatible chat completions endpoint.
+    Models with the ``-online`` suffix have live internet access.
+    Set ``PERPLEXITY_API_KEY`` (from https://www.perplexity.ai/settings/api)
+    and optionally ``PERPLEXITY_MODEL`` in the environment.
+
+    Supported models (examples)::
+
+        llama-3.1-sonar-small-128k-online   # default — fast online search
+        llama-3.1-sonar-large-128k-online   # larger, more capable
+        llama-3.1-sonar-huge-128k-online    # highest quality
+        llama-3.1-8b-instruct               # offline, no search
+    """
+
+    name = "perplexity"
+    _DEFAULT_BASE_URL = "https://api.perplexity.ai/chat/completions"
+    _DEFAULT_MODEL = "llama-3.1-sonar-small-128k-online"
+    _KEY_ENV_VAR = "PERPLEXITY_API_KEY"
+    _MODEL_ENV_VAR = "PERPLEXITY_MODEL"
+
+
+class FireworksProvider(OpenAICompatibleProvider):
+    """Provider for Fireworks AI — fast open-weight model inference.
+
+    Fireworks AI exposes an OpenAI-compatible endpoint optimised for high
+    throughput at very low latency.  Set ``FIREWORKS_API_KEY`` (from
+    https://fireworks.ai/account/api-keys) and optionally
+    ``FIREWORKS_MODEL`` in the environment.
+
+    Model IDs use the ``accounts/fireworks/models/<slug>`` path format.
+
+    Supported models (examples)::
+
+        accounts/fireworks/models/llama-v3p1-70b-instruct   # default
+        accounts/fireworks/models/llama-v3p2-90b-vision-instruct
+        accounts/fireworks/models/mixtral-8x22b-instruct
+        accounts/fireworks/models/qwen2p5-72b-instruct
+        accounts/fireworks/models/deepseek-r1
+    """
+
+    name = "fireworks"
+    _DEFAULT_BASE_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
+    _DEFAULT_MODEL = "accounts/fireworks/models/llama-v3p1-70b-instruct"
+    _KEY_ENV_VAR = "FIREWORKS_API_KEY"
+    _MODEL_ENV_VAR = "FIREWORKS_MODEL"
+
+
+class CerebrasProvider(OpenAICompatibleProvider):
+    """Provider for Cerebras — extremely fast LLM inference on Wafer-Scale Engine.
+
+    Cerebras Cloud offers some of the fastest token generation rates available
+    (1000+ tokens/second).  Set ``CEREBRAS_API_KEY`` (from
+    https://cloud.cerebras.ai) and optionally ``CEREBRAS_MODEL``.
+
+    Supported models (examples)::
+
+        llama3.1-70b    # default — high quality, very fast
+        llama3.1-8b     # fastest option
+        llama-4-scout-17b-16e-instruct
+    """
+
+    name = "cerebras"
+    _DEFAULT_BASE_URL = "https://api.cerebras.ai/v1/chat/completions"
+    _DEFAULT_MODEL = "llama3.1-70b"
+    _KEY_ENV_VAR = "CEREBRAS_API_KEY"
+    _MODEL_ENV_VAR = "CEREBRAS_MODEL"
+
+
+class AI21Provider(OpenAICompatibleProvider):
+    """Provider for AI21 Labs (Jamba models).
+
+    AI21 Labs exposes an OpenAI-compatible Chat Completions endpoint for their
+    Jamba family of models.  Set ``AI21_API_KEY`` (from
+    https://studio.ai21.com/account/api-key) and optionally ``AI21_MODEL``.
+
+    Supported models (examples)::
+
+        jamba-1.5-mini      # default — fast, cost-effective
+        jamba-1.5-large     # highest quality Jamba model
+    """
+
+    name = "ai21"
+    _DEFAULT_BASE_URL = "https://api.ai21.com/studio/v1/chat/completions"
+    _DEFAULT_MODEL = "jamba-1.5-mini"
+    _KEY_ENV_VAR = "AI21_API_KEY"
+    _MODEL_ENV_VAR = "AI21_MODEL"
+
+
 __all__ = [
     "OpenAICompatibleProvider",
     "GroqProvider",
@@ -480,4 +579,8 @@ __all__ = [
     "OpenRouterProvider",
     "OllamaProvider",
     "CohereProvider",
+    "PerplexityProvider",
+    "FireworksProvider",
+    "CerebrasProvider",
+    "AI21Provider",
 ]
