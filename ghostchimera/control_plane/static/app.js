@@ -1,6 +1,6 @@
 (function () {
   "use strict";
-  var state = { profiles: [], workspace: null };
+  var state = { profiles: [], workspace: null, token: "" };
 
   /**
  * Selects the first DOM element that matches a CSS selector.
@@ -40,6 +40,56 @@ function esc(s) { return String(s).replace(/[&<>"']/g, function(c) { return { "&
  */
 function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div", { class: "empty" }, msg)); }
 
+  // --- Token auth ---
+
+  /**
+   * Show the token overlay for authentication.
+   */
+  function showTokenOverlay() {
+    var ov = $("#tokenOverlay");
+    ov.style.display = "flex";
+  }
+
+  /**
+   * Hide the token overlay.
+   */
+  function hideTokenOverlay() {
+    var ov = $("#tokenOverlay");
+    ov.style.display = "none";
+  }
+
+  $("#tokenSubmit").addEventListener("click", function() {
+    var t = ($("#tokenInput").value || "").trim();
+    if (!t) return;
+    state.token = t;
+    try { localStorage.setItem("ghostchimera_console_token", t); } catch (_) {}
+    hideTokenOverlay();
+    refreshStatus();
+  });
+
+  // Allow Enter key in token input
+  $("#tokenInput").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") $("#tokenSubmit").click();
+  });
+
+  /**
+   * Initialise auth: check if the server requires a token, and load any stored token.
+   */
+  async function initAuth() {
+    try {
+      var meta = await fetch("/api/console/token").then(function(r) { return r.json(); });
+      if (meta && meta.auth_enabled) {
+        var stored = "";
+        try { stored = localStorage.getItem("ghostchimera_console_token") || ""; } catch (_) {}
+        if (stored) {
+          state.token = stored;
+        } else {
+          showTokenOverlay();
+        }
+      }
+    } catch (_) {}
+  }
+
   // --- Tabs ---
   $$$("#tabBar .tab").forEach(function(tab) {
     tab.addEventListener("click", function() {
@@ -52,18 +102,25 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
 
   /**
    * Send an HTTP request and return the parsed JSON response.
-   *
-   * Ensures the request has a Content-Type of "application/json" and, if `opts.body` is a plain object, JSON-stringifies it before delegating to fetch.
+   * Includes the X-Gateway-Token header when a console auth token is configured.
    * @param {string} path - Request URL or path.
-   * @param {RequestInit} [opts] - Fetch options; `headers` may be provided and `body` may be an object (will be JSON-stringified).
+   * @param {RequestInit} [opts] - Fetch options.
    * @returns {any} The parsed JSON response body.
    */
   async function api(path, opts) {
     opts = opts || {};
     if (!opts.headers) opts.headers = {};
     opts.headers["Content-Type"] = "application/json";
+    if (state.token) opts.headers["X-Gateway-Token"] = state.token;
     if (opts.body && typeof opts.body === "object") opts.body = JSON.stringify(opts.body);
     var r = await fetch(path, opts);
+    if (r.status === 401) {
+      // Auth required — prompt for token
+      state.token = "";
+      try { localStorage.removeItem("ghostchimera_console_token"); } catch (_) {}
+      showTokenOverlay();
+      throw new Error("Unauthorized — enter the console token");
+    }
     if (!r.ok) {
       var errText = await r.text().catch(function() { return ""; });
       throw new Error("HTTP " + r.status + ": " + errText);
@@ -87,8 +144,6 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
 
   /**
    * Refreshes console status and updates related UI panels.
-   *
-   * Fetches the current console status, updates the health badge, stores returned profiles in application state, renders the status metric cards, populates the autonomy level and job profile selectors and description, and then refreshes jobs, schedules, workspace, and readiness views. On failure, marks the health badge as offline.
    */
   async function refreshStatus() {
     try {
@@ -161,21 +216,58 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
   });
 
   // --- Run ---
+
+  /**
+   * Render a human-readable summary banner for a run result.
+   * Shows success/failure status and a brief per-execution breakdown above the raw JSON.
+   * @param {Object} r - The run result object.
+   */
+  function renderRunSummary(r) {
+    var summaryEl = $("#runSummary");
+    summaryEl.innerHTML = "";
+    summaryEl.style.display = "block";
+    var overall = el("div", { class: "list-item" });
+    var statusBadge = el("span", { class: "badge " + (r.ok ? "ok" : "error") }, r.ok ? "✓ Completed" : "✗ Failed");
+    overall.appendChild(statusBadge);
+    if (r.error) {
+      overall.appendChild(el("span", { class: "meta" }, r.error));
+    }
+    summaryEl.appendChild(overall);
+    if (Array.isArray(r.executions)) {
+      r.executions.forEach(function(e) {
+        var item = el("div", { class: "list-item" });
+        var cls = e.ok ? "ok" : "error";
+        item.appendChild(el("span", { class: "badge " + cls }, e.ok ? "ok" : "error"));
+        item.appendChild(el("span", { class: "name" }, e.objective || e.kind || "task"));
+        if (e.result !== undefined && e.result !== null) {
+          item.appendChild(el("span", { class: "meta" }, String(e.result).slice(0, 120)));
+        }
+        if (e.error) item.appendChild(el("span", { class: "meta" }, "Error: " + e.error));
+        summaryEl.appendChild(item);
+      });
+    }
+  }
+
   $("#runObjective").addEventListener("click", async function() {
     var obj = $("#objective").value.trim();
     if (!obj) return writeOutput("Enter an objective first.");
-    writeOutput("Running...");
-    var r = await api("/api/console/run", { method: "POST", body: { objective: obj } });
-    writeOutput(JSON.stringify(r, null, 2));
+    $("#runSummary").style.display = "none";
+    writeOutput("Running…");
+    try {
+      var r = await api("/api/console/run", { method: "POST", body: { objective: obj } });
+      renderRunSummary(r);
+      writeOutput(JSON.stringify(r, null, 2));
+    } catch (e) {
+      writeOutput("Error: " + e.message);
+    }
   });
-  $("#clearOutput").addEventListener("click", function() { writeOutput("Ready."); });
+  $("#clearOutput").addEventListener("click", function() {
+    $("#runSummary").style.display = "none";
+    writeOutput("Ready.");
+  });
 
   /**
    * Load available autonomy jobs and render the job selector and recent job history in the UI.
-   *
-   * Fetches job data from the autonomy jobs API, populates the #jobName select with available jobs,
-   * and renders up to the 20 most recent history entries (most recent first) into #jobHistory.
-   * If there is no history, replaces #jobHistory with a placeholder message "No autonomy jobs yet."
    */
   async function refreshJobs() {
     var data = await api("/api/console/autonomy/jobs");
@@ -217,14 +309,7 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
 
   /**
    * Load the current workspace, update in-memory state, and render its summary in the UI.
-   *
-   * Fetches workspace data from "/api/console/workspace", assigns the response to `state.workspace`,
-   * and replaces the contents of the `#workspaceDetail` element with rows for:
-   * identity, evidence count, reflections count, uncertainty score, quality (needs review count),
-   * and last-updated time.
-   *
-   * Uncertainty is shown with two decimal places when available; counts default to 0 and missing
-   * values render as "—".
+   * Also renders the goals list from the self_model.
    */
   async function refreshWorkspace() {
     var data = await api("/api/console/workspace");
@@ -239,6 +324,24 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
     ];
     var wd = $("#workspaceDetail");
     wd.innerHTML = "";
+
+    // Goals section
+    var goals = (data.self_model && data.self_model.goals) ? data.self_model.goals : {};
+    var goalKeys = Object.keys(goals);
+    if (goalKeys.length) {
+      var goalHdr = el("div", { class: "list-item" });
+      goalHdr.appendChild(el("span", { class: "name" }, "Goals"));
+      goalHdr.appendChild(el("span", { class: "badge ok" }, String(goalKeys.length)));
+      wd.appendChild(goalHdr);
+      goalKeys.forEach(function(k) {
+        var item = el("div", { class: "list-item" }, null);
+        item.style.paddingLeft = "24px";
+        item.appendChild(el("span", { class: "name" }, k));
+        item.appendChild(el("span", { class: "meta" }, goals[k]));
+        wd.appendChild(item);
+      });
+    }
+
     lines.forEach(function(l) {
       var item = el("div", { class: "list-item" });
       item.appendChild(el("span", { class: "name" }, l[0]));
@@ -246,6 +349,18 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
       wd.appendChild(item);
     });
   }
+  $("#setGoal").addEventListener("click", async function() {
+    var name = $("#goalName").value.trim();
+    var desc = $("#goalDescription").value.trim();
+    if (!name || !desc) return;
+    await api("/api/console/workspace/goals", {
+      method: "POST",
+      body: { name: name, description: desc },
+    });
+    $("#goalName").value = "";
+    $("#goalDescription").value = "";
+    await refreshWorkspace();
+  });
   $("#addEvidence").addEventListener("click", async function() {
     await api("/api/console/workspace/evidence", {
       method: "POST",
@@ -278,12 +393,122 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
     writeOutput(JSON.stringify(r, null, 2));
   });
 
+  // --- Browser tab ---
+
+  /**
+   * Refresh the browser workspace status badge and update the agent-browser detail.
+   */
+  async function refreshBrowserStatus() {
+    try {
+      var data = await api("/api/console/browser/status");
+      var avail = data && data.available;
+      badge($("#browserStatusBadge"), avail ? "available" : "unavailable", avail ? "ok" : "warn");
+      $("#browserStatusDetail").textContent = (data && data.detail) ? data.detail : "";
+    } catch (e) {
+      badge($("#browserStatusBadge"), "error", "error");
+    }
+  }
+  $("#browserFetch").addEventListener("click", async function() {
+    var url = $("#browserFetchUrl").value.trim();
+    if (!url) return;
+    $("#browserOutput").textContent = "Fetching…";
+    try {
+      var r = await api("/api/console/browser/fetch", { method: "POST", body: { url: url } });
+      if (r.ok) {
+        var preview = (r.content || "").slice(0, 2000);
+        $("#browserOutput").textContent = preview + (r.truncated ? "\n\n[truncated]" : "");
+      } else {
+        $("#browserOutput").textContent = "Error: " + (r.error || "unknown");
+      }
+    } catch (e) {
+      $("#browserOutput").textContent = "Error: " + e.message;
+    }
+  });
+  $("#browserOpen").addEventListener("click", async function() {
+    var url = $("#browserOpenUrl").value.trim();
+    if (!url) return;
+    try {
+      var r = await api("/api/console/browser/open", { method: "POST", body: { url: url } });
+      $("#browserOutput").textContent = JSON.stringify(r, null, 2);
+    } catch (e) {
+      $("#browserOutput").textContent = "Error: " + e.message;
+    }
+  });
+  $("#browserSnapshot").addEventListener("click", async function() {
+    var url = $("#browserOpenUrl").value.trim();
+    try {
+      var r = await api("/api/console/browser/snapshot", { method: "POST", body: { url: url } });
+      if (r.ok && r.output) {
+        $("#browserOutput").textContent = r.output;
+      } else {
+        $("#browserOutput").textContent = JSON.stringify(r, null, 2);
+      }
+    } catch (e) {
+      $("#browserOutput").textContent = "Error: " + e.message;
+    }
+  });
+
+  // --- Security tab ---
+
+  /**
+   * Load security events, summary, and audit chain status from the backend and render them.
+   */
+  async function refreshSecurity() {
+    try {
+      var summary = await api("/api/console/security/summary");
+      var s = summary.summary || {};
+      var cards = $("#securityCards");
+      cards.innerHTML = "";
+      [
+        ["Total Events", s.total_events != null ? s.total_events : "—"],
+        ["Blocked", s.blocked_count != null ? s.blocked_count : "—"],
+        ["Threats", s.threat_count != null ? s.threat_count : "—"],
+        ["Avg Risk", s.avg_risk_score != null ? Number(s.avg_risk_score).toFixed(2) : "—"],
+      ].forEach(function(m) {
+        var card = el("div", { class: "card" });
+        card.appendChild(el("h3", null, m[0]));
+        card.appendChild(el("div", { class: "value" }, String(m[1])));
+        cards.appendChild(card);
+      });
+    } catch (_) {}
+
+    try {
+      var audit = await api("/api/console/security/audit");
+      var auditEl = $("#auditStatus");
+      auditEl.innerHTML = "";
+      var item = el("div", { class: "list-item" });
+      var integrityBadge = el("span", { class: "badge " + (audit.chain_integrity ? "ok" : "error") });
+      integrityBadge.textContent = audit.chain_integrity ? "✓ Intact" : "✗ Broken";
+      item.appendChild(integrityBadge);
+      item.appendChild(el("span", { class: "meta" }, audit.integrity_message || ""));
+      item.appendChild(el("span", { class: "meta" }, (audit.entry_count || 0) + " entries"));
+      auditEl.appendChild(item);
+    } catch (_) {}
+
+    try {
+      var events = await api("/api/console/security/events?limit=20");
+      var evEl = $("#securityEvents");
+      var evList = (events && events.events) || [];
+      if (!evList.length) return empty("#securityEvents", "No security events recorded.");
+      evEl.innerHTML = "";
+      evList.forEach(function(ev) {
+        var item = el("div", { class: "list-item" });
+        var risk = Number(ev.risk_score || 0);
+        var cls = ev.blocked ? "error" : risk > 0.6 ? "warn" : "";
+        item.appendChild(el("span", { class: "badge " + cls }, ev.blocked ? "blocked" : "allowed"));
+        item.appendChild(el("span", { class: "name" }, ev.category || ev.type || "event"));
+        item.appendChild(el("span", { class: "meta" }, "risk " + risk.toFixed(2)));
+        item.appendChild(el("span", { class: "meta" }, ev.session_id || ""));
+        evEl.appendChild(item);
+      });
+    } catch (_) {
+      empty("#securityEvents", "Security monitor unavailable.");
+    }
+  }
+  $("#refreshSecurity").addEventListener("click", refreshSecurity);
+
   /**
    * Load the list of scheduled autonomy jobs from the backend and render them into the #scheduleList element.
-   *
-   * If no schedules are returned, replaces the list with a placeholder message "No schedules yet." For each schedule,
-   * creates a list item showing name, enabled state, cron expression, optional metadata, and action buttons for
-   * enable/disable, delete, and run-now.
    */
   async function refreshSchedules() {
     var data = await api("/api/console/autonomy/schedules");
@@ -322,7 +547,7 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
   /**
    * Execute a named action for a schedule on the server and refresh the schedules list.
    * @param {string|number} id - Identifier of the schedule to act on.
-   * @param {string} action - Action to perform ("enable", "disable", "delete", or "run").
+   * @param {string} action - Action to perform ("enable", "disable", "delete", or "run-now").
    */
   async function schedAction(id, action) {
     await api("/api/console/autonomy/schedules/" + id + "/" + action, { method: "POST" });
@@ -360,8 +585,6 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
 
   /**
    * Loads readiness checks from the server and renders each check into the #readinessList element.
-   *
-   * Each check is shown as a list item containing the check name and the check command rendered in monospace.
    */
   async function refreshReadiness() {
     var data = await api("/api/console/readiness");
@@ -387,6 +610,12 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
  */
   function writeOutput(text) { $("pre#output").textContent = text; }
   $("#refresh").addEventListener("click", refreshStatus);
-  refreshStatus();
+
+  // Initialise: check auth then load everything
+  initAuth().then(function() {
+    refreshStatus();
+    refreshBrowserStatus();
+    refreshSecurity();
+  });
   setInterval(refreshStatus, 30000);
 })();
