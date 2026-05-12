@@ -229,6 +229,61 @@ def _scheduled_executor(queue: AutonomyJobQueue):
     return execute
 
 
+def _security_events_handler(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Return recent security / DPI events from the SecurityMonitor."""
+    try:
+        from ..safety_layer.security_monitor import get_monitor
+    except ImportError:
+        return {"ok": False, "error": "Security monitor unavailable"}
+    query = ctx.get("query") or {}
+    limit = int(query.get("limit") or 100)
+    blocked_only = str(query.get("blocked_only") or "").lower() in {"1", "true"}
+    min_risk = float(query.get("min_risk") or 0.0)
+    category = query.get("category")
+    session_id = query.get("session_id")
+    events = get_monitor().get_events(
+        limit=limit,
+        blocked_only=blocked_only,
+        min_risk=min_risk,
+        threat_category=category or None,
+        session_id=session_id or None,
+    )
+    return {"ok": True, "events": events, "count": len(events)}
+
+
+def _security_summary_handler(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Return aggregated threat statistics and risk timeline."""
+    try:
+        from ..safety_layer.security_monitor import get_monitor
+    except ImportError:
+        return {"ok": False, "error": "Security monitor unavailable"}
+    monitor = get_monitor()
+    bucket_minutes = int((ctx.get("query") or {}).get("bucket_minutes") or 5)
+    return {
+        "ok": True,
+        "summary": monitor.get_threat_summary(),
+        "risk_timeline": monitor.get_risk_timeline(bucket_minutes=bucket_minutes),
+    }
+
+
+def _security_audit_handler(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Return audit log entries and verify chain integrity."""
+    try:
+        from ..safety_layer.audit import AuditLog
+    except ImportError:
+        return {"ok": False, "error": "Audit module unavailable"}
+    audit = AuditLog()
+    ok, msg = audit.verify_integrity()
+    entries = audit.get_entries()
+    return {
+        "ok": True,
+        "chain_integrity": ok,
+        "integrity_message": msg,
+        "entry_count": len(entries),
+        "entries": entries[-100:],
+    }
+
+
 def register_console_routes(
     server: GatewayServer,
     *,
@@ -625,6 +680,27 @@ def register_console_routes(
         method="POST",
         auth="open",
         description="Capture an accessibility snapshot from the optional agent-browser workspace",
+    )
+    server.routes.register(
+        "/api/console/security/events",
+        _security_events_handler,
+        method="GET",
+        auth="open",
+        description="Security event log from DPI inspection (Lobster Trap)",
+    )
+    server.routes.register(
+        "/api/console/security/summary",
+        _security_summary_handler,
+        method="GET",
+        auth="open",
+        description="Aggregated threat statistics and risk timeline",
+    )
+    server.routes.register(
+        "/api/console/security/audit",
+        _security_audit_handler,
+        method="GET",
+        auth="open",
+        description="HMAC-chained audit log entries and chain integrity check",
     )
 
 

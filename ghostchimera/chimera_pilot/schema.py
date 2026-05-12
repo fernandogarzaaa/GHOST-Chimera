@@ -118,6 +118,39 @@ _KIND_SCHEMAS: dict[TaskKind, _KindSchema] = {
             "target_descriptor": _is_target_descriptor,
         },
     ),
+    # ── Track 2: Gemini long-context ────────────────────────────────────────
+    TaskKind.LONG_CONTEXT_DOC: _KindSchema(
+        required_fields=["instruction"],
+        optional_fields=["documents", "history", "max_output_tokens"],
+        field_types={"instruction": str},
+        value_constraints={
+            "instruction": lambda v: isinstance(v, str) and len(v.strip()) > 0,
+        },
+    ),
+    # ── Track 3: Simulation ──────────────────────────────────────────────────
+    TaskKind.SIMULATION: _KindSchema(
+        required_fields=["sim_mode"],
+        optional_fields=["robot", "environment", "waypoints", "states", "sensors", "policy", "episodes", "dt", "tick_rate_hz"],
+        field_types={"sim_mode": str},
+        value_constraints={
+            "sim_mode": lambda v: isinstance(v, str) and v.strip().lower() in {"kinematics", "digital_twin", "policy_test"},
+        },
+    ),
+    # ── Track 4: Analytics ──────────────────────────────────────────────────
+    TaskKind.ANALYTICS_QUERY: _KindSchema(
+        required_fields=["query"],
+        optional_fields=["data", "columns"],
+        field_types={"query": str},
+        value_constraints={
+            "query": lambda v: isinstance(v, str) and len(v.strip()) > 0,
+        },
+    ),
+    TaskKind.DATA_PIPELINE: _KindSchema(
+        required_fields=["data"],
+        optional_fields=["schema", "pipeline"],
+        field_types={},
+        value_constraints={},
+    ),
 }
 
 
@@ -184,6 +217,30 @@ class DesktopControlSchema:
         return _validate_one(inputs, errors)
 
 
+class LongContextDocSchema:
+    @staticmethod
+    def validate(inputs: dict[str, Any]) -> tuple[bool, list[str]]:
+        return _validate_one(inputs, _KIND_SCHEMAS[TaskKind.LONG_CONTEXT_DOC])
+
+
+class SimulationSchema:
+    @staticmethod
+    def validate(inputs: dict[str, Any]) -> tuple[bool, list[str]]:
+        return _validate_one(inputs, _KIND_SCHEMAS[TaskKind.SIMULATION])
+
+
+class AnalyticsQuerySchema:
+    @staticmethod
+    def validate(inputs: dict[str, Any]) -> tuple[bool, list[str]]:
+        return _validate_one(inputs, _KIND_SCHEMAS[TaskKind.ANALYTICS_QUERY])
+
+
+class DataPipelineSchema:
+    @staticmethod
+    def validate(inputs: dict[str, Any]) -> tuple[bool, list[str]]:
+        return _validate_one(inputs, _KIND_SCHEMAS[TaskKind.DATA_PIPELINE])
+
+
 _KIND_VALIDATORS = {
     TaskKind.PYTHON: PythonSchema.validate,
     TaskKind.TEST_RUN: TestRunSchema.validate,
@@ -193,6 +250,10 @@ _KIND_VALIDATORS = {
     TaskKind.RAG_QUERY: RagQuerySchema.validate,
     TaskKind.REASONING: ReasoningSchema.validate,
     TaskKind.DESKTOP_CONTROL: DesktopControlSchema.validate,
+    TaskKind.LONG_CONTEXT_DOC: LongContextDocSchema.validate,
+    TaskKind.SIMULATION: SimulationSchema.validate,
+    TaskKind.ANALYTICS_QUERY: AnalyticsQuerySchema.validate,
+    TaskKind.DATA_PIPELINE: DataPipelineSchema.validate,
 }
 
 

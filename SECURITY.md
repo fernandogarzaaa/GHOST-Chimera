@@ -13,6 +13,7 @@ Ghost Chimera contains components that can execute local work when explicitly en
 - filesystem tools for local reads/writes.
 - browser/network tools when configured.
 - optional local model runtimes loaded through minimind-compatible or llama.cpp adapters.
+- optional live desktop control via `DesktopRuntimeBackend` (dry-run by default).
 
 These are powerful primitives. Do not run untrusted prompts, untrusted code, or untrusted repositories without external sandboxing such as a container, VM, or restricted service account.
 
@@ -28,6 +29,8 @@ Chimera Pilot ships with conservative defaults:
 - execution telemetry records backend id, success/failure, timing, and error metadata.
 
 The AgentCore tool path also requires an `ExecutionPolicy` before shell, filesystem, or browser tools run. File access is constrained to configured roots, shell commands are parsed without `shell=True`, command execution is timeout-bounded, and local tool attempts are written to the audit log.
+
+The `SSRFPolicy` layer blocks requests to private IP ranges and cloud metadata endpoints by default. The `BuiltinDPIEngine` (LobsterTrap) scans inputs for prompt injection, credential leaks, PII, and data exfiltration instructions before they reach the execution layer.
 
 ## Required hardening for production deployments
 

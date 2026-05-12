@@ -14,7 +14,20 @@ from .approval import (  # noqa: F401
 )
 from .audit import record as record_audit  # noqa: F401
 from .gating import requires_approval  # noqa: F401
+from .lobster_trap import (  # noqa: F401
+    BuiltinDPIEngine,
+    DPIResult,
+    LobsterTrapClient,
+    LobsterTrapConfig,
+    LobsterTrapInspector,
+)
 from .material_policy import MaterialRegistry  # noqa: F401
 from .policy_enforcement import PolicyEnforcer  # noqa: F401
 from .production import ProductionGuardrails, production_readiness_report  # noqa: F401
+from .security_monitor import (  # noqa: F401
+    SecurityEvent,
+    SecurityMonitor,
+    ThreatCategory,
+    get_monitor,
+)
 from .ssrf import NetworkDispatcher, SSRFPolicy, SSRFViolation, get_dispatcher  # noqa: F401

@@ -154,6 +154,46 @@ _CATALOG: list[ModelCatalogEntry] = [
         input_cost_usd_per_1k=0.0,
         output_cost_usd_per_1k=0.0,
     ),
+    # ── Google Gemini (AI Studio) ────────────────────────────────────────────
+    ModelCatalogEntry(
+        provider="gemini",
+        model_id="gemini-2.0-flash-exp",
+        display_name="Gemini 2.0 Flash (Experimental)",
+        context_window_tokens=1_000_000,
+        input_cost_usd_per_1k=0.0,
+        output_cost_usd_per_1k=0.0,
+        supports_streaming=True,
+        supports_vision=True,
+    ),
+    ModelCatalogEntry(
+        provider="gemini",
+        model_id="gemini-1.5-pro",
+        display_name="Gemini 1.5 Pro",
+        context_window_tokens=1_000_000,
+        input_cost_usd_per_1k=0.00125,
+        output_cost_usd_per_1k=0.005,
+        supports_streaming=True,
+        supports_vision=True,
+    ),
+    ModelCatalogEntry(
+        provider="gemini",
+        model_id="gemini-1.5-flash",
+        display_name="Gemini 1.5 Flash",
+        context_window_tokens=1_000_000,
+        input_cost_usd_per_1k=0.000075,
+        output_cost_usd_per_1k=0.0003,
+        supports_streaming=True,
+        supports_vision=True,
+    ),
+    ModelCatalogEntry(
+        provider="gemini",
+        model_id="gemini-1.0-pro",
+        display_name="Gemini 1.0 Pro",
+        context_window_tokens=32_760,
+        input_cost_usd_per_1k=0.0005,
+        output_cost_usd_per_1k=0.0015,
+        supports_streaming=True,
+    ),
 ]
 
 # Build a quick lookup index: (provider, model_id) -> entry

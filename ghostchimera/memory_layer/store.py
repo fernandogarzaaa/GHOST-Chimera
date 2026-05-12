@@ -6,8 +6,42 @@ import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+_DEFAULT_FRESHNESS_HALF_LIFE_DAYS: float = 30.0
+
+
+def _freshness_score(created_at: str, *, half_life_days: float = _DEFAULT_FRESHNESS_HALF_LIFE_DAYS) -> float:
+    """Return a [0, 1] freshness score using exponential decay from *created_at*.
+
+    A document created now scores 1.0; a document created *half_life_days* ago
+    scores ~0.5; older documents approach 0.0 asymptotically.
+    """
+    if not created_at:
+        return 0.5
+    try:
+        ts = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        age_days = max(0.0, (datetime.now(UTC) - ts).total_seconds() / 86400.0)
+    except (ValueError, TypeError):
+        return 0.5
+    if half_life_days <= 0:
+        return 1.0
+    import math
+    return round(math.exp(-math.log(2) * age_days / half_life_days), 6)
+
+
+def _citation_quality(content: str, freshness: float) -> float:
+    """Heuristic citation-quality score combining content length and freshness.
+
+    A short, stale document scores low; a long, fresh document scores high.
+    The score is bounded to [0, 1].
+    """
+    length_score = min(1.0, len(content) / 200.0)
+    return round(min(1.0, 0.6 * freshness + 0.4 * length_score), 6)
 
 
 class MemoryStore:
@@ -73,7 +107,34 @@ class MemoryStore:
             )
             return rowid, True
 
-    def search(self, query: str, *, limit: int = 5) -> list[dict[str, Any]]:
+    def count(self) -> int:
+        """Return the total number of documents in the store."""
+        with self._connect() as conn:
+            row = conn.execute("SELECT COUNT(*) AS n FROM memory_documents").fetchone()
+            return int(row["n"]) if row else 0
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        stale_after_days: float | None = None,
+        freshness_half_life_days: float = _DEFAULT_FRESHNESS_HALF_LIFE_DAYS,
+    ) -> list[dict[str, Any]]:
+        """Full-text search against the memory store.
+
+        Parameters
+        ----------
+        query:
+            Search terms.  An empty query returns an empty list immediately.
+        limit:
+            Maximum number of results (capped at 25).
+        stale_after_days:
+            When set, documents older than this many days are excluded from
+            results.  ``None`` (default) disables age filtering.
+        freshness_half_life_days:
+            Half-life in days used by the exponential-decay freshness score.
+        """
         query = query.strip()
         if not query:
             return []
@@ -83,26 +144,50 @@ class MemoryStore:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT d.id, d.source, d.content, d.metadata_json, bm25(memory_documents_fts) AS rank
+                SELECT d.id, d.source, d.content, d.metadata_json,
+                       d.created_at, bm25(memory_documents_fts) AS rank
                 FROM memory_documents_fts
                 JOIN memory_documents d ON d.id = memory_documents_fts.rowid
                 WHERE memory_documents_fts MATCH ?
                 ORDER BY rank
                 LIMIT ?
                 """,
-                (fts_query, limit),
+                (fts_query, limit * 4 if stale_after_days is not None else limit),
             ).fetchall()
 
-        return [
-            {
-                "id": row["id"],
-                "source": row["source"],
-                "content": row["content"],
-                "metadata": json.loads(row["metadata_json"] or "{}"),
-                "score": round(1.0 / (1.0 + abs(float(row["rank"]))), 6),
-            }
-            for row in rows
-        ]
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            created_at = row["created_at"] or ""
+            freshness = _freshness_score(created_at, half_life_days=freshness_half_life_days)
+
+            if stale_after_days is not None and stale_after_days > 0:
+                try:
+                    ts = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=UTC)
+                    age_days = (datetime.now(UTC) - ts).total_seconds() / 86400.0
+                    if age_days > stale_after_days:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+
+            content = row["content"]
+            results.append(
+                {
+                    "id": row["id"],
+                    "source": row["source"],
+                    "content": content,
+                    "metadata": json.loads(row["metadata_json"] or "{}"),
+                    "score": round(1.0 / (1.0 + abs(float(row["rank"]))), 6),
+                    "freshness_score": freshness,
+                    "citation_quality": _citation_quality(content, freshness),
+                    "created_at": created_at,
+                }
+            )
+            if len(results) >= limit:
+                break
+
+        return results
 
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
