@@ -41,6 +41,8 @@ docker compose up --build
 
 Then open **http://localhost:8766/** in your browser. The console provides a point-and-click UI for running objectives, viewing autonomy jobs, managing schedules, inspecting the security monitor, and controlling the operator workspace — no terminal required after startup.
 
+For a step-by-step Docker and local Python guide, see [`docs/RUNNING.md`](docs/RUNNING.md).
+
 For public demo URL runbooks and judge-ready packaging, see `docs/HACKATHON_ALL_IN_ONE.md` and `docs/hackathons/DEPLOYMENT_RUNBOOK.md`.
 
 ## Developer Install
