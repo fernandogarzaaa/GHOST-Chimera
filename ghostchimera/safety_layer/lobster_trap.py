@@ -423,6 +423,7 @@ class LobsterTrapClient:
             method="POST",
         )
         try:
+            # ssl.create_default_context() sets CERT_REQUIRED and check_hostname=True by default
             ctx = ssl.create_default_context()
             with urllib_request.urlopen(req, context=ctx, timeout=self.config.timeout_seconds) as resp:
                 raw = json.loads(resp.read().decode("utf-8"))

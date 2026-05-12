@@ -27,6 +27,7 @@ Usage::
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import threading
@@ -81,7 +82,10 @@ class SecurityEvent:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SecurityEvent:
-        cats = [ThreatCategory(c) for c in data.get("categories", []) if c in ThreatCategory._value2member_map_]
+        cats = []
+        for c in data.get("categories", []):
+            with contextlib.suppress(ValueError):
+                cats.append(ThreatCategory(c))
         return cls(
             session_id=data.get("session_id", ""),
             categories=cats,

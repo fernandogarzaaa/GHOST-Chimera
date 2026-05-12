@@ -874,7 +874,6 @@ def _case_dpi_config_from_env() -> tuple[bool, str]:
 
     from ghostchimera.safety_layer.lobster_trap import LobsterTrapConfig
 
-    orig = _os.environ.copy()  # noqa: F841
     try:
         _os.environ["GHOSTCHIMERA_LOBSTERTRAP_ENABLED"] = "1"
         _os.environ["GHOSTCHIMERA_LOBSTERTRAP_URL"] = "http://proxy.example.com:4000/v1/chat/completions"
@@ -884,7 +883,7 @@ def _case_dpi_config_from_env() -> tuple[bool, str]:
         for key in ("GHOSTCHIMERA_LOBSTERTRAP_ENABLED", "GHOSTCHIMERA_LOBSTERTRAP_URL", "GHOSTCHIMERA_LOBSTERTRAP_FAIL_OPEN"):
             _os.environ.pop(key, None)
 
-    ok = config.enabled and "proxy.example.com" in config.proxy_url and not config.fail_open
+    ok = config.enabled and config.proxy_url == "http://proxy.example.com:4000/v1/chat/completions" and not config.fail_open
     return ok, json.dumps({"enabled": config.enabled, "proxy_url": config.proxy_url, "fail_open": config.fail_open})
 
 
