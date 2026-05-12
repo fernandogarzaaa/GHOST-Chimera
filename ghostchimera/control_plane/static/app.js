@@ -237,7 +237,7 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
       r.executions.forEach(function(e) {
         var item = el("div", { class: "list-item" });
         var cls = e.ok ? "ok" : "error";
-        item.appendChild(el("span", { class: "badge " + cls }, e.ok ? "ok" : "error"));
+        item.appendChild(el("span", { class: "badge " + cls }, cls));
         item.appendChild(el("span", { class: "name" }, e.objective || e.kind || "task"));
         if (e.result !== undefined && e.result !== null) {
           item.appendChild(el("span", { class: "meta" }, String(e.result).slice(0, 120)));

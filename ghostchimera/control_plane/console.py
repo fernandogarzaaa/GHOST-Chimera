@@ -315,11 +315,11 @@ def register_console_routes(
 
     # Auth settings for API routes: use token auth when a console token is configured.
     _api_auth = "token" if console_token else "open"
-    _api_tok = console_token
+    _api_token = console_token
 
     def _api_register(path: str, handler: Any, *, method: str = "GET", prefix: bool = False, description: str = "") -> None:
         """Register an API route with the appropriate auth mode."""
-        server.routes.register(path, handler, method=method, auth=_api_auth, token=_api_tok, prefix=prefix, description=description)
+        server.routes.register(path, handler, method=method, auth=_api_auth, token=_api_token, prefix=prefix, description=description)
 
     def console_page(ctx: dict[str, Any]) -> HttpResponse:
         return HttpResponse(body=CONSOLE_HTML, content_type="text/html; charset=utf-8")
