@@ -5,7 +5,7 @@ This guide shows the fastest way to run Ghost Chimera and a local Python setup i
 ## Fastest path: run the browser console with Docker
 
 1. Install Docker and Docker Compose.
-2. Open a terminal in `/home/runner/work/GHOST-Chimera/GHOST-Chimera`.
+2. Open a terminal in the cloned repository root.
 3. Start the app:
 
    ```bash
@@ -26,7 +26,7 @@ This guide shows the fastest way to run Ghost Chimera and a local Python setup i
 ## Local Python setup (without Docker)
 
 1. Install Python `3.11`, `3.12`, or `3.13`.
-2. Open a terminal in `/home/runner/work/GHOST-Chimera/GHOST-Chimera`.
+2. Open a terminal in the cloned repository root.
 3. Create a virtual environment:
 
    ```bash
