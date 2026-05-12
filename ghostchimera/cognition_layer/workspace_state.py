@@ -237,6 +237,84 @@ class OperatorWorkspaceStore:
             "note": "Quality flags are retrieval provenance, not a truth guarantee.",
         }
 
+    def workspace_context_for_objective(
+        self,
+        objective: str,
+        *,
+        min_confidence: float = 0.5,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Return workspace evidence/reflections relevant to *objective*.
+
+        This provides a lightweight, in-memory retrieval path that does not
+        require workspace to be synced to the CWR SQLite store first.  It
+        matches on simple substring overlap between the objective words and
+        the evidence/reflection content.
+
+        Parameters
+        ----------
+        objective:
+            The task objective text to match against.
+        min_confidence:
+            Only return items with confidence >= this threshold.
+        limit:
+            Maximum number of context items to return.
+
+        Returns
+        -------
+        list of dicts with keys ``type``, ``source``, ``content``,
+        ``confidence``, and ``relevance_hint``.
+        """
+        tokens = {t.casefold() for t in objective.split() if len(t) > 2}
+        items: list[tuple[float, dict[str, Any]]] = []
+
+        for evidence in self.memory.evidence:
+            confidence = _bounded_confidence(evidence.get("confidence"))
+            if confidence < min_confidence:
+                continue
+            content = str(evidence.get("content") or "")
+            hits = sum(1 for tok in tokens if tok in content.casefold())
+            if hits == 0:
+                continue
+            relevance = round(min(1.0, hits / max(1, len(tokens))), 6)
+            items.append(
+                (
+                    relevance,
+                    {
+                        "type": "evidence",
+                        "source": str(evidence.get("source") or "workspace"),
+                        "content": content,
+                        "confidence": confidence,
+                        "relevance_hint": relevance,
+                    },
+                )
+            )
+
+        for reflection in self.memory.reflections:
+            confidence = _bounded_confidence(reflection.get("confidence"))
+            if confidence < min_confidence:
+                continue
+            content = str(reflection.get("outcome") or "")
+            hits = sum(1 for tok in tokens if tok in content.casefold())
+            if hits == 0:
+                continue
+            relevance = round(min(1.0, hits / max(1, len(tokens))), 6)
+            items.append(
+                (
+                    relevance,
+                    {
+                        "type": "reflection",
+                        "source": str(reflection.get("action") or "workspace"),
+                        "content": content,
+                        "confidence": confidence,
+                        "relevance_hint": relevance,
+                    },
+                )
+            )
+
+        items.sort(key=lambda x: x[0], reverse=True)
+        return [item for _, item in items[:limit]]
+
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {

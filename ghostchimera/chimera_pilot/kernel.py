@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..logging_config import get_logger
 from ..memory_layer.store import MemoryStore
@@ -25,6 +25,9 @@ from .scheduler import ChimeraScheduler
 from .task_ir import TaskKind, TaskSpec
 from .telemetry import InMemoryTelemetryStore
 
+if TYPE_CHECKING:
+    from ..cognition_layer.workspace_state import OperatorWorkspaceStore
+
 logger = get_logger("kernel")
 
 
@@ -44,6 +47,7 @@ class ChimeraPilotKernel:
         hooks: HookRegistry | None = None,
         autonomy_profile: AutonomyProfile | None = None,
         desktop_confirmation_token: str | None = None,
+        workspace_store: OperatorWorkspaceStore | None = None,
     ) -> None:
         self.registry = registry or ResourceRegistry()
         self.compiler = compiler or RuleBasedTaskCompiler()
@@ -55,6 +59,7 @@ class ChimeraPilotKernel:
         self.hooks = hooks or HookRegistry()
         self.autonomy_profile = autonomy_profile or self.policy.autonomy_profile
         self.desktop_confirmation_token = desktop_confirmation_token
+        self.workspace_store = workspace_store
 
     @classmethod
     def default(
@@ -147,6 +152,21 @@ class ChimeraPilotKernel:
     def compile(self, objective: str) -> list[TaskSpec]:
         logger.info("Compiling objective: %s", objective[:50])
         tasks = self.compiler.compile(objective)
+
+        if self.workspace_store is not None:
+            context_items = self.workspace_store.workspace_context_for_objective(objective, limit=5)
+            if context_items:
+                tasks = [
+                    replace(
+                        task,
+                        constraints={
+                            **task.constraints,
+                            "workspace_context": context_items,
+                        },
+                    )
+                    for task in tasks
+                ]
+
         self.hooks.fire(HookName.TASK_COMPILE, objective=objective, tasks=tasks)
         return tasks
 

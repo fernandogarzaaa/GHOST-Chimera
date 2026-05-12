@@ -77,6 +77,8 @@ def _suite_kpis(name: str, cases: list[dict[str, object]]) -> dict[str, float]:
         kpis["operator_journey_pass_rate"] = round(pass_rate, 3)
     if name == "redteam":
         kpis["red_team_block_rate"] = round(pass_rate, 3)
+    if name == "workspace":
+        kpis["workspace_contract_pass_rate"] = round(pass_rate, 3)
     if name == "track2":
         kpis["gemini_integration_pass_rate"] = round(pass_rate, 3)
     if name == "track3":
@@ -98,6 +100,8 @@ def _suite_gates(name: str, kpis: dict[str, float]) -> dict[str, bool]:
         return {"operator_journey_gate": kpis.get("operator_journey_pass_rate", 0.0) >= 1.0}
     if name == "redteam":
         return {"red_team_gate": kpis.get("red_team_block_rate", 0.0) >= 1.0}
+    if name == "workspace":
+        return {"workspace_contract_gate": kpis.get("workspace_contract_pass_rate", 0.0) >= 1.0}
     if name == "track2":
         return {"gemini_gate": kpis.get("gemini_integration_pass_rate", 0.0) >= 1.0}
     if name == "track3":
@@ -1346,6 +1350,112 @@ def _case_compiler_routes_analytics() -> tuple[bool, str]:
     return ok, json.dumps({"analytics_kind": aq[0].kind if aq else None, "pipeline_kind": dp[0].kind if dp else None, "ok": ok})
 
 
+# ── Workspace eval cases ──────────────────────────────────────────────────────
+
+def _case_workspace_context_enriches_task() -> tuple[bool, str]:
+    """Workspace context must be injected into compiled task constraints when workspace has relevant evidence."""
+    from ghostchimera.cognition_layer.workspace_state import OperatorWorkspaceStore
+
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-ws-eval-") as tmp:
+        ws = OperatorWorkspaceStore(state_dir=tmp)
+        ws.add_evidence("release-policy", "shell execution must be policy-gated in all deployments", confidence=0.95)
+        ws.add_evidence("audit-notes", "CWR retrieval passed smoke eval on 2026-01-01", confidence=0.91)
+        kernel = ChimeraPilotKernel(workspace_store=ws)
+        tasks = kernel.compile("retrieve policy gates from local memory")
+
+    has_context = any(
+        "workspace_context" in t.constraints and len(t.constraints["workspace_context"]) > 0
+        for t in tasks
+    )
+    context_items = tasks[0].constraints.get("workspace_context", []) if tasks else []
+    return has_context, json.dumps({"has_context": has_context, "context_count": len(context_items)})
+
+
+def _case_workspace_context_empty_on_no_match() -> tuple[bool, str]:
+    """Workspace context must not inject irrelevant evidence."""
+    from ghostchimera.cognition_layer.workspace_state import OperatorWorkspaceStore
+
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-ws-eval-") as tmp:
+        ws = OperatorWorkspaceStore(state_dir=tmp)
+        ws.add_evidence("ui-notes", "the button should be blue", confidence=0.9)
+        kernel = ChimeraPilotKernel(workspace_store=ws)
+        tasks = kernel.compile("rag retrieve quantum simulation results")
+
+    context_items = tasks[0].constraints.get("workspace_context", []) if tasks else []
+    no_match = len(context_items) == 0
+    return no_match, json.dumps({"no_match": no_match, "context_count": len(context_items)})
+
+
+def _case_memory_freshness_score_populated() -> tuple[bool, str]:
+    """Search results must include freshness_score and citation_quality fields."""
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-ws-eval-") as tmp:
+        store = MemoryStore(Path(tmp) / "mem.sqlite3")
+        store.add_document("eval", "freshness score test document for workspace eval")
+        results = store.search("freshness score test")
+
+    ok = (
+        len(results) > 0
+        and "freshness_score" in results[0]
+        and "citation_quality" in results[0]
+        and isinstance(results[0]["freshness_score"], float)
+        and 0.0 <= results[0]["freshness_score"] <= 1.0
+        and isinstance(results[0]["citation_quality"], float)
+        and 0.0 <= results[0]["citation_quality"] <= 1.0
+    )
+    detail: dict[str, object] = {
+        "ok": ok,
+        "freshness_score": results[0].get("freshness_score") if results else None,
+        "citation_quality": results[0].get("citation_quality") if results else None,
+    }
+    return ok, json.dumps(detail)
+
+
+def _case_memory_empty_index_returns_empty_list() -> tuple[bool, str]:
+    """An empty memory store must return an empty list and count() must return 0."""
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-ws-eval-") as tmp:
+        store = MemoryStore(Path(tmp) / "mem.sqlite3")
+        results = store.search("anything")
+        count = store.count()
+
+    ok = results == [] and count == 0
+    return ok, json.dumps({"results": results, "count": count})
+
+
+def _case_memory_count_tracks_inserts() -> tuple[bool, str]:
+    """count() must return the number of documents inserted."""
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-ws-eval-") as tmp:
+        store = MemoryStore(Path(tmp) / "mem.sqlite3")
+        store.add_document("src1", "first document about retrieval")
+        store.add_document("src2", "second document about memory depth")
+        store.add_document("src3", "third document about citation quality")
+        count = store.count()
+
+    ok = count == 3
+    return ok, json.dumps({"count": count})
+
+
+def _case_local_model_check_reports_profiles() -> tuple[bool, str]:
+    """ghostchimera local-model profiles must return all three profile names."""
+    import subprocess as _subprocess
+
+    completed = _subprocess.run(
+        [sys.executable, "-m", "ghostchimera", "local-model", "profiles"],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return False, f"JSON parse failed: {completed.stdout[:200]}"
+
+    profile_names = {p["profile"] for p in payload.get("profiles", [])}
+    ok = payload.get("ok") is True and {"tiny", "balanced", "stronger"}.issubset(profile_names)
+    return ok, json.dumps({"ok": ok, "profiles": sorted(profile_names)})
+
+
 # ── Suite registry ───────────────────────────────────────────────────
 
 EVAL_SUITES: dict[str, list[tuple[str, CaseFn]]] = {
@@ -1375,6 +1485,14 @@ EVAL_SUITES: dict[str, list[tuple[str, CaseFn]]] = {
         ("workspace_sync_feeds_retrieval", _case_workspace_sync_feeds_retrieval),
         ("workspace_sync_quality_flags", _case_workspace_sync_quality_flags),
         ("readiness_runbook_includes_release_gate", _case_readiness_runbook_includes_release_gate),
+    ],
+    "workspace": [
+        ("workspace_context_enriches_task", _case_workspace_context_enriches_task),
+        ("workspace_context_empty_on_no_match", _case_workspace_context_empty_on_no_match),
+        ("memory_freshness_score_populated", _case_memory_freshness_score_populated),
+        ("memory_empty_index_returns_empty_list", _case_memory_empty_index_returns_empty_list),
+        ("memory_count_tracks_inserts", _case_memory_count_tracks_inserts),
+        ("local_model_check_reports_profiles", _case_local_model_check_reports_profiles),
     ],
     "coverage": [
         ("ssrf_policy_blocks_private_ip", _case_ssrf_policy_blocks_private_ip),

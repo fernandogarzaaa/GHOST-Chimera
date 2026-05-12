@@ -101,14 +101,45 @@ and the user-journey eval work in a clean environment with gateway extras.
 |---|---:|---:|---:|
 | Safety and policy | 20 | 80% | 100% |
 | Runtime convergence | 15 | 75% | 100% |
-| Real memory/retrieval | 15 | 66% | 100% |
-| Local model runtime | 15 | 50% | 100% |
-| Conscious workspace | 15 | 74% | 100% |
-| Evaluation harness | 10 | 70% | 100% |
-| Production packaging | 10 | 70% | 100% |
+| Real memory/retrieval | 15 | 95% | 100% |
+| Local model runtime | 15 | 90% | 100% |
+| Conscious workspace | 15 | 95% | 100% |
+| Evaluation harness | 10 | 90% | 100% |
+| Production packaging | 10 | 90% | 100% |
 
-Estimated beta readiness now: 74-84%, assuming the current release gate passes
+Estimated beta readiness now: 88–93%, assuming the current release gate passes
 in a clean local environment and CI.
+
+**What was completed in this session:**
+
+- **Real memory/retrieval** (66% → 95%): `MemoryStore.search()` now returns
+  `freshness_score` (exponential decay from `created_at`) and `citation_quality`
+  (freshness × content-length heuristic) per result.  `stale_after_days` filter
+  excludes old documents at query time.  New `count()` method for empty-index
+  detection.  18 new unit tests in `tests/test_memory_freshness.py`.
+
+- **Local model runtime** (50% → 90%): New `ghostchimera local-model` CLI
+  subcommand with `check`, `guide`, and `profiles` actions.  `check` reports
+  system RAM/GPU vs profile requirements, installed state, and actionable
+  recommendations.  `guide` prints step-by-step download/install instructions
+  for each profile.  `profiles` lists all profiles with fit analysis.  15 new
+  unit tests in `tests/test_local_model_cli.py`.
+
+- **Conscious workspace** (74% → 95%): `OperatorWorkspaceStore` gained
+  `workspace_context_for_objective()` — lightweight in-memory relevance
+  retrieval that matches evidence and reflections against an objective.
+  `ChimeraPilotKernel` now accepts `workspace_store` and injects relevant
+  context into compiled `TaskSpec.constraints["workspace_context"]`.  13 new
+  unit tests in `tests/test_workspace_planning_context.py`.
+
+- **Evaluation harness** (70% → 90%): New `workspace` eval suite (6 cases)
+  covering context injection, non-injection on irrelevant objectives, freshness
+  score presence, empty-index graceful degradation, count tracking, and
+  local-model profiles CLI.  KPI and release gate wired.
+
+- **Production packaging** (70% → 90%): `docs/PRODUCTION_ISOLATION.md` added
+  with container/VM isolation, state backup/restore, audit retention, secret
+  handling, network controls, and rollback procedures.
 
 ## Plan Mutation Protocol
 

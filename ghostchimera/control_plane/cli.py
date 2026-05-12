@@ -146,6 +146,15 @@ def _main(argv: list[str] | None = None) -> int:
     minimind_parser.add_argument("--response", default="", help="Response/output text.")
     minimind_parser.add_argument("--confidence", type=float, default=0.0)
     minimind_parser.add_argument("--threshold", type=float, default=0.5)
+    local_model_parser = sub.add_parser("local-model", help="Bootstrap and check local model inference readiness")
+    local_model_parser.add_argument(
+        "action",
+        choices=["check", "guide", "profiles"],
+        nargs="?",
+        default="check",
+        help="check: report readiness; guide: print install steps; profiles: list all profiles",
+    )
+    local_model_parser.add_argument("--profile", default="", help="Local model profile name (tiny, balanced, stronger).")
     runtime_warmup_parser = sub.add_parser("runtime-warmup", help="Precompute local runtime specialization manifests")
     runtime_warmup_parser.add_argument("--runtime-specialization-cache-dir", default=".ghost/runtime-specialization", help="Directory for warmup manifests.")
     runtime_warmup_parser.add_argument("--local-model-profile", action="append", default=[], help="Profile to warm. Repeat for multiple; omit for all profiles.")
@@ -260,6 +269,11 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "minimind":
         return _run_minimind_cli(args)
+
+    if args.command == "local-model":
+        from .local_model_cli import run_local_model_cli
+
+        return run_local_model_cli(action=args.action, profile=getattr(args, "profile", ""))
 
     if args.command == "runtime-warmup":
         from ..model_layer.runtime_specialization import detect_runtime_environment, warm_runtime_specialization_cache
