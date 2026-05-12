@@ -26,6 +26,16 @@ OpenAI-compatible (same HTTP request shape as OpenAI, different base URL + key):
     FireworksProvider  — https://api.fireworks.ai/inference/v1/chat/completions
     CerebrasProvider   — https://api.cerebras.ai/v1/chat/completions (ultra-fast)
     AI21Provider       — https://api.ai21.com/studio/v1/chat/completions
+    HuggingFaceProvider — https://api-inference.huggingface.co/v1/chat/completions
+    NvidiaProvider     — https://integrate.api.nvidia.com/v1/chat/completions (NIM)
+    MoonshotProvider   — https://api.moonshot.cn/v1/chat/completions (Kimi)
+    DeepInfraProvider  — https://api.deepinfra.com/v1/openai/chat/completions
+    QwenProvider       — https://dashscope-intl.aliyuncs.com/... (Alibaba DashScope)
+    VolcengineProvider — https://ark.cn-beijing.volces.com/api/v3/... (ByteDance Doubao)
+    StepFunProvider    — https://api.stepfun.com/v1/chat/completions
+    GlmProvider        — https://open.bigmodel.cn/api/paas/v4/... (ZhipuAI GLM-4)
+    VeniceProvider     — https://api.venice.ai/api/v1/chat/completions (private)
+    LMStudioProvider   — http://localhost:1234/v1/chat/completions  (local, no key)
 
 Custom API:
 
@@ -569,6 +579,315 @@ class AI21Provider(OpenAICompatibleProvider):
     _MODEL_ENV_VAR = "AI21_MODEL"
 
 
+# ---------------------------------------------------------------------------
+# Tier-5: OpenClaw provider directory additions
+# ---------------------------------------------------------------------------
+
+
+class HuggingFaceProvider(OpenAICompatibleProvider):
+    """Provider for Hugging Face Inference API.
+
+    Hugging Face exposes an OpenAI-compatible ``/v1/chat/completions``
+    endpoint for thousands of open-weight models.  Set ``HF_TOKEN`` (from
+    https://huggingface.co/settings/tokens) and optionally
+    ``HUGGINGFACE_MODEL`` in the environment.
+
+    Supported models (examples)::
+
+        meta-llama/Llama-3.3-70B-Instruct    # default — Llama 3.3 70B
+        Qwen/Qwen2.5-72B-Instruct
+        mistralai/Mistral-7B-Instruct-v0.3
+        google/gemma-2-9b-it
+    """
+
+    name = "huggingface"
+    _DEFAULT_BASE_URL = "https://api-inference.huggingface.co/v1/chat/completions"
+    _DEFAULT_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
+    _KEY_ENV_VAR = "HF_TOKEN"
+    _MODEL_ENV_VAR = "HUGGINGFACE_MODEL"
+
+
+class NvidiaProvider(OpenAICompatibleProvider):
+    """Provider for NVIDIA NIM — GPU-accelerated cloud inference.
+
+    NVIDIA NIM exposes an OpenAI-compatible endpoint for a curated set of
+    popular open-weight models, with low-latency GPU backends.  Set
+    ``NVIDIA_API_KEY`` (from https://build.nvidia.com) and optionally
+    ``NVIDIA_MODEL``.
+
+    Supported models (examples)::
+
+        meta/llama-3.1-70b-instruct     # default — Llama 3.1 70B
+        meta/llama-3.3-70b-instruct
+        nvidia/llama-3.1-nemotron-70b-instruct
+        mistralai/mixtral-8x22b-instruct-v0.1
+        deepseek-ai/deepseek-r1
+    """
+
+    name = "nvidia"
+    _DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+    _DEFAULT_MODEL = "meta/llama-3.1-70b-instruct"
+    _KEY_ENV_VAR = "NVIDIA_API_KEY"
+    _MODEL_ENV_VAR = "NVIDIA_MODEL"
+
+
+class MoonshotProvider(OpenAICompatibleProvider):
+    """Provider for Moonshot AI (Kimi) — long-context Chinese AI models.
+
+    Moonshot AI exposes an OpenAI-compatible endpoint for their Kimi model
+    family, renowned for very large context windows.  Set
+    ``MOONSHOT_API_KEY`` (from https://platform.moonshot.cn) and optionally
+    ``MOONSHOT_MODEL``.
+
+    Supported models (examples)::
+
+        moonshot-v1-8k     # default — 8 K context
+        moonshot-v1-32k    # 32 K context
+        moonshot-v1-128k   # 128 K context — very long documents
+    """
+
+    name = "moonshot"
+    _DEFAULT_BASE_URL = "https://api.moonshot.cn/v1/chat/completions"
+    _DEFAULT_MODEL = "moonshot-v1-8k"
+    _KEY_ENV_VAR = "MOONSHOT_API_KEY"
+    _MODEL_ENV_VAR = "MOONSHOT_MODEL"
+
+
+class DeepInfraProvider(OpenAICompatibleProvider):
+    """Provider for DeepInfra — affordable open-weight cloud inference.
+
+    DeepInfra hosts dozens of popular open-weight models behind an
+    OpenAI-compatible endpoint at very competitive prices.  Set
+    ``DEEPINFRA_API_KEY`` (from https://deepinfra.com/dash) and optionally
+    ``DEEPINFRA_MODEL``.
+
+    Supported models (examples)::
+
+        meta-llama/Meta-Llama-3.1-70B-Instruct    # default
+        Qwen/Qwen2.5-72B-Instruct
+        mistralai/Mistral-7B-Instruct-v0.3
+        deepseek-ai/DeepSeek-R1
+        microsoft/WizardLM-2-8x22B
+    """
+
+    name = "deepinfra"
+    _DEFAULT_BASE_URL = "https://api.deepinfra.com/v1/openai/chat/completions"
+    _DEFAULT_MODEL = "meta-llama/Meta-Llama-3.1-70B-Instruct"
+    _KEY_ENV_VAR = "DEEPINFRA_API_KEY"
+    _MODEL_ENV_VAR = "DEEPINFRA_MODEL"
+
+
+class QwenProvider(OpenAICompatibleProvider):
+    """Provider for Alibaba Cloud DashScope / Qwen models.
+
+    Alibaba Cloud's DashScope service exposes an OpenAI-compatible
+    international endpoint for the Qwen model family.  Set
+    ``DASHSCOPE_API_KEY`` (from https://dashscope-intl.aliyuncs.com) and
+    optionally ``QWEN_MODEL``.
+
+    Supported models (examples)::
+
+        qwen-turbo              # default — fast, cost-effective
+        qwen-plus               # balanced capability
+        qwen-max                # highest capability
+        qwen2.5-72b-instruct
+        qwen2.5-coder-32b-instruct
+    """
+
+    name = "qwen"
+    _DEFAULT_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
+    _DEFAULT_MODEL = "qwen-turbo"
+    _KEY_ENV_VAR = "DASHSCOPE_API_KEY"
+    _MODEL_ENV_VAR = "QWEN_MODEL"
+
+
+class VolcengineProvider(OpenAICompatibleProvider):
+    """Provider for Volcengine (ByteDance) — Doubao / ARK large models.
+
+    Volcengine is ByteDance's cloud AI platform; the ARK inference service
+    exposes an OpenAI-compatible endpoint for the Doubao (Skylark) family
+    and other hosted models.  Set ``ARK_API_KEY`` (from
+    https://www.volcengine.com/product/ark) and optionally
+    ``VOLCENGINE_MODEL``.
+
+    Supported models (examples)::
+
+        doubao-pro-4k           # default — Doubao Pro 4 K context
+        doubao-pro-32k          # Doubao Pro 32 K context
+        doubao-lite-4k          # lighter / cheaper option
+    """
+
+    name = "volcengine"
+    _DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+    _DEFAULT_MODEL = "doubao-pro-4k"
+    _KEY_ENV_VAR = "ARK_API_KEY"
+    _MODEL_ENV_VAR = "VOLCENGINE_MODEL"
+
+
+class StepFunProvider(OpenAICompatibleProvider):
+    """Provider for StepFun AI — high-capability Chinese reasoning models.
+
+    StepFun (阶跃星辰) exposes an OpenAI-compatible endpoint for their Step
+    model family, known for strong reasoning and code generation.  Set
+    ``STEPFUN_API_KEY`` (from https://platform.stepfun.com) and optionally
+    ``STEPFUN_MODEL``.
+
+    Supported models (examples)::
+
+        step-1-8k          # default — fast, 8 K context
+        step-1-32k         # 32 K context
+        step-1-200k        # 200 K long-context
+        step-1v-32k        # vision-capable
+    """
+
+    name = "stepfun"
+    _DEFAULT_BASE_URL = "https://api.stepfun.com/v1/chat/completions"
+    _DEFAULT_MODEL = "step-1-8k"
+    _KEY_ENV_VAR = "STEPFUN_API_KEY"
+    _MODEL_ENV_VAR = "STEPFUN_MODEL"
+
+
+class GlmProvider(OpenAICompatibleProvider):
+    """Provider for ZhipuAI / ChatGLM (GLM-4 model family).
+
+    ZhipuAI (智谱AI) exposes an OpenAI-compatible endpoint for their GLM-4
+    model family.  Set ``ZHIPUAI_API_KEY`` (from https://open.bigmodel.cn)
+    and optionally ``GLM_MODEL``.
+
+    Supported models (examples)::
+
+        glm-4-flash          # default — free-tier, fast
+        glm-4-air            # balanced cost/capability
+        glm-4                # most capable
+        glm-4-long           # 1 M token context window
+        glm-4v               # vision-capable
+    """
+
+    name = "glm"
+    _DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    _DEFAULT_MODEL = "glm-4-flash"
+    _KEY_ENV_VAR = "ZHIPUAI_API_KEY"
+    _MODEL_ENV_VAR = "GLM_MODEL"
+
+
+class VeniceProvider(OpenAICompatibleProvider):
+    """Provider for Venice AI — privacy-preserving uncensored inference.
+
+    Venice AI runs open-weight models without logging prompts or responses,
+    making it suitable for privacy-sensitive tasks.  Set ``VENICE_API_KEY``
+    (from https://venice.ai/dashboard/api) and optionally ``VENICE_MODEL``.
+
+    Supported models (examples)::
+
+        llama-3.3-70b              # default — Llama 3.3 70B (uncensored)
+        mistral-31-24b             # Mistral 3.1 24B
+        deepseek-r1-671b           # DeepSeek R1 (full size)
+        qwen-2.5-vl                # vision + language
+    """
+
+    name = "venice"
+    _DEFAULT_BASE_URL = "https://api.venice.ai/api/v1/chat/completions"
+    _DEFAULT_MODEL = "llama-3.3-70b"
+    _KEY_ENV_VAR = "VENICE_API_KEY"
+    _MODEL_ENV_VAR = "VENICE_MODEL"
+
+
+class LMStudioProvider(BaseProvider):
+    """Provider for LM Studio — local GUI-based model inference server.
+
+    LM Studio (https://lmstudio.ai) runs quantised LLMs locally and exposes
+    an OpenAI-compatible ``/v1/chat/completions`` endpoint.  No API key is
+    required.  The server must be started manually inside the LM Studio app
+    (Developer → Local Server → Start Server).
+
+    Configuration
+    -------------
+    ``LMSTUDIO_BASE_URL`` — base URL of the LM Studio server
+        (default ``http://localhost:1234``).
+    ``LMSTUDIO_MODEL`` — model identifier (default
+        ``lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF``; or ``"any"``
+        to use whatever model is currently loaded).
+
+    Supported models (any model loaded in LM Studio works)::
+
+        lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF   # default
+        lmstudio-community/Qwen2.5-7B-Instruct-GGUF
+        TheBloke/Mistral-7B-Instruct-v0.2-GGUF
+    """
+
+    name = "lmstudio"
+    _DEFAULT_BASE_URL = "http://localhost:1234"
+    _DEFAULT_MODEL = "lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF"
+
+    def __init__(self, profile: AuthProfile | None = None) -> None:
+        if profile is not None:
+            base = profile.base_url or os.environ.get("LMSTUDIO_BASE_URL", self._DEFAULT_BASE_URL)
+            self.model: str = profile.model or os.environ.get("LMSTUDIO_MODEL", self._DEFAULT_MODEL)
+        else:
+            base = os.environ.get("LMSTUDIO_BASE_URL", self._DEFAULT_BASE_URL)
+            self.model = os.environ.get("LMSTUDIO_MODEL", self._DEFAULT_MODEL)
+        self._base_url: str = base.rstrip("/")
+        self._chat_url: str = f"{self._base_url}/v1/chat/completions"
+        self.available = True
+        logger.debug("Provider %s model=%s base=%s initialized", self.name, self.model, self._base_url)
+
+    def validate_config(self) -> list[str]:
+        notes: list[str] = []
+        if not self.model:
+            notes.append("LMSTUDIO_MODEL must be non-empty")
+        try:
+            context = ssl.create_default_context()
+            req = urllib_request.Request(f"{self._base_url}/v1/models", method="GET")
+            with urllib_request.urlopen(req, context=context, timeout=2):
+                pass
+        except Exception as exc:
+            notes.append(
+                f"LM Studio server at {self._base_url} appears unreachable ({exc}). "
+                "Start the server in LM Studio under Developer → Local Server → Start Server."
+            )
+        return notes
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "available": self.available,
+            "model": self.model,
+            "base_url": self._base_url,
+        }
+
+    def chat(self, system_message: str, user_message: str) -> str:
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message},
+            ],
+            "temperature": 0.0,
+        }
+        data = json.dumps(body).encode("utf-8")
+        context = ssl.create_default_context()
+        req = urllib_request.Request(
+            self._chat_url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib_request.urlopen(req, context=context) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f"LM Studio API returned HTTP {resp.status}")
+                response_json = json.loads(resp.read().decode("utf-8"))
+        except OSError as exc:
+            raise RuntimeError(
+                f"LMStudioProvider could not reach {self._chat_url}. "
+                "Ensure LM Studio is running with the local server enabled."
+            ) from exc
+        choices = response_json.get("choices")
+        if not choices:
+            raise RuntimeError("LM Studio response missing choices")
+        return choices[0]["message"]["content"].strip()
+
+
 __all__ = [
     "OpenAICompatibleProvider",
     "GroqProvider",
@@ -583,4 +902,14 @@ __all__ = [
     "FireworksProvider",
     "CerebrasProvider",
     "AI21Provider",
+    "HuggingFaceProvider",
+    "NvidiaProvider",
+    "MoonshotProvider",
+    "DeepInfraProvider",
+    "QwenProvider",
+    "VolcengineProvider",
+    "StepFunProvider",
+    "GlmProvider",
+    "VeniceProvider",
+    "LMStudioProvider",
 ]

@@ -7,14 +7,24 @@ from ghostchimera.model_layer.openai_compatible_providers import (
     AI21Provider,
     CerebrasProvider,
     CohereProvider,
+    DeepInfraProvider,
     DeepSeekProvider,
     FireworksProvider,
+    GlmProvider,
     GroqProvider,
+    HuggingFaceProvider,
+    LMStudioProvider,
     MistralProvider,
+    MoonshotProvider,
+    NvidiaProvider,
     OllamaProvider,
     OpenRouterProvider,
     PerplexityProvider,
+    QwenProvider,
+    StepFunProvider,
     TogetherProvider,
+    VeniceProvider,
+    VolcengineProvider,
     XAIProvider,
 )
 from ghostchimera.model_layer.providers import (
@@ -227,6 +237,16 @@ class PROVIDERSAndTEXT_PROVIDERSTests(unittest.TestCase):
             "fireworks": FireworksProvider,
             "cerebras": CerebrasProvider,
             "ai21": AI21Provider,
+            "huggingface": HuggingFaceProvider,
+            "nvidia": NvidiaProvider,
+            "moonshot": MoonshotProvider,
+            "deepinfra": DeepInfraProvider,
+            "qwen": QwenProvider,
+            "volcengine": VolcengineProvider,
+            "stepfun": StepFunProvider,
+            "glm": GlmProvider,
+            "venice": VeniceProvider,
+            "lmstudio": LMStudioProvider,
         }
         for name, cls in expected.items():
             self.assertIn(name, PROVIDERS, f"Expected '{name}' in PROVIDERS")
@@ -862,6 +882,405 @@ class AdditionalProviderRegistryTests(unittest.TestCase):
             self.assertEqual(p.name, "ai21")
         finally:
             os.environ.pop("AI21_API_KEY", None)
+
+
+# ---------------------------------------------------------------------------
+# HuggingFace
+# ---------------------------------------------------------------------------
+
+
+class HuggingFaceProviderTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("HF_TOKEN", None)
+
+    def tearDown(self):
+        os.environ.pop("HF_TOKEN", None)
+
+    def test_no_key_is_unavailable(self):
+        p = HuggingFaceProvider()
+        self.assertFalse(p.available)
+        self.assertEqual(p.model, "meta-llama/Llama-3.3-70B-Instruct")
+
+    def test_valid_key_makes_available(self):
+        os.environ["HF_TOKEN"] = "hf_test"
+        p = HuggingFaceProvider()
+        self.assertTrue(p.available)
+
+    def test_validate_config_missing_key(self):
+        p = HuggingFaceProvider()
+        errors = p.validate_config()
+        self.assertTrue(any("HF_TOKEN" in e for e in errors))
+
+    def test_to_dict(self):
+        os.environ["HF_TOKEN"] = "hf_test"
+        p = HuggingFaceProvider()
+        d = p.to_dict()
+        self.assertEqual(d["name"], "huggingface")
+        self.assertIn("model", d)
+
+    def test_chat_without_key_raises(self):
+        p = HuggingFaceProvider()
+        with self.assertRaises(RuntimeError):
+            p.chat("system", "user")
+
+
+# ---------------------------------------------------------------------------
+# NVIDIA NIM
+# ---------------------------------------------------------------------------
+
+
+class NvidiaProviderTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("NVIDIA_API_KEY", None)
+
+    def tearDown(self):
+        os.environ.pop("NVIDIA_API_KEY", None)
+
+    def test_no_key_is_unavailable(self):
+        p = NvidiaProvider()
+        self.assertFalse(p.available)
+        self.assertEqual(p.model, "meta/llama-3.1-70b-instruct")
+
+    def test_valid_key_makes_available(self):
+        os.environ["NVIDIA_API_KEY"] = "nvapi-test"
+        p = NvidiaProvider()
+        self.assertTrue(p.available)
+
+    def test_validate_config_missing_key(self):
+        p = NvidiaProvider()
+        errors = p.validate_config()
+        self.assertTrue(any("NVIDIA_API_KEY" in e for e in errors))
+
+    def test_to_dict(self):
+        os.environ["NVIDIA_API_KEY"] = "nvapi-test"
+        p = NvidiaProvider()
+        d = p.to_dict()
+        self.assertEqual(d["name"], "nvidia")
+        self.assertIn("model", d)
+
+    def test_chat_without_key_raises(self):
+        p = NvidiaProvider()
+        with self.assertRaises(RuntimeError):
+            p.chat("system", "user")
+
+
+# ---------------------------------------------------------------------------
+# Moonshot
+# ---------------------------------------------------------------------------
+
+
+class MoonshotProviderTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("MOONSHOT_API_KEY", None)
+
+    def tearDown(self):
+        os.environ.pop("MOONSHOT_API_KEY", None)
+
+    def test_no_key_is_unavailable(self):
+        p = MoonshotProvider()
+        self.assertFalse(p.available)
+        self.assertEqual(p.model, "moonshot-v1-8k")
+
+    def test_valid_key_makes_available(self):
+        os.environ["MOONSHOT_API_KEY"] = "ms-test"
+        p = MoonshotProvider()
+        self.assertTrue(p.available)
+
+    def test_validate_config_missing_key(self):
+        p = MoonshotProvider()
+        errors = p.validate_config()
+        self.assertTrue(any("MOONSHOT_API_KEY" in e for e in errors))
+
+    def test_chat_without_key_raises(self):
+        p = MoonshotProvider()
+        with self.assertRaises(RuntimeError):
+            p.chat("system", "user")
+
+
+# ---------------------------------------------------------------------------
+# DeepInfra
+# ---------------------------------------------------------------------------
+
+
+class DeepInfraProviderTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("DEEPINFRA_API_KEY", None)
+
+    def tearDown(self):
+        os.environ.pop("DEEPINFRA_API_KEY", None)
+
+    def test_no_key_is_unavailable(self):
+        p = DeepInfraProvider()
+        self.assertFalse(p.available)
+        self.assertEqual(p.model, "meta-llama/Meta-Llama-3.1-70B-Instruct")
+
+    def test_valid_key_makes_available(self):
+        os.environ["DEEPINFRA_API_KEY"] = "di-test"
+        p = DeepInfraProvider()
+        self.assertTrue(p.available)
+
+    def test_validate_config_missing_key(self):
+        p = DeepInfraProvider()
+        errors = p.validate_config()
+        self.assertTrue(any("DEEPINFRA_API_KEY" in e for e in errors))
+
+    def test_chat_without_key_raises(self):
+        p = DeepInfraProvider()
+        with self.assertRaises(RuntimeError):
+            p.chat("system", "user")
+
+
+# ---------------------------------------------------------------------------
+# Qwen / DashScope
+# ---------------------------------------------------------------------------
+
+
+class QwenProviderTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("DASHSCOPE_API_KEY", None)
+
+    def tearDown(self):
+        os.environ.pop("DASHSCOPE_API_KEY", None)
+
+    def test_no_key_is_unavailable(self):
+        p = QwenProvider()
+        self.assertFalse(p.available)
+        self.assertEqual(p.model, "qwen-turbo")
+
+    def test_valid_key_makes_available(self):
+        os.environ["DASHSCOPE_API_KEY"] = "sk-ds-test"
+        p = QwenProvider()
+        self.assertTrue(p.available)
+
+    def test_validate_config_missing_key(self):
+        p = QwenProvider()
+        errors = p.validate_config()
+        self.assertTrue(any("DASHSCOPE_API_KEY" in e for e in errors))
+
+    def test_chat_without_key_raises(self):
+        p = QwenProvider()
+        with self.assertRaises(RuntimeError):
+            p.chat("system", "user")
+
+
+# ---------------------------------------------------------------------------
+# Volcengine / Doubao
+# ---------------------------------------------------------------------------
+
+
+class VolcengineProviderTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("ARK_API_KEY", None)
+
+    def tearDown(self):
+        os.environ.pop("ARK_API_KEY", None)
+
+    def test_no_key_is_unavailable(self):
+        p = VolcengineProvider()
+        self.assertFalse(p.available)
+        self.assertEqual(p.model, "doubao-pro-4k")
+
+    def test_valid_key_makes_available(self):
+        os.environ["ARK_API_KEY"] = "ark-test"
+        p = VolcengineProvider()
+        self.assertTrue(p.available)
+
+    def test_validate_config_missing_key(self):
+        p = VolcengineProvider()
+        errors = p.validate_config()
+        self.assertTrue(any("ARK_API_KEY" in e for e in errors))
+
+    def test_chat_without_key_raises(self):
+        p = VolcengineProvider()
+        with self.assertRaises(RuntimeError):
+            p.chat("system", "user")
+
+
+# ---------------------------------------------------------------------------
+# StepFun
+# ---------------------------------------------------------------------------
+
+
+class StepFunProviderTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("STEPFUN_API_KEY", None)
+
+    def tearDown(self):
+        os.environ.pop("STEPFUN_API_KEY", None)
+
+    def test_no_key_is_unavailable(self):
+        p = StepFunProvider()
+        self.assertFalse(p.available)
+        self.assertEqual(p.model, "step-1-8k")
+
+    def test_valid_key_makes_available(self):
+        os.environ["STEPFUN_API_KEY"] = "sf-test"
+        p = StepFunProvider()
+        self.assertTrue(p.available)
+
+    def test_validate_config_missing_key(self):
+        p = StepFunProvider()
+        errors = p.validate_config()
+        self.assertTrue(any("STEPFUN_API_KEY" in e for e in errors))
+
+    def test_chat_without_key_raises(self):
+        p = StepFunProvider()
+        with self.assertRaises(RuntimeError):
+            p.chat("system", "user")
+
+
+# ---------------------------------------------------------------------------
+# GLM / ZhipuAI
+# ---------------------------------------------------------------------------
+
+
+class GlmProviderTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("ZHIPUAI_API_KEY", None)
+
+    def tearDown(self):
+        os.environ.pop("ZHIPUAI_API_KEY", None)
+
+    def test_no_key_is_unavailable(self):
+        p = GlmProvider()
+        self.assertFalse(p.available)
+        self.assertEqual(p.model, "glm-4-flash")
+
+    def test_valid_key_makes_available(self):
+        os.environ["ZHIPUAI_API_KEY"] = "zp-test"
+        p = GlmProvider()
+        self.assertTrue(p.available)
+
+    def test_validate_config_missing_key(self):
+        p = GlmProvider()
+        errors = p.validate_config()
+        self.assertTrue(any("ZHIPUAI_API_KEY" in e for e in errors))
+
+    def test_chat_without_key_raises(self):
+        p = GlmProvider()
+        with self.assertRaises(RuntimeError):
+            p.chat("system", "user")
+
+
+# ---------------------------------------------------------------------------
+# Venice AI
+# ---------------------------------------------------------------------------
+
+
+class VeniceProviderTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("VENICE_API_KEY", None)
+
+    def tearDown(self):
+        os.environ.pop("VENICE_API_KEY", None)
+
+    def test_no_key_is_unavailable(self):
+        p = VeniceProvider()
+        self.assertFalse(p.available)
+        self.assertEqual(p.model, "llama-3.3-70b")
+
+    def test_valid_key_makes_available(self):
+        os.environ["VENICE_API_KEY"] = "vc-test"
+        p = VeniceProvider()
+        self.assertTrue(p.available)
+
+    def test_validate_config_missing_key(self):
+        p = VeniceProvider()
+        errors = p.validate_config()
+        self.assertTrue(any("VENICE_API_KEY" in e for e in errors))
+
+    def test_chat_without_key_raises(self):
+        p = VeniceProvider()
+        with self.assertRaises(RuntimeError):
+            p.chat("system", "user")
+
+
+# ---------------------------------------------------------------------------
+# LM Studio (local)
+# ---------------------------------------------------------------------------
+
+
+class LMStudioProviderTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("LMSTUDIO_BASE_URL", None)
+        os.environ.pop("LMSTUDIO_MODEL", None)
+
+    def tearDown(self):
+        os.environ.pop("LMSTUDIO_BASE_URL", None)
+        os.environ.pop("LMSTUDIO_MODEL", None)
+
+    def test_available_by_default(self):
+        p = LMStudioProvider()
+        self.assertTrue(p.available)
+
+    def test_default_model(self):
+        p = LMStudioProvider()
+        self.assertEqual(p.model, "lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF")
+
+    def test_custom_base_url(self):
+        os.environ["LMSTUDIO_BASE_URL"] = "http://localhost:5678"
+        p = LMStudioProvider()
+        self.assertIn("5678", p._base_url)
+
+    def test_to_dict_has_base_url(self):
+        p = LMStudioProvider()
+        d = p.to_dict()
+        self.assertEqual(d["name"], "lmstudio")
+        self.assertIn("base_url", d)
+
+    def test_validate_config_unreachable_server_returns_note(self):
+        p = LMStudioProvider()
+        notes = p.validate_config()
+        # LM Studio is not running in CI; expect a note, not a hard error
+        self.assertIsInstance(notes, list)
+
+
+# ---------------------------------------------------------------------------
+# Tier-5 get_provider integration
+# ---------------------------------------------------------------------------
+
+
+class Tier5ProviderRegistryTests(unittest.TestCase):
+    def _check(self, name: str, env_key: str, env_val: str) -> None:
+        os.environ[env_key] = env_val
+        try:
+            p = get_provider(name)
+            self.assertIsNotNone(p)
+            self.assertEqual(p.name, name)
+        finally:
+            os.environ.pop(env_key, None)
+
+    def test_huggingface(self):
+        self._check("huggingface", "HF_TOKEN", "hf_test")
+
+    def test_nvidia(self):
+        self._check("nvidia", "NVIDIA_API_KEY", "nvapi-test")
+
+    def test_moonshot(self):
+        self._check("moonshot", "MOONSHOT_API_KEY", "ms-test")
+
+    def test_deepinfra(self):
+        self._check("deepinfra", "DEEPINFRA_API_KEY", "di-test")
+
+    def test_qwen(self):
+        self._check("qwen", "DASHSCOPE_API_KEY", "sk-ds-test")
+
+    def test_volcengine(self):
+        self._check("volcengine", "ARK_API_KEY", "ark-test")
+
+    def test_stepfun(self):
+        self._check("stepfun", "STEPFUN_API_KEY", "sf-test")
+
+    def test_glm(self):
+        self._check("glm", "ZHIPUAI_API_KEY", "zp-test")
+
+    def test_venice(self):
+        self._check("venice", "VENICE_API_KEY", "vc-test")
+
+    def test_lmstudio(self):
+        p = get_provider("lmstudio")
+        self.assertIsNotNone(p)
+        self.assertEqual(p.name, "lmstudio")
 
 
 if __name__ == "__main__":
