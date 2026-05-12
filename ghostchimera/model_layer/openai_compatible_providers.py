@@ -324,8 +324,10 @@ class OllamaProvider(BaseProvider):
         # Normalise trailing slash
         self._base_url: str = base.rstrip("/")
         self._chat_url: str = f"{self._base_url}/v1/chat/completions"
-        # Ollama is local — mark available by default; validate_config will
-        # surface a warning when the server cannot be reached.
+        # Ollama is local — mark available by default because no API key is
+        # needed.  ``available=True`` here means "no credential barrier", not
+        # "server is currently reachable".  Use ``validate_config()`` to get a
+        # reachability note before chat time.
         self.available = True
         logger.debug("Provider %s model=%s base=%s initialized", self.name, self.model, self._base_url)
 

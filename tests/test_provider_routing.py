@@ -210,9 +210,21 @@ class PROVIDERSAndTEXT_PROVIDERSTests(unittest.TestCase):
         self.assertEqual(set(PROVIDERS.keys()), set(TEXT_PROVIDERS.keys()))
 
     def test_new_providers_in_registry(self):
-        for name in ("groq", "xai", "mistral", "deepseek", "together", "openrouter", "ollama", "cohere"):
+        expected = {
+            "groq": GroqProvider,
+            "xai": XAIProvider,
+            "mistral": MistralProvider,
+            "deepseek": DeepSeekProvider,
+            "together": TogetherProvider,
+            "openrouter": OpenRouterProvider,
+            "ollama": OllamaProvider,
+            "cohere": CohereProvider,
+        }
+        for name, cls in expected.items():
             self.assertIn(name, PROVIDERS, f"Expected '{name}' in PROVIDERS")
+            self.assertIs(PROVIDERS[name], cls, f"PROVIDERS['{name}'] should be {cls.__name__}")
             self.assertIn(name, TEXT_PROVIDERS, f"Expected '{name}' in TEXT_PROVIDERS")
+            self.assertIs(TEXT_PROVIDERS[name], cls, f"TEXT_PROVIDERS['{name}'] should be {cls.__name__}")
 
 
 # ---------------------------------------------------------------------------
