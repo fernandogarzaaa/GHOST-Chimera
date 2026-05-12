@@ -23,7 +23,13 @@ TRUNCATE_TAIL_LENGTH = 3500
 
 def _run_release_gate() -> dict[str, Any]:
     started = time.monotonic()
-    timeout_seconds = int(os.environ.get("GHOSTCHIMERA_RELEASE_GATE_TIMEOUT", "180"))
+    timeout_raw = os.environ.get("GHOSTCHIMERA_RELEASE_GATE_TIMEOUT", "180")
+    try:
+        timeout_seconds = int(timeout_raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid GHOSTCHIMERA_RELEASE_GATE_TIMEOUT value: expected integer, got {timeout_raw!r}"
+        ) from exc
     completed = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "validate_release.py")],
         cwd=str(ROOT),
@@ -120,7 +126,7 @@ def main() -> None:
     result = run_simulation(quiet=args.json or args.quiet)
     if args.json:
         print(json.dumps(result, indent=2))
-    raise SystemExit(0 if result["ok"] else 1)
+    sys.exit(0 if result["ok"] else 1)
 
 
 if __name__ == "__main__":
