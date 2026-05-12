@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -15,22 +16,29 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+MAX_DETAIL_LENGTH = 4000
+TRUNCATE_HEAD_LENGTH = 500
+TRUNCATE_TAIL_LENGTH = 3500
+
 
 def _run_release_gate() -> dict[str, Any]:
     started = time.monotonic()
+    timeout_seconds = int(os.environ.get("GHOSTCHIMERA_RELEASE_GATE_TIMEOUT", "180"))
     completed = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "validate_release.py")],
         cwd=str(ROOT),
         capture_output=True,
         text=True,
         check=False,
-        timeout=180,
+        timeout=timeout_seconds,
     )
     duration_ms = round((time.monotonic() - started) * 1000, 1)
     ok = completed.returncode == 0
     detail = (completed.stdout if ok else (completed.stderr or completed.stdout)).strip()
-    if len(detail) > 4000:
-        detail = detail[-4000:]
+    if len(detail) > MAX_DETAIL_LENGTH:
+        head = detail[:TRUNCATE_HEAD_LENGTH]
+        tail = detail[-TRUNCATE_TAIL_LENGTH:]
+        detail = f"{head}\n...[truncated]...\n{tail}"
     return {"name": "release_gate", "ok": ok, "duration_ms": duration_ms, "detail": detail}
 
 
@@ -50,7 +58,9 @@ def _run_eval_suite(name: str) -> dict[str, Any]:
 
 def run_simulation(quiet: bool = False) -> dict[str, Any]:
     started = time.monotonic()
-    suites = [
+    from ghostchimera.evals.runner import EVAL_SUITES
+
+    preferred_order = [
         "smoke",
         "safety",
         "autonomy",
@@ -62,6 +72,8 @@ def run_simulation(quiet: bool = False) -> dict[str, Any]:
         "track4",
         "redteam",
     ]
+    suites = [name for name in preferred_order if name in EVAL_SUITES]
+    suites.extend(name for name in EVAL_SUITES if name not in suites)
     steps: list[dict[str, Any]] = [_run_release_gate(), *[_run_eval_suite(name) for name in suites]]
     total_steps = len(steps)
     passed_steps = sum(1 for step in steps if step["ok"])
@@ -105,7 +117,7 @@ def main() -> None:
     parser.add_argument("--quiet", action="store_true", help="Suppress printed report")
     args = parser.parse_args()
 
-    result = run_simulation(quiet=args.quiet and not args.json)
+    result = run_simulation(quiet=args.json or args.quiet)
     if args.json:
         print(json.dumps(result, indent=2))
     raise SystemExit(0 if result["ok"] else 1)
