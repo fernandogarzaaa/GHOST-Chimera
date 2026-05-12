@@ -1,0 +1,275 @@
+# Ghost Chimera × Lobster Trap — Enterprise Security Policy Pack
+#
+# Lobster Trap: https://github.com/veeainc/lobstertrap (MIT License)
+# Fork this file as your starting point and tune rules to your environment.
+#
+# Rule evaluation: first-match-wins.
+# Actions: ALLOW | DENY | LOG | HUMAN_REVIEW | QUARANTINE | RATE_LIMIT
+#
+# Compatible with:
+#   - Lobster Trap >= 1.0 policy format
+#   - Ghost Chimera BuiltinDPIEngine (subset of rules enforced natively)
+#
+# Policy tracks: SOC2 Type II, HIPAA, PCI-DSS, EU AI Act (draft), finance-grade
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: "1.0"
+name: ghost-chimera-enterprise
+description: >
+  Enterprise security policy for Ghost Chimera agent deployments.
+  Provides defence-in-depth against prompt injection, credential exfiltration,
+  PII leakage, and adversarial jailbreak attempts.  Suitable for regulated
+  industries: finance, healthcare, and legal.
+
+# ── Global settings ──────────────────────────────────────────────────────────
+settings:
+  default_action: ALLOW          # fallback when no rule matches
+  log_all_requests: true         # emit LOG record for every call (audit trail)
+  log_blocked_requests: true     # always log DENY / QUARANTINE outcomes
+  max_prompt_tokens: 4096        # reject prompts exceeding this token budget
+  rate_limit_window_seconds: 60
+  rate_limit_max_requests: 120   # per session_id within the window
+
+# ── Risk thresholds ──────────────────────────────────────────────────────────
+thresholds:
+  auto_deny_risk_score: 0.90     # unconditional DENY above this score
+  human_review_risk_score: 0.65  # route to human review above this score
+  log_risk_score: 0.30           # LOG everything above this score
+
+# ── Rules ────────────────────────────────────────────────────────────────────
+# Rules are evaluated top-to-bottom; the first match wins.
+
+rules:
+
+  # ── 1. Prompt injection – highest priority ────────────────────────────────
+
+  - id: block-ignore-instructions
+    description: "Classic ignore-previous-instructions injection vector"
+    match:
+      injection_detected: true
+      intent_patterns:
+        - "ignore.*previous.*instructions"
+        - "disregard.*instructions"
+        - "forget.*everything.*you.*know"
+    action: DENY
+    tags: [injection, owasp-llm01]
+
+  - id: block-jailbreak
+    description: "DAN and developer-mode jailbreak attempts"
+    match:
+      injection_detected: true
+      intent_patterns:
+        - "jailbreak"
+        - "DAN mode"
+        - "developer mode enabled"
+        - "act as if you have no restrictions"
+    action: DENY
+    tags: [injection, jailbreak, owasp-llm01]
+
+  - id: block-role-override
+    description: "Role/persona override injection"
+    match:
+      injection_detected: true
+      intent_category: role_escalation
+    action: DENY
+    tags: [injection, role-escalation, owasp-llm01]
+
+  - id: block-system-prompt-leak
+    description: "Attempts to extract the system prompt or internal instructions"
+    match:
+      intent_patterns:
+        - "print your (system prompt|instructions)"
+        - "reveal your (directives|rules)"
+        - "show me (what you were told|your guidelines)"
+    action: DENY
+    tags: [injection, prompt-leak, owasp-llm06]
+
+  - id: block-chatml-injection
+    description: "ChatML / Llama instruction tag injection"
+    match:
+      injection_detected: true
+      intent_patterns:
+        - "<\\|im_start\\|>"
+        - "\\[INST\\]"
+    action: DENY
+    tags: [injection, format-injection, owasp-llm01]
+
+  # ── 2. Credential and secret exfiltration ────────────────────────────────
+
+  - id: deny-api-key-in-prompt
+    description: "Prompt contains API key / secret token"
+    match:
+      credential_detected: true
+      credential_types:
+        - openai_api_key
+        - anthropic_api_key
+        - github_pat
+        - aws_access_key
+        - bearer_token
+    action: QUARANTINE
+    alert: security-team
+    tags: [credential, owasp-llm02, pci-dss-3.4, soc2-cc6]
+
+  - id: deny-plaintext-password
+    description: "Plaintext password detected in prompt"
+    match:
+      credential_detected: true
+      credential_types:
+        - plaintext_password
+        - generic_secret
+    action: DENY
+    tags: [credential, soc2-cc6, hipaa-164.312]
+
+  # ── 3. PII and HIPAA ─────────────────────────────────────────────────────
+
+  - id: log-pii-ssn
+    description: "Social Security Number detected — log for HIPAA / SOC2 audit"
+    match:
+      pii_detected: true
+      pii_types: [ssn]
+    action: HUMAN_REVIEW
+    tags: [pii, hipaa-164.514, soc2-cc6]
+
+  - id: log-pii-credit-card
+    description: "Credit card number detected — PCI-DSS scope"
+    match:
+      pii_detected: true
+      pii_types: [credit_card]
+    action: HUMAN_REVIEW
+    tags: [pii, pci-dss-3.2, soc2-cc6]
+
+  - id: log-pii-medical
+    description: "Medical record ID / patient identifier detected"
+    match:
+      pii_detected: true
+      pii_types: [medical_id]
+    action: LOG
+    tags: [pii, hipaa-164.514]
+
+  - id: log-pii-email
+    description: "Email address detected — log for EU AI Act data minimisation"
+    match:
+      pii_detected: true
+      pii_types: [email]
+    action: LOG
+    tags: [pii, gdpr-art5, eu-ai-act]
+
+  # ── 4. Exfiltration ───────────────────────────────────────────────────────
+
+  - id: deny-bulk-data-dump
+    description: "Instruction to dump users / customers / database records"
+    match:
+      exfiltration_detected: true
+      intent_category: data_exfiltration
+    action: DENY
+    tags: [exfiltration, owasp-llm02]
+
+  - id: deny-curl-upload
+    description: "curl / wget exfiltration pattern"
+    match:
+      exfiltration_detected: true
+      intent_patterns:
+        - "curl.*--data.*https?://"
+        - "wget.*--post-data"
+        - "base64.*\\|.*(curl|wget|nc)"
+    action: DENY
+    tags: [exfiltration, owasp-llm02]
+
+  # ── 5. Intent mismatch (declared vs detected) ─────────────────────────────
+
+  - id: review-intent-mismatch
+    description: "Agent declared benign intent but content suggests adversarial goal"
+    match:
+      intent_mismatch: true
+    action: HUMAN_REVIEW
+    tags: [governance, owasp-llm09, eu-ai-act-art13]
+
+  # ── 6. Destructive operations ─────────────────────────────────────────────
+
+  - id: review-destructive-ops
+    description: "Prompt instructs deletion, truncation, or wipe of data / systems"
+    match:
+      intent_category: destructive_operation
+    action: HUMAN_REVIEW
+    tags: [destructive, soc2-cc7]
+
+  - id: deny-privilege-escalation
+    description: "Privilege / role escalation attempt"
+    match:
+      intent_category: privilege_escalation
+    action: DENY
+    tags: [privilege-escalation, owasp-llm05, soc2-cc6]
+
+  # ── 7. Adversarial / red-team ─────────────────────────────────────────────
+
+  - id: deny-adversarial
+    description: "Explicit adversarial intent (hack / exploit / attack)"
+    match:
+      intent_category: adversarial
+      risk_score_gte: 0.70
+    action: DENY
+    tags: [adversarial, red-team, owasp-llm01]
+
+  # ── 8. Rate limiting ──────────────────────────────────────────────────────
+
+  - id: rate-limit-high-frequency
+    description: "Throttle sessions exceeding request budget"
+    match:
+      request_count_gte: 120
+      window_seconds: 60
+    action: RATE_LIMIT
+    tags: [rate-limit, soc2-cc7]
+
+  # ── 9. Finance-specific guardrails ────────────────────────────────────────
+
+  - id: log-financial-data
+    description: "Prompts referencing account numbers or trading instructions"
+    match:
+      intent_patterns:
+        - "(account|routing)\s+number\s+\d{4,}"
+        - "(buy|sell|trade)\s+\d+\s+(shares|contracts|options)"
+    action: LOG
+    tags: [finance, soc2-cc6, finra]
+
+  # ── 10. Audit catch-all ───────────────────────────────────────────────────
+
+  - id: log-elevated-risk
+    description: "Log any call with a risk score above the threshold"
+    match:
+      risk_score_gte: 0.30
+    action: LOG
+    tags: [audit, soc2-cc7]
+
+# ── Alerts ───────────────────────────────────────────────────────────────────
+alerts:
+  security-team:
+    channel: webhook
+    url: "${GHOSTCHIMERA_SECURITY_WEBHOOK_URL}"
+    on_actions: [DENY, QUARANTINE]
+    rate_limit_per_minute: 10
+
+# ── Audit ─────────────────────────────────────────────────────────────────────
+audit:
+  enabled: true
+  format: jsonl
+  include_text_snippet: true
+  snippet_max_chars: 300
+  hmac_chain: true          # HMAC-SHA256 chained log (Ghost Chimera AuditLog)
+  retention_days: 365       # SOC2 / HIPAA minimum
+
+# ── Compliance mappings (informational) ──────────────────────────────────────
+compliance:
+  soc2:
+    covered_criteria: [CC6.1, CC6.3, CC6.6, CC7.2, CC7.3]
+    note: "Credential and PII rules map to CC6; rate-limit and audit to CC7."
+  hipaa:
+    covered_safeguards: [164.312(a)(2)(i), 164.312(b), 164.514(b)]
+    note: "Medical ID and SSN rules cover ePHI access and de-identification."
+  pci_dss:
+    covered_requirements: [3.2, 3.4, 6.5.1]
+    note: "Credit card and credential rules support PCI-DSS scope control."
+  eu_ai_act:
+    covered_articles: [13, 14, 17]
+    note: "Intent mismatch and PII logging support transparency and audit obligations."
+  owasp_llm_top10:
+    covered: [LLM01, LLM02, LLM05, LLM06, LLM09]
