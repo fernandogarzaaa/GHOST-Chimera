@@ -237,7 +237,34 @@ def _simulate_digital_twin(
 
 
 def _generate_sensor_reading(sensor: dict[str, Any], t: float, tick: int, state: dict[str, Any]) -> SensorReading:
-    """Produce a synthetic sensor reading at time *t*."""
+    """Produce a synthetic sensor reading at simulation time *t*.
+
+    Generates deterministic, type-specific sensor data suitable for digital-twin
+    simulations.  Each sensor type produces a different data schema:
+
+    * ``"camera"`` — ``frame_id``, ``width``, ``height``, ``objects_detected``
+    * ``"lidar"``  — ``scan_id``, ``points``, ``max_range_m``, ``nearest_obstacle_m``
+    * ``"imu"``    — ``accel`` (3-axis), ``gyro`` (3-axis), ``temperature_c``
+    * other        — generic ``value`` scalar derived from state metrics
+
+    Parameters
+    ----------
+    sensor:
+        Sensor configuration dict.  Must contain ``"type"`` and optionally
+        ``"name"`` plus type-specific keys (e.g. ``"width"`` for camera).
+    t:
+        Current simulation timestamp in seconds.
+    tick:
+        Integer tick index within the current state.
+    state:
+        Current digital-twin state dict.  Its ``"metrics"`` sub-dict is used
+        to drive sensor values (e.g. ``{"objects": 3}`` for a camera sensor).
+
+    Returns
+    -------
+    SensorReading
+        Populated reading with ``sensor_type``, ``timestamp``, and ``data``.
+    """
     sensor_type = sensor.get("type", "generic")
     name = sensor.get("name", sensor_type)
     metrics = state.get("metrics", {})

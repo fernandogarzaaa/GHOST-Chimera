@@ -244,7 +244,28 @@ def _forecast(values: list[float], horizon: int = 3) -> dict[str, Any]:
 
 
 def _detect_anomalies_zscore(values: list[float], column: str = "value", threshold: float = 2.5) -> list[dict[str, Any]]:
-    """Z-score anomaly detection. Returns list of anomalous indices."""
+    """Detect statistical anomalies in *values* using the z-score method.
+
+    A value is flagged as anomalous when its z-score (distance from the mean in
+    units of standard deviation) exceeds *threshold*.
+
+    Parameters
+    ----------
+    values:
+        Sequence of numeric values to analyse.
+    column:
+        Column name to include in each anomaly record for traceability.
+    threshold:
+        Z-score threshold above which a value is classified as an anomaly.
+        Default is 2.5 (≈1% of a standard normal distribution).
+
+    Returns
+    -------
+    list[dict]
+        Each entry is ``{"index": int, "value": float, "z_score": float, "column": str}``.
+        Returns an empty list when there are fewer than 3 values or the standard
+        deviation is effectively zero.
+    """
     if len(values) < 3:
         return []
     mean = statistics.mean(values)
