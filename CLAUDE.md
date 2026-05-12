@@ -147,7 +147,16 @@ mcp/                 Lightweight JSON-RPC MCP server/client surfaces
 |------|------|
 | `OPENAI_API_KEY` / `OPENAI_MODEL` | OpenAI provider |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | Anthropic provider |
-| `GHOSTCHIMERA_MODEL_PROVIDER` | Default provider (e.g. `minimind`) |
+| `GOOGLE_API_KEY` / `GEMINI_MODEL` | Google Gemini provider |
+| `GROQ_API_KEY` / `GROQ_MODEL` | Groq LPU inference (default model: `llama-3.3-70b-versatile`) |
+| `XAI_API_KEY` / `XAI_MODEL` | xAI / Grok provider (default model: `grok-3-mini`) |
+| `MISTRAL_API_KEY` / `MISTRAL_MODEL` | Mistral AI provider (default model: `mistral-small-latest`) |
+| `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` | DeepSeek provider (default model: `deepseek-chat`) |
+| `TOGETHER_API_KEY` / `TOGETHER_MODEL` | Together AI open-model hosting (default: `meta-llama/Llama-3-70b-chat-hf`) |
+| `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | OpenRouter gateway — 100+ models (default: `openai/gpt-4o-mini`) |
+| `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | Local Ollama server (default URL: `http://localhost:11434`, model: `llama3.2`) |
+| `COHERE_API_KEY` / `COHERE_MODEL` | Cohere provider (default model: `command-r-plus`) |
+| `GHOSTCHIMERA_MODEL_PROVIDER` | Default provider (e.g. `groq`, `mistral`, `ollama`) |
 | `GHOSTCHIMERA_STATE_DIR` | State directory (default `~/.ghostchimera`) |
 | `GHOSTCHIMERA_MEMORY_DB` | CWR SQLite path |
 | `GHOSTCHIMERA_AUTONOMY_LEVEL` | Default autonomy profile |

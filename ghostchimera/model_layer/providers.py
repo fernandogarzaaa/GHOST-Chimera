@@ -21,39 +21,34 @@ import inspect
 import json
 import os
 import ssl
-from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 from urllib import request as urllib_request
 
 from ..logging_config import get_logger
+from .base_provider import BaseProvider
 from .gemini_provider import GeminiProvider
 from .llamacpp_runtime import LlamaCppRuntime
 from .local_profiles import get_local_model_profile
 from .minimind_runtime import load_minimind_chat_runtime
+from .openai_compatible_providers import (
+    CohereProvider,
+    DeepSeekProvider,
+    GroqProvider,
+    MistralProvider,
+    OllamaProvider,
+    OpenRouterProvider,
+    TogetherProvider,
+    XAIProvider,
+)
 
 if TYPE_CHECKING:
     from .auth_profiles import AuthProfile
 
 logger = get_logger("providers")
 
-
-class BaseProvider(ABC):
-    """Abstract base class for model providers."""
-
-    name: str = "base"
-    available: bool = False
-
-    @abstractmethod
-    def chat(self, system_message: str, user_message: str) -> str:
-        """Return a chat completion for the provided system and user messages."""
-
-    def validate_config(self) -> list[str]:
-        """Return a list of configuration error strings.
-
-        An empty list means the provider is configured correctly.
-        Subclasses override this to add provider-specific checks.
-        """
-        return []
+# Re-export BaseProvider so existing ``from providers import BaseProvider`` imports
+# continue to work without changes.
+__all__ = ["BaseProvider"]
 
 
 class OpenAIProvider(BaseProvider):
@@ -297,19 +292,35 @@ class LlamaCppProvider(BaseProvider):
 
 PROVIDERS: dict[str, type[BaseProvider]] = {
     AnthropicProvider.name: AnthropicProvider,
+    CohereProvider.name: CohereProvider,
+    DeepSeekProvider.name: DeepSeekProvider,
     GeminiProvider.name: GeminiProvider,
+    GroqProvider.name: GroqProvider,
     LlamaCppProvider.name: LlamaCppProvider,
-    OpenAIProvider.name: OpenAIProvider,
+    MistralProvider.name: MistralProvider,
     MinimindProvider.name: MinimindProvider,
+    OllamaProvider.name: OllamaProvider,
+    OpenAIProvider.name: OpenAIProvider,
+    OpenRouterProvider.name: OpenRouterProvider,
+    TogetherProvider.name: TogetherProvider,
+    XAIProvider.name: XAIProvider,
 }
 
 # Split registry by provider type — enables typed lookup for media providers
 TEXT_PROVIDERS: dict[str, type[BaseProvider]] = {
     AnthropicProvider.name: AnthropicProvider,
+    CohereProvider.name: CohereProvider,
+    DeepSeekProvider.name: DeepSeekProvider,
     GeminiProvider.name: GeminiProvider,
+    GroqProvider.name: GroqProvider,
     LlamaCppProvider.name: LlamaCppProvider,
-    OpenAIProvider.name: OpenAIProvider,
+    MistralProvider.name: MistralProvider,
     MinimindProvider.name: MinimindProvider,
+    OllamaProvider.name: OllamaProvider,
+    OpenAIProvider.name: OpenAIProvider,
+    OpenRouterProvider.name: OpenRouterProvider,
+    TogetherProvider.name: TogetherProvider,
+    XAIProvider.name: XAIProvider,
 }
 
 
