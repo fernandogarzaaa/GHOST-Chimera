@@ -13,6 +13,7 @@ python -m ghostchimera.evals run --suite smoke
 python -m ghostchimera.evals run --suite safety
 python -m ghostchimera.evals run --suite autonomy
 python -m ghostchimera.evals run --suite user-journey
+python -m ghostchimera.evals run --suite workspace
 python scripts/smoke_installed_wheel.py
 python scripts/smoke_installed_wheel.py --extras gateway
 ghostchimera workspace show
@@ -34,6 +35,10 @@ environment.
 
 ## Manual checks
 
+- [ ] `python -m ghostchimera.evals run --suite workspace` passes.
+- [ ] `ghostchimera local-model check` reports system readiness and llama-cpp install state.
+- [ ] `ghostchimera local-model profiles` lists tiny, balanced, and stronger profiles.
+- [ ] `ghostchimera local-model guide --profile balanced` prints install steps.
 - [ ] README quickstart works from a clean virtual environment.
 - [ ] CI installs `.[gateway,dev]` for full source validation and separately smokes the base wheel with no extras.
 - [ ] `ghostchimera --config-show` prints JSON with expected state paths and policy defaults.
