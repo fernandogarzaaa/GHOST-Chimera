@@ -39,12 +39,12 @@ def run_doctor(*, production: bool = False) -> int:
         passed += 1
     else:
         errors += 1
-        return  # Can't continue without Python 3.11+
+        return 1  # Can't continue without Python 3.11+
 
     # Config file
     config = load_config()
     if config:
-        _check(f"Config exists at {CONFIG_FILE}")
+        _check(f"Config exists at {CONFIG_FILE}", True)
         passed += 1
     else:
         _check("Config file", False, "Run 'ghostchimera setup' to configure")

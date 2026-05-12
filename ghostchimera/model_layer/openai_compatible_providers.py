@@ -1,0 +1,915 @@
+"""Extended model provider implementations for Ghost Chimera.
+
+This module contains providers beyond the core OpenAI / Anthropic / Gemini trio,
+reverse-engineered from the OpenClaw provider directory and adapted to match the
+Ghost Chimera :class:`~ghostchimera.model_layer.providers.BaseProvider` contract.
+
+All providers:
+- Accept an optional :class:`~ghostchimera.model_layer.auth_profiles.AuthProfile`
+  at construction time and fall back to environment variables.
+- Use only the Python standard-library ``urllib`` package — no extra dependencies.
+- Expose ``chat(system, user) → str``, ``validate_config() → list[str]``,
+  and ``to_dict() → dict``.
+
+Provider overview
+-----------------
+OpenAI-compatible (same HTTP request shape as OpenAI, different base URL + key):
+
+    GroqProvider       — https://api.groq.com/openai/v1/chat/completions
+    XAIProvider        — https://api.x.ai/v1/chat/completions  (xAI / Grok)
+    MistralProvider    — https://api.mistral.ai/v1/chat/completions
+    DeepSeekProvider   — https://api.deepseek.com/v1/chat/completions
+    TogetherProvider   — https://api.together.xyz/v1/chat/completions
+    OpenRouterProvider — https://openrouter.ai/api/v1/chat/completions
+    OllamaProvider     — http://localhost:11434/v1/chat/completions  (local, no key)
+    PerplexityProvider — https://api.perplexity.ai/chat/completions (online/search)
+    FireworksProvider  — https://api.fireworks.ai/inference/v1/chat/completions
+    CerebrasProvider   — https://api.cerebras.ai/v1/chat/completions (ultra-fast)
+    AI21Provider       — https://api.ai21.com/studio/v1/chat/completions
+    HuggingFaceProvider — https://api-inference.huggingface.co/v1/chat/completions
+    NvidiaProvider     — https://integrate.api.nvidia.com/v1/chat/completions (NIM)
+    MoonshotProvider   — https://api.moonshot.cn/v1/chat/completions (Kimi)
+    DeepInfraProvider  — https://api.deepinfra.com/v1/openai/chat/completions
+    QwenProvider       — https://dashscope-intl.aliyuncs.com/... (Alibaba DashScope)
+    VolcengineProvider — https://ark.cn-beijing.volces.com/api/v3/... (ByteDance Doubao)
+    StepFunProvider    — https://api.stepfun.com/v1/chat/completions
+    GlmProvider        — https://open.bigmodel.cn/api/paas/v4/... (ZhipuAI GLM-4)
+    VeniceProvider     — https://api.venice.ai/api/v1/chat/completions (private)
+    LMStudioProvider   — http://localhost:1234/v1/chat/completions  (local, no key)
+
+Custom API:
+
+    CohereProvider     — https://api.cohere.com/v2/chat  (Cohere v2 format)
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import ssl
+from typing import TYPE_CHECKING, Any
+from urllib import request as urllib_request
+
+from ..logging_config import get_logger
+from .base_provider import BaseProvider
+
+if TYPE_CHECKING:
+    from .auth_profiles import AuthProfile
+
+logger = get_logger("openai_compatible_providers")
+
+
+# ---------------------------------------------------------------------------
+# Generic OpenAI-compatible base
+# ---------------------------------------------------------------------------
+
+
+class OpenAICompatibleProvider(BaseProvider):
+    """Generic base for providers that expose an OpenAI-compatible Chat API.
+
+    Subclasses override :attr:`name`, :attr:`_DEFAULT_BASE_URL`,
+    :attr:`_DEFAULT_MODEL`, :attr:`_KEY_ENV_VAR`, and :attr:`_MODEL_ENV_VAR`.
+    They may also override :meth:`_build_headers` to inject extra headers.
+    """
+
+    name: str = "openai_compat"
+    _DEFAULT_BASE_URL: str = ""
+    _DEFAULT_MODEL: str = ""
+    _KEY_ENV_VAR: str = ""
+    _MODEL_ENV_VAR: str = ""
+
+    def __init__(self, profile: AuthProfile | None = None) -> None:
+        if profile is not None:
+            self.api_key: str = profile.api_key or os.environ.get(self._KEY_ENV_VAR, "")
+            self.model: str = profile.model or os.environ.get(self._MODEL_ENV_VAR, self._DEFAULT_MODEL)
+            self._base_url: str = profile.base_url or self._DEFAULT_BASE_URL
+        else:
+            self.api_key = os.environ.get(self._KEY_ENV_VAR, "")
+            self.model = os.environ.get(self._MODEL_ENV_VAR, self._DEFAULT_MODEL)
+            self._base_url = self._DEFAULT_BASE_URL
+        self.available = bool(self.api_key)
+        logger.debug("Provider %s model=%s initialized", self.name, self.model)
+
+    def validate_config(self) -> list[str]:
+        errors: list[str] = []
+        if not self.api_key:
+            errors.append(f"{self._KEY_ENV_VAR} is not set")
+        if not self.model:
+            errors.append(f"{self._MODEL_ENV_VAR} must be non-empty")
+        return errors
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "available": self.available,
+            "model": self.model,
+        }
+
+    def _build_headers(self) -> dict[str, str]:
+        """Return HTTP headers for this provider.  Subclasses may extend."""
+        return {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+
+    def chat(self, system_message: str, user_message: str) -> str:
+        if not self.available:
+            raise RuntimeError(
+                f"{self.__class__.__name__} is not available; set {self._KEY_ENV_VAR} in the environment"
+            )
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message},
+            ],
+            "temperature": 0.0,
+        }
+        data = json.dumps(body).encode("utf-8")
+        context = ssl.create_default_context()
+        req = urllib_request.Request(
+            self._base_url,
+            data=data,
+            headers=self._build_headers(),
+            method="POST",
+        )
+        with urllib_request.urlopen(req, context=context) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"{self.name} API returned HTTP {resp.status}")
+            response_json = json.loads(resp.read().decode("utf-8"))
+        choices = response_json.get("choices")
+        if not choices:
+            raise RuntimeError(f"{self.name} response missing choices")
+        return choices[0]["message"]["content"].strip()
+
+
+# ---------------------------------------------------------------------------
+# Tier-1 OpenAI-compatible providers
+# ---------------------------------------------------------------------------
+
+
+class GroqProvider(OpenAICompatibleProvider):
+    """Provider for Groq LPU inference.
+
+    Groq exposes an OpenAI-compatible endpoint with extremely low latency.
+    Set ``GROQ_API_KEY`` (from https://console.groq.com) and optionally
+    ``GROQ_MODEL`` in the environment, or inject an
+    :class:`~ghostchimera.model_layer.auth_profiles.AuthProfile`.
+
+    Supported models (examples)::
+
+        llama-3.3-70b-versatile   # default — high quality, fast
+        llama-3.1-8b-instant      # fastest, smaller
+        mixtral-8x7b-32768        # Mixtral via Groq
+        gemma2-9b-it              # Google Gemma 2 9B via Groq
+    """
+
+    name = "groq"
+    _DEFAULT_BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
+    _DEFAULT_MODEL = "llama-3.3-70b-versatile"
+    _KEY_ENV_VAR = "GROQ_API_KEY"
+    _MODEL_ENV_VAR = "GROQ_MODEL"
+
+
+class XAIProvider(OpenAICompatibleProvider):
+    """Provider for xAI (Grok) models.
+
+    xAI exposes an OpenAI-compatible endpoint for the Grok model family.
+    Set ``XAI_API_KEY`` (from https://console.x.ai) and optionally
+    ``XAI_MODEL`` in the environment.
+
+    Supported models (examples)::
+
+        grok-3-mini               # default — fast, cost-effective
+        grok-3                    # flagship Grok 3
+        grok-2-1212               # previous generation
+    """
+
+    name = "xai"
+    _DEFAULT_BASE_URL = "https://api.x.ai/v1/chat/completions"
+    _DEFAULT_MODEL = "grok-3-mini"
+    _KEY_ENV_VAR = "XAI_API_KEY"
+    _MODEL_ENV_VAR = "XAI_MODEL"
+
+
+class MistralProvider(OpenAICompatibleProvider):
+    """Provider for Mistral AI models.
+
+    Mistral exposes an OpenAI-compatible chat completions endpoint.
+    Set ``MISTRAL_API_KEY`` (from https://console.mistral.ai) and optionally
+    ``MISTRAL_MODEL`` in the environment.
+
+    Supported models (examples)::
+
+        mistral-small-latest      # default — fast, cheap
+        mistral-large-latest      # largest, highest quality
+        mixtral-8x7b-instruct     # open-weight Mixtral
+        codestral-latest          # code-specialised
+    """
+
+    name = "mistral"
+    _DEFAULT_BASE_URL = "https://api.mistral.ai/v1/chat/completions"
+    _DEFAULT_MODEL = "mistral-small-latest"
+    _KEY_ENV_VAR = "MISTRAL_API_KEY"
+    _MODEL_ENV_VAR = "MISTRAL_MODEL"
+
+
+class DeepSeekProvider(OpenAICompatibleProvider):
+    """Provider for DeepSeek models.
+
+    DeepSeek exposes an OpenAI-compatible API at a highly competitive price.
+    Set ``DEEPSEEK_API_KEY`` (from https://platform.deepseek.com) and optionally
+    ``DEEPSEEK_MODEL`` in the environment.
+
+    Supported models (examples)::
+
+        deepseek-chat             # default — fast general assistant
+        deepseek-reasoner         # chain-of-thought reasoning (DeepSeek-R1)
+    """
+
+    name = "deepseek"
+    _DEFAULT_BASE_URL = "https://api.deepseek.com/v1/chat/completions"
+    _DEFAULT_MODEL = "deepseek-chat"
+    _KEY_ENV_VAR = "DEEPSEEK_API_KEY"
+    _MODEL_ENV_VAR = "DEEPSEEK_MODEL"
+
+
+class TogetherProvider(OpenAICompatibleProvider):
+    """Provider for Together AI hosted open-source models.
+
+    Together AI exposes an OpenAI-compatible endpoint for hundreds of
+    open-weight models.  Set ``TOGETHER_API_KEY`` (from
+    https://api.together.xyz) and optionally ``TOGETHER_MODEL``.
+
+    Supported models (examples)::
+
+        meta-llama/Llama-3-70b-chat-hf     # default — Llama 3 70B chat
+        meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
+        mistralai/Mixtral-8x7B-Instruct-v0.1
+        Qwen/Qwen2.5-72B-Instruct-Turbo
+    """
+
+    name = "together"
+    _DEFAULT_BASE_URL = "https://api.together.xyz/v1/chat/completions"
+    _DEFAULT_MODEL = "meta-llama/Llama-3-70b-chat-hf"
+    _KEY_ENV_VAR = "TOGETHER_API_KEY"
+    _MODEL_ENV_VAR = "TOGETHER_MODEL"
+
+
+class OpenRouterProvider(OpenAICompatibleProvider):
+    """Provider for OpenRouter — a gateway to 100+ models from many providers.
+
+    OpenRouter routes requests to the best available model backend.
+    Set ``OPENROUTER_API_KEY`` (from https://openrouter.ai) and optionally
+    ``OPENROUTER_MODEL`` in the environment.
+
+    OpenRouter requires two additional headers (``HTTP-Referer`` and
+    ``X-Title``) to attribute usage to the calling application.
+
+    Supported models (examples — any OpenRouter model slug works)::
+
+        openai/gpt-4o-mini           # default
+        anthropic/claude-3-5-haiku
+        google/gemini-flash-1.5
+        meta-llama/llama-3.3-70b-instruct
+        mistralai/mistral-large
+    """
+
+    name = "openrouter"
+    _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+    _DEFAULT_MODEL = "openai/gpt-4o-mini"
+    _KEY_ENV_VAR = "OPENROUTER_API_KEY"
+    _MODEL_ENV_VAR = "OPENROUTER_MODEL"
+
+    # Ghost Chimera identity headers sent to OpenRouter for usage attribution.
+    _REFERER = "https://github.com/fernandogarzaaa/GHOST-Chimera"
+    _TITLE = "Ghost Chimera"
+
+    def _build_headers(self) -> dict[str, str]:
+        headers = super()._build_headers()
+        headers["HTTP-Referer"] = self._REFERER
+        headers["X-Title"] = self._TITLE
+        return headers
+
+
+# ---------------------------------------------------------------------------
+# Tier-2: Local Ollama provider (no API key)
+# ---------------------------------------------------------------------------
+
+
+class OllamaProvider(BaseProvider):
+    """Provider for locally-running Ollama inference server.
+
+    Ollama (https://ollama.ai) runs large language models locally and exposes
+    an OpenAI-compatible ``/v1/chat/completions`` endpoint starting from
+    v0.1.24.  No API key is required.
+
+    Configuration
+    -------------
+    ``OLLAMA_BASE_URL`` — base URL of the Ollama server
+        (default ``http://localhost:11434``).
+    ``OLLAMA_MODEL`` — model tag to use (default ``llama3.2``).
+
+    Install a model first::
+
+        ollama pull llama3.2
+
+    Supported models (any ``ollama pull <tag>`` model works)::
+
+        llama3.2          # default — Meta Llama 3.2 3B
+        llama3.1:70b
+        mistral
+        gemma3:12b
+        deepseek-r1:7b
+        qwen2.5:72b
+    """
+
+    name = "ollama"
+    _DEFAULT_BASE_URL = "http://localhost:11434"
+    _DEFAULT_MODEL = "llama3.2"
+
+    def __init__(self, profile: AuthProfile | None = None) -> None:
+        if profile is not None:
+            base = profile.base_url or os.environ.get("OLLAMA_BASE_URL", self._DEFAULT_BASE_URL)
+            self.model: str = profile.model or os.environ.get("OLLAMA_MODEL", self._DEFAULT_MODEL)
+        else:
+            base = os.environ.get("OLLAMA_BASE_URL", self._DEFAULT_BASE_URL)
+            self.model = os.environ.get("OLLAMA_MODEL", self._DEFAULT_MODEL)
+        # Normalise trailing slash
+        self._base_url: str = base.rstrip("/")
+        self._chat_url: str = f"{self._base_url}/v1/chat/completions"
+        # Ollama is local — mark available by default because no API key is
+        # needed.  ``available=True`` here means "no credential barrier", not
+        # "server is currently reachable".  Use ``validate_config()`` to get a
+        # reachability note before chat time.
+        self.available = True
+        logger.debug("Provider %s model=%s base=%s initialized", self.name, self.model, self._base_url)
+
+    def validate_config(self) -> list[str]:
+        notes: list[str] = []
+        if not self.model:
+            notes.append("OLLAMA_MODEL must be non-empty")
+        # Lightweight reachability check — does not pull a model.
+        try:
+            context = ssl.create_default_context()
+            tags_url = f"{self._base_url}/api/tags"
+            req = urllib_request.Request(tags_url, method="GET")
+            with urllib_request.urlopen(req, context=context, timeout=2):
+                pass
+        except Exception as exc:
+            notes.append(
+                f"Ollama server at {self._base_url} appears unreachable ({exc}). "
+                "Start Ollama with `ollama serve` and pull a model with `ollama pull <model>`."
+            )
+        return notes
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "available": self.available,
+            "model": self.model,
+            "base_url": self._base_url,
+        }
+
+    def chat(self, system_message: str, user_message: str) -> str:
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message},
+            ],
+            "temperature": 0.0,
+        }
+        data = json.dumps(body).encode("utf-8")
+        context = ssl.create_default_context()
+        req = urllib_request.Request(
+            self._chat_url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib_request.urlopen(req, context=context) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f"Ollama API returned HTTP {resp.status}")
+                response_json = json.loads(resp.read().decode("utf-8"))
+        except OSError as exc:
+            raise RuntimeError(
+                f"OllamaProvider could not reach {self._chat_url}. "
+                "Ensure Ollama is running (`ollama serve`) and the model is pulled."
+            ) from exc
+        choices = response_json.get("choices")
+        if not choices:
+            raise RuntimeError("Ollama response missing choices")
+        return choices[0]["message"]["content"].strip()
+
+
+# ---------------------------------------------------------------------------
+# Tier-3: Cohere provider (non-OpenAI API format)
+# ---------------------------------------------------------------------------
+
+
+class CohereProvider(BaseProvider):
+    """Provider for Cohere language models.
+
+    Cohere's v2 Chat API shares the ``messages`` list shape with OpenAI but
+    uses a different response envelope.  Set ``COHERE_API_KEY`` (from
+    https://dashboard.cohere.com) and optionally ``COHERE_MODEL``.
+
+    API reference: https://docs.cohere.com/reference/chat
+
+    Supported models (examples)::
+
+        command-r-plus            # default — most capable
+        command-r                 # balanced speed/quality
+        command-light             # fastest, cheapest
+    """
+
+    name = "cohere"
+    _API_URL = "https://api.cohere.com/v2/chat"
+    _DEFAULT_MODEL = "command-r-plus"
+
+    def __init__(self, profile: AuthProfile | None = None) -> None:
+        if profile is not None:
+            self.api_key: str = profile.api_key or os.environ.get("COHERE_API_KEY", "")
+            self.model: str = profile.model or os.environ.get("COHERE_MODEL", self._DEFAULT_MODEL)
+        else:
+            self.api_key = os.environ.get("COHERE_API_KEY", "")
+            self.model = os.environ.get("COHERE_MODEL", self._DEFAULT_MODEL)
+        self.available = bool(self.api_key)
+        logger.debug("Provider %s model=%s initialized", self.name, self.model)
+
+    def validate_config(self) -> list[str]:
+        errors: list[str] = []
+        if not self.api_key:
+            errors.append("COHERE_API_KEY is not set")
+        if not self.model:
+            errors.append("COHERE_MODEL must be non-empty")
+        return errors
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "available": self.available,
+            "model": self.model,
+        }
+
+    def chat(self, system_message: str, user_message: str) -> str:
+        if not self.available:
+            raise RuntimeError("CohereProvider is not available; set COHERE_API_KEY in the environment")
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message},
+            ],
+        }
+        data = json.dumps(body).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+            "Accept": "application/json",
+        }
+        context = ssl.create_default_context()
+        req = urllib_request.Request(self._API_URL, data=data, headers=headers, method="POST")
+        with urllib_request.urlopen(req, context=context) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"Cohere API returned HTTP {resp.status}")
+            response_json = json.loads(resp.read().decode("utf-8"))
+        # Cohere v2 response: {"message": {"content": [{"type": "text", "text": "..."}]}}
+        message = response_json.get("message", {})
+        content = message.get("content", [])
+        if not content:
+            raise RuntimeError("Cohere response missing content")
+        return content[0].get("text", "").strip()
+
+
+# ---------------------------------------------------------------------------
+# Tier-4: Additional popular inference providers
+# ---------------------------------------------------------------------------
+
+
+class PerplexityProvider(OpenAICompatibleProvider):
+    """Provider for Perplexity AI — search-augmented online models.
+
+    Perplexity exposes an OpenAI-compatible chat completions endpoint.
+    Models with the ``-online`` suffix have live internet access.
+    Set ``PERPLEXITY_API_KEY`` (from https://www.perplexity.ai/settings/api)
+    and optionally ``PERPLEXITY_MODEL`` in the environment.
+
+    Supported models (examples)::
+
+        llama-3.1-sonar-small-128k-online   # default — fast online search
+        llama-3.1-sonar-large-128k-online   # larger, more capable
+        llama-3.1-sonar-huge-128k-online    # highest quality
+        llama-3.1-8b-instruct               # offline, no search
+    """
+
+    name = "perplexity"
+    _DEFAULT_BASE_URL = "https://api.perplexity.ai/chat/completions"
+    _DEFAULT_MODEL = "llama-3.1-sonar-small-128k-online"
+    _KEY_ENV_VAR = "PERPLEXITY_API_KEY"
+    _MODEL_ENV_VAR = "PERPLEXITY_MODEL"
+
+
+class FireworksProvider(OpenAICompatibleProvider):
+    """Provider for Fireworks AI — fast open-weight model inference.
+
+    Fireworks AI exposes an OpenAI-compatible endpoint optimised for high
+    throughput at very low latency.  Set ``FIREWORKS_API_KEY`` (from
+    https://fireworks.ai/account/api-keys) and optionally
+    ``FIREWORKS_MODEL`` in the environment.
+
+    Model IDs use the ``accounts/fireworks/models/<slug>`` path format.
+
+    Supported models (examples)::
+
+        accounts/fireworks/models/llama-v3p1-70b-instruct   # default
+        accounts/fireworks/models/llama-v3p2-90b-vision-instruct
+        accounts/fireworks/models/mixtral-8x22b-instruct
+        accounts/fireworks/models/qwen2p5-72b-instruct
+        accounts/fireworks/models/deepseek-r1
+    """
+
+    name = "fireworks"
+    _DEFAULT_BASE_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
+    _DEFAULT_MODEL = "accounts/fireworks/models/llama-v3p1-70b-instruct"
+    _KEY_ENV_VAR = "FIREWORKS_API_KEY"
+    _MODEL_ENV_VAR = "FIREWORKS_MODEL"
+
+
+class CerebrasProvider(OpenAICompatibleProvider):
+    """Provider for Cerebras — extremely fast LLM inference on Wafer-Scale Engine.
+
+    Cerebras Cloud offers some of the fastest token generation rates available
+    (1000+ tokens/second).  Set ``CEREBRAS_API_KEY`` (from
+    https://cloud.cerebras.ai) and optionally ``CEREBRAS_MODEL``.
+
+    Supported models (examples)::
+
+        llama3.1-70b    # default — high quality, very fast
+        llama3.1-8b     # fastest option
+        llama-4-scout-17b-16e-instruct
+    """
+
+    name = "cerebras"
+    _DEFAULT_BASE_URL = "https://api.cerebras.ai/v1/chat/completions"
+    _DEFAULT_MODEL = "llama3.1-70b"
+    _KEY_ENV_VAR = "CEREBRAS_API_KEY"
+    _MODEL_ENV_VAR = "CEREBRAS_MODEL"
+
+
+class AI21Provider(OpenAICompatibleProvider):
+    """Provider for AI21 Labs (Jamba models).
+
+    AI21 Labs exposes an OpenAI-compatible Chat Completions endpoint for their
+    Jamba family of models.  Set ``AI21_API_KEY`` (from
+    https://studio.ai21.com/account/api-key) and optionally ``AI21_MODEL``.
+
+    Supported models (examples)::
+
+        jamba-1.5-mini      # default — fast, cost-effective
+        jamba-1.5-large     # highest quality Jamba model
+    """
+
+    name = "ai21"
+    _DEFAULT_BASE_URL = "https://api.ai21.com/studio/v1/chat/completions"
+    _DEFAULT_MODEL = "jamba-1.5-mini"
+    _KEY_ENV_VAR = "AI21_API_KEY"
+    _MODEL_ENV_VAR = "AI21_MODEL"
+
+
+# ---------------------------------------------------------------------------
+# Tier-5: OpenClaw provider directory additions
+# ---------------------------------------------------------------------------
+
+
+class HuggingFaceProvider(OpenAICompatibleProvider):
+    """Provider for Hugging Face Inference API.
+
+    Hugging Face exposes an OpenAI-compatible ``/v1/chat/completions``
+    endpoint for thousands of open-weight models.  Set ``HF_TOKEN`` (from
+    https://huggingface.co/settings/tokens) and optionally
+    ``HUGGINGFACE_MODEL`` in the environment.
+
+    Supported models (examples)::
+
+        meta-llama/Llama-3.3-70B-Instruct    # default — Llama 3.3 70B
+        Qwen/Qwen2.5-72B-Instruct
+        mistralai/Mistral-7B-Instruct-v0.3
+        google/gemma-2-9b-it
+    """
+
+    name = "huggingface"
+    _DEFAULT_BASE_URL = "https://api-inference.huggingface.co/v1/chat/completions"
+    _DEFAULT_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
+    _KEY_ENV_VAR = "HF_TOKEN"
+    _MODEL_ENV_VAR = "HUGGINGFACE_MODEL"
+
+
+class NvidiaProvider(OpenAICompatibleProvider):
+    """Provider for NVIDIA NIM — GPU-accelerated cloud inference.
+
+    NVIDIA NIM exposes an OpenAI-compatible endpoint for a curated set of
+    popular open-weight models, with low-latency GPU backends.  Set
+    ``NVIDIA_API_KEY`` (from https://build.nvidia.com) and optionally
+    ``NVIDIA_MODEL``.
+
+    Supported models (examples)::
+
+        meta/llama-3.1-70b-instruct     # default — Llama 3.1 70B
+        meta/llama-3.3-70b-instruct
+        nvidia/llama-3.1-nemotron-70b-instruct
+        mistralai/mixtral-8x22b-instruct-v0.1
+        deepseek-ai/deepseek-r1
+    """
+
+    name = "nvidia"
+    _DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+    _DEFAULT_MODEL = "meta/llama-3.1-70b-instruct"
+    _KEY_ENV_VAR = "NVIDIA_API_KEY"
+    _MODEL_ENV_VAR = "NVIDIA_MODEL"
+
+
+class MoonshotProvider(OpenAICompatibleProvider):
+    """Provider for Moonshot AI (Kimi) — long-context Chinese AI models.
+
+    Moonshot AI exposes an OpenAI-compatible endpoint for their Kimi model
+    family, renowned for very large context windows.  Set
+    ``MOONSHOT_API_KEY`` (from https://platform.moonshot.cn) and optionally
+    ``MOONSHOT_MODEL``.
+
+    Supported models (examples)::
+
+        moonshot-v1-8k     # default — 8 K context
+        moonshot-v1-32k    # 32 K context
+        moonshot-v1-128k   # 128 K context — very long documents
+    """
+
+    name = "moonshot"
+    _DEFAULT_BASE_URL = "https://api.moonshot.cn/v1/chat/completions"
+    _DEFAULT_MODEL = "moonshot-v1-8k"
+    _KEY_ENV_VAR = "MOONSHOT_API_KEY"
+    _MODEL_ENV_VAR = "MOONSHOT_MODEL"
+
+
+class DeepInfraProvider(OpenAICompatibleProvider):
+    """Provider for DeepInfra — affordable open-weight cloud inference.
+
+    DeepInfra hosts dozens of popular open-weight models behind an
+    OpenAI-compatible endpoint at very competitive prices.  Set
+    ``DEEPINFRA_API_KEY`` (from https://deepinfra.com/dash) and optionally
+    ``DEEPINFRA_MODEL``.
+
+    Supported models (examples)::
+
+        meta-llama/Meta-Llama-3.1-70B-Instruct    # default
+        Qwen/Qwen2.5-72B-Instruct
+        mistralai/Mistral-7B-Instruct-v0.3
+        deepseek-ai/DeepSeek-R1
+        microsoft/WizardLM-2-8x22B
+    """
+
+    name = "deepinfra"
+    _DEFAULT_BASE_URL = "https://api.deepinfra.com/v1/openai/chat/completions"
+    _DEFAULT_MODEL = "meta-llama/Meta-Llama-3.1-70B-Instruct"
+    _KEY_ENV_VAR = "DEEPINFRA_API_KEY"
+    _MODEL_ENV_VAR = "DEEPINFRA_MODEL"
+
+
+class QwenProvider(OpenAICompatibleProvider):
+    """Provider for Alibaba Cloud DashScope / Qwen models.
+
+    Alibaba Cloud's DashScope service exposes an OpenAI-compatible
+    international endpoint for the Qwen model family.  Set
+    ``DASHSCOPE_API_KEY`` (from https://dashscope-intl.aliyuncs.com) and
+    optionally ``QWEN_MODEL``.
+
+    Supported models (examples)::
+
+        qwen-turbo              # default — fast, cost-effective
+        qwen-plus               # balanced capability
+        qwen-max                # highest capability
+        qwen2.5-72b-instruct
+        qwen2.5-coder-32b-instruct
+    """
+
+    name = "qwen"
+    _DEFAULT_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
+    _DEFAULT_MODEL = "qwen-turbo"
+    _KEY_ENV_VAR = "DASHSCOPE_API_KEY"
+    _MODEL_ENV_VAR = "QWEN_MODEL"
+
+
+class VolcengineProvider(OpenAICompatibleProvider):
+    """Provider for Volcengine (ByteDance) — Doubao / ARK large models.
+
+    Volcengine is ByteDance's cloud AI platform; the ARK inference service
+    exposes an OpenAI-compatible endpoint for the Doubao (Skylark) family
+    and other hosted models.  Set ``ARK_API_KEY`` (from
+    https://www.volcengine.com/product/ark) and optionally
+    ``VOLCENGINE_MODEL``.
+
+    Supported models (examples)::
+
+        doubao-pro-4k           # default — Doubao Pro 4 K context
+        doubao-pro-32k          # Doubao Pro 32 K context
+        doubao-lite-4k          # lighter / cheaper option
+    """
+
+    name = "volcengine"
+    _DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+    _DEFAULT_MODEL = "doubao-pro-4k"
+    _KEY_ENV_VAR = "ARK_API_KEY"
+    _MODEL_ENV_VAR = "VOLCENGINE_MODEL"
+
+
+class StepFunProvider(OpenAICompatibleProvider):
+    """Provider for StepFun AI — high-capability Chinese reasoning models.
+
+    StepFun (阶跃星辰) exposes an OpenAI-compatible endpoint for their Step
+    model family, known for strong reasoning and code generation.  Set
+    ``STEPFUN_API_KEY`` (from https://platform.stepfun.com) and optionally
+    ``STEPFUN_MODEL``.
+
+    Supported models (examples)::
+
+        step-1-8k          # default — fast, 8 K context
+        step-1-32k         # 32 K context
+        step-1-200k        # 200 K long-context
+        step-1v-32k        # vision-capable
+    """
+
+    name = "stepfun"
+    _DEFAULT_BASE_URL = "https://api.stepfun.com/v1/chat/completions"
+    _DEFAULT_MODEL = "step-1-8k"
+    _KEY_ENV_VAR = "STEPFUN_API_KEY"
+    _MODEL_ENV_VAR = "STEPFUN_MODEL"
+
+
+class GlmProvider(OpenAICompatibleProvider):
+    """Provider for ZhipuAI / ChatGLM (GLM-4 model family).
+
+    ZhipuAI (智谱AI) exposes an OpenAI-compatible endpoint for their GLM-4
+    model family.  Set ``ZHIPUAI_API_KEY`` (from https://open.bigmodel.cn)
+    and optionally ``GLM_MODEL``.
+
+    Supported models (examples)::
+
+        glm-4-flash          # default — free-tier, fast
+        glm-4-air            # balanced cost/capability
+        glm-4                # most capable
+        glm-4-long           # 1 M token context window
+        glm-4v               # vision-capable
+    """
+
+    name = "glm"
+    _DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    _DEFAULT_MODEL = "glm-4-flash"
+    _KEY_ENV_VAR = "ZHIPUAI_API_KEY"
+    _MODEL_ENV_VAR = "GLM_MODEL"
+
+
+class VeniceProvider(OpenAICompatibleProvider):
+    """Provider for Venice AI — privacy-preserving uncensored inference.
+
+    Venice AI runs open-weight models without logging prompts or responses,
+    making it suitable for privacy-sensitive tasks.  Set ``VENICE_API_KEY``
+    (from https://venice.ai/dashboard/api) and optionally ``VENICE_MODEL``.
+
+    Supported models (examples)::
+
+        llama-3.3-70b              # default — Llama 3.3 70B (uncensored)
+        mistral-31-24b             # Mistral 3.1 24B
+        deepseek-r1-671b           # DeepSeek R1 (full size)
+        qwen-2.5-vl                # vision + language
+    """
+
+    name = "venice"
+    _DEFAULT_BASE_URL = "https://api.venice.ai/api/v1/chat/completions"
+    _DEFAULT_MODEL = "llama-3.3-70b"
+    _KEY_ENV_VAR = "VENICE_API_KEY"
+    _MODEL_ENV_VAR = "VENICE_MODEL"
+
+
+class LMStudioProvider(BaseProvider):
+    """Provider for LM Studio — local GUI-based model inference server.
+
+    LM Studio (https://lmstudio.ai) runs quantised LLMs locally and exposes
+    an OpenAI-compatible ``/v1/chat/completions`` endpoint.  No API key is
+    required.  The server must be started manually inside the LM Studio app
+    (Developer → Local Server → Start Server).
+
+    Configuration
+    -------------
+    ``LMSTUDIO_BASE_URL`` — base URL of the LM Studio server
+        (default ``http://localhost:1234``).
+    ``LMSTUDIO_MODEL`` — model identifier (default
+        ``lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF``; or ``"any"``
+        to use whatever model is currently loaded).
+
+    Supported models (any model loaded in LM Studio works)::
+
+        lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF   # default
+        lmstudio-community/Qwen2.5-7B-Instruct-GGUF
+        TheBloke/Mistral-7B-Instruct-v0.2-GGUF
+    """
+
+    name = "lmstudio"
+    _DEFAULT_BASE_URL = "http://localhost:1234"
+    _DEFAULT_MODEL = "lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF"
+
+    def __init__(self, profile: AuthProfile | None = None) -> None:
+        if profile is not None:
+            base = profile.base_url or os.environ.get("LMSTUDIO_BASE_URL", self._DEFAULT_BASE_URL)
+            self.model: str = profile.model or os.environ.get("LMSTUDIO_MODEL", self._DEFAULT_MODEL)
+        else:
+            base = os.environ.get("LMSTUDIO_BASE_URL", self._DEFAULT_BASE_URL)
+            self.model = os.environ.get("LMSTUDIO_MODEL", self._DEFAULT_MODEL)
+        self._base_url: str = base.rstrip("/")
+        self._chat_url: str = f"{self._base_url}/v1/chat/completions"
+        self.available = True
+        logger.debug("Provider %s model=%s base=%s initialized", self.name, self.model, self._base_url)
+
+    def validate_config(self) -> list[str]:
+        notes: list[str] = []
+        if not self.model:
+            notes.append("LMSTUDIO_MODEL must be non-empty")
+        try:
+            context = ssl.create_default_context()
+            req = urllib_request.Request(f"{self._base_url}/v1/models", method="GET")
+            with urllib_request.urlopen(req, context=context, timeout=2):
+                pass
+        except Exception as exc:
+            notes.append(
+                f"LM Studio server at {self._base_url} appears unreachable ({exc}). "
+                "Start the server in LM Studio under Developer → Local Server → Start Server."
+            )
+        return notes
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "available": self.available,
+            "model": self.model,
+            "base_url": self._base_url,
+        }
+
+    def chat(self, system_message: str, user_message: str) -> str:
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message},
+            ],
+            "temperature": 0.0,
+        }
+        data = json.dumps(body).encode("utf-8")
+        context = ssl.create_default_context()
+        req = urllib_request.Request(
+            self._chat_url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib_request.urlopen(req, context=context) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f"LM Studio API returned HTTP {resp.status}")
+                response_json = json.loads(resp.read().decode("utf-8"))
+        except OSError as exc:
+            raise RuntimeError(
+                f"LMStudioProvider could not reach {self._chat_url}. "
+                "Ensure LM Studio is running with the local server enabled."
+            ) from exc
+        choices = response_json.get("choices")
+        if not choices:
+            raise RuntimeError("LM Studio response missing choices")
+        return choices[0]["message"]["content"].strip()
+
+
+__all__ = [
+    "OpenAICompatibleProvider",
+    "GroqProvider",
+    "XAIProvider",
+    "MistralProvider",
+    "DeepSeekProvider",
+    "TogetherProvider",
+    "OpenRouterProvider",
+    "OllamaProvider",
+    "CohereProvider",
+    "PerplexityProvider",
+    "FireworksProvider",
+    "CerebrasProvider",
+    "AI21Provider",
+    "HuggingFaceProvider",
+    "NvidiaProvider",
+    "MoonshotProvider",
+    "DeepInfraProvider",
+    "QwenProvider",
+    "VolcengineProvider",
+    "StepFunProvider",
+    "GlmProvider",
+    "VeniceProvider",
+    "LMStudioProvider",
+]

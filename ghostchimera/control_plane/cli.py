@@ -105,6 +105,7 @@ def _main(argv: list[str] | None = None) -> int:
     console_parser.add_argument("--http-port", type=int, default=8766, help="Console HTTP port.")
     console_parser.add_argument("--state-dir", default="", help="Optional state directory for console jobs and schedules.")
     console_parser.add_argument("--no-open", action="store_true", help="Print the console URL without opening a browser.")
+    console_parser.add_argument("--auth-token", default="", help="Require this bearer token on all /api/* routes (X-Gateway-Token header).")
     doctor_parser = sub.add_parser("doctor", help="Run health checks and report status")
     doctor_parser.add_argument("--production", action="store_true", help="Require production deployment guardrails.")
     sub.add_parser("model", help="List and switch the current model provider")
@@ -235,6 +236,7 @@ def _main(argv: list[str] | None = None) -> int:
             state_dir=args.state_dir or None,
             open_browser=not args.no_open,
             block=True,
+            auth_token=args.auth_token or "",
         )
         return 0
 

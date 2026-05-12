@@ -294,6 +294,7 @@ def register_console_routes(
     autonomy_queue: AutonomyJobQueue | None = None,
     cron_scheduler: Any | None = None,
     operator_workspace: OperatorWorkspaceStore | None = None,
+    console_token: str = "",
 ) -> None:
     """Register browser console routes on an existing GatewayServer."""
 
@@ -311,6 +312,14 @@ def register_console_routes(
             scheduler = CronScheduler(state_dir=state_dir or server.config.state_dir, job_executor=_scheduled_executor(queue))
         except Exception as exc:  # pragma: no cover - depends on optional croniter availability
             scheduler_error = str(exc)
+
+    # Auth settings for API routes: use token auth when a console token is configured.
+    _api_auth = "token" if console_token else "open"
+    _api_token = console_token
+
+    def _api_register(path: str, handler: Any, *, method: str = "GET", prefix: bool = False, description: str = "") -> None:
+        """Register an API route with the appropriate auth mode."""
+        server.routes.register(path, handler, method=method, auth=_api_auth, token=_api_token, prefix=prefix, description=description)
 
     def console_page(ctx: dict[str, Any]) -> HttpResponse:
         return HttpResponse(body=CONSOLE_HTML, content_type="text/html; charset=utf-8")
@@ -573,135 +582,38 @@ def register_console_routes(
 
     server.routes.register("/", console_page, method="GET", auth="open", description="Ghost Console browser UI")
     server.routes.register("/console", console_page, method="GET", auth="open", description="Ghost Console browser UI")
-    server.routes.register("/api/console/status", status, method="GET", auth="open", description="Ghost Console status")
-    server.routes.register("/api/console/autonomy", autonomy, method="GET", auth="open", description="Ghost Console autonomy")
-    server.routes.register("/api/console/autonomy", autonomy, method="POST", auth="open", description="Ghost Console autonomy")
+    # Token-metadata endpoint is always open — it only reports whether auth is enabled, never the token itself.
     server.routes.register(
-        "/api/console/workspace",
-        operator_workspace_snapshot,
+        "/api/console/token",
+        lambda ctx: {"auth_enabled": bool(console_token)},
         method="GET",
         auth="open",
-        description="Inspect operator workspace state",
+        description="Console auth capability advertisement",
     )
-    server.routes.register(
-        "/api/console/workspace/evidence",
-        operator_workspace_evidence,
-        method="POST",
-        auth="open",
-        description="Record operator workspace evidence",
-    )
-    server.routes.register(
-        "/api/console/workspace/reflections",
-        operator_workspace_reflection,
-        method="POST",
-        auth="open",
-        description="Record operator workspace reflection",
-    )
-    server.routes.register(
-        "/api/console/workspace/goals",
-        operator_workspace_goal,
-        method="POST",
-        auth="open",
-        description="Set operator workspace goal",
-    )
-    server.routes.register(
-        "/api/console/workspace/sync-memory",
-        operator_workspace_sync_memory,
-        method="POST",
-        auth="open",
-        description="Promote operator workspace records into CWR memory",
-    )
-    server.routes.register("/api/console/readiness", readiness, method="GET", auth="open", description="Ghost Console release readiness runbook")
-    server.routes.register("/api/console/autonomy/jobs", jobs_list, method="GET", auth="open", description="List autonomy jobs")
-    server.routes.register("/api/console/autonomy/jobs", jobs_create, method="POST", auth="open", description="Queue autonomy job")
-    server.routes.register(
-        "/api/console/autonomy/jobs/",
-        jobs_detail,
-        method="GET",
-        auth="open",
-        prefix=True,
-        description="Inspect autonomy job record",
-    )
-    server.routes.register(
-        "/api/console/autonomy/jobs/",
-        jobs_cancel,
-        method="POST",
-        auth="open",
-        prefix=True,
-        description="Cancel queued autonomy job",
-    )
-    server.routes.register(
-        "/api/console/autonomy/schedules",
-        schedules_list,
-        method="GET",
-        auth="open",
-        description="List autonomy schedules",
-    )
-    server.routes.register(
-        "/api/console/autonomy/schedules",
-        schedules_create,
-        method="POST",
-        auth="open",
-        description="Create autonomy schedule",
-    )
-    server.routes.register(
-        "/api/console/autonomy/schedules/",
-        schedules_action,
-        method="POST",
-        auth="open",
-        prefix=True,
-        description="Update, run, or delete autonomy schedule",
-    )
-    server.routes.register("/api/console/run", run, method="POST", auth="open", description="Run a Ghost objective")
-    server.routes.register(
-        "/api/console/browser/fetch",
-        browser_fetch,
-        method="POST",
-        auth="open",
-        description="Fetch an HTTPS URL through the Ghost browser tool",
-    )
-    server.routes.register(
-        "/api/console/browser/status",
-        browser_workspace_status,
-        method="GET",
-        auth="open",
-        description="Inspect optional agent-browser workspace availability",
-    )
-    server.routes.register(
-        "/api/console/browser/open",
-        browser_open,
-        method="POST",
-        auth="open",
-        description="Open an HTTPS URL in the optional agent-browser workspace",
-    )
-    server.routes.register(
-        "/api/console/browser/snapshot",
-        browser_snapshot,
-        method="POST",
-        auth="open",
-        description="Capture an accessibility snapshot from the optional agent-browser workspace",
-    )
-    server.routes.register(
-        "/api/console/security/events",
-        _security_events_handler,
-        method="GET",
-        auth="open",
-        description="Security event log from DPI inspection (Lobster Trap)",
-    )
-    server.routes.register(
-        "/api/console/security/summary",
-        _security_summary_handler,
-        method="GET",
-        auth="open",
-        description="Aggregated threat statistics and risk timeline",
-    )
-    server.routes.register(
-        "/api/console/security/audit",
-        _security_audit_handler,
-        method="GET",
-        auth="open",
-        description="HMAC-chained audit log entries and chain integrity check",
-    )
+    _api_register("/api/console/status", status, method="GET", description="Ghost Console status")
+    _api_register("/api/console/autonomy", autonomy, method="GET", description="Ghost Console autonomy")
+    _api_register("/api/console/autonomy", autonomy, method="POST", description="Ghost Console autonomy")
+    _api_register("/api/console/workspace", operator_workspace_snapshot, method="GET", description="Inspect operator workspace state")
+    _api_register("/api/console/workspace/evidence", operator_workspace_evidence, method="POST", description="Record operator workspace evidence")
+    _api_register("/api/console/workspace/reflections", operator_workspace_reflection, method="POST", description="Record operator workspace reflection")
+    _api_register("/api/console/workspace/goals", operator_workspace_goal, method="POST", description="Set operator workspace goal")
+    _api_register("/api/console/workspace/sync-memory", operator_workspace_sync_memory, method="POST", description="Promote operator workspace records into CWR memory")
+    _api_register("/api/console/readiness", readiness, method="GET", description="Ghost Console release readiness runbook")
+    _api_register("/api/console/autonomy/jobs", jobs_list, method="GET", description="List autonomy jobs")
+    _api_register("/api/console/autonomy/jobs", jobs_create, method="POST", description="Queue autonomy job")
+    _api_register("/api/console/autonomy/jobs/", jobs_detail, method="GET", prefix=True, description="Inspect autonomy job record")
+    _api_register("/api/console/autonomy/jobs/", jobs_cancel, method="POST", prefix=True, description="Cancel queued autonomy job")
+    _api_register("/api/console/autonomy/schedules", schedules_list, method="GET", description="List autonomy schedules")
+    _api_register("/api/console/autonomy/schedules", schedules_create, method="POST", description="Create autonomy schedule")
+    _api_register("/api/console/autonomy/schedules/", schedules_action, method="POST", prefix=True, description="Update, run, or delete autonomy schedule")
+    _api_register("/api/console/run", run, method="POST", description="Run a Ghost objective")
+    _api_register("/api/console/browser/fetch", browser_fetch, method="POST", description="Fetch an HTTPS URL through the Ghost browser tool")
+    _api_register("/api/console/browser/status", browser_workspace_status, method="GET", description="Inspect optional agent-browser workspace availability")
+    _api_register("/api/console/browser/open", browser_open, method="POST", description="Open an HTTPS URL in the optional agent-browser workspace")
+    _api_register("/api/console/browser/snapshot", browser_snapshot, method="POST", description="Capture an accessibility snapshot from the optional agent-browser workspace")
+    _api_register("/api/console/security/events", _security_events_handler, method="GET", description="Security event log from DPI inspection (Lobster Trap)")
+    _api_register("/api/console/security/summary", _security_summary_handler, method="GET", description="Aggregated threat statistics and risk timeline")
+    _api_register("/api/console/security/audit", _security_audit_handler, method="GET", description="HMAC-chained audit log entries and chain integrity check")
 
 
 def _console_url(server: GatewayServer) -> str:
@@ -719,6 +631,7 @@ def run_console(
     state_dir: str | Path | None = None,
     open_browser: bool = True,
     block: bool = True,
+    auth_token: str = "",
 ) -> GatewayServer:
     """
     Start and run a GatewayServer hosting the Ghost Console UI, API routes, and optional static assets.
@@ -730,6 +643,7 @@ def run_console(
         state_dir (str | Path | None): Optional directory for persistent state (overrides environment config); used for workspace, queue, and scheduler storage.
         open_browser (bool): If True, attempt to open the console URL in the user's default web browser after the server starts.
         block (bool): If True, block the current thread until interrupted; on KeyboardInterrupt the server is stopped before returning.
+        auth_token (str): When non-empty, all /api/* routes require this bearer token via the X-Gateway-Token header.
 
     Returns:
         GatewayServer: The started gateway server instance.
@@ -741,11 +655,12 @@ def run_console(
         config = replace(config, state_dir=resolved, memory_db=resolved / "memory.sqlite3", audit_file=resolved / "audit.json")
     server = GatewayServer(host=host, port=port, http_port=http_port, config=config)
     _register_static_routes(server)
-    register_console_routes(server, state_dir=state_dir or config.state_dir)
-    _register_static_routes(server)
+    register_console_routes(server, state_dir=state_dir or config.state_dir, console_token=auth_token or "")
     server.start()
     url = _console_url(server)
     print(f"Ghost Console: {url}")
+    if auth_token:
+        print(f"Auth token required — set X-Gateway-Token header: {auth_token}")
     if open_browser:
         webbrowser.open(url)
     if block:

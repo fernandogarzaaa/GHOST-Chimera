@@ -31,9 +31,21 @@ This is a developer beta for local experimentation, runtime research, and extens
 | `skill_layer` | Built-in skills for browser fetches, code search, software tasks, tech support, issue conversion, and dynamic skill registry support. |
 | `tool_layer` | Policy-aware filesystem, shell, and browser tools. |
 
-## Install
+## Quick Start (no install required)
 
-From a clean checkout:
+Build and run the browser console with the included Docker artifacts:
+
+```bash
+docker compose up --build
+```
+
+Then open **http://localhost:8766/** in your browser. The console provides a point-and-click UI for running objectives, viewing autonomy jobs, managing schedules, inspecting the security monitor, and controlling the operator workspace — no terminal required after startup.
+
+For public demo URL runbooks and judge-ready packaging, see `docs/HACKATHON_ALL_IN_ONE.md` and `docs/hackathons/DEPLOYMENT_RUNBOOK.md`.
+
+## Developer Install
+
+From a clean checkout (Python 3.11–3.13 required):
 
 ```bash
 python -m venv .venv
@@ -65,20 +77,6 @@ python -m pip install -e ".[dev]"      # build and lint tools
 
 Heavy runtimes such as `llama-cpp-python`, MiniMind's PyTorch/Transformers path, `nvidia-cutlass-dsl`, and `pyqpanda3` are optional. The base package stays lightweight and stdlib-first.
 
-## Container Quickstart (Demo Deployment)
-
-Build and run the browser console with the included deployment artifacts:
-
-```bash
-docker compose up --build
-```
-
-Then open:
-
-- `http://localhost:8766/`
-
-For public demo URL runbooks and judge-ready packaging, see `docs/HACKATHON_ALL_IN_ONE.md` and `docs/hackathons/DEPLOYMENT_RUNBOOK.md`.
-
 ## CLI Quickstart
 
 Run the setup and diagnostics flow:
@@ -99,7 +97,15 @@ ghostchimera console --no-open
 ghostchimera console --state-dir .ghost-console-state
 ```
 
-The console runs on localhost by default and exposes status, autonomy profile controls, safe objective runs, a durable autonomy job center, recurring schedules, release-readiness checks, the existing HTTPS-only browser fetch tool, and optional `agent-browser` workspace controls through the gateway-backed UI. Install the `gateway` extra for WebSocket and cron scheduling dependencies. The browser workspace is optional; when `agent-browser` is not installed, the console reports a degraded browser-workspace state while core controls continue to work.
+To enable bearer token authentication on all API routes (recommended when the console is reachable beyond localhost):
+
+```bash
+ghostchimera console --auth-token mysecrettoken
+```
+
+The token is printed to the terminal on startup and entered in the browser prompt the first time.
+
+The console runs on localhost by default and exposes status, autonomy profile controls, safe objective runs, a durable autonomy job center, recurring schedules, a live security monitor (DPI / LobsterTrap events + HMAC audit chain), a browser workspace tab, release-readiness checks, and optional `agent-browser` workspace controls through the gateway-backed UI. Install the `gateway` extra for WebSocket and cron scheduling dependencies. The browser workspace is optional; when `agent-browser` is not installed, the console reports a degraded browser-workspace state while core controls continue to work.
 
 Inspect the local operator workspace state:
 

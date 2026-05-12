@@ -444,6 +444,39 @@ class ConsoleCliTests(unittest.TestCase):
         finally:
             server.stop()
 
+    def test_console_token_route_advertises_auth_state(self) -> None:
+        # Without token: auth_enabled is False
+        server = GatewayServer()
+        register_console_routes(server)
+        token_route = server.routes.find("GET", "/api/console/token")
+        self.assertIsNotNone(token_route)
+        self.assertEqual(token_route.auth, "open")
+        payload = token_route.handler({"method": "GET", "path": "/api/console/token", "headers": {}, "body": "", "query": {}})
+        self.assertFalse(payload["auth_enabled"])
+
+        # With token: auth_enabled is True, and API routes require the token
+        server2 = GatewayServer()
+        register_console_routes(server2, console_token="test-secret")
+        token_route2 = server2.routes.find("GET", "/api/console/token")
+        self.assertEqual(token_route2.auth, "open")
+        payload2 = token_route2.handler({"method": "GET", "path": "/api/console/token", "headers": {}, "body": "", "query": {}})
+        self.assertTrue(payload2["auth_enabled"])
+
+        # API routes should require token auth
+        status_route = server2.routes.find("GET", "/api/console/status")
+        self.assertIsNotNone(status_route)
+        self.assertEqual(status_route.auth, "token")
+        self.assertEqual(status_route.token, "test-secret")
+
+    def test_cli_console_dispatches_auth_token_to_run_console(self) -> None:
+        with patch("ghostchimera.control_plane.console.run_console") as mocked:
+            mocked.return_value = object()
+            result = _main(["console", "--no-open", "--auth-token", "mysecret"])
+
+        self.assertEqual(result, 0)
+        mocked.assert_called_once()
+        self.assertEqual(mocked.call_args.kwargs["auth_token"], "mysecret")
+
     def test_cli_console_dispatches_to_run_console(self) -> None:
         with patch("ghostchimera.control_plane.console.run_console") as mocked:
             mocked.return_value = object()

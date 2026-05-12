@@ -147,7 +147,30 @@ mcp/                 Lightweight JSON-RPC MCP server/client surfaces
 |------|------|
 | `OPENAI_API_KEY` / `OPENAI_MODEL` | OpenAI provider |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | Anthropic provider |
-| `GHOSTCHIMERA_MODEL_PROVIDER` | Default provider (e.g. `minimind`) |
+| `GOOGLE_API_KEY` / `GEMINI_MODEL` | Google Gemini provider |
+| `GROQ_API_KEY` / `GROQ_MODEL` | Groq LPU inference (default model: `llama-3.3-70b-versatile`) |
+| `XAI_API_KEY` / `XAI_MODEL` | xAI / Grok provider (default model: `grok-3-mini`) |
+| `MISTRAL_API_KEY` / `MISTRAL_MODEL` | Mistral AI provider (default model: `mistral-small-latest`) |
+| `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` | DeepSeek provider (default model: `deepseek-chat`) |
+| `TOGETHER_API_KEY` / `TOGETHER_MODEL` | Together AI open-model hosting (default: `meta-llama/Llama-3-70b-chat-hf`) |
+| `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | OpenRouter gateway — 100+ models (default: `openai/gpt-4o-mini`) |
+| `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | Local Ollama server (default URL: `http://localhost:11434`, model: `llama3.2`) |
+| `COHERE_API_KEY` / `COHERE_MODEL` | Cohere provider (default model: `command-r-plus`) |
+| `PERPLEXITY_API_KEY` / `PERPLEXITY_MODEL` | Perplexity AI — search-augmented models (default: `llama-3.1-sonar-small-128k-online`) |
+| `FIREWORKS_API_KEY` / `FIREWORKS_MODEL` | Fireworks AI fast inference (default: `accounts/fireworks/models/llama-v3p1-70b-instruct`) |
+| `CEREBRAS_API_KEY` / `CEREBRAS_MODEL` | Cerebras ultra-fast inference (default model: `llama3.1-70b`) |
+| `AI21_API_KEY` / `AI21_MODEL` | AI21 Labs Jamba models (default model: `jamba-1.5-mini`) |
+| `HF_TOKEN` / `HUGGINGFACE_MODEL` | Hugging Face Inference API (default: `meta-llama/Llama-3.3-70B-Instruct`) |
+| `NVIDIA_API_KEY` / `NVIDIA_MODEL` | NVIDIA NIM GPU inference (default: `meta/llama-3.1-70b-instruct`) |
+| `MOONSHOT_API_KEY` / `MOONSHOT_MODEL` | Moonshot AI / Kimi (default: `moonshot-v1-8k`) |
+| `DEEPINFRA_API_KEY` / `DEEPINFRA_MODEL` | DeepInfra affordable inference (default: `meta-llama/Meta-Llama-3.1-70B-Instruct`) |
+| `DASHSCOPE_API_KEY` / `QWEN_MODEL` | Alibaba DashScope / Qwen (default: `qwen-turbo`) |
+| `ARK_API_KEY` / `VOLCENGINE_MODEL` | Volcengine / ByteDance Doubao (default: `doubao-pro-4k`) |
+| `STEPFUN_API_KEY` / `STEPFUN_MODEL` | StepFun AI (default: `step-1-8k`) |
+| `ZHIPUAI_API_KEY` / `GLM_MODEL` | ZhipuAI GLM-4 (default: `glm-4-flash`) |
+| `VENICE_API_KEY` / `VENICE_MODEL` | Venice AI privacy-preserving inference (default: `llama-3.3-70b`) |
+| `LMSTUDIO_BASE_URL` / `LMSTUDIO_MODEL` | Local LM Studio server (default URL: `http://localhost:1234`) |
+| `GHOSTCHIMERA_MODEL_PROVIDER` | Default provider (e.g. `groq`, `mistral`, `ollama`) |
 | `GHOSTCHIMERA_STATE_DIR` | State directory (default `~/.ghostchimera`) |
 | `GHOSTCHIMERA_MEMORY_DB` | CWR SQLite path |
 | `GHOSTCHIMERA_AUTONOMY_LEVEL` | Default autonomy profile |
