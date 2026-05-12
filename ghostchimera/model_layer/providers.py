@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 from urllib import request as urllib_request
 
 from ..logging_config import get_logger
+from .gemini_provider import GeminiProvider
 from .llamacpp_runtime import LlamaCppRuntime
 from .local_profiles import get_local_model_profile
 from .minimind_runtime import load_minimind_chat_runtime
@@ -296,6 +297,7 @@ class LlamaCppProvider(BaseProvider):
 
 PROVIDERS: dict[str, type[BaseProvider]] = {
     AnthropicProvider.name: AnthropicProvider,
+    GeminiProvider.name: GeminiProvider,
     LlamaCppProvider.name: LlamaCppProvider,
     OpenAIProvider.name: OpenAIProvider,
     MinimindProvider.name: MinimindProvider,
@@ -304,6 +306,7 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
 # Split registry by provider type — enables typed lookup for media providers
 TEXT_PROVIDERS: dict[str, type[BaseProvider]] = {
     AnthropicProvider.name: AnthropicProvider,
+    GeminiProvider.name: GeminiProvider,
     LlamaCppProvider.name: LlamaCppProvider,
     OpenAIProvider.name: OpenAIProvider,
     MinimindProvider.name: MinimindProvider,

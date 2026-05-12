@@ -26,6 +26,13 @@ class TaskKind(StrEnum):
     PYTHON = "python"
     QUANTUM_SIM = "quantum_sim"
     DESKTOP_CONTROL = "desktop_control"
+    # Track 2 – Google AI Studio / Gemini
+    LONG_CONTEXT_DOC = "long_context_doc"
+    # Track 3 – Robotics & Simulation
+    SIMULATION = "simulation"
+    # Track 4 – Data & Intelligence
+    ANALYTICS_QUERY = "analytics_query"
+    DATA_PIPELINE = "data_pipeline"
 
 
 def new_task_id(prefix: str = "task") -> str:

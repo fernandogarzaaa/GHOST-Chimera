@@ -1,13 +1,16 @@
 """Built-in Chimera Pilot backends."""
 
+from .analytics import AnalyticsBackend
 from .base import BackendCapabilities, BackendHealth, ChimeraBackend, ExecutionResult
 from .cwr import CWRBackend
 from .desktop_runtime import DesktopRuntimeBackend
 from .deterministic import DeterministicBackend
+from .gemini import GeminiBackend
 from .llamacpp import LlamaCppBackend
 from .mcp import MCPBackend
 from .pyqpanda3_backend import PyQPanda3Backend
 from .python_runtime import PythonRuntimeBackend
+from .simulation import SimulationBackend
 
 
 def discover_builtin_backends():
@@ -22,6 +25,7 @@ def discover_builtin_backends():
 
 
 __all__ = [
+    "AnalyticsBackend",
     "BackendCapabilities",
     "BackendHealth",
     "ChimeraBackend",
@@ -29,9 +33,11 @@ __all__ = [
     "DeterministicBackend",
     "DesktopRuntimeBackend",
     "ExecutionResult",
+    "GeminiBackend",
     "LlamaCppBackend",
     "MCPBackend",
     "PyQPanda3Backend",
     "PythonRuntimeBackend",
+    "SimulationBackend",
     "discover_builtin_backends",
 ]

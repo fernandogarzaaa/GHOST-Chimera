@@ -77,6 +77,12 @@ def _suite_kpis(name: str, cases: list[dict[str, object]]) -> dict[str, float]:
         kpis["operator_journey_pass_rate"] = round(pass_rate, 3)
     if name == "redteam":
         kpis["red_team_block_rate"] = round(pass_rate, 3)
+    if name == "track2":
+        kpis["gemini_integration_pass_rate"] = round(pass_rate, 3)
+    if name == "track3":
+        kpis["simulation_pass_rate"] = round(pass_rate, 3)
+    if name == "track4":
+        kpis["analytics_pass_rate"] = round(pass_rate, 3)
     return kpis
 
 
@@ -92,6 +98,12 @@ def _suite_gates(name: str, kpis: dict[str, float]) -> dict[str, bool]:
         return {"operator_journey_gate": kpis.get("operator_journey_pass_rate", 0.0) >= 1.0}
     if name == "redteam":
         return {"red_team_gate": kpis.get("red_team_block_rate", 0.0) >= 1.0}
+    if name == "track2":
+        return {"gemini_gate": kpis.get("gemini_integration_pass_rate", 0.0) >= 1.0}
+    if name == "track3":
+        return {"simulation_gate": kpis.get("simulation_pass_rate", 0.0) >= 1.0}
+    if name == "track4":
+        return {"analytics_gate": kpis.get("analytics_pass_rate", 0.0) >= 1.0}
     return {}
 
 
@@ -887,7 +899,454 @@ def _case_dpi_config_from_env() -> tuple[bool, str]:
     return ok, json.dumps({"enabled": config.enabled, "proxy_url": config.proxy_url, "fail_open": config.fail_open})
 
 
-# ── Coverage suite ───────────────────────────────────────────────────
+# ── Track 2 eval cases (Google AI Studio / Gemini) ──────────────────────────
+
+def _case_gemini_provider_registered() -> tuple[bool, str]:
+    """GeminiProvider must be registered in PROVIDERS and TEXT_PROVIDERS."""
+    from ghostchimera.model_layer.providers import PROVIDERS, TEXT_PROVIDERS
+
+    ok = "gemini" in PROVIDERS and "gemini" in TEXT_PROVIDERS
+    return ok, json.dumps({"in_providers": "gemini" in PROVIDERS, "in_text_providers": "gemini" in TEXT_PROVIDERS})
+
+
+def _case_gemini_catalog_entries() -> tuple[bool, str]:
+    """Model catalog must contain at least 3 Gemini entries with 1M context."""
+    from ghostchimera.model_layer.model_catalog import list_catalog
+
+    entries = list_catalog("gemini")
+    million_token = [e for e in entries if e.context_window_tokens >= 1_000_000]
+    ok = len(entries) >= 3 and len(million_token) >= 1
+    return ok, json.dumps({"entry_count": len(entries), "million_token_models": [e.model_id for e in million_token]})
+
+
+def _case_gemini_provider_validates_missing_key() -> tuple[bool, str]:
+    """GeminiProvider.validate_config() must report error when GOOGLE_API_KEY absent."""
+    import os as _os
+
+    from ghostchimera.model_layer.gemini_provider import GeminiProvider
+
+    orig = _os.environ.pop("GOOGLE_API_KEY", None)
+    try:
+        provider = GeminiProvider()
+        errors = provider.validate_config()
+    finally:
+        if orig is not None:
+            _os.environ["GOOGLE_API_KEY"] = orig
+
+    ok = any("GOOGLE_API_KEY" in e for e in errors)
+    return ok, json.dumps({"errors": errors})
+
+
+def _case_gemini_backend_can_run_reasoning() -> tuple[bool, str]:
+    """GeminiBackend must report can_run=True for REASONING tasks when key is set."""
+    import os as _os
+
+    from ghostchimera.chimera_pilot.backends.gemini import GeminiBackend
+    from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
+
+    _os.environ["GOOGLE_API_KEY"] = "fake-key-for-probe"
+    try:
+        backend = GeminiBackend()
+        task = TaskSpec.create(kind=TaskKind.REASONING, objective="test", inputs={"prompt": "hello"}, requires_network=True)
+        ok = backend.can_run(task)
+    finally:
+        _os.environ.pop("GOOGLE_API_KEY", None)
+
+    return ok, json.dumps({"can_run": ok, "backend_id": GeminiBackend.id})
+
+
+def _case_gemini_backend_can_run_long_context() -> tuple[bool, str]:
+    """GeminiBackend must report can_run=True for LONG_CONTEXT_DOC tasks."""
+    import os as _os
+
+    from ghostchimera.chimera_pilot.backends.gemini import GeminiBackend
+    from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
+
+    _os.environ["GOOGLE_API_KEY"] = "fake-key-for-probe"
+    try:
+        backend = GeminiBackend()
+        task = TaskSpec.create(
+            kind=TaskKind.LONG_CONTEXT_DOC,
+            objective="Summarise the contract",
+            inputs={"instruction": "Summarise the contract", "documents": ["Contract text here"]},
+            requires_network=True,
+        )
+        ok = backend.can_run(task)
+    finally:
+        _os.environ.pop("GOOGLE_API_KEY", None)
+
+    return ok, json.dumps({"can_run": ok, "max_context_tokens": 1_000_000})
+
+
+def _case_gemini_multi_agent_chat_builds_history() -> tuple[bool, str]:
+    """GeminiProvider.multi_agent_chat must append turns to history correctly."""
+    import os as _os
+
+    from ghostchimera.model_layer.gemini_provider import GeminiProvider
+
+    # This tests the history manipulation logic without a real API call.
+    # We mock the _generate method to avoid network.
+    _os.environ.pop("GOOGLE_API_KEY", None)
+    provider = GeminiProvider()
+    provider.available = True
+
+    call_log: list[dict] = []
+
+    def _mock_generate(contents, *, max_output_tokens=2048):  # noqa: ARG001
+        call_log.append({"contents": contents})
+        return "Mock reply"
+
+    provider._generate = _mock_generate
+
+    history: list = []
+    reply, updated = provider.multi_agent_chat(history, new_message="Hello, Gemini!")
+    ok = (
+        reply == "Mock reply"
+        and len(updated) >= 2
+        and updated[-1]["role"] == "model"
+        and updated[-1]["parts"][0]["text"] == "Mock reply"
+    )
+    return ok, json.dumps({"reply": reply, "history_len": len(updated), "ok": ok})
+
+
+def _case_gemini_long_context_assembles_parts() -> tuple[bool, str]:
+    """chat_long_context must include each document as a separate part."""
+    import os as _os
+
+    from ghostchimera.model_layer.gemini_provider import GeminiProvider
+
+    _os.environ.pop("GOOGLE_API_KEY", None)
+    provider = GeminiProvider()
+    provider.available = True
+
+    captured: list[dict] = []
+
+    def _mock_generate(contents, *, max_output_tokens=2048):  # noqa: ARG001
+        captured.append({"contents": contents})
+        return "Summary"
+
+    provider._generate = _mock_generate
+
+    documents = ["Contract clause 1", "Contract clause 2", "Contract clause 3"]
+    provider.chat_long_context("Summarise each document.", documents=documents)
+
+    ok = len(captured) == 1
+    if ok:
+        last_contents = captured[0]["contents"]
+        last_turn = last_contents[-1]
+        ok = len(last_turn["parts"]) == len(documents) + 1  # n docs + instruction
+    return ok, json.dumps({"captured_turns": len(captured), "ok": ok})
+
+
+def _case_compiler_routes_long_context_doc() -> tuple[bool, str]:
+    """Compiler must route 'summarise document' objectives to LONG_CONTEXT_DOC."""
+    from ghostchimera.chimera_pilot.compiler import RuleBasedTaskCompiler
+    from ghostchimera.chimera_pilot.task_ir import TaskKind
+
+    compiler = RuleBasedTaskCompiler()
+    tasks = compiler.compile("Summarise document: quarterly earnings report")
+    ok = len(tasks) == 1 and tasks[0].kind == TaskKind.LONG_CONTEXT_DOC
+    return ok, json.dumps({"kind": tasks[0].kind if tasks else None, "ok": ok})
+
+
+# ── Track 3 eval cases (Robotics & Simulation) ──────────────────────────────
+
+def _case_simulation_backend_probes_available() -> tuple[bool, str]:
+    """SimulationBackend must probe as available offline."""
+    from ghostchimera.chimera_pilot.backends.simulation import SimulationBackend
+
+    backend = SimulationBackend()
+    health = backend.probe()
+    ok = health.available and health.reliability == 1.0
+    return ok, json.dumps({"available": health.available, "reliability": health.reliability})
+
+
+def _case_simulation_kinematics_runs() -> tuple[bool, str]:
+    """SimulationBackend kinematics mode must produce a collision-free trajectory."""
+    from ghostchimera.chimera_pilot.backends.simulation import SimulationBackend
+    from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
+
+    backend = SimulationBackend()
+    task = TaskSpec.create(
+        kind=TaskKind.SIMULATION,
+        objective="navigate 4 waypoints",
+        inputs={
+            "sim_mode": "kinematics",
+            "waypoints": [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]],
+            "robot": {"name": "arm6dof", "dof": 6, "max_velocity": 1.5},
+            "environment": {"bounds": [[-2, 2], [-2, 2], [0, 2]], "obstacles": []},
+        },
+    )
+    result = backend.execute(task)
+    output = result.output if isinstance(result.output, dict) else {}
+    ok = result.ok and output.get("success") is True and len(output.get("trajectory", [])) > 0
+    return ok, json.dumps({"ok": result.ok, "waypoints": output.get("waypoint_count"), "collisions": len(output.get("collisions", []))})
+
+
+def _case_simulation_digital_twin_generates_sensor_data() -> tuple[bool, str]:
+    """Digital-twin simulation must produce sensor readings for each state tick."""
+    from ghostchimera.chimera_pilot.backends.simulation import SimulationBackend
+    from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
+
+    backend = SimulationBackend()
+    task = TaskSpec.create(
+        kind=TaskKind.SIMULATION,
+        objective="industrial digital twin",
+        inputs={
+            "sim_mode": "digital_twin",
+            "states": [
+                {"name": "startup", "duration_s": 0.5, "metrics": {"temperature": 20.0}},
+                {"name": "operating", "duration_s": 1.0, "metrics": {"temperature": 75.0, "pressure": 5.0}},
+                {"name": "shutdown", "duration_s": 0.3, "metrics": {"temperature": 30.0}},
+            ],
+            "sensors": [
+                {"type": "imu", "name": "imu0"},
+                {"type": "lidar", "name": "lidar0", "points": 180, "max_range": 20.0},
+            ],
+            "tick_rate_hz": 10.0,
+        },
+    )
+    result = backend.execute(task)
+    output = result.output if isinstance(result.output, dict) else {}
+    ok = result.ok and output.get("total_ticks", 0) > 0 and len(output.get("sensor_log", [])) > 0
+    return ok, json.dumps({"ok": result.ok, "ticks": output.get("total_ticks"), "sensor_entries": len(output.get("sensor_log", []))})
+
+
+def _case_simulation_policy_test_reports_success_rate() -> tuple[bool, str]:
+    """Policy-test simulation must report a numeric success rate in [0, 1]."""
+    from ghostchimera.chimera_pilot.backends.simulation import SimulationBackend
+    from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
+
+    backend = SimulationBackend()
+    task = TaskSpec.create(
+        kind=TaskKind.SIMULATION,
+        objective="evaluate greedy navigation policy",
+        inputs={
+            "sim_mode": "policy_test",
+            "policy": {"actions": ["forward", "backward", "left", "right"], "max_steps": 100},
+            "environment": {"start": [0, 0, 0], "goal": [3, 0, 0], "obstacles": []},
+            "episodes": 5,
+        },
+    )
+    result = backend.execute(task)
+    output = result.output if isinstance(result.output, dict) else {}
+    rate = output.get("success_rate", -1.0)
+    ok = result.ok and 0.0 <= rate <= 1.0 and len(output.get("episode_results", [])) == 5
+    return ok, json.dumps({"ok": result.ok, "success_rate": rate, "episodes": len(output.get("episode_results", []))})
+
+
+def _case_simulation_collision_detected() -> tuple[bool, str]:
+    """SimulationBackend must detect a collision when a waypoint intersects an obstacle."""
+    from ghostchimera.chimera_pilot.backends.simulation import SimulationBackend
+    from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
+
+    backend = SimulationBackend()
+    task = TaskSpec.create(
+        kind=TaskKind.SIMULATION,
+        objective="navigate through obstacle",
+        inputs={
+            "sim_mode": "kinematics",
+            "waypoints": [[0, 0, 0], [1, 0, 0]],
+            "robot": {"name": "arm6dof", "dof": 6, "max_velocity": 1.0},
+            "environment": {
+                "bounds": [[-2, 2], [-2, 2], [0, 2]],
+                "obstacles": [{"name": "wall", "position": [1, 0, 0], "radius": 0.2}],
+            },
+        },
+    )
+    result = backend.execute(task)
+    output = result.output if isinstance(result.output, dict) else {}
+    ok = len(output.get("collisions", [])) > 0
+    return ok, json.dumps({"collisions": output.get("collisions", [])})
+
+
+def _case_compiler_routes_simulation() -> tuple[bool, str]:
+    """Compiler must route 'simulate waypoint navigation' to SIMULATION."""
+    from ghostchimera.chimera_pilot.compiler import RuleBasedTaskCompiler
+    from ghostchimera.chimera_pilot.task_ir import TaskKind
+
+    compiler = RuleBasedTaskCompiler()
+    tasks = compiler.compile("simulate waypoint navigation for robot arm")
+    ok = len(tasks) == 1 and tasks[0].kind == TaskKind.SIMULATION
+    return ok, json.dumps({"kind": tasks[0].kind if tasks else None, "ok": ok})
+
+
+# ── Track 4 eval cases (Data & Intelligence) ────────────────────────────────
+
+def _case_analytics_count_query() -> tuple[bool, str]:
+    """AnalyticsBackend must correctly count records grouped by a column."""
+    from ghostchimera.chimera_pilot.backends.analytics import AnalyticsBackend
+    from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
+
+    data = [
+        {"region": "EU", "revenue": 1200},
+        {"region": "US", "revenue": 3400},
+        {"region": "EU", "revenue": 1500},
+        {"region": "APAC", "revenue": 800},
+        {"region": "US", "revenue": 2100},
+    ]
+    backend = AnalyticsBackend()
+    task = TaskSpec.create(kind=TaskKind.ANALYTICS_QUERY, objective="count records per region", inputs={"query": "count records by region", "data": data})
+    result = backend.execute(task)
+    output = result.output if isinstance(result.output, dict) else {}
+    res = output.get("result", {})
+    ok = result.ok and isinstance(res, dict) and res.get("EU", {}).get("count", 0) == 2 and res.get("US", {}).get("count", 0) == 2
+    return ok, json.dumps({"ok": ok, "result": res})
+
+
+def _case_analytics_forecast() -> tuple[bool, str]:
+    """AnalyticsBackend forecast must produce correct trend direction."""
+    from ghostchimera.chimera_pilot.backends.analytics import AnalyticsBackend
+    from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
+
+    data = [{"revenue": v} for v in [100, 120, 140, 160, 180, 200]]
+    backend = AnalyticsBackend()
+    task = TaskSpec.create(kind=TaskKind.ANALYTICS_QUERY, objective="forecast revenue", inputs={"query": "forecast revenue for next 3 periods", "data": data})
+    result = backend.execute(task)
+    output = result.output if isinstance(result.output, dict) else {}
+    ok = result.ok and output.get("trend") == "up" and len(output.get("forecast", [])) == 3
+    return ok, json.dumps({"ok": ok, "trend": output.get("trend"), "forecast": output.get("forecast")})
+
+
+def _case_analytics_anomaly_detection() -> tuple[bool, str]:
+    """AnalyticsBackend must flag the outlier value in anomaly detection."""
+    from ghostchimera.chimera_pilot.backends.analytics import AnalyticsBackend
+    from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
+
+    data = [{"latency": v} for v in [10, 11, 10, 12, 10, 11, 500, 10, 11, 10, 11, 10]]
+    backend = AnalyticsBackend()
+    task = TaskSpec.create(kind=TaskKind.ANALYTICS_QUERY, objective="detect anomalies in latency", inputs={"query": "detect anomalies in latency", "data": data})
+    result = backend.execute(task)
+    output = result.output if isinstance(result.output, dict) else {}
+    ok = result.ok and output.get("anomaly_count", 0) >= 1
+    anomalies = output.get("anomalies", [])
+    # The value 500 should be flagged
+    has_500 = any(abs(a.get("value", 0) - 500) < 1 for a in anomalies)
+    ok = ok and has_500
+    return ok, json.dumps({"ok": ok, "anomaly_count": output.get("anomaly_count"), "anomalies": anomalies})
+
+
+def _case_data_pipeline_validates_schema() -> tuple[bool, str]:
+    """DATA_PIPELINE validate_schema step must catch type violations."""
+    from ghostchimera.chimera_pilot.backends.analytics import AnalyticsBackend
+    from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
+
+    data = [
+        {"revenue": 1200, "region": "EU"},
+        {"revenue": "not_a_number", "region": "US"},   # type violation
+        {"revenue": 800, "region": "APAC"},
+    ]
+    backend = AnalyticsBackend()
+    task = TaskSpec.create(
+        kind=TaskKind.DATA_PIPELINE,
+        objective="validate sales data",
+        inputs={
+            "data": data,
+            "schema": {"revenue": "float", "region": "str"},
+            "pipeline": ["validate_schema"],
+        },
+    )
+    result = backend.execute(task)
+    output = result.output if isinstance(result.output, dict) else {}
+    ok = result.ok and not output.get("schema_valid") and len(output.get("schema_violations", [])) >= 1
+    return ok, json.dumps({"ok": ok, "schema_valid": output.get("schema_valid"), "violations": output.get("schema_violations", [])})
+
+
+def _case_data_pipeline_knowledge_graph() -> tuple[bool, str]:
+    """DATA_PIPELINE knowledge_graph step must extract entities and triples."""
+    from ghostchimera.chimera_pilot.backends.analytics import AnalyticsBackend
+    from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
+
+    data = [
+        {"content": "Ghost Chimera is an AI agent orchestration system. Ghost Chimera provides multi-agent workflow support."},
+        {"content": "Chimera Pilot manages task scheduling. Chimera Pilot uses backends for execution."},
+    ]
+    backend = AnalyticsBackend()
+    task = TaskSpec.create(
+        kind=TaskKind.DATA_PIPELINE,
+        objective="extract knowledge graph",
+        inputs={
+            "data": data,
+            "schema": {},
+            "pipeline": ["knowledge_graph"],
+        },
+    )
+    result = backend.execute(task)
+    output = result.output if isinstance(result.output, dict) else {}
+    kg = output.get("knowledge_graph", {})
+    ok = result.ok and kg.get("entity_count", 0) > 0
+    return ok, json.dumps({"ok": ok, "entities": kg.get("entity_count"), "triples": kg.get("triple_count")})
+
+
+def _case_document_ingester_ingests_text() -> tuple[bool, str]:
+    """DocumentIngester must chunk and ingest a plain-text document."""
+    import tempfile as _tempfile
+
+    from ghostchimera.memory_layer.document_ingester import DocumentIngester, IngestionSource
+    from ghostchimera.memory_layer.store import MemoryStore
+
+    with _tempfile.TemporaryDirectory(prefix="gc-eval-") as tmp:
+        store = MemoryStore(f"{tmp}/mem.sqlite3")
+        ingester = DocumentIngester(store)
+        result = ingester.ingest(IngestionSource(
+            source_type="text",
+            content="Ghost Chimera is a local-first agent orchestration prototype. " * 10,
+            metadata={"namespace": "docs", "title": "Overview"},
+            source_id="overview-doc",
+        ))
+    ok = result.ingested_count >= 1 and len(result.errors) == 0
+    return ok, json.dumps({"ingested": result.ingested_count, "skipped": result.skipped_count, "errors": result.errors})
+
+
+def _case_document_ingester_deduplicates() -> tuple[bool, str]:
+    """DocumentIngester must skip duplicate documents on second ingest."""
+    import tempfile as _tempfile
+
+    from ghostchimera.memory_layer.document_ingester import DocumentIngester, IngestionSource
+    from ghostchimera.memory_layer.store import MemoryStore
+
+    with _tempfile.TemporaryDirectory(prefix="gc-eval-") as tmp:
+        store = MemoryStore(f"{tmp}/mem.sqlite3")
+        ingester = DocumentIngester(store)
+        src = IngestionSource(source_type="text", content="Hello world. " * 5, source_id="doc1")
+        r1 = ingester.ingest(src)
+        r2 = ingester.ingest(src)
+    ok = r1.ingested_count >= 1 and r2.ingested_count == 0 and r2.skipped_count == r1.ingested_count
+    return ok, json.dumps({"first_ingested": r1.ingested_count, "second_ingested": r2.ingested_count, "second_skipped": r2.skipped_count})
+
+
+def _case_document_ingester_csv() -> tuple[bool, str]:
+    """DocumentIngester must ingest each CSV row as a separate document."""
+    import tempfile as _tempfile
+
+    from ghostchimera.memory_layer.document_ingester import DocumentIngester, IngestionSource
+    from ghostchimera.memory_layer.store import MemoryStore
+
+    csv_data = "region,revenue\nEU,1200\nUS,3400\nAPAC,800\n"
+    with _tempfile.TemporaryDirectory(prefix="gc-eval-") as tmp:
+        store = MemoryStore(f"{tmp}/mem.sqlite3")
+        ingester = DocumentIngester(store)
+        result = ingester.ingest(IngestionSource(source_type="csv", content=csv_data, source_id="sales-csv"))
+    ok = result.ingested_count == 3 and len(result.errors) == 0
+    return ok, json.dumps({"ingested": result.ingested_count, "errors": result.errors})
+
+
+def _case_compiler_routes_analytics() -> tuple[bool, str]:
+    """Compiler must route analytics objectives to ANALYTICS_QUERY or DATA_PIPELINE."""
+    from ghostchimera.chimera_pilot.compiler import RuleBasedTaskCompiler
+    from ghostchimera.chimera_pilot.task_ir import TaskKind
+
+    compiler = RuleBasedTaskCompiler()
+    aq = compiler.compile("analytics: total sales by region")
+    dp = compiler.compile("data pipeline: validate data and detect anomalies")
+    ok = (
+        len(aq) == 1 and aq[0].kind == TaskKind.ANALYTICS_QUERY
+        and len(dp) == 1 and dp[0].kind == TaskKind.DATA_PIPELINE
+    )
+    return ok, json.dumps({"analytics_kind": aq[0].kind if aq else None, "pipeline_kind": dp[0].kind if dp else None, "ok": ok})
+
+
+# ── Suite registry ───────────────────────────────────────────────────
 
 EVAL_SUITES: dict[str, list[tuple[str, CaseFn]]] = {
     "safety": [
@@ -938,6 +1397,35 @@ EVAL_SUITES: dict[str, list[tuple[str, CaseFn]]] = {
         ("lobster_trap_provider_blocks_injection", _case_lobster_trap_provider_blocks_injection),
         ("security_monitor_aggregates_events", _case_security_monitor_aggregates_events),
         ("dpi_config_from_env", _case_dpi_config_from_env),
+    ],
+    "track2": [
+        ("gemini_provider_registered", _case_gemini_provider_registered),
+        ("gemini_catalog_entries", _case_gemini_catalog_entries),
+        ("gemini_provider_validates_missing_key", _case_gemini_provider_validates_missing_key),
+        ("gemini_backend_can_run_reasoning", _case_gemini_backend_can_run_reasoning),
+        ("gemini_backend_can_run_long_context", _case_gemini_backend_can_run_long_context),
+        ("gemini_multi_agent_chat_builds_history", _case_gemini_multi_agent_chat_builds_history),
+        ("gemini_long_context_assembles_parts", _case_gemini_long_context_assembles_parts),
+        ("compiler_routes_long_context_doc", _case_compiler_routes_long_context_doc),
+    ],
+    "track3": [
+        ("simulation_backend_probes_available", _case_simulation_backend_probes_available),
+        ("simulation_kinematics_runs", _case_simulation_kinematics_runs),
+        ("simulation_digital_twin_generates_sensor_data", _case_simulation_digital_twin_generates_sensor_data),
+        ("simulation_policy_test_reports_success_rate", _case_simulation_policy_test_reports_success_rate),
+        ("simulation_collision_detected", _case_simulation_collision_detected),
+        ("compiler_routes_simulation", _case_compiler_routes_simulation),
+    ],
+    "track4": [
+        ("analytics_count_query", _case_analytics_count_query),
+        ("analytics_forecast", _case_analytics_forecast),
+        ("analytics_anomaly_detection", _case_analytics_anomaly_detection),
+        ("data_pipeline_validates_schema", _case_data_pipeline_validates_schema),
+        ("data_pipeline_knowledge_graph", _case_data_pipeline_knowledge_graph),
+        ("document_ingester_ingests_text", _case_document_ingester_ingests_text),
+        ("document_ingester_deduplicates", _case_document_ingester_deduplicates),
+        ("document_ingester_csv", _case_document_ingester_csv),
+        ("compiler_routes_analytics", _case_compiler_routes_analytics),
     ],
 }
 

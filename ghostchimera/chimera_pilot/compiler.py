@@ -106,6 +106,61 @@ class RuleBasedTaskCompiler:
             validate_task(spec.kind, spec.inputs)
             return [spec]
 
+        # ── Track 2: Gemini long-context document processing ────────────────
+        if any(tok in lower for tok in ("summarise document", "summarize document", "analyze contract", "analyse contract", "process report", "long context")):
+            spec = TaskSpec.create(
+                kind=TaskKind.LONG_CONTEXT_DOC,
+                objective=text,
+                inputs={"instruction": text, "documents": []},
+                requires_network=True,
+                privacy_level="normal",
+                max_latency_ms=30_000,
+            )
+            validate_task(spec.kind, spec.inputs)
+            return [spec]
+
+        # ── Track 3: Simulation ──────────────────────────────────────────────
+        if any(tok in lower for tok in ("simulate", "simulation", "digital twin", "robot", "waypoint", "kinematics", "policy test")):
+            sim_mode = "kinematics"
+            if "digital twin" in lower:
+                sim_mode = "digital_twin"
+            elif "policy" in lower:
+                sim_mode = "policy_test"
+            spec = TaskSpec.create(
+                kind=TaskKind.SIMULATION,
+                objective=text,
+                inputs={"sim_mode": sim_mode},
+                privacy_level="normal",
+                max_cost_usd=0.0,
+                max_latency_ms=10_000,
+            )
+            validate_task(spec.kind, spec.inputs)
+            return [spec]
+
+        # ── Track 4: Analytics / Data Pipeline ──────────────────────────────
+        if any(tok in lower for tok in ("analytics", "data pipeline", "validate data", "detect anomal", "forecast", "knowledge graph")):
+            if any(tok in lower for tok in ("pipeline", "validate data", "ingest", "knowledge graph")):
+                spec = TaskSpec.create(
+                    kind=TaskKind.DATA_PIPELINE,
+                    objective=text,
+                    inputs={"data": [], "pipeline": ["validate_schema", "profile", "detect_anomalies"]},
+                    privacy_level="private",
+                    max_cost_usd=0.0,
+                    max_latency_ms=60_000,
+                )
+                validate_task(spec.kind, spec.inputs)
+                return [spec]
+            spec = TaskSpec.create(
+                kind=TaskKind.ANALYTICS_QUERY,
+                objective=text,
+                inputs={"query": text},
+                privacy_level="normal",
+                max_cost_usd=0.0,
+                max_latency_ms=30_000,
+            )
+            validate_task(spec.kind, spec.inputs)
+            return [spec]
+
         spec = TaskSpec.create(
             kind=TaskKind.REASONING,
             objective=text,
