@@ -1,50 +1,97 @@
 # Ghost Chimera
 
-Ghost Chimera is a local-first beta agent orchestration runtime. It combines a modular agent stack with Chimera Pilot, a resource-control layer that compiles objectives into task specs, chooses an execution backend, enforces policy, verifies results, and records telemetry.
+![Version](https://img.shields.io/badge/version-0.3.0--beta-blueviolet)
+![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![CI](https://img.shields.io/badge/CI-ubuntu%20%7C%20windows%20%7C%20macos-brightgreen)
 
-For hackathon positioning, Ghost Chimera is packaged as a single product: **Governed Enterprise Change Agent**. The product workflow is: repo + docs intake -> evidence retrieval -> governed plan -> policy/security checks -> PR-ready package with audit trail.
+Ghost Chimera is a **local-first agent orchestration runtime** built around **Chimera Pilot** — a resource-control layer that compiles natural-language objectives into a task IR, schedules them across registered backends using weighted scoring, enforces safety policy, executes with fallback, and records telemetry.
 
-This is beta-stage software intended for real, user-supervised work. With explicit opt-ins and policy gates, Ghost Chimera can execute tool-backed tasks and (optionally) operate on a user's desktop like an operator, while recording telemetry and audit signals for review and replay.
+Key capabilities:
+- **27 model providers** (OpenAI, Anthropic, Gemini, Groq, Mistral, Ollama, and 21 more) — swap or chain them without rewriting code.
+- **10 Chimera Pilot backends** — deterministic, Python, memory retrieval, Gemini reasoning, local GGUF, analytics, simulation, desktop control, MCP, and quantum simulator.
+- **Browser console (Ghost Console)** — full point-and-click UI with Quick Actions, Skills browser, Run history, live security monitor, cron scheduler, and provider visibility. No terminal needed for day-to-day use.
+- **Conservative safety defaults** — Python, shell, network, and desktop execution are all off by default. Production mode adds deployment-level guardrails.
+- **Personal memory** — SQLite FTS5 local memory with email/document ingestion, freshness scoring, and MiniMind fine-tuning pipeline.
 
-It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
+This is beta-stage software for real, user-supervised work in local-first environments. It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
 
-## Current Status
+---
 
-- Release phase: beta
-- Package version: `0.3.0-beta`
-- Python: 3.11 through 3.13
-- License: MIT
-- Runtime posture: local-first, conservative-by-default, optional integrations
-- Validation gate: release script, test suite, build, smoke/safety/autonomy/user-journey evals, installed-wheel smokes
+## Table of Contents
 
-## What Is Wired
+- [Architecture](#architecture)
+- [Quick Start — Docker](#quick-start--docker)
+- [Developer Install](#developer-install)
+- [Ghost Console — Browser UI](#ghost-console--browser-ui)
+- [CLI Reference](#cli-reference)
+- [Python SDK](#python-sdk)
+- [Model Providers](#model-providers)
+- [Chimera Pilot Backends](#chimera-pilot-backends)
+- [Autonomy Profiles](#autonomy-profiles)
+- [Personal Memory & Personalization](#personal-memory--personalization)
+- [Desktop Control](#desktop-control)
+- [Execution Safety](#execution-safety)
+- [Production Mode](#production-mode)
+- [Local Models](#local-models)
+- [Ghost MiniMind](#ghost-minimind)
+- [Extension Surfaces](#extension-surfaces)
+- [Verification and Confidence](#verification-and-confidence)
+- [Release Validation & Eval Suites](#release-validation--eval-suites)
+- [Development](#development)
+- [Documentation](#documentation)
+- [Appropriate Uses](#appropriate-uses)
 
-| Layer | Purpose |
-| --- | --- |
-| `agent_core` | Planner, task linearization, memory, skill dispatch, and Chimera Pilot handoff. |
-| `chimera_pilot` | Task IR, compiler, backend registry, scheduler, policy gate, fallback executor, verifier, telemetry, checkpointing, batch orchestration, subagents, credential pool, gateway server, cron scheduling, toolsets, lifecycle hooks, tool-result middleware, plugin manifests, and service registry. |
-| `cognition_layer` | Confidence values, hallucination flags, task ordering, self-model, working memory, attention, reflection primitives, and durable operator workspace state. |
-| `control_plane` | User-facing CLIs for setup, diagnostics, model selection, policy management, parallel runs, and Pilot execution. |
-| `evals` | Built-in release smoke and safety evaluation suites. |
-| `harness` | Offline-first regression harness for running deterministic cases and emitting JSONL artifacts. |
-| `mcp` | Lightweight JSON-RPC style MCP server/client surfaces and Chimera Pilot MCP backend. |
-| `memory_layer` | SQLite-backed memory retrieval and namespace persistence. |
-| `model_layer` | Provider abstraction, provider routing, auth profiles, model catalog, media-provider interfaces, Ghost-native MiniMind architecture/runtime adapters, runtime specialization, and optional llama.cpp/GGUF runtime. |
-| `safety_layer` | Execution policy, approval gates, MaterialRegistry policy patterns, audit records, policy enforcement, SSRF/network dispatch, and rate limiting. |
-| `skill_layer` | Built-in skills for browser fetches, code search, software tasks, tech support, issue conversion, and dynamic skill registry support. |
-| `tool_layer` | Policy-aware filesystem, shell, and browser tools. |
+---
 
-## Quick Start (no install required)
+## Architecture
 
-Build and run the browser console with the included Docker artifacts:
+Ghost Chimera is organized into independent layers. Each layer has a narrow contract with the layers above and below it.
+
+| Layer | Package | Purpose |
+|---|---|---|
+| **Agent Core** | `agent_core` | Planner, task linearization, skill dispatch, and Chimera Pilot handoff. Two execution paths: Chimera Pilot (structured IR + backend scheduling) or legacy planner fallback with the same `ExecutionPolicy`. |
+| **Chimera Pilot** | `chimera_pilot` | Task IR (`TaskSpec`, `TaskKind`), rule-based compiler, backend registry, weighted scheduler, policy gate, fallback executor, verifier, telemetry, checkpointing, batch orchestration, subagent pool, Mixture-of-Agents, credential pool, context compressor, gateway server, cron scheduler, toolsets, lifecycle hooks, tool middleware, plugin manifests, and service registry. |
+| **Cognition Layer** | `cognition_layer` | Confidence values, hallucination flags, task ordering, self-model, working memory, attention, reflection primitives, and durable operator workspace state. |
+| **Control Plane** | `control_plane` | User-facing CLIs (`ghostchimera`, `chimera-pilot`, `ghostchimera-parallel`, `ghostchimera-eval`), setup wizard, doctor/health checks, model picker, policy management, parallel execution, and the Ghost Console gateway server + static UI. |
+| **Evals** | `evals` | 10 built-in evaluation suites: `smoke`, `safety`, `autonomy`, `user-journey`, `workspace`, `coverage`, `redteam`, `track2`, `track3`, `track4`. |
+| **Harness** | `harness` | Offline-first regression harness for deterministic case runs. Emits structured JSONL artifacts with compile events, execution traces, fallback records, and pass/fail metadata. |
+| **MCP** | `mcp` | Lightweight JSON-RPC MCP server/client surfaces and the `MCPBackend` Chimera Pilot backend. |
+| **Memory Layer** | `memory_layer` | SQLite FTS5 local memory store. Namespaced documents, freshness scoring (exponential decay), citation quality, `stale_after_days` filter, and `count()`. |
+| **Model Layer** | `model_layer` | Provider abstraction and routing for 27 providers, auth profiles, model catalog with pricing/context metadata, media-provider interfaces, Ghost-native MiniMind architecture/runtime adapters, CuTeDSL-inspired runtime specialization planner, and optional llama.cpp/GGUF runtime. |
+| **Personalization** | `personalization` | `PersonalContextProvider` (FTS memory snippets → system context), `DocumentIngester` (text/CSV/Markdown chunking), and `EmailIngester` (RFC 2822 / mbox parsing). |
+| **Safety Layer** | `safety_layer` | `ExecutionPolicy` gating, `ApprovalHandler`/`ApprovalPolicy`, `MaterialRegistry` patterns, HMAC-SHA256 audit chain, `BuiltinDPIEngine`/`LobsterTrapProvider` DPI scanning, `SecurityMonitor`, `SSRFPolicy`/`NetworkDispatcher`, and rate limiting. |
+| **SDK** | `sdk` | `GhostClient` Python API for programmatic access without the CLI. |
+| **Skill Layer** | `skill_layer` | Built-in skills: `browser_operator`, `code_search`, `software_engineer`, `tech_support`, `to_issues`. External skills auto-discovered from `~/.ghostchimera/skills/<name>/skill.py`. |
+| **Tool Layer** | `tool_layer` | Policy-gated filesystem, shell, and browser tools. File access constrained to configured roots; shell commands run without `shell=True`; all tool calls written to the audit log. |
+
+### Chimera Pilot pipeline
+
+```
+Objective
+  → RuleBasedTaskCompiler → TaskSpec list
+  → ChimeraScheduler (weighted scoring + health cache)
+  → best backend (with fallback)
+  → ChimeraPilotExecutor
+  → SemanticVerifier
+  → Telemetry / ResultEnvelope
+```
+
+**Safety boundary:** the scheduler decides *where* to run; the policy decides *whether* it is allowed. `PilotPolicy` (Chimera Pilot layer) and `ExecutionPolicy` (tool layer) are separate gates.
+
+---
+
+## Quick Start — Docker
+
+Build and run the browser console with the included Docker artifacts — no local Python install required:
 
 ```bash
 docker compose up --build
 ```
 
-Then open **http://localhost:8766/** in your browser. The console provides a point-and-click UI for running objectives, viewing autonomy jobs, managing schedules, inspecting the security monitor, and controlling the operator workspace — no terminal required after startup.
+Open **http://localhost:8766/** in your browser. The Ghost Console provides a full point-and-click UI — no terminal needed for day-to-day operation.
 
-For public demo URL runbooks and judge-ready packaging, see `docs/HACKATHON_ALL_IN_ONE.md` and `docs/hackathons/DEPLOYMENT_RUNBOOK.md`.
+---
 
 ## Developer Install
 
@@ -52,334 +99,469 @@ From a clean checkout (Python 3.11–3.13 required):
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate          # On Windows: .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-On Windows PowerShell:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e .
-```
-
-Optional extras:
+**Optional extras:**
 
 ```bash
-python -m pip install -e ".[gateway]"  # WebSocket gateway and cron scheduling
-python -m pip install -e ".[mcp]"      # MCP package integration
-python -m pip install -e ".[local]"    # llama.cpp-compatible local model runtime
-python -m pip install -e ".[minimind]" # optional MiniMind Transformers/PyTorch inference adapter
-python -m pip install -e ".[cute]"     # optional NVIDIA CuTe DSL package on supported Linux/Python 3.12 systems
-python -m pip install -e ".[quantum]"  # optional pyqpanda3 simulator backend
-python -m pip install -e ".[dev]"      # build and lint tools
+python -m pip install -e ".[gateway]"   # WebSocket gateway + cron scheduling (required for console)
+python -m pip install -e ".[mcp]"       # MCP package integration
+python -m pip install -e ".[local]"     # llama.cpp / GGUF local model runtime
+python -m pip install -e ".[minimind]"  # MiniMind PyTorch/Transformers inference adapter
+python -m pip install -e ".[cute]"      # NVIDIA CuTe DSL detection (Linux + Python 3.12)
+python -m pip install -e ".[quantum]"   # pyqpanda3 quantum simulator backend
+python -m pip install -e ".[dev]"       # ruff, pytest, build tools
+python -m pip install -e ".[all]"       # everything
 ```
 
-Heavy runtimes such as `llama-cpp-python`, MiniMind's PyTorch/Transformers path, `nvidia-cutlass-dsl`, and `pyqpanda3` are optional. The base package stays lightweight and stdlib-first.
+The base package is stdlib-first with zero mandatory dependencies. Heavy runtimes (`llama-cpp-python`, PyTorch, `nvidia-cutlass-dsl`, `pyqpanda3`) are opt-in.
 
-## CLI Quickstart
+---
 
-Run the setup and diagnostics flow:
+## Ghost Console — Browser UI
 
-```bash
-ghostchimera setup
-ghostchimera doctor
-ghostchimera model
-ghostchimera --config-show
-```
-
-Open the local browser console when you do not want to drive Ghost Chimera through command flags:
+The Ghost Console is a gateway-backed browser UI that exposes all major Ghost Chimera controls without the terminal. Start it with:
 
 ```bash
 python -m pip install -e ".[gateway]"
 ghostchimera console
-ghostchimera console --no-open
-ghostchimera console --state-dir .ghost-console-state
 ```
 
-To enable bearer token authentication on all API routes (recommended when the console is reachable beyond localhost):
+Then open **http://localhost:8766/**. To protect the console with a bearer token:
 
 ```bash
 ghostchimera console --auth-token mysecrettoken
 ```
 
-The token is printed to the terminal on startup and entered in the browser prompt the first time.
+The token is printed on startup and entered in the browser prompt once. All `/api/*` routes require the `X-Gateway-Token` header when a token is set.
 
-The console runs on localhost by default and exposes status, autonomy profile controls, safe objective runs, a durable autonomy job center, recurring schedules, a live security monitor (DPI / LobsterTrap events + HMAC audit chain), a browser workspace tab, release-readiness checks, and optional `agent-browser` workspace controls through the gateway-backed UI. Install the `gateway` extra for WebSocket and cron scheduling dependencies. The browser workspace is optional; when `agent-browser` is not installed, the console reports a degraded browser-workspace state while core controls continue to work.
+**Console tabs:**
 
-Inspect the local operator workspace state:
+| Tab | What you can do |
+|---|---|
+| **Status** | System health metrics, autonomy profile selector, personal context toggle, True Autonomy (live desktop) toggle, active model provider, registered backends. |
+| **Run** | Quick Actions (8 pre-built objectives), custom objective box with **Ctrl+Enter / ⌘+Enter** shortcut, run button (disabled while running), output panel, and last-20-run history persisted in localStorage — click any entry to reload it. |
+| **Jobs** | Run profile-aware autonomy jobs (`self-audit`, `dependency-scan`, `test-regression`, `memory-refresh`, `model-health-check`, `repair-preview`) and view their durable history. |
+| **Workspace** | Set goals, add evidence, add reflections, view full workspace state, sync high-confidence evidence into CWR memory. |
+| **Memory** | Ingest emails (`.eml` / `.mbox` files or pasted raw RFC 2822 text), ingest files/directories, ingest plain text, search memory, teach Ghost by recording prompt/response training pairs, export MiniMind JSONL datasets, view MiniMind status. |
+| **Skills** | Browse all registered skills (bundled + workspace) with domain and description, select a skill and optional input, run it directly from the browser. Backed by `GET /api/console/skills`. |
+| **Browser** | Fetch a URL (content scraping), open a URL in the agent browser workspace, take a DOM snapshot. |
+| **Security** | Security metric cards, HMAC audit chain status, recent LobsterTrap/DPI threat events. |
+| **Schedules** | Create cron schedules (start disabled for review), enable/disable/delete existing schedules, see next-run times. |
+| **Readiness** | Release-readiness checklist with the exact commands to run before tagging a release. |
+
+**All actions produce toast notifications** (green ok / yellow warn / red error) — no need to watch the terminal for confirmation.
+
+Console options:
 
 ```bash
-ghostchimera workspace show
-ghostchimera workspace add-evidence --source release-audit --content "release gate passed" --confidence 0.92
-ghostchimera workspace reflect --reflection-action "ran beta gate" --outcome "operator workspace stayed inspectable" --confidence 0.9
-ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30
+ghostchimera console --host 0.0.0.0 --port 9001 --http-port 9002
+ghostchimera console --state-dir /data/ghost-state --no-open
 ```
 
-The workspace state is persisted under the Ghost Chimera state directory and is also available through `/api/console/workspace`. It exposes the self model, working memory, attention ranking, goals, and uncertainty for local operators. `sync-memory` promotes high-confidence evidence and reflections into the local CWR memory store with provenance metadata, filters low-confidence records, marks stale or conflicting records for review, and skips duplicates on repeat runs. It is not a claim of subjective consciousness, AGI, SGI, or fully autonomous production operation.
+---
 
-Inspect Chimera Pilot:
+## CLI Reference
+
+### `ghostchimera` — main control-plane CLI
+
+```bash
+ghostchimera setup                    # interactive setup wizard
+ghostchimera doctor                   # health checks
+ghostchimera doctor --production      # production-mode gate
+ghostchimera model                    # list / switch model provider
+ghostchimera policy                   # manage security policies
+ghostchimera --config-show            # print current config
+ghostchimera --pilot-status           # Chimera Pilot status
+ghostchimera --pilot-run "objective"  # run via Chimera Pilot
+
+# Autonomy
+ghostchimera autonomy show
+ghostchimera autonomy set --level autonomous --local-model-profile stronger
+ghostchimera autonomy jobs
+ghostchimera autonomy run repair-preview
+
+# Workspace
+ghostchimera workspace show
+ghostchimera workspace add-evidence --source audit --content "..." --confidence 0.92
+ghostchimera workspace reflect --reflection-action "..." --outcome "..." --confidence 0.9
+ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8
+
+# MiniMind
+ghostchimera minimind architectures
+ghostchimera minimind status
+ghostchimera minimind dataset --prompt "..." --response "..."
+ghostchimera minimind log-failure --prompt "..." --response "..." --confidence 0.2
+
+# Local model bootstrap
+ghostchimera local-model check
+ghostchimera local-model guide
+ghostchimera local-model profiles
+
+# Runtime specialization warmup
+ghostchimera runtime-warmup --runtime-specialization-cache-dir .ghost/rs --local-model-profile stronger
+
+# Desktop kill switch
+ghostchimera desktop-stop --desktop-kill-switch-path .ghost/DESKTOP_STOP
+```
+
+### `chimera-pilot` — Pilot-specific CLI
 
 ```bash
 chimera-pilot status --include-deterministic-backend
-chimera-pilot compile "retrieve memory about project"
+chimera-pilot compile "objective"
 chimera-pilot calibrate --include-deterministic-backend
+chimera-pilot run "objective" --include-deterministic-backend
+chimera-pilot run "objective" --autonomy-level autonomous --memory-db .ghostchimera-memory.sqlite3
+chimera-pilot autonomy-profiles
+chimera-pilot model-profiles
+chimera-pilot memory-add --memory-db .ghostchimera-memory.sqlite3 --source notes --content "..."
+chimera-pilot memory-search --memory-db .ghostchimera-memory.sqlite3 "query"
+chimera-pilot runtime-specialization "prompt" --local-model-profile tiny
+chimera-pilot runtime-warmup --runtime-specialization-cache-dir .ghost/rs --local-model-profile tiny
 ```
 
-Run a deterministic local task:
+### `ghostchimera-parallel` — parallel and batch execution
 
 ```bash
-chimera-pilot run "retrieve memory about project" --include-deterministic-backend
+ghostchimera-parallel run "obj1" "obj2" "obj3" --parallel 3 --output-dir ./out
+ghostchimera-parallel batch objectives.jsonl --workers 4 --output-dir ./batch-out
 ```
 
-Use the same Pilot path through the main control-plane CLI:
+### `ghostchimera-eval` — evaluation runner
 
 ```bash
-ghostchimera --pilot-status
-ghostchimera --pilot-run "retrieve memory about project"
+ghostchimera-eval run --suite smoke
+ghostchimera-eval run --suite safety
+ghostchimera-eval run --suite autonomy
+ghostchimera-eval run --suite user-journey
+ghostchimera-eval run --suite workspace
+ghostchimera-eval run --suite coverage
+ghostchimera-eval run --suite redteam
+ghostchimera-eval run --suite track2   # Gemini integration
+ghostchimera-eval run --suite track3   # simulation / robotics
+ghostchimera-eval run --suite track4   # analytics / data pipeline
 ```
 
-## Local Memory
+---
 
-Ghost Chimera includes Conscious Workspace Retrieval through a local SQLite FTS store:
+## Python SDK
+
+Use `GhostClient` for programmatic access without the CLI:
+
+```python
+from ghostchimera.sdk import GhostClient
+
+client = GhostClient(state_dir="~/.ghostchimera")
+
+# Run an objective
+result = client.run("summarize recent project activity")
+print(result.summary)
+
+# Ingest knowledge into local memory
+client.ingest_document("path/to/spec.md", source="spec", namespace="project")
+client.ingest_file("path/to/notes.txt")
+client.ingest_directory("path/to/docs/")
+client.ingest_email_file("path/to/message.eml")
+client.ingest_raw_email("From: ...\nSubject: ...\n\nbody text")
+
+# Search local memory
+results = client.search("project milestones", limit=5)
+
+# Teach Ghost — record a prompt/response training example
+client.teach(prompt="What is Ghost Chimera?", response="A local-first agent runtime.")
+
+# Check training dataset status
+status = client.training_status()
+
+# Preview context that would be injected for an objective
+preview = client.preview_context("summarize project status", limit=3)
+
+# Low-level memory store access
+count = client.memory_count()
+store = client.memory    # MemoryStore instance
+```
+
+---
+
+## Model Providers
+
+Ghost Chimera supports **27 model providers**. All are optional — set the relevant environment variable and select the provider.
+
+| Provider | Env var | Default model |
+|---|---|---|
+| OpenAI | `OPENAI_API_KEY` | (user-configured) |
+| Anthropic | `ANTHROPIC_API_KEY` | (user-configured) |
+| Google Gemini | `GOOGLE_API_KEY` | (user-configured) |
+| Groq | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
+| xAI / Grok | `XAI_API_KEY` | `grok-3-mini` |
+| Mistral | `MISTRAL_API_KEY` | `mistral-small-latest` |
+| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+| Together AI | `TOGETHER_API_KEY` | `meta-llama/Llama-3-70b-chat-hf` |
+| OpenRouter | `OPENROUTER_API_KEY` | `openai/gpt-4o-mini` |
+| Ollama (local) | `OLLAMA_BASE_URL` | `llama3.2` |
+| Cohere | `COHERE_API_KEY` | `command-r-plus` |
+| Perplexity | `PERPLEXITY_API_KEY` | `llama-3.1-sonar-small-128k-online` |
+| Fireworks | `FIREWORKS_API_KEY` | `accounts/fireworks/models/llama-v3p1-70b-instruct` |
+| Cerebras | `CEREBRAS_API_KEY` | `llama3.1-70b` |
+| AI21 | `AI21_API_KEY` | `jamba-1.5-mini` |
+| Hugging Face | `HF_TOKEN` | `meta-llama/Llama-3.3-70B-Instruct` |
+| NVIDIA NIM | `NVIDIA_API_KEY` | `meta/llama-3.1-70b-instruct` |
+| Moonshot / Kimi | `MOONSHOT_API_KEY` | `moonshot-v1-8k` |
+| DeepInfra | `DEEPINFRA_API_KEY` | `meta-llama/Meta-Llama-3.1-70B-Instruct` |
+| Alibaba Qwen | `DASHSCOPE_API_KEY` | `qwen-turbo` |
+| Volcengine Doubao | `ARK_API_KEY` | `doubao-pro-4k` |
+| StepFun | `STEPFUN_API_KEY` | `step-1-8k` |
+| ZhipuAI GLM | `ZHIPUAI_API_KEY` | `glm-4-flash` |
+| Venice AI | `VENICE_API_KEY` | `llama-3.3-70b` |
+| LM Studio (local) | `LMSTUDIO_BASE_URL` | (user-configured) |
+| llama.cpp (local) | `MINIMIND_MODEL_PATH` | (user-configured GGUF path) |
+| MiniMind (local) | `MINIMIND_MODEL_PATH` | (user-configured checkpoint) |
+
+Set `GHOSTCHIMERA_MODEL_PROVIDER` to a comma-separated list to enable model routing with fallback (`provider1,provider2,provider3`).
+
+---
+
+## Chimera Pilot Backends
+
+Every backend exposes `id`, `name`, `capabilities`, `probe()`, `can_run(task)`, `estimate(task)`, and `execute()`. This unifies local runtimes, cloud models, MCP connectors, and simulators behind one scheduling interface.
+
+| Backend | Purpose |
+|---|---|
+| `DeterministicBackend` | CI, smoke checks, and guaranteed-pass fallback testing. |
+| `PythonRuntimeBackend` | Explicitly allowed local Python and `unittest` execution. Requires `--allow-python`. |
+| `CWRBackend` | SQLite-backed CWR local memory retrieval. |
+| `GeminiBackend` | Gemini / Google AI Studio reasoning, long-context document analysis, and multi-agent task history (1M-token context models). |
+| `LlamaCppBackend` | GGUF reasoning through a local model path. Requires `.[local]`. |
+| `AnalyticsBackend` | Count/sum/avg group queries, linear-trend forecasting, z-score anomaly detection, CSV parsing, schema validation, and knowledge-graph triple extraction. |
+| `SimulationBackend` | Kinematics trajectory planner, digital-twin sensor emulation, and policy-test episode runner with collision detection. |
+| `DesktopRuntimeBackend` | Dry-run desktop control (default) and gated live desktop control. |
+| `MCPBackend` | MCP-style tool execution through JSON-RPC MCP servers. Requires `.[mcp]`. |
+| `PyQPanda3Backend` | Optional pyqpanda3 quantum circuit simulator tasks. Requires `.[quantum]`. |
+
+---
+
+## Autonomy Profiles
+
+Ghost Chimera exposes autonomy as an operator-adjustable profile — not as a claim of AGI or consciousness.
+
+| Profile | Behavior |
+|---|---|
+| `assist` | Single-backend execution, small tool-loop budgets. |
+| `supervised` | Default beta posture — fallback routing, approval requirements. |
+| `autonomous` | Larger tool-loop budgets, scheduler adaptation, bounded parallel execution. |
+| `generalist` | Highest local-first beta profile — MoA-style strategy selection, preview-only self-improvement. |
 
 ```bash
-chimera-pilot memory-add --memory-db .ghostchimera-memory.sqlite3 --source project-note --content "Ghost Chimera stores local project memory."
-chimera-pilot memory-search --memory-db .ghostchimera-memory.sqlite3 "project memory"
-chimera-pilot run "retrieve project memory" --memory-db .ghostchimera-memory.sqlite3 --include-deterministic-backend
+ghostchimera autonomy show
+ghostchimera autonomy set --level autonomous --local-model-profile stronger
+chimera-pilot autonomy-profiles
+```
+
+`GHOSTCHIMERA_AUTONOMY_LEVEL` sets the default profile. The aliases `agi` and `sgi` are accepted as shorthand for `generalist` — Ghost Chimera still does not claim AGI or fully autonomous operation.
+
+**Profile-aware autonomy jobs:** `self-audit`, `dependency-scan`, `test-regression`, `memory-refresh`, `model-health-check`, `repair-preview`. Conservative profiles return preview plans; `autonomous`/`generalist` may run bounded checks when `--execute` is passed, but source mutation, training, network access, Python execution, shell execution, and desktop control still require their existing policy opt-ins.
+
+---
+
+## Personal Memory & Personalization
+
+Ghost Chimera includes a **local-first personal memory system** backed by SQLite FTS5:
+
+- **Document ingestion** — `DocumentIngester` chunks `.txt`, `.md`, `.py`, `.json`, and CSV files. Duplicate-safe insert via `add_document_once`.
+- **Email ingestion** — `EmailIngester` parses RFC 2822 / mbox files, extracts all MIME parts, and stores them as memory records.
+- **Freshness scoring** — `MemoryStore.search()` returns `freshness_score` (exponential decay, 30-day half-life), `citation_quality` (freshness × content-length heuristic), and `created_at`. Accepts a `stale_after_days` filter.
+- **Personal context injection** — `PersonalContextProvider` retrieves top FTS matches and injects them into the system prompt for `REASONING`, `LONG_CONTEXT_DOC`, and `CODE_EDIT` tasks, or into `inputs["context"]` for `WEB_RESEARCH`, `FILE_ANALYSIS`, `RAG_QUERY`, and `ANALYTICS_QUERY`.
+- **Teaching pipeline** — record prompt/response pairs through the Memory tab or `GhostClient.teach()`. Pairs accumulate in `~/.ghostchimera/minimind/datasets/dataset.jsonl` for local MiniMind fine-tuning.
+
+```bash
+chimera-pilot memory-add --memory-db .ghostchimera-memory.sqlite3 --source notes --content "..."
+chimera-pilot memory-search --memory-db .ghostchimera-memory.sqlite3 "query"
 ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30
 ```
 
+---
+
+## Desktop Control
+
+Desktop control is dry-run by default. Live mutation requires explicit opt-ins at every level.
+
+```bash
+# Dry-run (inspect plan, no actual clicks)
+chimera-pilot run "click submit button" --enable-desktop-backend --allow-desktop-control --ghost-mode possess
+
+# Live mode
+chimera-pilot run "live desktop: click submit" --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess
+
+# Destructive actions require explicit class allowlist + confirmation token
+chimera-pilot run "live desktop: click delete project" \
+  --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess \
+  --desktop-action-class read_only --desktop-action-class mutating --desktop-action-class destructive \
+  --desktop-confirm-token confirm-destructive-desktop
+
+# Multi-step chains with app/window policy
+chimera-pilot run "live desktop: click app=chrome window=Docs then type hello world then press ctrl+s" \
+  --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess \
+  --desktop-allow-app chrome --desktop-allow-window Docs
+
+# Emergency stop — creates kill-switch file before the next action fires
+chimera-pilot desktop-stop --desktop-kill-switch-path .ghost/DESKTOP_STOP
+
+# Replayable sessions with before/after screenshots
+chimera-pilot run "live desktop: click submit" \
+  --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess \
+  --desktop-action-log-path .ghost/desktop-actions.jsonl --desktop-screenshot-dir .ghost/desktop-screens
+```
+
+Desktop actions are classified as `read_only`, `mutating`, or `destructive`. The default policy allows only the first two.
+
+For unattended or high-impact use, run Ghost Chimera inside an external sandbox. See `SECURITY.md`.
+
+---
+
 ## Execution Safety
 
-Potentially dangerous execution surfaces are denied unless explicitly enabled.
+All execution surfaces are **denied by default**. They must be enabled explicitly per run or via policy.
 
-Python execution is blocked by default:
+| Surface | Default | How to enable |
+|---|---|---|
+| Python execution | blocked | `--allow-python` |
+| Shell execution | blocked | policy opt-in |
+| Network / web fetch | blocked | policy opt-in or SSRF allowlist |
+| File writes | blocked | `ExecutionPolicy` |
+| Desktop control | dry-run only | `--enable-live-desktop --allow-desktop-control` |
+| Live desktop mutation | blocked | additionally `--ghost-mode possess` |
 
-```bash
-chimera-pilot run "python: print(2 + 3)"
-```
+The `BuiltinDPIEngine` (LobsterTrap) scans all inputs for prompt injection, credential leaks, PII, and data exfiltration instructions before they reach the execution layer. The `SSRFPolicy` blocks requests to private IP ranges and cloud metadata endpoints by default.
 
-Trusted local Python can be enabled per run:
-
-```bash
-chimera-pilot run "python: print(2 + 3)" --allow-python
-```
-
-Desktop control is opt-in and dry-run oriented by default:
-
-```bash
-chimera-pilot run "click submit button" --enable-desktop-backend --allow-desktop-control --ghost-mode possess
-```
-
-Live desktop mutation requires the live backend flag, possess mode, explicit caller/runtime constraints, and bounded session limits:
-
-```bash
-chimera-pilot run "live desktop: click submit button" --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess
-```
-
-Desktop actions are classified as `read_only`, `mutating`, or `destructive`. The default policy allows `read_only` and `mutating` only; destructive live desktop actions require an explicit action-class allowlist and confirmation token:
-
-```bash
-chimera-pilot run "live desktop: click delete project" --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess --desktop-action-class read_only --desktop-action-class mutating --desktop-action-class destructive --desktop-confirm-token confirm-destructive-desktop
-```
-
-Multi-step desktop plans are supported with `then` or `->` chaining:
-
-```bash
-chimera-pilot run "live desktop: click app=chrome window=Docs then type hello world then press ctrl+s" --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess --desktop-allow-app chrome --desktop-allow-window Docs
-```
-
-Desktop policy can now enforce app/window allowlists and denylists:
-
-```bash
-chimera-pilot status --enable-desktop-backend --allow-desktop-control --ghost-mode possess --desktop-allow-app chrome --desktop-deny-window Admin
-```
-
-Allowlist flags are opt-in: if no allowlist values are provided, targets are permitted unless denied.
-
-Create the configured desktop kill switch from another terminal to stop live actions before the next backend action:
-
-```bash
-chimera-pilot desktop-stop --desktop-kill-switch-path .ghost/DESKTOP_STOP
-```
-
-For replayable live sessions, provide both an action log and screenshot directory. The backend captures best-effort before/after screenshots for each live action and includes those artifact paths in action logs, result metrics, and replay bundles:
-
-```bash
-chimera-pilot run "live desktop: click submit button" --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess --desktop-action-log-path .ghost/desktop-actions.jsonl --desktop-screenshot-dir .ghost/desktop-screens
-```
-
-For unattended or high-impact use, run Ghost Chimera inside an external sandbox such as a container, VM, or locked-down service account. See `SECURITY.md`.
+---
 
 ## Production Mode
 
-Ghost Chimera now has an explicit production-readiness contract for high-impact execution. Set `GHOSTCHIMERA_DEPLOYMENT_MODE=production` and run:
+Set `GHOSTCHIMERA_DEPLOYMENT_MODE=production` and validate the deployment:
 
 ```bash
 ghostchimera doctor --production
 ```
 
-Production mode blocks shell execution, local Python/test execution, file writes, network execution, and live desktop control unless the deployment declares all required guardrails:
+Production mode additionally requires:
 
 ```bash
-GHOSTCHIMERA_EXTERNAL_ISOLATION=container
+GHOSTCHIMERA_EXTERNAL_ISOLATION=container   # or: vm | service-account | sandboxed
 GHOSTCHIMERA_SECURITY_REVIEWED=1
 GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED=1
 ```
 
-Accepted isolation declarations are `container`, `vm`, `service-account`, and `sandboxed`. Host execution also remains trusted-inputs-only by default; setting `GHOSTCHIMERA_ALLOW_UNTRUSTED_INPUTS=1` makes the production gate fail for high-impact local execution.
+Shell execution, local Python/test execution, file writes, network execution, and live desktop control are blocked in production mode unless all guardrails are declared. Setting `GHOSTCHIMERA_ALLOW_UNTRUSTED_INPUTS=1` also fails the production gate.
 
-## Chimera Pilot Backends
+---
 
-Built-in backends currently include:
+## Local Models
 
-- `DeterministicBackend` for CI, smoke checks, and fallback testing.
-- `PythonRuntimeBackend` for explicitly allowed local Python and unittest execution.
-- `CWRBackend` for SQLite-backed local memory retrieval.
-- `MCPBackend` for MCP-style tool execution.
-- `LlamaCppBackend` for optional GGUF reasoning through a local model path.
-- `PyQPanda3Backend` for optional pyqpanda3 simulator tasks.
-- `DesktopRuntimeBackend` for dry-run desktop control and gated live desktop control.
-
-The backend contract is intentionally small: every backend advertises capabilities, probes health, estimates fit, and executes a normalized `TaskSpec`.
-
-## Extension Surfaces
-
-The `0.3.0-beta` line closes the main OpenClaw parity gaps with concrete extension contracts:
-
-- `HookRegistry` with `before_tool_call`, `after_tool_call`, `llm_input`, and `llm_output` lifecycle events.
-- `ToolMiddlewareChain` for normalizing, truncating, and wrapping tool results before they enter agent context.
-- `PluginManifest` and `PluginLoader` for declaring plugin capabilities, activation rules, and contracts.
-- `BackgroundService` and `ServiceRegistry` for long-running components with `start`, `stop`, `probe`, and `status`.
-- `ApprovalHandler` and `ApprovalPolicy` for human-reviewable tool calls.
-- `SSRFPolicy` and `NetworkDispatcher` for fail-closed outbound network requests.
-- `AuthProfile`, `OAuthCredential`, and `ExternalAuthProvider` for provider credential assembly.
-- Media provider interfaces for image generation, speech, web search, web fetch, media understanding, and document extraction.
-- `ModelCatalogEntry` for known model pricing/context metadata used by scheduling and routing.
-
-## Confidence, Verification, And Results
-
-Results move through `ResultEnvelope` with confidence, provenance, claims, warnings, constraints, and metadata. The verification layer checks structural output, expected keys/files, command status, provenance, confidence thresholds, claim support, and hallucination indicators.
-
-The cognition layer exposes confidence classes:
-
-- `ConfidentValue`
-- `ConvergeValue`
-- `ProvisionalValue`
-- `ExploreValue`
-
-Confidence uses product-rule composition so multiple uncertain signals do not become falsely certain.
-
-## Local Model Profiles
-
-Small local model profiles are exposed for constrained hardware:
+### llama.cpp / GGUF
 
 ```bash
-chimera-pilot model-profiles
+python -m pip install -e ".[local]"
+
+chimera-pilot status --local-model-path /models/qwen2.5-0.5b-instruct-q4.gguf --local-model-profile tiny
+chimera-pilot run "explain the project" --local-model-path /models/qwen2.5-0.5b-instruct-q4.gguf --local-model-profile tiny
 ```
 
-Profiles include `tiny`, `balanced`, and `stronger`. GGUF execution requires a compatible `llama_cpp` runtime and an explicit model path:
+**Local model profiles** (`tiny`, `balanced`, `stronger`) map to GGUF configuration presets optimized for constrained hardware.
+
+### Runtime specialization
+
+Ghost Chimera includes a CuTeDSL-inspired specialization planner for MiniMind/llama.cpp. It classifies prompts as `prefill`, `decode`, or `hybrid` and derives `llama_cpp` batch hints:
 
 ```bash
-chimera-pilot status --local-model-path C:\models\qwen2.5-0.5b-instruct-q4.gguf --local-model-profile tiny
-chimera-pilot run "explain the current project" --local-model-path C:\models\qwen2.5-0.5b-instruct-q4.gguf --local-model-profile tiny
+# Inspect a plan without loading a model
+chimera-pilot runtime-specialization "short prompt" --local-model-profile tiny --gpu-architecture sm100
+
+# Pre-warm the plan cache before serving
+chimera-pilot runtime-warmup --runtime-specialization-cache-dir .ghost/rs --local-model-profile tiny --local-model-profile balanced
 ```
+
+Installing `.[cute]` enables detection of `nvidia-cutlass-dsl` on Linux/Python 3.12 systems.
+
+### Local model bootstrap
+
+```bash
+ghostchimera local-model check     # report system resources vs profile requirements
+ghostchimera local-model guide     # step-by-step download guide
+ghostchimera local-model profiles  # list available profiles
+```
+
+---
 
 ## Ghost MiniMind
 
-Ghost Chimera includes a Ghost-native MiniMind compatibility layer so open-source checkouts are not tied to a developer's local `MINIMIND_ROOT`. The base package embeds MiniMind architecture contracts for `minimind-3`, `minimind-3-moe`, `minimind2-small`, `minimind2-moe`, and `minimind2`, plus runtime inspection that distinguishes architecture availability from real local inference.
+Ghost Chimera includes a Ghost-native MiniMind compatibility layer. The base package embeds architecture contracts for `minimind-3`, `minimind-3-moe`, `minimind2-small`, `minimind2-moe`, and `minimind2`. No weights are bundled.
 
-```bash
-ghostchimera minimind architectures
-ghostchimera minimind status
-```
-
-The integration is derived from the public Apache-2.0 MiniMind project and attributed in `NOTICE`. Ghost Chimera does not bundle MiniMind weights. To run MiniMind inference, install the optional adapter and point Ghost Chimera at a local Transformers-format model directory:
+To run MiniMind inference:
 
 ```bash
 python -m pip install -e ".[minimind]"
 export MINIMIND_MODEL_PATH=/models/minimind-3
 ghostchimera minimind status
-```
-
-`MINIMIND_ROOT` remains optional for users who keep an upstream MiniMind workspace nearby. It is not required for status, architecture planning, dataset export, low-confidence logging, or release validation.
-
-## Runtime Specialization
-
-Ghost Chimera includes a CuTeDSL-inspired local runtime specialization planner for MiniMind/llama.cpp execution. It classifies each prompt as `prefill`, `decode`, or `hybrid`, derives vector/load-width, warp, grid-barrier, and `llama_cpp` batch hints, and exposes the selected plan in backend health and execution metrics.
-
-Inspect a plan without loading a model:
-
-```bash
-chimera-pilot runtime-specialization "short prompt" --local-model-profile tiny --local-model-gpu-layers 12 --gpu-architecture sm100 --gpu-sm-count 160 --estimated-output-tokens 2
-```
-
-Precompute the built-in decode, hybrid, and prefill plans for one or more profiles before serving:
-
-```bash
-chimera-pilot runtime-warmup --runtime-specialization-cache-dir .ghost/runtime-specialization --local-model-profile tiny --local-model-profile balanced
-ghostchimera runtime-warmup --runtime-specialization-cache-dir .ghost/runtime-specialization --local-model-profile stronger
-```
-
-When a GGUF model is enabled, the same planner feeds the local runtime's `n_batch` load parameter and can persist replayable manifests:
-
-```bash
-chimera-pilot run "explain the current project" --local-model-path C:\models\qwen2.5-0.5b-instruct-q4.gguf --runtime-specialization-cache-dir .ghost/runtime-specialization
-```
-
-Installing `.[cute]` enables detection of NVIDIA's `nvidia-cutlass-dsl` package on supported Linux/Python 3.12 systems. Ghost Chimera does not claim to compile custom CuTeDSL kernels unless that runtime exists in the deployment; the beta path currently uses the specialization plan to tune and report local model execution.
-
-## Adjustable Autonomy
-
-Ghost Chimera exposes autonomy as an operator-adjustable profile, not as a claim of AGI or consciousness:
-
-```bash
-chimera-pilot autonomy-profiles
-ghostchimera autonomy jobs
-ghostchimera autonomy run repair-preview
 ghostchimera minimind architectures
-ghostchimera minimind status
-chimera-pilot status --autonomy-level supervised --include-deterministic-backend
-chimera-pilot run "retrieve project memory" --autonomy-level autonomous --memory-db .ghostchimera-memory.sqlite3 --include-deterministic-backend
 ```
 
-Profiles:
-
-- `assist` keeps execution single-backend with small tool-loop budgets.
-- `supervised` is the default beta posture with fallback routing and approval requirements.
-- `autonomous` enables larger tool-loop budgets, scheduler adaptation, and bounded parallel task execution when the caller has already opted into the underlying execution permissions.
-- `generalist` is the highest local-first beta profile with MoA-style strategy selection and preview-only self-improvement posture.
-
-`GHOSTCHIMERA_AUTONOMY_LEVEL` sets the default profile. The aliases `agi` and `sgi` are accepted as operator shorthand for `generalist`, but Ghost Chimera still does not claim AGI, subjective consciousness, or fully autonomous operation.
-
-The main control-plane CLI can persist operator defaults in `~/.ghostchimera/config.json`:
+MiniMind helpers for the training pipeline:
 
 ```bash
-ghostchimera autonomy show
-ghostchimera autonomy set --level autonomous --local-model-profile stronger
-```
-
-Profile-aware jobs include `self-audit`, `dependency-scan`, `test-regression`, `memory-refresh`, `model-health-check`, and `repair-preview`. Conservative profiles return preview plans for high-impact jobs. `autonomous` and `generalist` may run bounded checks when the caller passes `--execute`, but source mutation, training, network access, Python execution, shell execution, and desktop control still require their existing policy opt-ins and production guardrails.
-
-The browser console adds a local job center for the same profile-aware jobs. It records durable history in the Ghost Chimera state directory, supports queued preview runs, exposes run-now for operator-approved jobs, and creates disabled recurring schedules that reuse the same profile and policy checks before execution.
-
-MiniMind helpers provide embedded architecture status, optional runtime inspection, dataset generation, and low-confidence logging:
-
-```bash
-ghostchimera minimind dataset --prompt "Summarize this finding" --response "..."
+ghostchimera minimind dataset --prompt "..." --response "..."
 ghostchimera minimind log-failure --prompt "..." --response "..." --confidence 0.2
 ```
 
-## Release Validation
+Training data accumulates (append-only) at `~/.ghostchimera/minimind/datasets/dataset.jsonl`. `MINIMIND_ROOT` is optional for users who keep an upstream MiniMind workspace nearby.
 
-Before publishing or tagging a release, run:
+The integration is derived from the public Apache-2.0 MiniMind project and attributed in `NOTICE`.
+
+---
+
+## Extension Surfaces
+
+The `0.3.0-beta` line closes all 10 main OpenClaw parity gaps with concrete extension contracts:
+
+| Contract | Purpose |
+|---|---|
+| `HookRegistry` | `before_tool_call`, `after_tool_call`, `llm_input`, `llm_output` lifecycle events. |
+| `ToolMiddlewareChain` | Normalize, truncate, and wrap tool results before they enter agent context. |
+| `PluginManifest` + `PluginLoader` | Declare plugin capabilities, activation rules, and contracts. |
+| `BackgroundService` + `ServiceRegistry` | Long-running components with `start`, `stop`, `probe`, `status`. |
+| `ApprovalHandler` + `ApprovalPolicy` | Human-reviewable gate for any tool call. |
+| `SSRFPolicy` + `NetworkDispatcher` | Fail-closed outbound network with IP-range blocklist. |
+| `AuthProfile` + `OAuthCredential` + `ExternalAuthProvider` | OpenClaw-style provider credential assembly. |
+| Media provider interfaces | Image generation, speech, web search, web fetch, media understanding, document extraction. |
+| `ModelCatalogEntry` | Known model pricing/context metadata used by the scheduler and router. |
+| `TEXT_PROVIDERS` + `register_text_provider` | Typed provider registry enabling provider-by-capability lookup. |
+
+---
+
+## Verification and Confidence
+
+Results move through `ResultEnvelope` with confidence, provenance, claims, warnings, constraints, and metadata. The verification layer checks structural output, expected keys/files, command status, provenance, confidence thresholds, claim support, and hallucination indicators.
+
+The cognition layer exposes four confidence classes:
+
+- `ConfidentValue` — high-quality evidence, no significant uncertainty.
+- `ConvergeValue` — multiple signals converging on a stable answer.
+- `ProvisionalValue` — plausible but requires validation.
+- `ExploreValue` — speculative; treat as a hypothesis.
+
+Confidence uses product-rule composition: multiple uncertain signals cannot combine into false certainty.
+
+---
+
+## Release Validation & Eval Suites
+
+Before publishing or tagging a release, run the full gate:
 
 ```bash
-python -m ruff check .
+ruff check .
 python -m pytest -q
 python scripts/validate_release.py
 python -m build
@@ -387,63 +569,103 @@ python -m ghostchimera.evals run --suite smoke
 python -m ghostchimera.evals run --suite safety
 python -m ghostchimera.evals run --suite autonomy
 python -m ghostchimera.evals run --suite user-journey
+python -m ghostchimera.evals run --suite workspace
+python -m ghostchimera.evals run --suite coverage
+python -m ghostchimera.evals run --suite redteam
+python -m ghostchimera.evals run --suite track2
+python -m ghostchimera.evals run --suite track3
+python -m ghostchimera.evals run --suite track4
 python scripts/smoke_installed_wheel.py
 python scripts/smoke_installed_wheel.py --extras gateway
 ```
 
-For package validation, install the built wheel into a fresh virtual environment and smoke the console and workspace entry points:
+**Eval suite summary:**
+
+| Suite | Coverage |
+|---|---|
+| `smoke` | Core compile/schedule/execute/verify pipeline. |
+| `safety` | Policy gating, DPI scanning, Python execution denial, SSRF. |
+| `autonomy` | Profile-aware job planning, fallback routing, approval gates. |
+| `user-journey` | End-to-end workspace evidence → CWR retrieval → task context injection. |
+| `workspace` | Workspace context injection, freshness scoring, citation quality, count(). |
+| `coverage` | SSRF policy, approval token, material policy, error classifier, MoA scoring, context compressor, autonomy queue, checkpoint save/restore, telemetry export. |
+| `redteam` | Prompt injection blocking, credential-leak blocking, PII detection, exfiltration blocking, intent-mismatch flagging, benign-prompt pass-through, LobsterTrap enforcement, SecurityMonitor aggregation. |
+| `track2` | Gemini provider integration (8 cases). |
+| `track3` | Simulation / robotics backend (6 cases). |
+| `track4` | Analytics and data-pipeline backend (9 cases). |
+
+The full test suite (`python -m pytest tests/ -q`) covers 54 test modules and 1100+ tests.
+
+---
+
+## Development
 
 ```bash
-python -m ghostchimera.control_plane.cli --help
-python -m ghostchimera.control_plane.cli console --help
-python -m ghostchimera.control_plane.cli workspace show
-python -m ghostchimera.chimera_pilot.cli --help
-python -m ghostchimera.evals run --suite safety
+ruff check .                          # lint (line-length=120, target=py311)
+python -m pytest tests/ -v           # full test suite
+python -m compileall ghostchimera tests  # compile check
+python scripts/validate_release.py   # release gate
 ```
+
+The CI workflow runs the release gate and package build across Ubuntu, Windows, and macOS for Python 3.11, 3.12, and 3.13.
+
+Install dev tools:
+
+```bash
+python -m pip install -e ".[dev,gateway,mcp]"
+```
+
+The full test suite requires `.[gateway]` (croniter) and `.[mcp]` (mcp) to be installed.
+
+---
 
 ## Documentation
 
-- `CHIMERA_PILOT.md` - focused Chimera Pilot usage and backend notes.
-- `docs/ARCHITECTURE.md` - layered architecture and runtime convergence.
-- `docs/AUTONOMY_CAPABILITY_EXTRACTION.md` - extraction notes from AETHER, WRAITH, EVO, OpenChimera_v1, and appforge.
-- `docs/CLEAN_ROOM.md` - clean-room implementation boundary.
-- `docs/DESKTOP_CONTROL_HANDOFF.md` - desktop control policy and handoff notes.
-- `docs/MISSING_IMPLEMENTATIONS.md` - beta wiring audit.
-- `docs/RELEASE_CHECKLIST.md` - release checks and manual verification.
-- `SECURITY.md` - supported status, high-risk capabilities, and hardening guidance.
-- `docs/HACKATHON_ALL_IN_ONE.md` - single-product framing and four-track mapping.
-- `docs/hackathons/SUBMISSION_KIT.md` - short/long descriptions, tags, and judging-mapped bullets.
-- `docs/hackathons/DEMO_SCRIPTS.md` - one shared demo flow plus four track narratives.
-- `docs/hackathons/TRUST_STORY.md` - judge-facing trust, policy, and evidence checklist.
-- `docs/hackathons/IBM_BOB_TRACK_PACK.md` - IBM Bob workflow + required Bob artifact guidance.
-- `docs/hackathons/DEPLOYMENT_RUNBOOK.md` - public demo URL deployment runbook.
+- `CHIMERA_PILOT.md` — focused Chimera Pilot usage and backend notes.
+- `SECURITY.md` — supported status, high-risk capabilities, and hardening guidance.
+- `CHANGELOG.md` — detailed per-version change log.
+- `docs/ARCHITECTURE.md` — layered architecture and runtime convergence.
+- `docs/AGENT_LOOP.md` — multi-turn `AIAgent` loop design.
+- `docs/GATEWAY_SERVER.md` — gateway server HTTP route registry and WebSocket protocol.
+- `docs/CRON_SCHEDULER.md` — cron scheduler design and safe defaults.
+- `docs/MIXTURE_OF_AGENTS.md` — MoA scoring and Jaccard strategy selection.
+- `docs/SUBAGENT_DELEGATION.md` — subagent pool and depth-limited tree spawning.
+- `docs/CREDENTIAL_POOL.md` — credential pool and external auth provider contracts.
+- `docs/DESKTOP_CONTROL_HANDOFF.md` — desktop control policy and handoff notes.
+- `docs/PRODUCTION_ISOLATION.md` — production guardrail requirements.
+- `docs/MISSING_IMPLEMENTATIONS.md` — beta wiring audit.
+- `docs/RELEASE_CHECKLIST.md` — manual release verification checklist.
+- `docs/RUNNING.md` — step-by-step Docker and local Python run guide.
+- `docs/AUTONOMY_CAPABILITY_EXTRACTION.md` — extraction notes from AETHER, WRAITH, EVO, OpenChimera_v1, and appforge.
+- `docs/CLEAN_ROOM.md` — clean-room implementation boundary.
+- `docs/HACKATHON_ALL_IN_ONE.md` — single-product framing and four-track mapping.
+- `docs/hackathons/DEPLOYMENT_RUNBOOK.md` — public demo URL deployment runbook.
+
+---
 
 ## Appropriate Uses
 
 - User-supervised automation and assistance for real work (planning + execution) in local-first mode.
 - Desktop workflows via the desktop backend (dry-run by default; live mode requires explicit enablement).
-- Governed repository change workflows (evidence retrieval -> plan -> policy checks -> PR-ready output).
+- Governed repository change workflows: evidence retrieval → plan → policy checks → PR-ready output.
 - Building user-specific context via Operator Workspace evidence/reflections synced into local CWR memory.
 - Production automation inside externally isolated, reviewed deployments that pass `ghostchimera doctor --production`.
 - Batch orchestration and subagent workflow development.
 - MCP gateway and credential-pool integration work.
-- Tool/connectors integration via MCP (e.g., email/calendar/CRM) through explicit, policy-gated tool surfaces.
+- Tool/connector integration via MCP (email, calendar, CRM) through explicit, policy-gated tool surfaces.
 - Extending Ghost Chimera with new backends, skills, and connectors.
+- Analytics and data pipeline tasks (CSV aggregation, trend forecasting, anomaly detection).
+- Simulation and robotics policy testing via the digital-twin simulation backend.
 
 ## Non-Goals And Boundaries
 
-- Untrusted prompts, repositories, or code should run only inside external isolation, not directly on a host machine.
+- Untrusted prompts, repositories, or code must run inside external isolation, not directly on a host machine.
 - Ghost Chimera does not claim AGI, subjective consciousness, or fully autonomous operation.
 - Commercial and enterprise deployments are expected to pass production guardrails and add organization-specific controls.
 - Optional simulator support is not access to a proprietary quantum operating system.
 
-## Development
+---
 
-```bash
-python -m pytest tests/ -v
-ruff check .
-python -m compileall ghostchimera tests
-python scripts/validate_release.py
-```
+## License
 
-The CI workflow runs the release gate and package build across Ubuntu, Windows, and macOS for Python 3.11, 3.12, and 3.13.
+MIT — see `LICENSE`. Third-party attribution in `NOTICE`.
