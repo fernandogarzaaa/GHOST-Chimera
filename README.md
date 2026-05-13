@@ -520,6 +520,8 @@ Training data accumulates (append-only) at `~/.ghostchimera/minimind/datasets/da
 
 The integration is derived from the public Apache-2.0 MiniMind project and attributed in `NOTICE`.
 
+**Important safety boundary:** enabling MiniMind does **not** automatically request admin/OS permissions, crawl your entire machine/email, or self-train autonomously. Operators must explicitly ingest sources (files/email exports/text), provide model weights, and run training workflows themselves.
+
 ---
 
 ## Extension Surfaces

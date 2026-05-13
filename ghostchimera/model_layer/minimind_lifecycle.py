@@ -9,6 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..memory_layer.store import MemoryStore
+from ..personalization.document_ingester import DocumentIngester
+from ..personalization.email_ingester import EmailIngester
 from .local_profiles import get_local_model_profile, list_local_model_profiles
 from .minimind_runtime import inspect_minimind_runtime, minimind_source_metadata
 
@@ -147,6 +150,88 @@ class MiniMindLifecycle:
         with destination.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry) + "\n")
         return True
+
+    def bootstrap_personal_dataset(
+        self,
+        *,
+        memory_db: str | Path,
+        allow_files: bool,
+        allow_email: bool,
+        file_paths: list[str] | None = None,
+        email_paths: list[str] | None = None,
+        max_files: int = 500,
+        max_emails: int = 1000,
+    ) -> dict[str, Any]:
+        """Explicitly ingest user-approved files/emails and seed MiniMind dataset.
+
+        This is an opt-in orchestration helper: callers must pass explicit
+        allow flags and concrete paths. No implicit machine-wide crawling occurs.
+        """
+        file_paths = [p for p in (file_paths or []) if str(p).strip()]
+        email_paths = [p for p in (email_paths or []) if str(p).strip()]
+
+        store = MemoryStore(memory_db)
+        doc_ingester = DocumentIngester(store)
+        mail_ingester = EmailIngester(store)
+
+        summary: dict[str, Any] = {
+            "ok": True,
+            "memory_db": str(Path(memory_db).expanduser()),
+            "allow_files": bool(allow_files),
+            "allow_email": bool(allow_email),
+            "files": [],
+            "emails": [],
+            "dataset_path": "",
+            "dataset_records": 0,
+        }
+
+        dataset_records: list[dict[str, str]] = []
+
+        if allow_files:
+            for raw in file_paths:
+                p = Path(raw).expanduser()
+                if p.is_dir():
+                    result = doc_ingester.ingest_directory(p, max_files=max_files)
+                else:
+                    result = doc_ingester.ingest_file(p)
+                summary["files"].append({"path": str(p), **result.to_dict()})
+                if result.errors:
+                    summary["ok"] = False
+                if result.ingested > 0 and result.chunks > 0:
+                    dataset_records.append(
+                        {
+                            "prompt": f"Summarize and remember key points from: {p}",
+                            "response": f"Ingested {result.chunks} chunks from {p.name}.",
+                        }
+                    )
+
+        if allow_email:
+            for raw in email_paths:
+                p = Path(raw).expanduser()
+                if p.is_dir():
+                    result = mail_ingester.ingest_directory(p, max_files=max_emails)
+                elif p.suffix.lower() == ".mbox":
+                    result = mail_ingester.ingest_mbox_file(p, max_messages=max_emails)
+                else:
+                    result = mail_ingester.ingest_eml_file(p)
+                summary["emails"].append({"path": str(p), **result.to_dict()})
+                if result.errors:
+                    summary["ok"] = False
+                if result.ingested > 0:
+                    dataset_records.append(
+                        {
+                            "prompt": f"Extract actionable tasks from mailbox source: {p}",
+                            "response": f"Ingested {result.ingested} email records from {p.name}.",
+                        }
+                    )
+
+        if dataset_records:
+            dataset_path = self.generate_dataset(dataset_records)
+            summary["dataset_path"] = str(dataset_path)
+            summary["dataset_records"] = len(dataset_records)
+
+        summary["memory_documents"] = store.count()
+        return summary
 
 
 __all__ = ["MiniMindLifecycle", "MiniMindRuntimeStatus"]
