@@ -18,6 +18,8 @@ from ..chimera_pilot.desktop_policy import DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKE
 from ..chimera_pilot.gateway_server import GatewayServer, HttpResponse
 from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 from ..config import GhostChimeraConfig
+from ..memory_layer.store import MemoryStore
+from ..model_layer.minimind_lifecycle import MiniMindLifecycle
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
 from .config import get_autonomy_config, load_config, save_config
@@ -136,6 +138,7 @@ def _suffix(ctx: dict[str, Any], prefix: str) -> str:
 def _default_run_objective(objective: str) -> dict[str, Any]:
     autonomy = get_autonomy_config(load_config())
     true_autonomy_desktop = _as_bool(autonomy.get("true_autonomy_desktop"), default=False)
+    enable_personal_context = _as_bool(autonomy.get("personal_context"), default=True)
     try:
         desktop_max_live_actions = int(autonomy.get("desktop_max_live_actions") or 25)
     except (TypeError, ValueError):
@@ -144,6 +147,8 @@ def _default_run_objective(objective: str) -> dict[str, Any]:
         desktop_max_session_seconds = float(autonomy.get("desktop_max_session_seconds") or 300.0)
     except (TypeError, ValueError):
         desktop_max_session_seconds = 300.0
+    runtime = GhostChimeraConfig.from_env()
+    memory_store = MemoryStore(runtime.memory_db)
     if true_autonomy_desktop:
         kernel = ChimeraPilotKernel.default(
             include_deterministic_backend=True,
@@ -158,11 +163,15 @@ def _default_run_objective(objective: str) -> dict[str, Any]:
             desktop_max_live_actions=desktop_max_live_actions,
             desktop_max_session_seconds=desktop_max_session_seconds,
             autonomy_level=str(autonomy.get("level") or "supervised"),
+            memory_store=memory_store,
+            enable_personal_context=enable_personal_context,
         )
     else:
         kernel = ChimeraPilotKernel.default(
             include_deterministic_backend=True,
             autonomy_level=str(autonomy.get("level") or "supervised"),
+            memory_store=memory_store,
+            enable_personal_context=enable_personal_context,
         )
     executions = kernel.run(objective)
     payload = [execution.to_dict() for execution in executions]
@@ -173,6 +182,8 @@ def _status_payload(server: GatewayServer) -> dict[str, Any]:
     config = load_config()
     autonomy = get_autonomy_config(config)
     profile = get_autonomy_profile(str(autonomy.get("level") or "supervised"))
+    if "personal_context" not in autonomy:
+        autonomy["personal_context"] = True
     return {
         "ok": True,
         "timestamp": time.time(),
@@ -344,6 +355,7 @@ def register_console_routes(
             "local_model_profile",
             "require_approval_for_high_impact",
             "true_autonomy_desktop",
+            "personal_context",
             "desktop_max_live_actions",
             "desktop_max_session_seconds",
         ):
@@ -444,6 +456,52 @@ def register_console_routes(
             )
         except (TypeError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
+
+    def memory_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        store = MemoryStore(server.config.memory_db)
+        return {"ok": True, "memory_db": str(store.db_path), "count": store.count()}
+
+    def memory_ingest(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        source = str(body.get("source") or "").strip()
+        content = str(body.get("content") or "").strip()
+        metadata = dict(body.get("metadata") or {})
+        if not source:
+            return {"ok": False, "error": "Missing source"}
+        if not content:
+            return {"ok": False, "error": "Missing content"}
+        store = MemoryStore(server.config.memory_db)
+        row_id = store.add_document(source, content, metadata=metadata)
+        return {"ok": True, "id": row_id, "count": store.count()}
+
+    def memory_search(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        query = str(body.get("query") or "").strip()
+        limit = int(body.get("limit") or 5)
+        stale_after_days = body.get("stale_after_days")
+        store = MemoryStore(server.config.memory_db)
+        results = store.search(
+            query,
+            limit=limit,
+            stale_after_days=float(stale_after_days) if stale_after_days is not None else None,
+        )
+        return {"ok": True, "query": query, "results": results}
+
+    def minimind_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        autonomy_cfg = get_autonomy_config(load_config())
+        profile_name = str(autonomy_cfg.get("local_model_profile") or "tiny")
+        status = MiniMindLifecycle(profile_name=profile_name, state_dir=server.config.state_dir).status()
+        return {"ok": True, "status": status.to_dict()}
+
+    def minimind_dataset(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        records = list(body.get("records") or [])
+        output_path = str(body.get("output_path") or "").strip() or None
+        autonomy_cfg = get_autonomy_config(load_config())
+        profile_name = str(autonomy_cfg.get("local_model_profile") or "tiny")
+        lifecycle = MiniMindLifecycle(profile_name=profile_name, state_dir=server.config.state_dir)
+        path = lifecycle.generate_dataset(records, output_path=output_path)
+        return {"ok": True, "path": str(path), "count": len(records)}
 
     def readiness(ctx: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -598,6 +656,11 @@ def register_console_routes(
     _api_register("/api/console/workspace/reflections", operator_workspace_reflection, method="POST", description="Record operator workspace reflection")
     _api_register("/api/console/workspace/goals", operator_workspace_goal, method="POST", description="Set operator workspace goal")
     _api_register("/api/console/workspace/sync-memory", operator_workspace_sync_memory, method="POST", description="Promote operator workspace records into CWR memory")
+    _api_register("/api/console/memory/status", memory_status, method="GET", description="Show local CWR memory status")
+    _api_register("/api/console/memory/ingest", memory_ingest, method="POST", description="Ingest text into local CWR memory")
+    _api_register("/api/console/memory/search", memory_search, method="POST", description="Search local CWR memory")
+    _api_register("/api/console/minimind/status", minimind_status, method="GET", description="Show MiniMind local runtime status")
+    _api_register("/api/console/minimind/dataset", minimind_dataset, method="POST", description="Write a MiniMind JSONL dataset from prompt/response records")
     _api_register("/api/console/readiness", readiness, method="GET", description="Ghost Console release readiness runbook")
     _api_register("/api/console/autonomy/jobs", jobs_list, method="GET", description="List autonomy jobs")
     _api_register("/api/console/autonomy/jobs", jobs_create, method="POST", description="Queue autonomy job")

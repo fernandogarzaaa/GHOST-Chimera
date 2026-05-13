@@ -6,9 +6,11 @@ import json
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from ghostchimera.chimera_pilot.gateway_server import GatewayServer, HttpResponse
+from ghostchimera.config import GhostChimeraConfig
 from ghostchimera.control_plane.cli import _main
 from ghostchimera.control_plane.console import _default_run_objective, register_console_routes, run_console
 from ghostchimera.memory_layer.store import MemoryStore
@@ -179,7 +181,7 @@ class ConsoleRouteTests(unittest.TestCase):
                     "method": "POST",
                     "path": "/api/console/autonomy",
                     "headers": {},
-                    "body": json.dumps({"level": "autonomous", "true_autonomy_desktop": True}),
+                    "body": json.dumps({"level": "autonomous", "true_autonomy_desktop": True, "personal_context": True}),
                     "query": {},
                 }
             )
@@ -200,21 +202,40 @@ class ConsoleRouteTests(unittest.TestCase):
             def run(self, objective: str) -> list[_Execution]:
                 return [_Execution(objective)]
 
-        with (
-            patch(
-                "ghostchimera.control_plane.console.get_autonomy_config",
-                return_value={"level": "autonomous", "true_autonomy_desktop": True, "desktop_max_live_actions": 42},
-            ),
-            patch("ghostchimera.control_plane.console.load_config", return_value={"autonomy": {}}),
-            patch("ghostchimera.control_plane.console.ChimeraPilotKernel.default", return_value=_Kernel()) as factory,
-        ):
-            result = _default_run_objective("open settings and configure sync")
-            self.assertTrue(result["ok"])
-            kwargs = factory.call_args.kwargs
-            self.assertTrue(kwargs["allow_desktop_control"])
-            self.assertTrue(kwargs["enable_live_desktop"])
-            self.assertEqual(kwargs["ghost_mode"], "possess")
-            self.assertEqual(kwargs["desktop_max_live_actions"], 42)
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-console-config-") as tmp:
+            env = GhostChimeraConfig.from_env()
+            config = GhostChimeraConfig(
+                state_dir=Path(tmp),
+                memory_db=Path(tmp) / "memory.sqlite3",
+                audit_file=Path(tmp) / "audit.json",
+                policy=env.policy,
+                local_model_path="",
+                local_model_profile="tiny",
+                local_model_gpu_layers=0,
+                autonomy_level="supervised",
+            )
+            with (
+                patch(
+                    "ghostchimera.control_plane.console.get_autonomy_config",
+                    return_value={
+                        "level": "autonomous",
+                        "true_autonomy_desktop": True,
+                        "desktop_max_live_actions": 42,
+                        "personal_context": True,
+                    },
+                ),
+                patch("ghostchimera.control_plane.console.load_config", return_value={"autonomy": {}}),
+                patch("ghostchimera.control_plane.console.GhostChimeraConfig.from_env", return_value=config),
+                patch("ghostchimera.control_plane.console.ChimeraPilotKernel.default", return_value=_Kernel()) as factory,
+            ):
+                result = _default_run_objective("open settings and configure sync")
+                self.assertTrue(result["ok"])
+                kwargs = factory.call_args.kwargs
+                self.assertTrue(kwargs["allow_desktop_control"])
+                self.assertTrue(kwargs["enable_live_desktop"])
+                self.assertEqual(kwargs["ghost_mode"], "possess")
+                self.assertEqual(kwargs["desktop_max_live_actions"], 42)
+                self.assertTrue(kwargs["enable_personal_context"])
 
     def test_console_registers_autonomy_job_routes(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-console-") as tmp:
@@ -386,6 +407,53 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertEqual(snapshot["self_model"]["goals"]["operator_visibility"], "show evidence and uncertainty")
         self.assertEqual(sync["synced"], 2)
         self.assertEqual({item["metadata"]["workspace_type"] for item in results}, {"evidence", "reflection"})
+
+    def test_console_registers_memory_routes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-console-memory-") as tmp:
+            base = Path(tmp)
+            env = GhostChimeraConfig.from_env()
+            config = GhostChimeraConfig(
+                state_dir=base,
+                memory_db=base / "memory.sqlite3",
+                audit_file=base / "audit.json",
+                policy=env.policy,
+                local_model_path="",
+                local_model_profile="tiny",
+                local_model_gpu_layers=0,
+                autonomy_level="supervised",
+            )
+            server = GatewayServer(config=config)
+            register_console_routes(server, state_dir=tmp)
+
+            status_route = server.routes.find("GET", "/api/console/memory/status")
+            ingest_route = server.routes.find("POST", "/api/console/memory/ingest")
+            search_route = server.routes.find("POST", "/api/console/memory/search")
+            self.assertIsNotNone(status_route)
+            self.assertIsNotNone(ingest_route)
+            self.assertIsNotNone(search_route)
+
+            ingested = ingest_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/memory/ingest",
+                    "headers": {},
+                    "body": json.dumps({"source": "notes", "content": "Remember to file taxes by April."}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(ingested["ok"])
+
+            searched = search_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/memory/search",
+                    "headers": {},
+                    "body": json.dumps({"query": "taxes", "limit": 3}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(searched["ok"])
+            self.assertTrue(searched["results"])
 
     def test_console_readiness_route_returns_release_runbook(self) -> None:
         server = GatewayServer()

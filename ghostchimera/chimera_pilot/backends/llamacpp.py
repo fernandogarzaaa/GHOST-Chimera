@@ -88,10 +88,12 @@ class LlamaCppBackend:
         return self.probe()
 
     def execute(self, task: TaskSpec) -> ExecutionResult:
+        system = str(task.inputs.get("system") or "You are Ghost Chimera running locally. Answer concisely.").strip()
+        prompt = str(task.inputs.get("prompt") or task.objective)
         try:
             output = self.runtime.chat(
-                "You are Ghost Chimera running locally. Answer concisely.",
-                str(task.inputs.get("prompt") or task.objective),
+                system,
+                prompt,
             )
         except Exception as exc:
             return ExecutionResult(
@@ -112,5 +114,4 @@ class LlamaCppBackend:
             output=output,
             metrics=metrics,
         )
-
 

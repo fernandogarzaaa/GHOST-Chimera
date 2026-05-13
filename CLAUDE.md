@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Ghost Chimera is a local-first agent orchestration prototype (v0.3.0-beta). It provides a layered agent runtime with **Chimera Pilot** as the control-plane: a resource orchestrator that compiles natural-language objectives into a task IR, schedules them across registered backends using weighted scoring, enforces safety policy, executes with fallback, and records telemetry. Beta-stage — designed for local experimentation, not production.
+Ghost Chimera is a local-first agent orchestration runtime (v0.3.0-beta). It provides a layered agent runtime with **Chimera Pilot** as the control-plane: a resource orchestrator that compiles natural-language objectives into a task IR, schedules them across registered backends using weighted scoring, enforces safety policy, executes with fallback, and records telemetry. Beta-stage — intended for real work in supervised and externally isolated deployments, with conservative safety defaults.
 
 Python 3.11–3.13. MIT licensed.
 

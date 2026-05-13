@@ -4,7 +4,9 @@ Ghost Chimera is a local-first beta agent orchestration runtime. It combines a m
 
 For hackathon positioning, Ghost Chimera is packaged as a single product: **Governed Enterprise Change Agent**. The product workflow is: repo + docs intake -> evidence retrieval -> governed plan -> policy/security checks -> PR-ready package with audit trail.
 
-This is a developer beta for local experimentation, runtime research, and extension work. It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
+This is beta-stage software intended for real, user-supervised work. With explicit opt-ins and policy gates, Ghost Chimera can execute tool-backed tasks and (optionally) operate on a user's desktop like an operator, while recording telemetry and audit signals for review and replay.
+
+It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
 
 ## Current Status
 
@@ -24,6 +26,7 @@ This is a developer beta for local experimentation, runtime research, and extens
 | `cognition_layer` | Confidence values, hallucination flags, task ordering, self-model, working memory, attention, reflection primitives, and durable operator workspace state. |
 | `control_plane` | User-facing CLIs for setup, diagnostics, model selection, policy management, parallel runs, and Pilot execution. |
 | `evals` | Built-in release smoke and safety evaluation suites. |
+| `harness` | Offline-first regression harness for running deterministic cases and emitting JSONL artifacts. |
 | `mcp` | Lightweight JSON-RPC style MCP server/client surfaces and Chimera Pilot MCP backend. |
 | `memory_layer` | SQLite-backed memory retrieval and namespace persistence. |
 | `model_layer` | Provider abstraction, provider routing, auth profiles, model catalog, media-provider interfaces, Ghost-native MiniMind architecture/runtime adapters, runtime specialization, and optional llama.cpp/GGUF runtime. |
@@ -417,14 +420,15 @@ python -m ghostchimera.evals run --suite safety
 
 ## Appropriate Uses
 
-- Local agent-runtime experimentation.
-- Backend scheduling and fallback research.
-- Safety-gated tool/runtime prototyping.
+- User-supervised automation and assistance for real work (planning + execution) in local-first mode.
+- Desktop workflows via the desktop backend (dry-run by default; live mode requires explicit enablement).
+- Governed repository change workflows (evidence retrieval -> plan -> policy checks -> PR-ready output).
+- Building user-specific context via Operator Workspace evidence/reflections synced into local CWR memory.
 - Production automation inside externally isolated, reviewed deployments that pass `ghostchimera doctor --production`.
-- Local memory and model-profile experiments.
 - Batch orchestration and subagent workflow development.
 - MCP gateway and credential-pool integration work.
-- Release-gated extension development.
+- Tool/connectors integration via MCP (e.g., email/calendar/CRM) through explicit, policy-gated tool surfaces.
+- Extending Ghost Chimera with new backends, skills, and connectors.
 
 ## Non-Goals And Boundaries
 
