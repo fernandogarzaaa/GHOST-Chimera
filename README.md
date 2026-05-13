@@ -4,7 +4,9 @@ Ghost Chimera is a local-first beta agent orchestration runtime. It combines a m
 
 For hackathon positioning, Ghost Chimera is packaged as a single product: **Governed Enterprise Change Agent**. The product workflow is: repo + docs intake -> evidence retrieval -> governed plan -> policy/security checks -> PR-ready package with audit trail.
 
-This is a developer beta for local experimentation, runtime research, and extension work. It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
+This is beta-stage software intended for real, user-supervised work. With explicit opt-ins and policy gates, Ghost Chimera can execute tool-backed tasks and (optionally) operate on a user's desktop like an operator, while recording telemetry and audit signals for review and replay.
+
+It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
 
 ## Current Status
 
@@ -417,14 +419,13 @@ python -m ghostchimera.evals run --suite safety
 
 ## Appropriate Uses
 
-- Local agent-runtime experimentation.
-- Backend scheduling and fallback research.
-- Safety-gated tool/runtime prototyping.
+- User-supervised automation and assistance for real work (planning + execution) in local-first mode.
+- Desktop workflows via the desktop backend (dry-run by default; live mode requires explicit enablement).
+- Governed repository change workflows (evidence retrieval -> plan -> policy checks -> PR-ready output).
 - Production automation inside externally isolated, reviewed deployments that pass `ghostchimera doctor --production`.
-- Local memory and model-profile experiments.
 - Batch orchestration and subagent workflow development.
 - MCP gateway and credential-pool integration work.
-- Release-gated extension development.
+- Extending Ghost Chimera with new backends, skills, and connectors.
 
 ## Non-Goals And Boundaries
 
