@@ -32,6 +32,7 @@
     <button class="tab" data-tab="run">Run</button>
     <button class="tab" data-tab="jobs">Jobs</button>
     <button class="tab" data-tab="workspace">Workspace</button>
+    <button class="tab" data-tab="memory">Memory</button>
     <button class="tab" data-tab="browser">Browser</button>
     <button class="tab" data-tab="security">Security</button>
     <button class="tab" data-tab="schedules">Schedules</button>
@@ -50,6 +51,13 @@
         <label for="trueAutonomyDesktop">Enable True Autonomy (live full desktop control)</label>
       </div>
       <label class="hint">Failsafe default is OFF. When enabled, Ghost runs with possess-mode live desktop control and expanded runtime permissions.</label>
+    </div>
+    <div class="form-group">
+      <div class="inline-check">
+        <input id="personalContext" type="checkbox">
+        <label for="personalContext">Use Personal Context (local memory) for runs</label>
+      </div>
+      <label class="hint">When enabled, Ghost injects relevant snippets from local memory into the system context for reasoning tasks.</label>
     </div>
     <div class="row"><button id="saveAutonomy" class="primary">Save Profile</button></div>
   </div>
@@ -100,6 +108,32 @@
     <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Workspace State</h3>
     <div id="workspaceDetail"></div>
     <div class="row" style="margin-top:10px;"><button id="syncMemory" class="primary">Sync to CWR Memory</button></div>
+  </div>
+  <div class="tab-content" id="tab-memory">
+    <h3 style="margin:0 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Local Memory</h3>
+    <div id="memoryStatus"></div>
+    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Ingest Text</h3>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="memorySource" placeholder="source (e.g. emails, notes, crm)" style="flex:1;">
+      <input id="memoryContent" placeholder="content" style="flex:2;">
+      <button id="memoryIngest" class="primary">Ingest</button>
+    </div>
+    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Search</h3>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="memoryQuery" placeholder="search query" style="flex:3;">
+      <button id="memorySearch" class="primary">Search</button>
+    </div>
+    <pre class="output" id="memoryOutput">Ready.</pre>
+
+    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">MiniMind Dataset Export</h3>
+    <p class="hint" style="margin-bottom:10px;">Paste a JSON array of {\"instruction\"|\"prompt\", \"output\"|\"response\"} records and export JSONL for local MiniMind workflows.</p>
+    <div class="form-group">
+      <textarea id="datasetRecords" placeholder='[{"instruction":"...","output":"..."}]'></textarea>
+    </div>
+    <div class="row">
+      <button id="exportDataset" class="primary">Export Dataset</button>
+      <button id="minimindStatus">MiniMind Status</button>
+    </div>
   </div>
   <div class="tab-content" id="tab-browser">
     <h3 style="margin:0 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Browser Workspace</h3>

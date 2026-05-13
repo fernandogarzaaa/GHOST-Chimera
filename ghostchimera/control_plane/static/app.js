@@ -179,6 +179,7 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
       });
       $("#autonomyDesc").textContent = data.autonomy.resolved_profile.description || "";
       $("#trueAutonomyDesktop").checked = !!(data.autonomy.config && data.autonomy.config.true_autonomy_desktop);
+      $("#personalContext").checked = !!(data.autonomy.config && data.autonomy.config.personal_context);
 
       var jSel = $("#jobProfile");
       jSel.innerHTML = "";
@@ -192,6 +193,7 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
       await refreshJobs();
       await refreshSchedules();
       await refreshWorkspace();
+      await refreshMemory();
       await refreshReadiness();
     } catch (e) {
       badge($("#health"), "offline", "error");
@@ -209,6 +211,7 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
       body: {
         level: $("#autonomyLevel").value,
         true_autonomy_desktop: $("#trueAutonomyDesktop").checked,
+        personal_context: $("#personalContext").checked,
       },
     });
     writeOutput(JSON.stringify(r, null, 2));
@@ -391,6 +394,54 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
       body: { min_confidence: 0.0, stale_after_days: 30 },
     });
     writeOutput(JSON.stringify(r, null, 2));
+  });
+
+  // --- Memory tab ---
+
+  async function refreshMemory() {
+    try {
+      var st = await api("/api/console/memory/status");
+      var ms = $("#memoryStatus");
+      ms.innerHTML = "";
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "name" }, "Documents"));
+      item.appendChild(el("span", { class: "badge ok" }, String(st.count || 0)));
+      item.appendChild(el("span", { class: "meta" }, st.memory_db || ""));
+      ms.appendChild(item);
+    } catch (_) {
+      empty("#memoryStatus", "Memory unavailable.");
+    }
+  }
+
+  $("#memoryIngest").addEventListener("click", async function() {
+    var source = ($("#memorySource").value || "").trim();
+    var content = ($("#memoryContent").value || "").trim();
+    if (!source || !content) return;
+    var r = await api("/api/console/memory/ingest", { method: "POST", body: { source: source, content: content } });
+    $("#memoryContent").value = "";
+    $("#memoryOutput").textContent = JSON.stringify(r, null, 2);
+    await refreshMemory();
+  });
+
+  $("#memorySearch").addEventListener("click", async function() {
+    var q = ($("#memoryQuery").value || "").trim();
+    if (!q) return;
+    var r = await api("/api/console/memory/search", { method: "POST", body: { query: q, limit: 5 } });
+    $("#memoryOutput").textContent = JSON.stringify(r, null, 2);
+  });
+
+  $("#minimindStatus").addEventListener("click", async function() {
+    var r = await api("/api/console/minimind/status");
+    $("#memoryOutput").textContent = JSON.stringify(r, null, 2);
+  });
+
+  $("#exportDataset").addEventListener("click", async function() {
+    var raw = ($("#datasetRecords").value || "").trim();
+    if (!raw) return;
+    var records = null;
+    try { records = JSON.parse(raw); } catch (e) { return $("#memoryOutput").textContent = "Invalid JSON: " + e.message; }
+    var r = await api("/api/console/minimind/dataset", { method: "POST", body: { records: records } });
+    $("#memoryOutput").textContent = JSON.stringify(r, null, 2);
   });
 
   // --- Browser tab ---
