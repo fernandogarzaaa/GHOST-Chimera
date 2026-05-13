@@ -80,7 +80,11 @@ def _chunk_text(text: str, max_chars: int = _MAX_CHUNK_CHARS) -> list[str]:
                     else:
                         if current:
                             chunks.append(current)
-                        current = sent[:max_chars]
+                        # A single sentence longer than max_chars is split hard
+                        while len(sent) > max_chars:
+                            chunks.append(sent[:max_chars])
+                            sent = sent[max_chars:]
+                        current = sent
 
     if current:
         chunks.append(current)

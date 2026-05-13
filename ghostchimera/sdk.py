@@ -60,9 +60,11 @@ class RunResult:
 
     @classmethod
     def from_executions(cls, execs: list[PilotExecution]) -> RunResult:
+        if not execs:
+            return cls(ok=False, output="", backend_id="", executions=[])
         ok = all(e.ok for e in execs)
         output = "\n".join(str(e.result.output or "") for e in execs if e.result.output).strip()
-        backend_id = execs[-1].result.backend_id if execs else ""
+        backend_id = execs[-1].result.backend_id
         return cls(ok=ok, output=output, backend_id=backend_id, executions=[e.to_dict() for e in execs])
 
     def to_dict(self) -> dict[str, Any]:

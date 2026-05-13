@@ -132,7 +132,7 @@ class HarnessRunner:
         if case.expect.ok is not None:
             actual_ok = all(e.get("ok") for e in executions)
             check_details["ok"] = {"expected": case.expect.ok, "actual": actual_ok}
-            ok = ok and (actual_ok is bool(case.expect.ok))
+            ok = ok and (actual_ok == bool(case.expect.ok))
 
         if case.expect.backend_ids:
             actual_backends = tuple(str(e.get("backend_id", "")) for e in executions)

@@ -21,6 +21,8 @@ from typing import Any
 
 from ..memory_layer.store import MemoryStore
 
+_MAX_BODY_PREVIEW_CHARS: int = 2_000
+
 
 @dataclass(frozen=True)
 class EmailRecord:
@@ -46,7 +48,7 @@ class EmailRecord:
         if self.date:
             parts.append(f"Date: {self.date}")
         if self.body:
-            parts.append(f"\n{self.body[:2000]}")
+            parts.append(f"\n{self.body[:_MAX_BODY_PREVIEW_CHARS]}")
         return "\n".join(parts)
 
     def to_dict(self) -> dict[str, Any]:
