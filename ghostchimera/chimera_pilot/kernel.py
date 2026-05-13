@@ -48,6 +48,9 @@ class ChimeraPilotKernel:
         autonomy_profile: AutonomyProfile | None = None,
         desktop_confirmation_token: str | None = None,
         workspace_store: OperatorWorkspaceStore | None = None,
+        enable_personal_context: bool = False,
+        personal_context_limit: int = 5,
+        enable_minimind_personal_context: bool = True,
     ) -> None:
         self.registry = registry or ResourceRegistry()
         self.compiler = compiler or RuleBasedTaskCompiler()
@@ -60,6 +63,9 @@ class ChimeraPilotKernel:
         self.autonomy_profile = autonomy_profile or self.policy.autonomy_profile
         self.desktop_confirmation_token = desktop_confirmation_token
         self.workspace_store = workspace_store
+        self.enable_personal_context = enable_personal_context
+        self.personal_context_limit = personal_context_limit
+        self.enable_minimind_personal_context = enable_minimind_personal_context
 
     @classmethod
     def default(
@@ -93,6 +99,9 @@ class ChimeraPilotKernel:
         local_runtime_specialization_cache_dir: str | None = None,
         hooks: HookRegistry | None = None,
         autonomy_level: str | None = None,
+        enable_personal_context: bool = False,
+        personal_context_limit: int = 5,
+        enable_minimind_personal_context: bool = True,
     ) -> ChimeraPilotKernel:
         autonomy_profile = get_autonomy_profile(autonomy_level) if autonomy_level else get_autonomy_profile_from_env()
         local_model_profile = local_model_profile or autonomy_profile.local_model_profile
@@ -116,6 +125,9 @@ class ChimeraPilotKernel:
             hooks=hooks,
             autonomy_profile=autonomy_profile,
             desktop_confirmation_token=desktop_confirmation_token,
+            enable_personal_context=enable_personal_context,
+            personal_context_limit=personal_context_limit,
+            enable_minimind_personal_context=enable_minimind_personal_context,
         )
         kernel.registry.register(PythonRuntimeBackend(cwd=cwd, allowed_roots=[cwd] if cwd else None))
         kernel.registry.register(CWRBackend(store=memory_store))
@@ -166,6 +178,52 @@ class ChimeraPilotKernel:
                     )
                     for task in tasks
                 ]
+
+        personal_context_text = ""
+        personal_sources: tuple[str, ...] = ()
+        personal_detail = ""
+        if self.enable_personal_context and self.memory_store is not None:
+            try:
+                from ..personalization.context_provider import PersonalContextProvider
+
+                provider = PersonalContextProvider(
+                    memory_store=self.memory_store,
+                    enable_minimind=self.enable_minimind_personal_context,
+                )
+                result = provider.context_for_objective(objective, limit=self.personal_context_limit)
+                personal_context_text = result.context
+                personal_sources = result.sources
+                personal_detail = result.detail
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Personal context provider failed: %s", exc)
+
+        if personal_context_text:
+            _SYSTEM_PROMPT_KINDS = {TaskKind.REASONING, TaskKind.LONG_CONTEXT_DOC, TaskKind.CODE_EDIT}
+            _QUERY_CONTEXT_KINDS = {
+                TaskKind.WEB_RESEARCH,
+                TaskKind.FILE_ANALYSIS,
+                TaskKind.RAG_QUERY,
+                TaskKind.ANALYTICS_QUERY,
+            }
+            updated: list[TaskSpec] = []
+            for task in tasks:
+                merged_constraints = {
+                    **task.constraints,
+                    "personal_context": personal_context_text,
+                    "personal_context_sources": list(personal_sources),
+                    "personal_context_detail": personal_detail,
+                }
+                merged_inputs = dict(task.inputs)
+                ctx_prefix = f"Personal context (local memory):\n{personal_context_text}".strip()
+                if task.kind in _SYSTEM_PROMPT_KINDS:
+                    existing_system = str(merged_inputs.get("system") or "").strip()
+                    merged_inputs["system"] = (ctx_prefix + ("\n\n" + existing_system if existing_system else "")).strip()
+                elif task.kind in _QUERY_CONTEXT_KINDS:
+                    # Inject as a separate "context" field; backends that call
+                    # LLMs can pick this up without modifying the query itself.
+                    merged_inputs["context"] = personal_context_text
+                updated.append(replace(task, inputs=merged_inputs, constraints=merged_constraints))
+            tasks = updated
 
         self.hooks.fire(HookName.TASK_COMPILE, objective=objective, tasks=tasks)
         return tasks

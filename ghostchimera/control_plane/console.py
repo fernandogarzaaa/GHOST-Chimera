@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 import webbrowser
@@ -18,6 +19,8 @@ from ..chimera_pilot.desktop_policy import DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKE
 from ..chimera_pilot.gateway_server import GatewayServer, HttpResponse
 from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 from ..config import GhostChimeraConfig
+from ..memory_layer.store import MemoryStore
+from ..model_layer.minimind_lifecycle import MiniMindLifecycle
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
 from .config import get_autonomy_config, load_config, save_config
@@ -136,6 +139,7 @@ def _suffix(ctx: dict[str, Any], prefix: str) -> str:
 def _default_run_objective(objective: str) -> dict[str, Any]:
     autonomy = get_autonomy_config(load_config())
     true_autonomy_desktop = _as_bool(autonomy.get("true_autonomy_desktop"), default=False)
+    enable_personal_context = _as_bool(autonomy.get("personal_context"), default=True)
     try:
         desktop_max_live_actions = int(autonomy.get("desktop_max_live_actions") or 25)
     except (TypeError, ValueError):
@@ -144,6 +148,8 @@ def _default_run_objective(objective: str) -> dict[str, Any]:
         desktop_max_session_seconds = float(autonomy.get("desktop_max_session_seconds") or 300.0)
     except (TypeError, ValueError):
         desktop_max_session_seconds = 300.0
+    runtime = GhostChimeraConfig.from_env()
+    memory_store = MemoryStore(runtime.memory_db)
     if true_autonomy_desktop:
         kernel = ChimeraPilotKernel.default(
             include_deterministic_backend=True,
@@ -158,11 +164,15 @@ def _default_run_objective(objective: str) -> dict[str, Any]:
             desktop_max_live_actions=desktop_max_live_actions,
             desktop_max_session_seconds=desktop_max_session_seconds,
             autonomy_level=str(autonomy.get("level") or "supervised"),
+            memory_store=memory_store,
+            enable_personal_context=enable_personal_context,
         )
     else:
         kernel = ChimeraPilotKernel.default(
             include_deterministic_backend=True,
             autonomy_level=str(autonomy.get("level") or "supervised"),
+            memory_store=memory_store,
+            enable_personal_context=enable_personal_context,
         )
     executions = kernel.run(objective)
     payload = [execution.to_dict() for execution in executions]
@@ -173,6 +183,8 @@ def _status_payload(server: GatewayServer) -> dict[str, Any]:
     config = load_config()
     autonomy = get_autonomy_config(config)
     profile = get_autonomy_profile(str(autonomy.get("level") or "supervised"))
+    if "personal_context" not in autonomy:
+        autonomy["personal_context"] = True
     return {
         "ok": True,
         "timestamp": time.time(),
@@ -344,6 +356,7 @@ def register_console_routes(
             "local_model_profile",
             "require_approval_for_high_impact",
             "true_autonomy_desktop",
+            "personal_context",
             "desktop_max_live_actions",
             "desktop_max_session_seconds",
         ):
@@ -445,12 +458,191 @@ def register_console_routes(
         except (TypeError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
 
+    def memory_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        store = MemoryStore(server.config.memory_db)
+        return {"ok": True, "memory_db": str(store.db_path), "count": store.count()}
+
+    def memory_ingest(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        source = str(body.get("source") or "").strip()
+        content = str(body.get("content") or "").strip()
+        metadata = dict(body.get("metadata") or {})
+        if not source:
+            return {"ok": False, "error": "Missing source"}
+        if not content:
+            return {"ok": False, "error": "Missing content"}
+        store = MemoryStore(server.config.memory_db)
+        row_id = store.add_document(source, content, metadata=metadata)
+        return {"ok": True, "id": row_id, "count": store.count()}
+
+    def memory_ingest_email(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Ingest email content into personal memory.
+
+        Accepts either a ``raw`` email string (RFC 2822 format pasted
+        directly) or a ``path`` pointing to a ``.eml`` or ``.mbox`` file
+        on the server.  The two fields are mutually exclusive; ``raw``
+        takes priority.
+        """
+        from ..personalization.email_ingester import EmailIngester
+
+        body = _json_body(ctx)
+        raw = str(body.get("raw") or "").strip()
+        path = str(body.get("path") or "").strip()
+
+        store = MemoryStore(server.config.memory_db)
+        ingester = EmailIngester(store)
+
+        if raw:
+            result = ingester.ingest_raw_email(raw)
+        elif path:
+            p = Path(path).expanduser()
+            if not p.exists():
+                return {"ok": False, "error": f"File not found: {path}"}
+            result = ingester.ingest_mbox_file(p) if p.suffix.lower() == ".mbox" else ingester.ingest_eml_file(p)
+        else:
+            return {"ok": False, "error": "Provide 'raw' email text or a 'path' to a .eml/.mbox file"}
+
+        return {
+            "ok": True,
+            "ingested": result.ingested,
+            "skipped": result.skipped,
+            "errors": result.errors,
+            "count": store.count(),
+        }
+
+    def memory_ingest_file(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Ingest a local document file into personal memory.
+
+        Accepts a ``path`` to a supported text file (``.txt``, ``.md``,
+        ``.py``, ``.json``, etc.) or a directory.  Directories are
+        ingested recursively (up to 500 files).
+        """
+        from ..personalization.document_ingester import DocumentIngester
+
+        body = _json_body(ctx)
+        path = str(body.get("path") or "").strip()
+        source = str(body.get("source") or "").strip()
+        max_files = int(body.get("max_files") or 500)
+
+        if not path:
+            return {"ok": False, "error": "Provide a 'path' to a file or directory"}
+
+        p = Path(path).expanduser()
+        if not p.exists():
+            return {"ok": False, "error": f"Path not found: {path}"}
+
+        store = MemoryStore(server.config.memory_db)
+        ingester = DocumentIngester(store)
+
+        if p.is_dir():
+            result = ingester.ingest_directory(p, max_files=max_files)
+        else:
+            result = ingester.ingest_file(p, source_prefix=source)
+
+        return {
+            "ok": True,
+            "ingested": result.ingested,
+            "skipped": result.skipped,
+            "chunks": result.chunks,
+            "errors": result.errors,
+            "count": store.count(),
+        }
+
+    def memory_search(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        query = str(body.get("query") or "").strip()
+        limit = int(body.get("limit") or 5)
+        stale_after_days = body.get("stale_after_days")
+        store = MemoryStore(server.config.memory_db)
+        results = store.search(
+            query,
+            limit=limit,
+            stale_after_days=float(stale_after_days) if stale_after_days is not None else None,
+        )
+        return {"ok": True, "query": query, "results": results}
+
+    def training_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Return MiniMind training setup status including dataset record count."""
+        autonomy_cfg = get_autonomy_config(load_config())
+        profile_name = str(autonomy_cfg.get("local_model_profile") or "tiny")
+        lifecycle = MiniMindLifecycle(profile_name=profile_name, state_dir=server.config.state_dir)
+        status = lifecycle.status().to_dict()
+        dataset_path = Path(server.config.state_dir) / "minimind" / "datasets" / "dataset.jsonl"
+        dataset_count = 0
+        if dataset_path.exists():
+            with contextlib.suppress(Exception):
+                dataset_count = sum(
+                    1 for line in dataset_path.read_text(encoding="utf-8").splitlines() if line.strip()
+                )
+        status["dataset_path"] = str(dataset_path)
+        status["dataset_count"] = dataset_count
+        return {"ok": True, "status": status}
+
+    def training_teach(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Append a prompt/response pair to the MiniMind training dataset.
+
+        This is Ghost's primary learning interface: every time Ghost gives
+        a good answer, you can record it here to build a personal training
+        corpus.  The dataset grows over time and can later be used for
+        local MiniMind fine-tuning.
+        """
+        body = _json_body(ctx)
+        prompt = str(body.get("prompt") or "").strip()
+        response = str(body.get("response") or "").strip()
+        if not prompt:
+            return {"ok": False, "error": "Missing 'prompt'"}
+        if not response:
+            return {"ok": False, "error": "Missing 'response'"}
+        autonomy_cfg = get_autonomy_config(load_config())
+        profile_name = str(autonomy_cfg.get("local_model_profile") or "tiny")
+        lifecycle = MiniMindLifecycle(profile_name=profile_name, state_dir=server.config.state_dir)
+        path = lifecycle.generate_dataset([{"prompt": prompt, "response": response}])
+        dataset_count = 0
+        with contextlib.suppress(Exception):
+            dataset_count = sum(
+                1 for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()
+            )
+        return {"ok": True, "path": str(path), "dataset_count": dataset_count}
+
+    def minimind_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        autonomy_cfg = get_autonomy_config(load_config())
+        profile_name = str(autonomy_cfg.get("local_model_profile") or "tiny")
+        status = MiniMindLifecycle(profile_name=profile_name, state_dir=server.config.state_dir).status()
+        return {"ok": True, "status": status.to_dict()}
+
+    def minimind_dataset(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        records = list(body.get("records") or [])
+        output_path = str(body.get("output_path") or "").strip() or None
+        autonomy_cfg = get_autonomy_config(load_config())
+        profile_name = str(autonomy_cfg.get("local_model_profile") or "tiny")
+        lifecycle = MiniMindLifecycle(profile_name=profile_name, state_dir=server.config.state_dir)
+        path = lifecycle.generate_dataset(records, output_path=output_path)
+        return {"ok": True, "path": str(path), "count": len(records)}
+
     def readiness(ctx: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": True,
             "checks": [dict(check) for check in RELEASE_CHECKS],
             "note": "Run these checks locally before tagging or pushing a beta release.",
         }
+
+    def skills_list(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Return all registered skills (bundled + workspace) for the Skills tab."""
+        try:
+            from ..skill_layer.registry import get_registry
+            registry = get_registry()
+            skills = [
+                {
+                    "name": name,
+                    "domain": getattr(skill, "domain", "general"),
+                    "description": getattr(skill, "description", ""),
+                }
+                for name, skill in registry.list_skills().items()
+            ]
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc), "skills": []}
+        return {"ok": True, "skills": skills, "count": len(skills)}
 
     def jobs_list(ctx: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()}
@@ -598,7 +790,17 @@ def register_console_routes(
     _api_register("/api/console/workspace/reflections", operator_workspace_reflection, method="POST", description="Record operator workspace reflection")
     _api_register("/api/console/workspace/goals", operator_workspace_goal, method="POST", description="Set operator workspace goal")
     _api_register("/api/console/workspace/sync-memory", operator_workspace_sync_memory, method="POST", description="Promote operator workspace records into CWR memory")
+    _api_register("/api/console/memory/status", memory_status, method="GET", description="Show local CWR memory status")
+    _api_register("/api/console/memory/ingest", memory_ingest, method="POST", description="Ingest text into local CWR memory")
+    _api_register("/api/console/memory/ingest-email", memory_ingest_email, method="POST", description="Ingest email (.eml/.mbox or raw text) into personal memory")
+    _api_register("/api/console/memory/ingest-file", memory_ingest_file, method="POST", description="Ingest a local file or directory into personal memory")
+    _api_register("/api/console/memory/search", memory_search, method="POST", description="Search local CWR memory")
+    _api_register("/api/console/training/status", training_status, method="GET", description="MiniMind training setup status and dataset record count")
+    _api_register("/api/console/training/teach", training_teach, method="POST", description="Append a prompt/response pair to the personal training dataset")
+    _api_register("/api/console/minimind/status", minimind_status, method="GET", description="Show MiniMind local runtime status")
+    _api_register("/api/console/minimind/dataset", minimind_dataset, method="POST", description="Write a MiniMind JSONL dataset from prompt/response records")
     _api_register("/api/console/readiness", readiness, method="GET", description="Ghost Console release readiness runbook")
+    _api_register("/api/console/skills", skills_list, method="GET", description="List registered skills")
     _api_register("/api/console/autonomy/jobs", jobs_list, method="GET", description="List autonomy jobs")
     _api_register("/api/console/autonomy/jobs", jobs_create, method="POST", description="Queue autonomy job")
     _api_register("/api/console/autonomy/jobs/", jobs_detail, method="GET", prefix=True, description="Inspect autonomy job record")

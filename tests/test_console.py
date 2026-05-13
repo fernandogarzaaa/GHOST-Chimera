@@ -6,9 +6,11 @@ import json
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from ghostchimera.chimera_pilot.gateway_server import GatewayServer, HttpResponse
+from ghostchimera.config import GhostChimeraConfig
 from ghostchimera.control_plane.cli import _main
 from ghostchimera.control_plane.console import _default_run_objective, register_console_routes, run_console
 from ghostchimera.memory_layer.store import MemoryStore
@@ -179,7 +181,7 @@ class ConsoleRouteTests(unittest.TestCase):
                     "method": "POST",
                     "path": "/api/console/autonomy",
                     "headers": {},
-                    "body": json.dumps({"level": "autonomous", "true_autonomy_desktop": True}),
+                    "body": json.dumps({"level": "autonomous", "true_autonomy_desktop": True, "personal_context": True}),
                     "query": {},
                 }
             )
@@ -200,21 +202,40 @@ class ConsoleRouteTests(unittest.TestCase):
             def run(self, objective: str) -> list[_Execution]:
                 return [_Execution(objective)]
 
-        with (
-            patch(
-                "ghostchimera.control_plane.console.get_autonomy_config",
-                return_value={"level": "autonomous", "true_autonomy_desktop": True, "desktop_max_live_actions": 42},
-            ),
-            patch("ghostchimera.control_plane.console.load_config", return_value={"autonomy": {}}),
-            patch("ghostchimera.control_plane.console.ChimeraPilotKernel.default", return_value=_Kernel()) as factory,
-        ):
-            result = _default_run_objective("open settings and configure sync")
-            self.assertTrue(result["ok"])
-            kwargs = factory.call_args.kwargs
-            self.assertTrue(kwargs["allow_desktop_control"])
-            self.assertTrue(kwargs["enable_live_desktop"])
-            self.assertEqual(kwargs["ghost_mode"], "possess")
-            self.assertEqual(kwargs["desktop_max_live_actions"], 42)
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-console-config-") as tmp:
+            env = GhostChimeraConfig.from_env()
+            config = GhostChimeraConfig(
+                state_dir=Path(tmp),
+                memory_db=Path(tmp) / "memory.sqlite3",
+                audit_file=Path(tmp) / "audit.json",
+                policy=env.policy,
+                local_model_path="",
+                local_model_profile="tiny",
+                local_model_gpu_layers=0,
+                autonomy_level="supervised",
+            )
+            with (
+                patch(
+                    "ghostchimera.control_plane.console.get_autonomy_config",
+                    return_value={
+                        "level": "autonomous",
+                        "true_autonomy_desktop": True,
+                        "desktop_max_live_actions": 42,
+                        "personal_context": True,
+                    },
+                ),
+                patch("ghostchimera.control_plane.console.load_config", return_value={"autonomy": {}}),
+                patch("ghostchimera.control_plane.console.GhostChimeraConfig.from_env", return_value=config),
+                patch("ghostchimera.control_plane.console.ChimeraPilotKernel.default", return_value=_Kernel()) as factory,
+            ):
+                result = _default_run_objective("open settings and configure sync")
+                self.assertTrue(result["ok"])
+                kwargs = factory.call_args.kwargs
+                self.assertTrue(kwargs["allow_desktop_control"])
+                self.assertTrue(kwargs["enable_live_desktop"])
+                self.assertEqual(kwargs["ghost_mode"], "possess")
+                self.assertEqual(kwargs["desktop_max_live_actions"], 42)
+                self.assertTrue(kwargs["enable_personal_context"])
 
     def test_console_registers_autonomy_job_routes(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-console-") as tmp:
@@ -387,6 +408,140 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertEqual(sync["synced"], 2)
         self.assertEqual({item["metadata"]["workspace_type"] for item in results}, {"evidence", "reflection"})
 
+    def test_console_registers_memory_routes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-console-memory-") as tmp:
+            base = Path(tmp)
+            env = GhostChimeraConfig.from_env()
+            config = GhostChimeraConfig(
+                state_dir=base,
+                memory_db=base / "memory.sqlite3",
+                audit_file=base / "audit.json",
+                policy=env.policy,
+                local_model_path="",
+                local_model_profile="tiny",
+                local_model_gpu_layers=0,
+                autonomy_level="supervised",
+            )
+            server = GatewayServer(config=config)
+            register_console_routes(server, state_dir=tmp)
+
+            status_route = server.routes.find("GET", "/api/console/memory/status")
+            ingest_route = server.routes.find("POST", "/api/console/memory/ingest")
+            search_route = server.routes.find("POST", "/api/console/memory/search")
+            self.assertIsNotNone(status_route)
+            self.assertIsNotNone(ingest_route)
+            self.assertIsNotNone(search_route)
+
+            ingested = ingest_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/memory/ingest",
+                    "headers": {},
+                    "body": json.dumps({"source": "notes", "content": "Remember to file taxes by April."}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(ingested["ok"])
+
+            searched = search_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/memory/search",
+                    "headers": {},
+                    "body": json.dumps({"query": "taxes", "limit": 3}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(searched["ok"])
+            self.assertTrue(searched["results"])
+
+    def test_console_registers_email_file_ingest_and_training_routes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-console-ingest-") as tmp:
+            base = Path(tmp)
+            env = GhostChimeraConfig.from_env()
+            config = GhostChimeraConfig(
+                state_dir=base,
+                memory_db=base / "memory.sqlite3",
+                audit_file=base / "audit.json",
+                policy=env.policy,
+                local_model_path="",
+                local_model_profile="tiny",
+                local_model_gpu_layers=0,
+                autonomy_level="supervised",
+            )
+            server = GatewayServer(config=config)
+            register_console_routes(server, state_dir=tmp)
+
+            # New routes exist
+            email_route = server.routes.find("POST", "/api/console/memory/ingest-email")
+            file_route = server.routes.find("POST", "/api/console/memory/ingest-file")
+            teach_route = server.routes.find("POST", "/api/console/training/teach")
+            train_status_route = server.routes.find("GET", "/api/console/training/status")
+            self.assertIsNotNone(email_route)
+            self.assertIsNotNone(file_route)
+            self.assertIsNotNone(teach_route)
+            self.assertIsNotNone(train_status_route)
+
+            # Ingest a raw email
+            raw_email = (
+                "From: alice@example.com\r\nTo: bob@example.com\r\n"
+                "Subject: Tech stack\r\nDate: Mon, 01 Jan 2024 10:00:00 +0000\r\n"
+                "Content-Type: text/plain; charset=utf-8\r\n\r\nWe use FastAPI."
+            )
+            r = email_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/memory/ingest-email",
+                    "headers": {},
+                    "body": json.dumps({"raw": raw_email}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(r["ok"])
+            self.assertEqual(r["ingested"], 1)
+
+            # Ingest a text file
+            txt = base / "notes.txt"
+            txt.write_text("Ghost is local-first.", encoding="utf-8")
+            r2 = file_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/memory/ingest-file",
+                    "headers": {},
+                    "body": json.dumps({"path": str(txt)}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(r2["ok"])
+            self.assertGreaterEqual(r2["ingested"], 1)
+
+            # Teach Ghost
+            r3 = teach_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/training/teach",
+                    "headers": {},
+                    "body": json.dumps({"prompt": "What is Ghost?", "response": "A local-first agent."}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(r3["ok"])
+            self.assertGreaterEqual(r3["dataset_count"], 1)
+
+            # Training status
+            r4 = train_status_route.handler(
+                {
+                    "method": "GET",
+                    "path": "/api/console/training/status",
+                    "headers": {},
+                    "body": "",
+                    "query": {},
+                }
+            )
+            self.assertTrue(r4["ok"])
+            self.assertIn("dataset_count", r4["status"])
+            self.assertGreaterEqual(r4["status"]["dataset_count"], 1)
+
     def test_console_readiness_route_returns_release_runbook(self) -> None:
         server = GatewayServer()
         register_console_routes(server)
@@ -504,6 +659,25 @@ class ConsoleCliTests(unittest.TestCase):
         self.assertEqual(kwargs["state_dir"], "C:/tmp/ghost-state")
         self.assertFalse(kwargs["open_browser"])
         self.assertTrue(kwargs["block"])
+
+    def test_console_skills_route_returns_skill_list(self) -> None:
+        server = GatewayServer()
+        register_console_routes(server)
+        route = server.routes.find("GET", "/api/console/skills")
+        self.assertIsNotNone(route)
+        result = route.handler({"method": "GET", "path": "/api/console/skills", "headers": {}, "body": "", "query": {}})
+        self.assertIn("ok", result)
+        self.assertIn("skills", result)
+        self.assertIsInstance(result["skills"], list)
+
+    def test_index_html_includes_skills_tab(self) -> None:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "ghostchimera" / "control_plane" / "static" / "index.html"
+        if not html_path.exists():
+            self.skipTest("index.html not found")
+        html = html_path.read_text(encoding="utf-8")
+        self.assertIn("tab-skills", html)
+        self.assertIn("Skills", html)
 
 
 if __name__ == "__main__":
