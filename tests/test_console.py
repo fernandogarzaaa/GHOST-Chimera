@@ -660,6 +660,25 @@ class ConsoleCliTests(unittest.TestCase):
         self.assertFalse(kwargs["open_browser"])
         self.assertTrue(kwargs["block"])
 
+    def test_console_skills_route_returns_skill_list(self) -> None:
+        server = GatewayServer()
+        register_console_routes(server)
+        route = server.routes.find("GET", "/api/console/skills")
+        self.assertIsNotNone(route)
+        result = route.handler({"method": "GET", "path": "/api/console/skills", "headers": {}, "body": "", "query": {}})
+        self.assertIn("ok", result)
+        self.assertIn("skills", result)
+        self.assertIsInstance(result["skills"], list)
+
+    def test_index_html_includes_skills_tab(self) -> None:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "ghostchimera" / "control_plane" / "static" / "index.html"
+        if not html_path.exists():
+            self.skipTest("index.html not found")
+        html = html_path.read_text(encoding="utf-8")
+        self.assertIn("tab-skills", html)
+        self.assertIn("Skills", html)
+
 
 if __name__ == "__main__":
     unittest.main()

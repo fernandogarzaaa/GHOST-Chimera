@@ -627,6 +627,23 @@ def register_console_routes(
             "note": "Run these checks locally before tagging or pushing a beta release.",
         }
 
+    def skills_list(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Return all registered skills (bundled + workspace) for the Skills tab."""
+        try:
+            from ..skill_layer.registry import get_registry
+            registry = get_registry()
+            skills = [
+                {
+                    "name": name,
+                    "domain": getattr(skill, "domain", "general"),
+                    "description": getattr(skill, "description", ""),
+                }
+                for name, skill in registry.list_skills().items()
+            ]
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc), "skills": []}
+        return {"ok": True, "skills": skills, "count": len(skills)}
+
     def jobs_list(ctx: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()}
 
@@ -783,6 +800,7 @@ def register_console_routes(
     _api_register("/api/console/minimind/status", minimind_status, method="GET", description="Show MiniMind local runtime status")
     _api_register("/api/console/minimind/dataset", minimind_dataset, method="POST", description="Write a MiniMind JSONL dataset from prompt/response records")
     _api_register("/api/console/readiness", readiness, method="GET", description="Ghost Console release readiness runbook")
+    _api_register("/api/console/skills", skills_list, method="GET", description="List registered skills")
     _api_register("/api/console/autonomy/jobs", jobs_list, method="GET", description="List autonomy jobs")
     _api_register("/api/console/autonomy/jobs", jobs_create, method="POST", description="Queue autonomy job")
     _api_register("/api/console/autonomy/jobs/", jobs_detail, method="GET", prefix=True, description="Inspect autonomy job record")

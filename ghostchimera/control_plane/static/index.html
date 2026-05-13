@@ -7,6 +7,9 @@
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+  <!-- Toast container -->
+  <div id="toastContainer"></div>
+
   <!-- Token auth overlay — shown when console_token is configured and not yet stored -->
   <div id="tokenOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:999; align-items:center; justify-content:center;">
     <div class="card" style="max-width:420px; width:100%; padding:28px; margin:24px;">
@@ -21,26 +24,30 @@
   </div>
 
   <header>
-    <h1>Ghost Console</h1>
+    <h1>👻 Ghost Console</h1>
     <div class="row">
       <span id="health" class="badge">checking</span>
-      <button id="refresh">Refresh</button>
+      <button id="refresh">↺ Refresh</button>
     </div>
   </header>
   <nav class="tab-bar" id="tabBar">
     <button class="tab active" data-tab="status">Status</button>
-    <button class="tab" data-tab="run">Run</button>
+    <button class="tab" data-tab="run">▶ Run</button>
     <button class="tab" data-tab="jobs">Jobs</button>
     <button class="tab" data-tab="workspace">Workspace</button>
     <button class="tab" data-tab="memory">Memory</button>
+    <button class="tab" data-tab="skills">Skills</button>
     <button class="tab" data-tab="browser">Browser</button>
     <button class="tab" data-tab="security">Security</button>
     <button class="tab" data-tab="schedules">Schedules</button>
     <button class="tab" data-tab="readiness">Readiness</button>
   </nav>
+
+  <!-- ── STATUS ────────────────────────────────────────────────────────── -->
   <div class="tab-content active" id="tab-status">
     <div class="grid" id="statusCards"></div>
-    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Autonomy Profile</h3>
+
+    <div class="section-hdr">Autonomy Profile</div>
     <div class="form-group">
       <select id="autonomyLevel"></select>
       <label id="autonomyDesc" class="hint"></label>
@@ -60,62 +67,82 @@
       <label class="hint">When enabled, Ghost injects relevant snippets from local memory into the system context for reasoning tasks.</label>
     </div>
     <div class="row"><button id="saveAutonomy" class="primary">Save Profile</button></div>
+
+    <div class="section-hdr" style="margin-top:24px;">Active Provider &amp; Model</div>
+    <div id="providerStatus"></div>
+
+    <div class="section-hdr" style="margin-top:24px;">Registered Backends</div>
+    <div id="backendList"></div>
   </div>
+
+  <!-- ── RUN ───────────────────────────────────────────────────────────── -->
   <div class="tab-content" id="tab-run">
+    <div class="section-hdr" style="margin-top:0;">Quick Actions</div>
+    <p class="hint" style="margin-bottom:10px;">Click a shortcut to load it into the objective box, then hit Run.</p>
+    <div class="qa-grid" id="quickActions"></div>
+
+    <div class="section-hdr">Custom Objective</div>
     <div class="form-group">
-      <label>Objective</label>
-      <textarea id="objective" placeholder="Ask Ghost Chimera to inspect status, run a safe plan, or summarize a workflow."></textarea>
+      <label>Objective <span class="hint" style="margin-left:4px;">— Ctrl+Enter or ⌘+Enter to run</span></label>
+      <textarea id="objective" placeholder="Ask Ghost Chimera to inspect status, run a safe plan, or summarize a workflow." rows="4"></textarea>
     </div>
     <div class="row">
-      <button id="runObjective" class="primary">Run</button>
+      <button id="runObjective" class="primary">▶ Run</button>
       <button id="clearOutput">Clear</button>
     </div>
     <div id="runSummary" style="margin:12px 0; display:none;"></div>
     <pre class="output" id="output">Ready.</pre>
+
+    <div class="section-hdr" style="margin-top:20px;">Run History <span class="hint" style="margin-left:4px;">— click to reload</span></div>
+    <div id="runHistory"></div>
   </div>
+
+  <!-- ── JOBS ──────────────────────────────────────────────────────────── -->
   <div class="tab-content" id="tab-jobs">
-    <h3 style="margin-bottom:10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Available Jobs</h3>
+    <div class="section-hdr" style="margin-top:0;">Run an Autonomy Job</div>
     <div class="row" style="margin-bottom:16px;">
       <select id="jobName" style="flex:2;min-width:180px;"></select>
       <select id="jobProfile" style="flex:1;min-width:120px;"></select>
       <label class="inline-check"><input id="jobExecute" type="checkbox"> execute</label>
       <button id="runJob" class="primary">Run Now</button>
     </div>
-    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Job History</h3>
+    <div class="section-hdr">Job History</div>
     <div id="jobHistory"></div>
   </div>
+
+  <!-- ── WORKSPACE ─────────────────────────────────────────────────────── -->
   <div class="tab-content" id="tab-workspace">
-    <h3 style="margin:0 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Set Goal</h3>
+    <div class="section-hdr" style="margin-top:0;">Set Goal</div>
     <div class="row" style="margin-bottom:14px;">
       <input id="goalName" placeholder="goal name" style="flex:1;">
       <input id="goalDescription" placeholder="description" style="flex:2;">
       <button id="setGoal" class="primary">Set</button>
     </div>
-    <h3 style="margin:0 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Add Evidence</h3>
+    <div class="section-hdr">Add Evidence</div>
     <div class="row" style="margin-bottom:14px;">
       <input id="evidenceSource" placeholder="source" style="flex:1;">
       <input id="evidenceContent" placeholder="content" style="flex:2;">
       <input id="evidenceConfidence" type="number" step="0.01" min="0" max="1" placeholder="confidence" style="flex:0 0 80px;">
       <button id="addEvidence" class="primary">Add</button>
     </div>
-    <h3 style="margin:0 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Add Reflection</h3>
+    <div class="section-hdr">Add Reflection</div>
     <div class="row" style="margin-bottom:14px;">
       <input id="reflectionAction" placeholder="action" style="flex:1;">
       <input id="reflectionOutcome" placeholder="outcome" style="flex:2;">
       <input id="reflectionConfidence" type="number" step="0.01" min="0" max="1" placeholder="confidence" style="flex:0 0 80px;">
       <button id="addReflection" class="primary">Add</button>
     </div>
-    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Workspace State</h3>
+    <div class="section-hdr">Workspace State</div>
     <div id="workspaceDetail"></div>
     <div class="row" style="margin-top:10px;"><button id="syncMemory" class="primary">Sync to CWR Memory</button></div>
   </div>
+
+  <!-- ── MEMORY ────────────────────────────────────────────────────────── -->
   <div class="tab-content" id="tab-memory">
-    <!-- ── Memory Status ──────────────────────────────────────────── -->
-    <h3 style="margin:0 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Memory Status</h3>
+    <div class="section-hdr" style="margin-top:0;">Memory Status</div>
     <div id="memoryStatus"></div>
 
-    <!-- ── Ingest Email ───────────────────────────────────────────── -->
-    <h3 style="margin:18px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase;">📧 Ingest Email</h3>
+    <div class="section-hdr">📧 Ingest Email</div>
     <p class="hint" style="margin-bottom:8px;">
       Paste a raw RFC 2822 email below, or provide a path to a <code>.eml</code> / <code>.mbox</code>
       file on the server.  Ghost learns from your email context automatically.
@@ -129,8 +156,7 @@
       <button id="emailIngestRaw" class="primary">Ingest Pasted Email</button>
     </div>
 
-    <!-- ── Ingest Document ────────────────────────────────────────── -->
-    <h3 style="margin:18px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase;">📄 Ingest Document or Directory</h3>
+    <div class="section-hdr">📄 Ingest Document or Directory</div>
     <p class="hint" style="margin-bottom:8px;">
       Provide a path to a text file (<code>.txt</code>, <code>.md</code>, <code>.py</code>, <code>.json</code>, …) or
       a directory to recursively ingest.  Ghost chunks and indexes the content for future context.
@@ -141,24 +167,21 @@
       <button id="fileIngest" class="primary">Ingest</button>
     </div>
 
-    <!-- ── Ingest Text ────────────────────────────────────────────── -->
-    <h3 style="margin:18px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase;">✏️ Ingest Text</h3>
+    <div class="section-hdr">✏️ Ingest Text</div>
     <div class="row" style="margin-bottom:10px;">
       <input id="memorySource" placeholder="source label (e.g. notes, crm)" style="flex:1;">
       <input id="memoryContent" placeholder="content to remember" style="flex:2;">
       <button id="memoryIngest" class="primary">Add</button>
     </div>
 
-    <!-- ── Search ─────────────────────────────────────────────────── -->
-    <h3 style="margin:18px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase;">🔍 Search Memory</h3>
+    <div class="section-hdr">🔍 Search Memory</div>
     <div class="row" style="margin-bottom:10px;">
       <input id="memoryQuery" placeholder="search query" style="flex:3;">
       <button id="memorySearch" class="primary">Search</button>
     </div>
     <pre class="output" id="memoryOutput">Ready.</pre>
 
-    <!-- ── Teach Ghost ────────────────────────────────────────────── -->
-    <h3 style="margin:18px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase;">🎓 Teach Ghost</h3>
+    <div class="section-hdr">🎓 Teach Ghost</div>
     <p class="hint" style="margin-bottom:8px;">
       Record a good prompt/response pair to grow Ghost's personal training dataset.
       This data can later be used to fine-tune a local MiniMind model on your domain.
@@ -174,8 +197,7 @@
       <button id="trainingStatus">Training Status</button>
     </div>
 
-    <!-- ── MiniMind Dataset Export ────────────────────────────────── -->
-    <h3 style="margin:18px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase;">🤖 MiniMind Dataset Export</h3>
+    <div class="section-hdr">🤖 MiniMind Dataset Export</div>
     <p class="hint" style="margin-bottom:8px;">
       Paste a JSON array of <code>{"instruction"|"prompt", "output"|"response"}</code> records
       and export as a JSONL training file for local MiniMind fine-tuning workflows.
@@ -188,19 +210,38 @@
       <button id="minimindStatus">MiniMind Status</button>
     </div>
   </div>
+
+  <!-- ── SKILLS ────────────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-skills">
+    <div class="section-hdr" style="margin-top:0;">Available Skills</div>
+    <p class="hint" style="margin-bottom:12px;">
+      Skills are specialist capabilities Ghost can use.  Click <strong>Run Skill</strong> to invoke one directly,
+      or just mention the skill name in a Run objective.
+    </p>
+    <div id="skillList"></div>
+    <div class="section-hdr" style="margin-top:20px;">Run a Skill</div>
+    <div class="row" style="margin-bottom:10px;">
+      <select id="skillSelect" style="flex:2;"></select>
+      <input id="skillInput" placeholder="input / query (optional)" style="flex:3;">
+      <button id="runSkill" class="primary">Run Skill</button>
+    </div>
+    <pre class="output" id="skillOutput">Ready.</pre>
+  </div>
+
+  <!-- ── BROWSER ───────────────────────────────────────────────────────── -->
   <div class="tab-content" id="tab-browser">
-    <h3 style="margin:0 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Browser Workspace</h3>
+    <div class="section-hdr" style="margin-top:0;">Browser Workspace</div>
     <div id="browserStatusRow" class="list-item" style="margin-bottom:14px;">
       <span class="name">Status</span>
       <span id="browserStatusBadge" class="badge">checking</span>
       <span id="browserStatusDetail" class="meta"></span>
     </div>
-    <h3 style="margin:0 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Fetch URL</h3>
+    <div class="section-hdr">Fetch URL</div>
     <div class="row" style="margin-bottom:14px;">
       <input id="browserFetchUrl" placeholder="https://example.com" style="flex:3;">
       <button id="browserFetch" class="primary">Fetch</button>
     </div>
-    <h3 style="margin:0 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Agent Browser</h3>
+    <div class="section-hdr">Agent Browser</div>
     <div class="row" style="margin-bottom:10px;">
       <input id="browserOpenUrl" placeholder="https://example.com" style="flex:3;">
       <button id="browserOpen" class="primary">Open</button>
@@ -208,16 +249,20 @@
     </div>
     <pre class="output" id="browserOutput">Ready.</pre>
   </div>
+
+  <!-- ── SECURITY ──────────────────────────────────────────────────────── -->
   <div class="tab-content" id="tab-security">
     <div class="grid" id="securityCards"></div>
-    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Audit Chain</h3>
+    <div class="section-hdr">Audit Chain</div>
     <div id="auditStatus"></div>
-    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Recent Threat Events</h3>
+    <div class="section-hdr" style="margin-top:18px;">Recent Threat Events</div>
     <div id="securityEvents"></div>
-    <div class="row" style="margin-top:10px;"><button id="refreshSecurity">Refresh</button></div>
+    <div class="row" style="margin-top:10px;"><button id="refreshSecurity">↺ Refresh</button></div>
   </div>
+
+  <!-- ── SCHEDULES ─────────────────────────────────────────────────────── -->
   <div class="tab-content" id="tab-schedules">
-    <h3 style="margin:0 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Create Schedule</h3>
+    <div class="section-hdr" style="margin-top:0;">Create Schedule</div>
     <div class="row" style="margin-bottom:6px;">
       <input id="scheduleName" placeholder="name" style="flex:1;">
       <input id="scheduleCron" placeholder="cron expression (e.g. 0 9 * * *)" style="flex:1;">
@@ -225,13 +270,17 @@
       <button id="createSchedule" class="primary">Create Schedule</button>
     </div>
     <p class="hint" style="margin-bottom:14px;">New schedules start disabled — enable them after reviewing the cron expression.</p>
-    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Existing Schedules</h3>
+    <div class="section-hdr">Existing Schedules</div>
     <div id="scheduleList"></div>
   </div>
+
+  <!-- ── READINESS ─────────────────────────────────────────────────────── -->
   <div class="tab-content" id="tab-readiness">
-    <h3 style="margin-bottom:10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Release Readiness Checklist</h3>
+    <div class="section-hdr" style="margin-top:0;">Release Readiness Checklist</div>
+    <p class="hint" style="margin-bottom:12px;">Run these commands locally before tagging or pushing a beta release.</p>
     <div id="readinessList"></div>
   </div>
+
   <script src="/static/app.js"></script>
 </body>
 </html>
