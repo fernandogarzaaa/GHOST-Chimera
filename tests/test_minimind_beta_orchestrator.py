@@ -305,6 +305,8 @@ def test_run_beta_vision_with_eml_file() -> None:
         assert result["ok"] is True
         bootstrap = result["bootstrap"]
         assert bootstrap["dataset_records"] >= 1
+        assert bootstrap["allow_files"] is False
+        assert bootstrap["allow_email"] is True
         assert len(bootstrap["emails"]) == 1
 
 
