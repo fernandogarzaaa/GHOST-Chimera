@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0-beta - 2026-05-13
+
+### Added
+
+- Personal MiniMind service with persisted admin consent, system-spec capture, approved file/email bootstrap, local-memory dataset generation, and primary-model RAG handoff prompts.
+- Whole-machine and email-artifact crawl consent scopes with configurable crawl roots, custom exclusions, default system/cache/dependency exclusions, and file/email limits.
+- Ghost Console MiniMind tab for consent, source paths, crawl toggles, bootstrap, revocation, status, and handoff generation.
+- Console API routes under `/api/console/minimind/personal/*`.
+- SDK helpers: `enable_personal_minimind()`, `bootstrap_personal_minimind()`, `personal_minimind_status()`, `minimind_handoff()`, and `revoke_personal_minimind()`.
+- CLI actions: `ghostchimera minimind personal-status`, `personal-consent`, `personal-bootstrap`, `personal-handoff`, and `personal-revoke`.
+- Personal MiniMind privacy/operation documentation covering broad crawl behavior, email artifact discovery, local storage, and local quantized runtime options.
+
+### Changed
+
+- Bumped package metadata to `0.4.0-beta`.
+- MiniMind personal bootstrap can generate training data from the full local memory corpus while preserving explicit consent gates.
+
 ## 0.3.0-beta — 2026-05-12
 
 ### Added

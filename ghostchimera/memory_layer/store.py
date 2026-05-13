@@ -113,6 +113,31 @@ class MemoryStore:
             row = conn.execute("SELECT COUNT(*) AS n FROM memory_documents").fetchone()
             return int(row["n"]) if row else 0
 
+    def recent_documents(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        """Return recently inserted memory documents with parsed metadata."""
+
+        limit = max(1, min(int(limit), 1000))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, source, content, metadata_json, created_at
+                FROM memory_documents
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "source": row["source"],
+                "content": row["content"],
+                "metadata": json.loads(row["metadata_json"] or "{}"),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
     def search(
         self,
         query: str,

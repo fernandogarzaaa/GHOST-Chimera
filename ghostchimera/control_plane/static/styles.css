@@ -39,6 +39,7 @@ header h1 { font-size: 16px; font-weight: 650; }
 .tab-content { display: none; padding: 20px 24px; max-width: 1100px; }
 .tab-content.active { display: block; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.compact-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
 .card {
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
   padding: 16px;

@@ -21,6 +21,7 @@ from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 from ..config import GhostChimeraConfig
 from ..memory_layer.store import MemoryStore
 from ..model_layer.minimind_lifecycle import MiniMindLifecycle
+from ..model_layer.minimind_personal_agent import MiniMindPersonalAgent
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
 from .config import get_autonomy_config, load_config, save_config
@@ -620,6 +621,56 @@ def register_console_routes(
         path = lifecycle.generate_dataset(records, output_path=output_path)
         return {"ok": True, "path": str(path), "count": len(records)}
 
+    def personal_minimind() -> MiniMindPersonalAgent:
+        autonomy_cfg = get_autonomy_config(load_config())
+        profile_name = str(autonomy_cfg.get("local_model_profile") or server.config.local_model_profile or "tiny")
+        return MiniMindPersonalAgent(
+            state_dir=server.config.state_dir,
+            memory_db=server.config.memory_db,
+            profile_name=profile_name,
+        )
+
+    def minimind_personal_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        return {"ok": True, "status": personal_minimind().status()}
+
+    def minimind_personal_consent(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        return personal_minimind().grant_consent(
+            admin_controls=bool(body.get("admin_controls", False)),
+            allow_system_specs=bool(body.get("allow_system_specs", False)),
+            allow_files=bool(body.get("allow_files", False)),
+            allow_email=bool(body.get("allow_email", False)),
+            allow_machine_crawl=bool(body.get("allow_machine_crawl", False)),
+            allow_email_crawl=bool(body.get("allow_email_crawl", False)),
+            allow_autonomy=bool(body.get("allow_autonomy", False)),
+            allow_training=bool(body.get("allow_training", False)),
+            file_paths=list(body.get("file_paths") or []),
+            email_paths=list(body.get("email_paths") or []),
+            crawl_roots=list(body.get("crawl_roots") or []),
+            exclude_paths=list(body.get("exclude_paths") or []),
+            operator=str(body.get("operator") or "operator"),
+        )
+
+    def minimind_personal_revoke(ctx: dict[str, Any]) -> dict[str, Any]:
+        return personal_minimind().revoke_consent()
+
+    def minimind_personal_bootstrap(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        return personal_minimind().bootstrap(
+            file_paths=list(body.get("file_paths") or []),
+            email_paths=list(body.get("email_paths") or []),
+            include_system_specs=bool(body.get("include_system_specs", False)),
+            max_files=int(body.get("max_files") or 500),
+            max_emails=int(body.get("max_emails") or 1000),
+        )
+
+    def minimind_personal_handoff(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        objective = str(body.get("objective") or "").strip()
+        if not objective:
+            return {"ok": False, "error": "Missing objective"}
+        return personal_minimind().build_handoff(objective)
+
     def readiness(ctx: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": True,
@@ -799,6 +850,11 @@ def register_console_routes(
     _api_register("/api/console/training/teach", training_teach, method="POST", description="Append a prompt/response pair to the personal training dataset")
     _api_register("/api/console/minimind/status", minimind_status, method="GET", description="Show MiniMind local runtime status")
     _api_register("/api/console/minimind/dataset", minimind_dataset, method="POST", description="Write a MiniMind JSONL dataset from prompt/response records")
+    _api_register("/api/console/minimind/personal/status", minimind_personal_status, method="GET", description="Show Personal MiniMind consent, memory, dataset, and RAG readiness")
+    _api_register("/api/console/minimind/personal/consent", minimind_personal_consent, method="POST", description="Grant Personal MiniMind admin/source consent")
+    _api_register("/api/console/minimind/personal/revoke", minimind_personal_revoke, method="POST", description="Revoke Personal MiniMind admin/source consent")
+    _api_register("/api/console/minimind/personal/bootstrap", minimind_personal_bootstrap, method="POST", description="Bootstrap Personal MiniMind from consented local sources")
+    _api_register("/api/console/minimind/personal/handoff", minimind_personal_handoff, method="POST", description="Build Personal MiniMind RAG handoff for the primary model")
     _api_register("/api/console/readiness", readiness, method="GET", description="Ghost Console release readiness runbook")
     _api_register("/api/console/skills", skills_list, method="GET", description="List registered skills")
     _api_register("/api/console/autonomy/jobs", jobs_list, method="GET", description="List autonomy jobs")

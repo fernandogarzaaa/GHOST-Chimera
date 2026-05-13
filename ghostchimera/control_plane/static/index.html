@@ -36,6 +36,7 @@
     <button class="tab" data-tab="jobs">Jobs</button>
     <button class="tab" data-tab="workspace">Workspace</button>
     <button class="tab" data-tab="memory">Memory</button>
+    <button class="tab" data-tab="minimind">MiniMind</button>
     <button class="tab" data-tab="skills">Skills</button>
     <button class="tab" data-tab="browser">Browser</button>
     <button class="tab" data-tab="security">Security</button>
@@ -209,6 +210,52 @@
       <button id="exportDataset" class="primary">Export Dataset</button>
       <button id="minimindStatus">MiniMind Status</button>
     </div>
+  </div>
+
+  <div class="tab-content" id="tab-minimind">
+    <div class="section-hdr" style="margin-top:0;">Personal MiniMind</div>
+    <div id="personalMiniMindStatus"></div>
+
+    <div class="section-hdr">Admin Consent</div>
+    <div class="grid compact-grid">
+      <label class="inline-check"><input id="pmAdmin" type="checkbox"> admin controls</label>
+      <label class="inline-check"><input id="pmSystemSpecs" type="checkbox"> system specs</label>
+      <label class="inline-check"><input id="pmFiles" type="checkbox"> files</label>
+      <label class="inline-check"><input id="pmEmail" type="checkbox"> email</label>
+      <label class="inline-check"><input id="pmMachineCrawl" type="checkbox"> whole machine crawl</label>
+      <label class="inline-check"><input id="pmEmailCrawl" type="checkbox"> email crawl</label>
+      <label class="inline-check"><input id="pmAutonomy" type="checkbox"> autonomy handoff</label>
+      <label class="inline-check"><input id="pmTraining" type="checkbox"> training dataset</label>
+    </div>
+    <p class="hint" style="margin-bottom:10px;">Whole machine crawl scans supported readable files under crawl roots using normal OS permissions, default exclusions, and file limits.</p>
+    <div class="form-group">
+      <label>File or directory paths</label>
+      <textarea id="pmFilePaths" placeholder="One path per line. Example: C:\Users\you\Documents"></textarea>
+    </div>
+    <div class="form-group">
+      <label>Email paths</label>
+      <textarea id="pmEmailPaths" placeholder="One .eml, .mbox, or directory path per line"></textarea>
+    </div>
+    <div class="form-group">
+      <label>Crawl roots</label>
+      <textarea id="pmCrawlRoots" placeholder="One root per line. Leave blank to use local drives/home when crawl is enabled."></textarea>
+    </div>
+    <div class="form-group">
+      <label>Excluded paths</label>
+      <textarea id="pmExcludePaths" placeholder="One excluded path per line"></textarea>
+    </div>
+    <div class="row">
+      <button id="pmSaveConsent" class="primary">Save Consent</button>
+      <button id="pmRevokeConsent" class="danger">Revoke</button>
+      <button id="pmBootstrap" class="primary">Bootstrap Personal Model</button>
+    </div>
+
+    <div class="section-hdr">Primary Model Handoff</div>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="pmObjective" placeholder="objective for the main AI model" style="flex:3;">
+      <button id="pmHandoff" class="primary">Build Handoff</button>
+    </div>
+    <pre class="output" id="pmOutput">Ready.</pre>
   </div>
 
   <!-- ── SKILLS ────────────────────────────────────────────────────────── -->

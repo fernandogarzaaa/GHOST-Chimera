@@ -14,11 +14,22 @@ class ReleasePackageTests(unittest.TestCase):
     def test_pyproject_has_cli_entrypoints(self) -> None:
         data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         scripts = data["project"]["scripts"]
+        package_data = data["tool"]["setuptools"]["package-data"]["ghostchimera"]
 
         self.assertEqual(data["project"]["name"], "ghostchimera")
         self.assertEqual(scripts["ghostchimera"], "ghostchimera.control_plane.cli:_main")
         self.assertEqual(scripts["chimera-pilot"], "ghostchimera.chimera_pilot.cli:main")
         self.assertEqual(scripts["ghostchimera-eval"], "ghostchimera.evals.__main__:main")
+        self.assertIn("control_plane/static/*.html", package_data)
+        self.assertIn("control_plane/static/*.js", package_data)
+        self.assertIn("control_plane/static/*.css", package_data)
+
+    def test_runtime_version_matches_pyproject(self) -> None:
+        import ghostchimera
+
+        data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+        self.assertEqual(ghostchimera.__version__, data["project"]["version"])
 
     def test_required_release_docs_exist(self) -> None:
         required = [
@@ -51,6 +62,13 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertIn("python scripts/smoke_installed_wheel.py", checklist)
         self.assertIn("python scripts/smoke_installed_wheel.py --extras gateway", checklist)
         self.assertIn("gateway extras", checklist)
+
+    def test_installed_wheel_smoke_covers_personal_minimind_cli(self) -> None:
+        smoke = (ROOT / "scripts" / "smoke_installed_wheel.py").read_text(encoding="utf-8")
+
+        self.assertIn('"personal-status"', smoke)
+        self.assertIn('"personal-consent"', smoke)
+        self.assertIn('"personal-bootstrap"', smoke)
 
     def test_manifest_includes_release_scripts(self) -> None:
         manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")

@@ -140,7 +140,24 @@ def _main(argv: list[str] | None = None) -> int:
     workspace_parser.add_argument("--goal", default="", help="Goal name for set-goal.")
     workspace_parser.add_argument("--description", default="", help="Goal description for set-goal.")
     minimind_parser = sub.add_parser("minimind", help="Inspect MiniMind local runtime support")
-    minimind_parser.add_argument("action", choices=["status", "architectures", "dataset", "log-failure", "bootstrap-personal", "beta-vision"], nargs="?", default="status")
+    minimind_parser.add_argument(
+        "action",
+        choices=[
+            "status",
+            "architectures",
+            "dataset",
+            "log-failure",
+            "bootstrap-personal",
+            "beta-vision",
+            "personal-status",
+            "personal-consent",
+            "personal-bootstrap",
+            "personal-handoff",
+            "personal-revoke",
+        ],
+        nargs="?",
+        default="status",
+    )
     minimind_parser.add_argument("--profile", default="", help="MiniMind/local model profile.")
     minimind_parser.add_argument("--output", default="", help="Output JSONL path.")
     minimind_parser.add_argument("--prompt", default="", help="Prompt/instruction text.")
@@ -148,10 +165,22 @@ def _main(argv: list[str] | None = None) -> int:
     minimind_parser.add_argument("--confidence", type=float, default=0.0)
     minimind_parser.add_argument("--threshold", type=float, default=0.5)
     minimind_parser.add_argument("--memory-db", default=".ghostchimera-memory.sqlite3", help="Memory DB path for personal ingestion.")
+    minimind_parser.add_argument("--state-dir", default="", help="Optional state directory for Personal MiniMind consent/datasets.")
     minimind_parser.add_argument("--allow-files", action="store_true", help="Allow ingestion of file paths/directories.")
     minimind_parser.add_argument("--allow-email", action="store_true", help="Allow ingestion of .eml/.mbox paths/directories.")
+    minimind_parser.add_argument("--admin-controls", action="store_true", help="Grant Personal MiniMind admin consent.")
+    minimind_parser.add_argument("--allow-system-specs", action="store_true", help="Allow Personal MiniMind to read local system specs.")
+    minimind_parser.add_argument("--allow-machine-crawl", action="store_true", help="Allow Personal MiniMind to discover supported files from crawl roots.")
+    minimind_parser.add_argument("--allow-email-crawl", action="store_true", help="Allow Personal MiniMind to discover .eml/.mbox files from crawl roots.")
+    minimind_parser.add_argument("--allow-autonomy", action="store_true", help="Allow Personal MiniMind to prepare autonomy job handoffs.")
+    minimind_parser.add_argument("--allow-training", action="store_true", help="Allow Personal MiniMind to write training dataset records.")
+    minimind_parser.add_argument("--include-system-specs", action="store_true", help="Include local system specs during Personal MiniMind bootstrap.")
+    minimind_parser.add_argument("--operator", default="cli", help="Operator label stored with Personal MiniMind consent.")
+    minimind_parser.add_argument("--objective", default="", help="Objective for Personal MiniMind handoff.")
     minimind_parser.add_argument("--file-path", action="append", default=[], help="File or directory path to ingest. Repeatable.")
     minimind_parser.add_argument("--email-path", action="append", default=[], help=".eml/.mbox file or directory path to ingest. Repeatable.")
+    minimind_parser.add_argument("--crawl-root", action="append", default=[], help="Root to scan when whole-machine crawl is enabled. Repeatable; defaults to local drives/home.")
+    minimind_parser.add_argument("--exclude-path", action="append", default=[], help="Path to exclude from whole-machine crawl. Repeatable.")
     minimind_parser.add_argument("--max-files", type=int, default=500, help="Maximum files to ingest per file directory.")
     minimind_parser.add_argument("--max-emails", type=int, default=1000, help="Maximum emails/files to ingest per email directory/archive.")
     minimind_parser.add_argument("--config", default="", help="Path to beta vision JSON config.")
@@ -436,9 +465,15 @@ def _run_workspace_cli(args: argparse.Namespace) -> int:
 
 def _run_minimind_cli(args: argparse.Namespace) -> int:
     from ..model_layer.minimind_lifecycle import MiniMindLifecycle
+    from ..model_layer.minimind_personal_agent import MiniMindPersonalAgent
     from ..model_layer.minimind_runtime import list_minimind_architectures, minimind_source_metadata
 
-    lifecycle = MiniMindLifecycle(profile_name=args.profile or None)
+    lifecycle = MiniMindLifecycle(profile_name=args.profile or None, state_dir=args.state_dir or None)
+    personal = MiniMindPersonalAgent(
+        profile_name=args.profile or None,
+        memory_db=args.memory_db,
+        state_dir=args.state_dir or None,
+    )
     if args.action == "status":
         print(json.dumps(lifecycle.status().to_dict(), indent=2, sort_keys=True))
         return 0
@@ -503,6 +538,47 @@ def _run_minimind_cli(args: argparse.Namespace) -> int:
             )
         payload = run_beta_vision(config=config, profile_name=args.profile or None)
         print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.action == "personal-status":
+        print(json.dumps(personal.status(), indent=2, sort_keys=True))
+        return 0
+    if args.action == "personal-consent":
+        payload = personal.grant_consent(
+            admin_controls=args.admin_controls,
+            allow_system_specs=args.allow_system_specs,
+            allow_files=args.allow_files,
+            allow_email=args.allow_email,
+            allow_machine_crawl=args.allow_machine_crawl,
+            allow_email_crawl=args.allow_email_crawl,
+            allow_autonomy=args.allow_autonomy,
+            allow_training=args.allow_training,
+            file_paths=list(args.file_path or []),
+            email_paths=list(args.email_path or []),
+            crawl_roots=list(args.crawl_root or []),
+            exclude_paths=list(args.exclude_path or []),
+            operator=args.operator,
+        )
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 2
+    if args.action == "personal-bootstrap":
+        payload = personal.bootstrap(
+            file_paths=list(args.file_path or []),
+            email_paths=list(args.email_path or []),
+            include_system_specs=args.include_system_specs,
+            max_files=args.max_files,
+            max_emails=args.max_emails,
+        )
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 2
+    if args.action == "personal-handoff":
+        if not args.objective:
+            print(json.dumps({"ok": False, "error": "Pass --objective for personal-handoff."}, indent=2, sort_keys=True))
+            return 2
+        payload = personal.build_handoff(args.objective)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 2
+    if args.action == "personal-revoke":
+        print(json.dumps(personal.revoke_consent(), indent=2, sort_keys=True))
         return 0
     return 2
 

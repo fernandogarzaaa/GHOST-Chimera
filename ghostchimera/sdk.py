@@ -43,6 +43,7 @@ from .chimera_pilot.executor import PilotExecution
 from .chimera_pilot.kernel import ChimeraPilotKernel
 from .memory_layer.store import MemoryStore
 from .model_layer.minimind_lifecycle import MiniMindLifecycle
+from .model_layer.minimind_personal_agent import MiniMindPersonalAgent
 from .personalization.context_provider import PersonalContextProvider
 from .personalization.document_ingester import DocumentIngester, DocumentIngestResult
 from .personalization.email_ingester import EmailIngester, EmailIngestResult
@@ -127,6 +128,10 @@ class GhostClient:
         self._memory = MemoryStore(_db)
         self._email_ingester = EmailIngester(self._memory)
         self._doc_ingester = DocumentIngester(self._memory)
+        self._personal_minimind = MiniMindPersonalAgent(
+            state_dir=self._state_dir,
+            memory_db=self._memory.db_path,
+        )
 
     # ── Running objectives ────────────────────────────────────────────────
 
@@ -269,6 +274,75 @@ class GhostClient:
         status["dataset_path"] = str(dataset_path)
         status["dataset_count"] = dataset_count
         return status
+
+    def enable_personal_minimind(
+        self,
+        *,
+        admin_controls: bool,
+        allow_system_specs: bool = False,
+        allow_files: bool = False,
+        allow_email: bool = False,
+        allow_machine_crawl: bool = False,
+        allow_email_crawl: bool = False,
+        allow_autonomy: bool = False,
+        allow_training: bool = False,
+        file_paths: list[str | Path] | None = None,
+        email_paths: list[str | Path] | None = None,
+        crawl_roots: list[str | Path] | None = None,
+        exclude_paths: list[str | Path] | None = None,
+        operator: str = "sdk",
+    ) -> dict[str, Any]:
+        """Grant explicit consent for Personal MiniMind source ingestion."""
+
+        return self._personal_minimind.grant_consent(
+            admin_controls=admin_controls,
+            allow_system_specs=allow_system_specs,
+            allow_files=allow_files,
+            allow_email=allow_email,
+            allow_machine_crawl=allow_machine_crawl,
+            allow_email_crawl=allow_email_crawl,
+            allow_autonomy=allow_autonomy,
+            allow_training=allow_training,
+            file_paths=file_paths,
+            email_paths=email_paths,
+            crawl_roots=crawl_roots,
+            exclude_paths=exclude_paths,
+            operator=operator,
+        )
+
+    def revoke_personal_minimind(self) -> dict[str, Any]:
+        """Revoke Personal MiniMind consent."""
+
+        return self._personal_minimind.revoke_consent()
+
+    def personal_minimind_status(self) -> dict[str, Any]:
+        """Return Personal MiniMind consent, memory, dataset, and RAG readiness."""
+
+        return self._personal_minimind.status()
+
+    def bootstrap_personal_minimind(
+        self,
+        *,
+        file_paths: list[str | Path] | None = None,
+        email_paths: list[str | Path] | None = None,
+        include_system_specs: bool = False,
+        max_files: int = 500,
+        max_emails: int = 1000,
+    ) -> dict[str, Any]:
+        """Ingest consented local sources and build the Personal MiniMind dataset."""
+
+        return self._personal_minimind.bootstrap(
+            file_paths=file_paths,
+            email_paths=email_paths,
+            include_system_specs=include_system_specs,
+            max_files=max_files,
+            max_emails=max_emails,
+        )
+
+    def minimind_handoff(self, objective: str, *, limit: int = 8) -> dict[str, Any]:
+        """Build a Personal MiniMind RAG prompt for the configured primary model."""
+
+        return self._personal_minimind.build_handoff(objective, limit=limit)
 
     # ── Context preview (debugging) ───────────────────────────────────────
 

@@ -542,6 +542,87 @@ class ConsoleRouteTests(unittest.TestCase):
             self.assertIn("dataset_count", r4["status"])
             self.assertGreaterEqual(r4["status"]["dataset_count"], 1)
 
+    def test_console_registers_personal_minimind_routes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-console-minimind-") as tmp:
+            base = Path(tmp)
+            env = GhostChimeraConfig.from_env()
+            config = GhostChimeraConfig(
+                state_dir=base,
+                memory_db=base / "memory.sqlite3",
+                audit_file=base / "audit.json",
+                policy=env.policy,
+                local_model_path="",
+                local_model_profile="tiny",
+                local_model_gpu_layers=0,
+                autonomy_level="supervised",
+            )
+            server = GatewayServer(config=config)
+            register_console_routes(server, state_dir=tmp)
+
+            status_route = server.routes.find("GET", "/api/console/minimind/personal/status")
+            consent_route = server.routes.find("POST", "/api/console/minimind/personal/consent")
+            bootstrap_route = server.routes.find("POST", "/api/console/minimind/personal/bootstrap")
+            handoff_route = server.routes.find("POST", "/api/console/minimind/personal/handoff")
+            self.assertIsNotNone(status_route)
+            self.assertIsNotNone(consent_route)
+            self.assertIsNotNone(bootstrap_route)
+            self.assertIsNotNone(handoff_route)
+
+            initial = status_route.handler({"method": "GET", "path": "/api/console/minimind/personal/status", "headers": {}, "body": "", "query": {}})
+            self.assertFalse(initial["status"]["enabled"])
+
+            note = base / "notes.txt"
+            note.write_text("Follow-up: prepare public beta release v0.4.0.", encoding="utf-8")
+            consent = consent_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/minimind/personal/consent",
+                    "headers": {},
+                    "body": json.dumps(
+                        {
+                            "admin_controls": True,
+                            "allow_system_specs": True,
+                            "allow_files": True,
+                            "allow_email": False,
+                            "allow_machine_crawl": True,
+                            "allow_email_crawl": False,
+                            "allow_autonomy": True,
+                            "allow_training": True,
+                            "file_paths": [str(note)],
+                            "crawl_roots": [str(base)],
+                        }
+                    ),
+                    "query": {},
+                }
+            )
+            self.assertTrue(consent["ok"])
+            self.assertTrue(consent["consent"]["allow_machine_crawl"])
+
+            bootstrapped = bootstrap_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/minimind/personal/bootstrap",
+                    "headers": {},
+                    "body": json.dumps({"include_system_specs": True, "max_files": 10}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(bootstrapped["ok"])
+            self.assertTrue(bootstrapped["crawl"]["enabled"])
+            self.assertGreaterEqual(bootstrapped["bootstrap"]["dataset_records"], 1)
+
+            handoff = handoff_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/minimind/personal/handoff",
+                    "headers": {},
+                    "body": json.dumps({"objective": "What beta release work is pending?"}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(handoff["ok"])
+            self.assertIn("primary_model_prompt", handoff)
+
     def test_console_readiness_route_returns_release_runbook(self) -> None:
         server = GatewayServer()
         register_console_routes(server)

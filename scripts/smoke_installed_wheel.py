@@ -46,6 +46,13 @@ def _run(command: list[str], *, timeout: int = 120) -> dict[str, object]:
 
 
 def _smoke_commands(python: Path, extras: str, state_dir: Path) -> list[list[str]]:
+    personal_source_dir = state_dir / "personal-minimind-source"
+    personal_source_dir.mkdir(parents=True, exist_ok=True)
+    (personal_source_dir / "operator-notes.txt").write_text(
+        "Installed wheel Personal MiniMind smoke note for local dataset bootstrap.",
+        encoding="utf-8",
+    )
+    personal_memory = state_dir / "personal-minimind.sqlite3"
     commands = [
         [str(python), "-c", "import ghostchimera; print(ghostchimera.__version__)"],
         [str(python), "-m", "ghostchimera", "--help"],
@@ -85,6 +92,57 @@ def _smoke_commands(python: Path, extras: str, state_dir: Path) -> list[list[str
         ],
         [str(python), "-m", "ghostchimera", "minimind", "architectures"],
         [str(python), "-m", "ghostchimera", "minimind", "status"],
+        [
+            str(python),
+            "-m",
+            "ghostchimera",
+            "minimind",
+            "personal-status",
+            "--state-dir",
+            str(state_dir),
+            "--memory-db",
+            str(personal_memory),
+        ],
+        [
+            str(python),
+            "-m",
+            "ghostchimera",
+            "minimind",
+            "personal-consent",
+            "--state-dir",
+            str(state_dir),
+            "--memory-db",
+            str(personal_memory),
+            "--admin-controls",
+            "--allow-machine-crawl",
+            "--allow-training",
+            "--crawl-root",
+            str(personal_source_dir),
+        ],
+        [
+            str(python),
+            "-m",
+            "ghostchimera",
+            "minimind",
+            "personal-bootstrap",
+            "--state-dir",
+            str(state_dir),
+            "--memory-db",
+            str(personal_memory),
+            "--max-files",
+            "10",
+        ],
+        [
+            str(python),
+            "-m",
+            "ghostchimera",
+            "minimind",
+            "personal-revoke",
+            "--state-dir",
+            str(state_dir),
+            "--memory-db",
+            str(personal_memory),
+        ],
     ]
     if extras:
         commands.extend(

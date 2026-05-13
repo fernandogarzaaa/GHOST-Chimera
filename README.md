@@ -1,6 +1,6 @@
 # Ghost Chimera
 
-![Version](https://img.shields.io/badge/version-0.3.0--beta-blueviolet)
+![Version](https://img.shields.io/badge/version-0.4.0--beta-blueviolet)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![CI](https://img.shields.io/badge/CI-ubuntu%20%7C%20windows%20%7C%20macos-brightgreen)
@@ -12,7 +12,7 @@ Key capabilities:
 - **10 Chimera Pilot backends** — deterministic, Python, memory retrieval, Gemini reasoning, local GGUF, analytics, simulation, desktop control, MCP, and quantum simulator.
 - **Browser console (Ghost Console)** — full point-and-click UI with Quick Actions, Skills browser, Run history, live security monitor, cron scheduler, and provider visibility. No terminal needed for day-to-day use.
 - **Conservative safety defaults** — Python, shell, network, and desktop execution are all off by default. Production mode adds deployment-level guardrails.
-- **Personal memory** — SQLite FTS5 local memory with email/document ingestion, freshness scoring, and MiniMind fine-tuning pipeline.
+- **Personal MiniMind** — consent-gated local memory bootstrap with system specs, approved files/email exports, optional whole-machine/email-artifact crawling, MiniMind JSONL dataset generation, and primary-model RAG handoff.
 
 This is beta-stage software for real, user-supervised work in local-first environments. It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
 
@@ -147,6 +147,7 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 | **Jobs** | Run profile-aware autonomy jobs (`self-audit`, `dependency-scan`, `test-regression`, `memory-refresh`, `model-health-check`, `repair-preview`) and view their durable history. |
 | **Workspace** | Set goals, add evidence, add reflections, view full workspace state, sync high-confidence evidence into CWR memory. |
 | **Memory** | Ingest emails (`.eml` / `.mbox` files or pasted raw RFC 2822 text), ingest files/directories, ingest plain text, search memory, teach Ghost by recording prompt/response training pairs, export MiniMind JSONL datasets, view MiniMind status. |
+| **MiniMind** | Grant or revoke Personal MiniMind admin consent, configure approved local/email source paths, toggle whole-machine and email-artifact crawling, bootstrap personal memory and datasets, and build the RAG handoff prompt for the configured primary model. |
 | **Skills** | Browse all registered skills (bundled + workspace) with domain and description, select a skill and optional input, run it directly from the browser. Backed by `GET /api/console/skills`. |
 | **Browser** | Fetch a URL (content scraping), open a URL in the agent browser workspace, take a DOM snapshot. |
 | **Security** | Security metric cards, HMAC audit chain status, recent LobsterTrap/DPI threat events. |
@@ -195,6 +196,10 @@ ghostchimera minimind architectures
 ghostchimera minimind status
 ghostchimera minimind dataset --prompt "..." --response "..."
 ghostchimera minimind log-failure --prompt "..." --response "..." --confidence 0.2
+ghostchimera minimind personal-consent --admin-controls --allow-system-specs --allow-files --allow-email --allow-training --file-path ~/Documents --email-path ~/mail/export.mbox
+ghostchimera minimind personal-consent --admin-controls --allow-machine-crawl --allow-email-crawl --allow-training --crawl-root ~/Documents
+ghostchimera minimind personal-bootstrap --include-system-specs
+ghostchimera minimind personal-handoff --objective "What should Ghost do next?"
 
 # Local model bootstrap
 ghostchimera local-model check
@@ -376,11 +381,13 @@ Ghost Chimera includes a **local-first personal memory system** backed by SQLite
 - **Freshness scoring** — `MemoryStore.search()` returns `freshness_score` (exponential decay, 30-day half-life), `citation_quality` (freshness × content-length heuristic), and `created_at`. Accepts a `stale_after_days` filter.
 - **Personal context injection** — `PersonalContextProvider` retrieves top FTS matches and injects them into the system prompt for `REASONING`, `LONG_CONTEXT_DOC`, and `CODE_EDIT` tasks, or into `inputs["context"]` for `WEB_RESEARCH`, `FILE_ANALYSIS`, `RAG_QUERY`, and `ANALYTICS_QUERY`.
 - **Teaching pipeline** — record prompt/response pairs through the Memory tab or `GhostClient.teach()`. Pairs accumulate in `~/.ghostchimera/minimind/datasets/dataset.jsonl` for local MiniMind fine-tuning.
+- **Personal MiniMind bootstrap** — `MiniMindPersonalAgent` stores explicit admin consent, ingests approved system specs/files/email exports, optionally discovers readable local files and `.eml`/`.mbox` email artifacts under crawl roots, builds a personal dataset from local memory, and returns a primary-model handoff prompt so the configured Ghost model can execute with personal context.
 
 ```bash
 chimera-pilot memory-add --memory-db .ghostchimera-memory.sqlite3 --source notes --content "..."
 chimera-pilot memory-search --memory-db .ghostchimera-memory.sqlite3 "query"
 ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30
+ghostchimera minimind personal-status
 ```
 
 ---
@@ -514,19 +521,34 @@ MiniMind helpers for the training pipeline:
 ```bash
 ghostchimera minimind dataset --prompt "..." --response "..."
 ghostchimera minimind log-failure --prompt "..." --response "..." --confidence 0.2
+ghostchimera minimind personal-consent --admin-controls --allow-system-specs --allow-files --allow-email --allow-autonomy --allow-training --file-path ~/Documents --email-path ~/mail/export.mbox
+ghostchimera minimind personal-consent --admin-controls --allow-machine-crawl --allow-email-crawl --allow-training --crawl-root ~ --exclude-path ~/.ssh
+ghostchimera minimind personal-bootstrap --include-system-specs
+ghostchimera minimind personal-handoff --objective "Review my personal context and identify pending work."
 ```
 
 Training data accumulates (append-only) at `~/.ghostchimera/minimind/datasets/dataset.jsonl`. `MINIMIND_ROOT` is optional for users who keep an upstream MiniMind workspace nearby.
 
+Personal MiniMind in `0.4.0-beta` is the local-first bridge between the user's private context and the configured primary AI model:
+
+- Admin controls are off until the operator grants consent from the MiniMind tab, CLI, or SDK.
+- System specs, explicit files, explicit email exports, whole-machine crawling, email-artifact crawling, autonomy handoff, and training are separate consent scopes.
+- Whole-machine crawl uses the current OS user permissions, default exclusions, configured roots, and file/email limits. It does not bypass permissions or decrypt protected stores.
+- The local memory corpus becomes both RAG context and MiniMind JSONL training data.
+- `personal-handoff` returns a ready prompt bundle containing relevant memory snippets and task hints for the configured main model.
+- See `docs/PERSONAL_MINIMIND_PRIVACY.md` before enabling broad crawl on a machine that contains sensitive or regulated data.
+
+MiniMind does not require a cloud AI provider for local personalization. The memory store, dataset generation, and handoff prompt are local. Real MiniMind inference can run on the user's machine when weights and runtime dependencies are installed, including a Transformers/PyTorch checkpoint via `.[minimind]` or compatible quantized local weights through the llama.cpp/GGUF path when available. The primary Ghost model can be a remote provider or a local model; Personal MiniMind only supplies the personal RAG context and task hints.
+
 The integration is derived from the public Apache-2.0 MiniMind project and attributed in `NOTICE`.
 
-**Important safety boundary:** enabling MiniMind does **not** automatically request admin/OS permissions, crawl your entire machine/email, or self-train autonomously. Operators must explicitly ingest sources (files/email exports/text), provide model weights, and run training workflows themselves.
+**Important safety boundary:** Personal MiniMind is powerful and privacy-sensitive. It only reads local sources after explicit admin consent and approved path scopes, keeps the resulting memory/datasets local, and exposes revocation through the dashboard and CLI. Operators still provide MiniMind weights for real local inference and run any fine-tuning workflow in their own environment.
 
 ---
 
 ## Extension Surfaces
 
-The `0.3.0-beta` line closes all 10 main OpenClaw parity gaps with concrete extension contracts:
+The `0.4.0-beta` line keeps the OpenClaw parity contracts from `0.3.0-beta` and adds Personal MiniMind as a dashboard-first local personalization layer:
 
 | Contract | Purpose |
 |---|---|
@@ -626,6 +648,7 @@ The full test suite requires `.[gateway]` (croniter) and `.[mcp]` (mcp) to be in
 - `CHIMERA_PILOT.md` — focused Chimera Pilot usage and backend notes.
 - `SECURITY.md` — supported status, high-risk capabilities, and hardening guidance.
 - `CHANGELOG.md` — detailed per-version change log.
+- `docs/PERSONAL_MINIMIND_PRIVACY.md` — Personal MiniMind consent scopes, whole-machine/email crawling behavior, local storage, and local runtime guidance.
 - `docs/ARCHITECTURE.md` — layered architecture and runtime convergence.
 - `docs/AGENT_LOOP.md` — multi-turn `AIAgent` loop design.
 - `docs/GATEWAY_SERVER.md` — gateway server HTTP route registry and WebSocket protocol.

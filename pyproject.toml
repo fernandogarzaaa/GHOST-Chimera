@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ghostchimera"
-version = "0.3.0-beta"
+version = "0.4.0-beta"
 description = "Local-first agent orchestration prototype with Chimera Pilot scheduling and runtime control."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -64,7 +64,12 @@ ghostchimera-eval = "ghostchimera.evals.__main__:main"
 include = ["ghostchimera*"]
 
 [tool.setuptools.package-data]
-ghostchimera = ["py.typed"]
+ghostchimera = [
+  "py.typed",
+  "control_plane/static/*.html",
+  "control_plane/static/*.js",
+  "control_plane/static/*.css",
+]
 
 [tool.ruff]
 line-length = 120

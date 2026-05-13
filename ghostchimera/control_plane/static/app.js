@@ -203,6 +203,7 @@
       await refreshSchedules();
       await refreshWorkspace();
       await refreshMemory();
+      await refreshPersonalMiniMind();
       await refreshReadiness();
     } catch (e) {
       badge($("#health"), "offline", "error");
@@ -534,6 +535,115 @@
       var r = await api("/api/console/minimind/dataset", { method: "POST", body: { records: records } });
       memOut(r);
       if (r.ok) toast("Dataset exported to " + r.path, "ok");
+    } catch (e) { toast(e.message, "error"); }
+  });
+
+  // Personal MiniMind
+  function pathLines(id) {
+    return ($("#" + id).value || "").split(/\r?\n/).map(function(x) { return x.trim(); }).filter(Boolean);
+  }
+  function setPathLines(id, values) {
+    $("#" + id).value = Array.isArray(values) ? values.join("\n") : "";
+  }
+  function pmOut(r) { $("#pmOutput").textContent = JSON.stringify(r, null, 2); }
+
+  async function refreshPersonalMiniMind() {
+    var panel = $("#personalMiniMindStatus");
+    if (!panel) return;
+    try {
+      var data = await api("/api/console/minimind/personal/status");
+      var st = data.status || {};
+      var consent = st.consent || {};
+      $("#pmAdmin").checked = !!consent.admin_controls;
+      $("#pmSystemSpecs").checked = !!consent.allow_system_specs;
+      $("#pmFiles").checked = !!consent.allow_files;
+      $("#pmEmail").checked = !!consent.allow_email;
+      $("#pmMachineCrawl").checked = !!consent.allow_machine_crawl;
+      $("#pmEmailCrawl").checked = !!consent.allow_email_crawl;
+      $("#pmAutonomy").checked = !!consent.allow_autonomy;
+      $("#pmTraining").checked = !!consent.allow_training;
+      setPathLines("pmFilePaths", consent.file_paths || []);
+      setPathLines("pmEmailPaths", consent.email_paths || []);
+      setPathLines("pmCrawlRoots", consent.crawl_roots || []);
+      setPathLines("pmExcludePaths", consent.exclude_paths || []);
+
+      panel.innerHTML = "";
+      [
+        ["Enabled", st.enabled ? "yes" : "no", st.enabled ? "ok" : "warn"],
+        ["Memory", String(st.memory_count || 0), "ok"],
+        ["Dataset", String(st.dataset_count || 0), (st.dataset_count || 0) > 0 ? "ok" : "warn"],
+        ["RAG handoff", st.readiness && st.readiness.primary_model_handoff_ready ? "ready" : "not ready", st.readiness && st.readiness.primary_model_handoff_ready ? "ok" : "warn"],
+        ["Machine crawl", st.readiness && st.readiness.whole_machine_crawl_ready ? "on" : "off", st.readiness && st.readiness.whole_machine_crawl_ready ? "warn" : ""],
+      ].forEach(function(row) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "name" }, row[0]));
+        item.appendChild(el("span", { class: "badge " + row[2] }, row[1]));
+        if (row[0] === "Dataset") item.appendChild(el("span", { class: "meta" }, st.dataset_path || ""));
+        panel.appendChild(item);
+      });
+    } catch (_) { empty("#personalMiniMindStatus", "Personal MiniMind unavailable."); }
+  }
+
+  $("#pmSaveConsent").addEventListener("click", async function() {
+    try {
+      var r = await api("/api/console/minimind/personal/consent", {
+        method: "POST",
+        body: {
+          admin_controls: $("#pmAdmin").checked,
+          allow_system_specs: $("#pmSystemSpecs").checked,
+          allow_files: $("#pmFiles").checked,
+          allow_email: $("#pmEmail").checked,
+          allow_machine_crawl: $("#pmMachineCrawl").checked,
+          allow_email_crawl: $("#pmEmailCrawl").checked,
+          allow_autonomy: $("#pmAutonomy").checked,
+          allow_training: $("#pmTraining").checked,
+          file_paths: pathLines("pmFilePaths"),
+          email_paths: pathLines("pmEmailPaths"),
+          crawl_roots: pathLines("pmCrawlRoots"),
+          exclude_paths: pathLines("pmExcludePaths"),
+        },
+      });
+      pmOut(r);
+      toast(r.ok ? "Personal MiniMind consent saved." : (r.error || "Consent rejected."), r.ok ? "ok" : "error");
+      await refreshPersonalMiniMind();
+    } catch (e) { toast(e.message, "error"); }
+  });
+
+  $("#pmRevokeConsent").addEventListener("click", async function() {
+    try {
+      var r = await api("/api/console/minimind/personal/revoke", { method: "POST" });
+      pmOut(r);
+      toast("Personal MiniMind consent revoked.", "ok");
+      await refreshPersonalMiniMind();
+    } catch (e) { toast(e.message, "error"); }
+  });
+
+  $("#pmBootstrap").addEventListener("click", async function() {
+    try {
+      var r = await api("/api/console/minimind/personal/bootstrap", {
+        method: "POST",
+        body: {
+          include_system_specs: $("#pmSystemSpecs").checked,
+          file_paths: pathLines("pmFilePaths"),
+          email_paths: pathLines("pmEmailPaths"),
+          crawl_roots: pathLines("pmCrawlRoots"),
+          exclude_paths: pathLines("pmExcludePaths"),
+        },
+      });
+      pmOut(r);
+      toast(r.ok ? "Personal MiniMind bootstrap complete." : (r.error || "Bootstrap blocked."), r.ok ? "ok" : "error");
+      await refreshPersonalMiniMind();
+      await refreshMemory();
+    } catch (e) { toast(e.message, "error"); }
+  });
+
+  $("#pmHandoff").addEventListener("click", async function() {
+    var objective = ($("#pmObjective").value || "").trim();
+    if (!objective) { toast("Enter an objective first.", "warn"); return; }
+    try {
+      var r = await api("/api/console/minimind/personal/handoff", { method: "POST", body: { objective: objective } });
+      pmOut(r);
+      toast(r.ok ? "Handoff ready." : (r.error || "Handoff failed."), r.ok ? "ok" : "error");
     } catch (e) { toast(e.message, "error"); }
   });
 

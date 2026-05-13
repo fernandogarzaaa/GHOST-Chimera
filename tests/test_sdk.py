@@ -127,6 +127,27 @@ class GhostClientTests(unittest.TestCase):
             self.assertIn("dataset_path", status)
             self.assertIn("dataset_count", status)
 
+    def test_personal_minimind_workflow_available_from_sdk(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="gc-sdk-test-") as tmp:
+            base = Path(tmp)
+            note = base / "work.txt"
+            note.write_text("Follow-up: draft the MiniMind v0.4.0 beta notes.", encoding="utf-8")
+            client = self._client(tmp)
+
+            consent = client.enable_personal_minimind(
+                admin_controls=True,
+                allow_files=True,
+                allow_training=True,
+                file_paths=[note],
+            )
+            bootstrapped = client.bootstrap_personal_minimind()
+            handoff = client.minimind_handoff("What should I work on?")
+
+            self.assertTrue(consent["ok"])
+            self.assertTrue(bootstrapped["ok"])
+            self.assertIn("MiniMind v0.4.0", handoff["personal_context"])
+            self.assertIn("primary_model_prompt", handoff)
+
     # ── Context preview ────────────────────────────────────────────────────
 
     def test_preview_context_empty_memory(self) -> None:

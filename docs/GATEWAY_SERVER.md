@@ -24,6 +24,15 @@ All console routes are registered via `register_console_routes()` and include:
 | `/api/console/workspace` | GET | Current workspace state (evidence, reflections) |
 | `/api/console/workspace/evidence` | POST | Add evidence |
 | `/api/console/workspace/sync-memory` | POST | Sync workspace to CWR memory |
+| `/api/console/memory/status` | GET | Local personal memory status |
+| `/api/console/memory/ingest-email` | POST | Ingest raw, `.eml`, or `.mbox` email into memory |
+| `/api/console/memory/ingest-file` | POST | Ingest approved local file or directory into memory |
+| `/api/console/minimind/status` | GET | MiniMind architecture/runtime status |
+| `/api/console/minimind/personal/status` | GET | Personal MiniMind consent, memory, dataset, and handoff readiness |
+| `/api/console/minimind/personal/consent` | POST | Grant Personal MiniMind admin, source-scope, whole-machine, and email-crawl consent |
+| `/api/console/minimind/personal/revoke` | POST | Revoke Personal MiniMind consent |
+| `/api/console/minimind/personal/bootstrap` | POST | Bootstrap Personal MiniMind from consented local sources |
+| `/api/console/minimind/personal/handoff` | POST | Build a personal RAG handoff prompt for the primary model |
 | `/api/console/readiness` | GET | Release readiness checklist |
 | `/api/console/browser/status` | GET | Browser workspace status |
 

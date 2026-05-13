@@ -161,6 +161,7 @@ class MiniMindLifecycle:
         email_paths: list[str] | None = None,
         max_files: int = 500,
         max_emails: int = 1000,
+        generate_training: bool = True,
     ) -> dict[str, Any]:
         """Explicitly ingest user-approved files/emails and seed MiniMind dataset.
 
@@ -225,7 +226,7 @@ class MiniMindLifecycle:
                         }
                     )
 
-        if dataset_records:
+        if dataset_records and generate_training:
             dataset_path = self.generate_dataset(dataset_records)
             summary["dataset_path"] = str(dataset_path)
             summary["dataset_records"] = len(dataset_records)

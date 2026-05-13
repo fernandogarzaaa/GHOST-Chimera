@@ -18,6 +18,11 @@ python scripts/smoke_installed_wheel.py
 python scripts/smoke_installed_wheel.py --extras gateway
 ghostchimera workspace show
 ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30
+ghostchimera minimind personal-status
+ghostchimera minimind personal-consent --admin-controls --allow-system-specs --allow-files --allow-training --file-path README.md
+ghostchimera minimind personal-consent --admin-controls --allow-machine-crawl --allow-email-crawl --allow-training --crawl-root . --exclude-path .git
+ghostchimera minimind personal-bootstrap --include-system-specs
+ghostchimera minimind personal-handoff --objective "Summarize pending beta release work"
 GHOSTCHIMERA_DEPLOYMENT_MODE=production GHOSTCHIMERA_EXTERNAL_ISOLATION=container GHOSTCHIMERA_SECURITY_REVIEWED=1 GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED=1 ghostchimera doctor --production
 ```
 
@@ -55,6 +60,12 @@ environment.
 - [ ] `chimera-pilot model-profiles` lists the constrained local model profiles.
 - [ ] `ghostchimera minimind architectures` lists embedded MiniMind architecture contracts without optional dependencies.
 - [ ] `ghostchimera minimind status` distinguishes embedded architecture availability from real MiniMind inference availability.
+- [ ] `ghostchimera minimind personal-status` reports consent, memory, dataset, and RAG handoff readiness.
+- [ ] `ghostchimera minimind personal-consent --admin-controls ...` persists explicit Personal MiniMind admin consent and approved source scopes.
+- [ ] `ghostchimera minimind personal-bootstrap --include-system-specs` ingests only consented sources and writes local dataset records when training is allowed.
+- [ ] Whole-machine crawl toggle discovers only readable supported files under configured roots, respects default/custom exclusions, and honors `--max-files` / `--max-emails`.
+- [ ] Console MiniMind tab can save/revoke consent, toggle whole-machine/email crawling, bootstrap approved sources, and build a primary-model handoff prompt.
+- [ ] `docs/PERSONAL_MINIMIND_PRIVACY.md` is current for consent scopes, local storage, email artifact crawling, and local MiniMind runtime behavior.
 - [ ] `chimera-pilot run "retrieve memory about project" --include-deterministic-backend` succeeds.
 - [ ] CWR memory add/search/run works with a local `--memory-db`.
 - [ ] `chimera-pilot run "python: print(2 + 3)"` is denied by default.

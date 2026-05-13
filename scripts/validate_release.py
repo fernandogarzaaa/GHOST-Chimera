@@ -56,6 +56,11 @@ def check_pyproject() -> dict[str, Any]:
     return {"ok": not missing, "missing": missing, "name": project.get("name"), "version": project.get("version")}
 
 
+def project_version() -> str:
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    return str(data.get("project", {}).get("version") or "")
+
+
 def check_imports() -> dict[str, Any]:
     modules = [
         "ghostchimera",
@@ -108,7 +113,7 @@ def check_compileall() -> dict[str, Any]:
 
 
 def check_beta_features() -> dict[str, Any]:
-    """Check that all v0.3.0 beta features exist."""
+    """Check that required beta feature surfaces exist."""
     errors: list[str] = []
 
     # rate_limiter.py
@@ -170,8 +175,9 @@ def check_beta_features() -> dict[str, Any]:
     init_py = ROOT / "ghostchimera" / "__init__.py"
     if init_py.exists():
         content = init_py.read_text()
-        if "0.3.0-beta" not in content:
-            errors.append("version not 0.3.0-beta in __init__.py")
+        expected_version = project_version()
+        if f'__version__ = "{expected_version}"' not in content:
+            errors.append(f"version not {expected_version} in __init__.py")
 
     return {"ok": not errors, "errors": errors}
 
