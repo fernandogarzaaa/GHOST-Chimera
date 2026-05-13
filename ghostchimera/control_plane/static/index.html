@@ -110,23 +110,76 @@
     <div class="row" style="margin-top:10px;"><button id="syncMemory" class="primary">Sync to CWR Memory</button></div>
   </div>
   <div class="tab-content" id="tab-memory">
-    <h3 style="margin:0 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Local Memory</h3>
+    <!-- ── Memory Status ──────────────────────────────────────────── -->
+    <h3 style="margin:0 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Memory Status</h3>
     <div id="memoryStatus"></div>
-    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Ingest Text</h3>
-    <div class="row" style="margin-bottom:10px;">
-      <input id="memorySource" placeholder="source (e.g. emails, notes, crm)" style="flex:1;">
-      <input id="memoryContent" placeholder="content" style="flex:2;">
-      <button id="memoryIngest" class="primary">Ingest</button>
+
+    <!-- ── Ingest Email ───────────────────────────────────────────── -->
+    <h3 style="margin:18px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase;">📧 Ingest Email</h3>
+    <p class="hint" style="margin-bottom:8px;">
+      Paste a raw RFC 2822 email below, or provide a path to a <code>.eml</code> / <code>.mbox</code>
+      file on the server.  Ghost learns from your email context automatically.
+    </p>
+    <div class="row" style="margin-bottom:6px;">
+      <input id="emailFilePath" placeholder="path to .eml or .mbox file (optional)" style="flex:3;">
+      <button id="emailIngestFile" class="primary">Ingest File</button>
     </div>
-    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">Search</h3>
+    <textarea id="emailRaw" placeholder="Or paste raw email text here (From: ..., Subject: ..., body)" style="height:80px;margin-bottom:6px;"></textarea>
+    <div class="row" style="margin-bottom:4px;">
+      <button id="emailIngestRaw" class="primary">Ingest Pasted Email</button>
+    </div>
+
+    <!-- ── Ingest Document ────────────────────────────────────────── -->
+    <h3 style="margin:18px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase;">📄 Ingest Document or Directory</h3>
+    <p class="hint" style="margin-bottom:8px;">
+      Provide a path to a text file (<code>.txt</code>, <code>.md</code>, <code>.py</code>, <code>.json</code>, …) or
+      a directory to recursively ingest.  Ghost chunks and indexes the content for future context.
+    </p>
+    <div class="row" style="margin-bottom:6px;">
+      <input id="fileIngestPath" placeholder="path to file or directory" style="flex:3;">
+      <input id="fileIngestSource" placeholder="source label (optional)" style="flex:1;">
+      <button id="fileIngest" class="primary">Ingest</button>
+    </div>
+
+    <!-- ── Ingest Text ────────────────────────────────────────────── -->
+    <h3 style="margin:18px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase;">✏️ Ingest Text</h3>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="memorySource" placeholder="source label (e.g. notes, crm)" style="flex:1;">
+      <input id="memoryContent" placeholder="content to remember" style="flex:2;">
+      <button id="memoryIngest" class="primary">Add</button>
+    </div>
+
+    <!-- ── Search ─────────────────────────────────────────────────── -->
+    <h3 style="margin:18px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase;">🔍 Search Memory</h3>
     <div class="row" style="margin-bottom:10px;">
       <input id="memoryQuery" placeholder="search query" style="flex:3;">
       <button id="memorySearch" class="primary">Search</button>
     </div>
     <pre class="output" id="memoryOutput">Ready.</pre>
 
-    <h3 style="margin:18px 0 10px;color:var(--muted);font-size:12px;text-transform:uppercase;">MiniMind Dataset Export</h3>
-    <p class="hint" style="margin-bottom:10px;">Paste a JSON array of {\"instruction\"|\"prompt\", \"output\"|\"response\"} records and export JSONL for local MiniMind workflows.</p>
+    <!-- ── Teach Ghost ────────────────────────────────────────────── -->
+    <h3 style="margin:18px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase;">🎓 Teach Ghost</h3>
+    <p class="hint" style="margin-bottom:8px;">
+      Record a good prompt/response pair to grow Ghost's personal training dataset.
+      This data can later be used to fine-tune a local MiniMind model on your domain.
+    </p>
+    <div class="form-group" style="margin-bottom:6px;">
+      <input id="teachPrompt" placeholder="Prompt / question" style="width:100%;">
+    </div>
+    <div class="form-group" style="margin-bottom:6px;">
+      <textarea id="teachResponse" placeholder="Ideal response / answer" style="height:70px;"></textarea>
+    </div>
+    <div class="row" style="margin-bottom:4px;">
+      <button id="teachSave" class="primary">Save Training Example</button>
+      <button id="trainingStatus">Training Status</button>
+    </div>
+
+    <!-- ── MiniMind Dataset Export ────────────────────────────────── -->
+    <h3 style="margin:18px 0 6px;color:var(--muted);font-size:12px;text-transform:uppercase;">🤖 MiniMind Dataset Export</h3>
+    <p class="hint" style="margin-bottom:8px;">
+      Paste a JSON array of <code>{"instruction"|"prompt", "output"|"response"}</code> records
+      and export as a JSONL training file for local MiniMind fine-tuning workflows.
+    </p>
     <div class="form-group">
       <textarea id="datasetRecords" placeholder='[{"instruction":"...","output":"..."}]'></textarea>
     </div>

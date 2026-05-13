@@ -404,7 +404,7 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
       var ms = $("#memoryStatus");
       ms.innerHTML = "";
       var item = el("div", { class: "list-item" });
-      item.appendChild(el("span", { class: "name" }, "Documents"));
+      item.appendChild(el("span", { class: "name" }, "Documents in memory"));
       item.appendChild(el("span", { class: "badge ok" }, String(st.count || 0)));
       item.appendChild(el("span", { class: "meta" }, st.memory_db || ""));
       ms.appendChild(item);
@@ -413,6 +413,36 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
     }
   }
 
+  // Email ingest — file path
+  $("#emailIngestFile").addEventListener("click", async function() {
+    var path = ($("#emailFilePath").value || "").trim();
+    if (!path) { $("#memoryOutput").textContent = "Enter a path to a .eml or .mbox file."; return; }
+    var r = await api("/api/console/memory/ingest-email", { method: "POST", body: { path: path } });
+    $("#memoryOutput").textContent = JSON.stringify(r, null, 2);
+    if (r.ok) await refreshMemory();
+  });
+
+  // Email ingest — raw paste
+  $("#emailIngestRaw").addEventListener("click", async function() {
+    var raw = ($("#emailRaw").value || "").trim();
+    if (!raw) { $("#memoryOutput").textContent = "Paste a raw email first."; return; }
+    var r = await api("/api/console/memory/ingest-email", { method: "POST", body: { raw: raw } });
+    $("#emailRaw").value = "";
+    $("#memoryOutput").textContent = JSON.stringify(r, null, 2);
+    if (r.ok) await refreshMemory();
+  });
+
+  // Document / file ingest
+  $("#fileIngest").addEventListener("click", async function() {
+    var path = ($("#fileIngestPath").value || "").trim();
+    if (!path) { $("#memoryOutput").textContent = "Enter a file or directory path."; return; }
+    var source = ($("#fileIngestSource").value || "").trim();
+    var r = await api("/api/console/memory/ingest-file", { method: "POST", body: { path: path, source: source } });
+    $("#memoryOutput").textContent = JSON.stringify(r, null, 2);
+    if (r.ok) await refreshMemory();
+  });
+
+  // Text ingest
   $("#memoryIngest").addEventListener("click", async function() {
     var source = ($("#memorySource").value || "").trim();
     var content = ($("#memoryContent").value || "").trim();
@@ -423,6 +453,7 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
     await refreshMemory();
   });
 
+  // Search
   $("#memorySearch").addEventListener("click", async function() {
     var q = ($("#memoryQuery").value || "").trim();
     if (!q) return;
@@ -430,16 +461,42 @@ function empty(id, msg) { var d = $(id); d.innerHTML = ""; d.appendChild(el("div
     $("#memoryOutput").textContent = JSON.stringify(r, null, 2);
   });
 
+  // Teach Ghost
+  $("#teachSave").addEventListener("click", async function() {
+    var prompt = ($("#teachPrompt").value || "").trim();
+    var response = ($("#teachResponse").value || "").trim();
+    if (!prompt || !response) { $("#memoryOutput").textContent = "Enter both a prompt and a response."; return; }
+    var r = await api("/api/console/training/teach", { method: "POST", body: { prompt: prompt, response: response } });
+    if (r.ok) {
+      $("#teachPrompt").value = "";
+      $("#teachResponse").value = "";
+    }
+    $("#memoryOutput").textContent = JSON.stringify(r, null, 2);
+  });
+
+  // Training status
+  $("#trainingStatus").addEventListener("click", async function() {
+    var r = await api("/api/console/training/status");
+    $("#memoryOutput").textContent = JSON.stringify(r, null, 2);
+  });
+
+  // MiniMind status
   $("#minimindStatus").addEventListener("click", async function() {
     var r = await api("/api/console/minimind/status");
     $("#memoryOutput").textContent = JSON.stringify(r, null, 2);
   });
 
+  // Dataset export
   $("#exportDataset").addEventListener("click", async function() {
     var raw = ($("#datasetRecords").value || "").trim();
     if (!raw) return;
-    var records = null;
-    try { records = JSON.parse(raw); } catch (e) { return $("#memoryOutput").textContent = "Invalid JSON: " + e.message; }
+    var records;
+    try {
+      records = JSON.parse(raw);
+    } catch (e) {
+      $("#memoryOutput").textContent = "Invalid JSON: " + e.message;
+      return;
+    }
     var r = await api("/api/console/minimind/dataset", { method: "POST", body: { records: records } });
     $("#memoryOutput").textContent = JSON.stringify(r, null, 2);
   });

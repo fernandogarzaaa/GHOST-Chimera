@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 import webbrowser
@@ -474,6 +475,79 @@ def register_console_routes(
         row_id = store.add_document(source, content, metadata=metadata)
         return {"ok": True, "id": row_id, "count": store.count()}
 
+    def memory_ingest_email(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Ingest email content into personal memory.
+
+        Accepts either a ``raw`` email string (RFC 2822 format pasted
+        directly) or a ``path`` pointing to a ``.eml`` or ``.mbox`` file
+        on the server.  The two fields are mutually exclusive; ``raw``
+        takes priority.
+        """
+        from ..personalization.email_ingester import EmailIngester
+
+        body = _json_body(ctx)
+        raw = str(body.get("raw") or "").strip()
+        path = str(body.get("path") or "").strip()
+
+        store = MemoryStore(server.config.memory_db)
+        ingester = EmailIngester(store)
+
+        if raw:
+            result = ingester.ingest_raw_email(raw)
+        elif path:
+            p = Path(path).expanduser()
+            if not p.exists():
+                return {"ok": False, "error": f"File not found: {path}"}
+            result = ingester.ingest_mbox_file(p) if p.suffix.lower() == ".mbox" else ingester.ingest_eml_file(p)
+        else:
+            return {"ok": False, "error": "Provide 'raw' email text or a 'path' to a .eml/.mbox file"}
+
+        return {
+            "ok": True,
+            "ingested": result.ingested,
+            "skipped": result.skipped,
+            "errors": result.errors,
+            "count": store.count(),
+        }
+
+    def memory_ingest_file(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Ingest a local document file into personal memory.
+
+        Accepts a ``path`` to a supported text file (``.txt``, ``.md``,
+        ``.py``, ``.json``, etc.) or a directory.  Directories are
+        ingested recursively (up to 500 files).
+        """
+        from ..personalization.document_ingester import DocumentIngester
+
+        body = _json_body(ctx)
+        path = str(body.get("path") or "").strip()
+        source = str(body.get("source") or "").strip()
+        max_files = int(body.get("max_files") or 500)
+
+        if not path:
+            return {"ok": False, "error": "Provide a 'path' to a file or directory"}
+
+        p = Path(path).expanduser()
+        if not p.exists():
+            return {"ok": False, "error": f"Path not found: {path}"}
+
+        store = MemoryStore(server.config.memory_db)
+        ingester = DocumentIngester(store)
+
+        if p.is_dir():
+            result = ingester.ingest_directory(p, max_files=max_files)
+        else:
+            result = ingester.ingest_file(p, source_prefix=source)
+
+        return {
+            "ok": True,
+            "ingested": result.ingested,
+            "skipped": result.skipped,
+            "chunks": result.chunks,
+            "errors": result.errors,
+            "count": store.count(),
+        }
+
     def memory_search(ctx: dict[str, Any]) -> dict[str, Any]:
         body = _json_body(ctx)
         query = str(body.get("query") or "").strip()
@@ -486,6 +560,49 @@ def register_console_routes(
             stale_after_days=float(stale_after_days) if stale_after_days is not None else None,
         )
         return {"ok": True, "query": query, "results": results}
+
+    def training_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Return MiniMind training setup status including dataset record count."""
+        autonomy_cfg = get_autonomy_config(load_config())
+        profile_name = str(autonomy_cfg.get("local_model_profile") or "tiny")
+        lifecycle = MiniMindLifecycle(profile_name=profile_name, state_dir=server.config.state_dir)
+        status = lifecycle.status().to_dict()
+        dataset_path = Path(server.config.state_dir) / "minimind" / "datasets" / "dataset.jsonl"
+        dataset_count = 0
+        if dataset_path.exists():
+            with contextlib.suppress(Exception):
+                dataset_count = sum(
+                    1 for line in dataset_path.read_text(encoding="utf-8").splitlines() if line.strip()
+                )
+        status["dataset_path"] = str(dataset_path)
+        status["dataset_count"] = dataset_count
+        return {"ok": True, "status": status}
+
+    def training_teach(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Append a prompt/response pair to the MiniMind training dataset.
+
+        This is Ghost's primary learning interface: every time Ghost gives
+        a good answer, you can record it here to build a personal training
+        corpus.  The dataset grows over time and can later be used for
+        local MiniMind fine-tuning.
+        """
+        body = _json_body(ctx)
+        prompt = str(body.get("prompt") or "").strip()
+        response = str(body.get("response") or "").strip()
+        if not prompt:
+            return {"ok": False, "error": "Missing 'prompt'"}
+        if not response:
+            return {"ok": False, "error": "Missing 'response'"}
+        autonomy_cfg = get_autonomy_config(load_config())
+        profile_name = str(autonomy_cfg.get("local_model_profile") or "tiny")
+        lifecycle = MiniMindLifecycle(profile_name=profile_name, state_dir=server.config.state_dir)
+        path = lifecycle.generate_dataset([{"prompt": prompt, "response": response}])
+        dataset_count = 0
+        with contextlib.suppress(Exception):
+            dataset_count = sum(
+                1 for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()
+            )
+        return {"ok": True, "path": str(path), "dataset_count": dataset_count}
 
     def minimind_status(ctx: dict[str, Any]) -> dict[str, Any]:
         autonomy_cfg = get_autonomy_config(load_config())
@@ -658,7 +775,11 @@ def register_console_routes(
     _api_register("/api/console/workspace/sync-memory", operator_workspace_sync_memory, method="POST", description="Promote operator workspace records into CWR memory")
     _api_register("/api/console/memory/status", memory_status, method="GET", description="Show local CWR memory status")
     _api_register("/api/console/memory/ingest", memory_ingest, method="POST", description="Ingest text into local CWR memory")
+    _api_register("/api/console/memory/ingest-email", memory_ingest_email, method="POST", description="Ingest email (.eml/.mbox or raw text) into personal memory")
+    _api_register("/api/console/memory/ingest-file", memory_ingest_file, method="POST", description="Ingest a local file or directory into personal memory")
     _api_register("/api/console/memory/search", memory_search, method="POST", description="Search local CWR memory")
+    _api_register("/api/console/training/status", training_status, method="GET", description="MiniMind training setup status and dataset record count")
+    _api_register("/api/console/training/teach", training_teach, method="POST", description="Append a prompt/response pair to the personal training dataset")
     _api_register("/api/console/minimind/status", minimind_status, method="GET", description="Show MiniMind local runtime status")
     _api_register("/api/console/minimind/dataset", minimind_dataset, method="POST", description="Write a MiniMind JSONL dataset from prompt/response records")
     _api_register("/api/console/readiness", readiness, method="GET", description="Ghost Console release readiness runbook")

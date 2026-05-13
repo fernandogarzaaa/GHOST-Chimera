@@ -198,6 +198,13 @@ class ChimeraPilotKernel:
                 logger.warning("Personal context provider failed: %s", exc)
 
         if personal_context_text:
+            _SYSTEM_PROMPT_KINDS = {TaskKind.REASONING, TaskKind.LONG_CONTEXT_DOC, TaskKind.CODE_EDIT}
+            _QUERY_CONTEXT_KINDS = {
+                TaskKind.WEB_RESEARCH,
+                TaskKind.FILE_ANALYSIS,
+                TaskKind.RAG_QUERY,
+                TaskKind.ANALYTICS_QUERY,
+            }
             updated: list[TaskSpec] = []
             for task in tasks:
                 merged_constraints = {
@@ -207,10 +214,14 @@ class ChimeraPilotKernel:
                     "personal_context_detail": personal_detail,
                 }
                 merged_inputs = dict(task.inputs)
-                if task.kind == TaskKind.REASONING:
+                ctx_prefix = f"Personal context (local memory):\n{personal_context_text}".strip()
+                if task.kind in _SYSTEM_PROMPT_KINDS:
                     existing_system = str(merged_inputs.get("system") or "").strip()
-                    injected = f"Personal context (local memory):\n{personal_context_text}".strip()
-                    merged_inputs["system"] = (injected + ("\n\n" + existing_system if existing_system else "")).strip()
+                    merged_inputs["system"] = (ctx_prefix + ("\n\n" + existing_system if existing_system else "")).strip()
+                elif task.kind in _QUERY_CONTEXT_KINDS:
+                    # Inject as a separate "context" field; backends that call
+                    # LLMs can pick this up without modifying the query itself.
+                    merged_inputs["context"] = personal_context_text
                 updated.append(replace(task, inputs=merged_inputs, constraints=merged_constraints))
             tasks = updated
 

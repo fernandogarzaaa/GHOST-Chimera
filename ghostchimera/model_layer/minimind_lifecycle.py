@@ -104,11 +104,15 @@ class MiniMindLifecycle:
         *,
         output_path: str | Path | None = None,
     ) -> Path:
-        """Write prompt/response records as JSONL for local MiniMind workflows."""
+        """Append prompt/response records as JSONL for local MiniMind workflows.
+
+        Records are *appended* to the dataset file so that repeated calls
+        accumulate training examples rather than overwriting previous ones.
+        """
 
         destination = Path(output_path) if output_path else self.state_dir / "minimind" / "datasets" / "dataset.jsonl"
         destination.parent.mkdir(parents=True, exist_ok=True)
-        with destination.open("w", encoding="utf-8") as handle:
+        with destination.open("a", encoding="utf-8") as handle:
             for record in records:
                 prompt = str(record.get("prompt") or record.get("instruction") or "").strip()
                 response = str(record.get("response") or record.get("output") or "").strip()
