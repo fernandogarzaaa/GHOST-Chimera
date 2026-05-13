@@ -118,6 +118,23 @@ class AutonomyProfileTests(unittest.TestCase):
             self.assertTrue(logged)
             self.assertTrue((Path(tmp) / "minimind" / "low_confidence.jsonl").exists())
 
+    def test_minimind_bootstrap_personal_ingests_files_with_explicit_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-minimind-bootstrap-") as tmp:
+            base = Path(tmp)
+            notes = base / "notes.txt"
+            notes.write_text("todo: ship release checklist", encoding="utf-8")
+            memory_db = base / "memory.sqlite3"
+            lifecycle = MiniMindLifecycle(profile_name="tiny", state_dir=tmp)
+            summary = lifecycle.bootstrap_personal_dataset(
+                memory_db=memory_db,
+                allow_files=True,
+                allow_email=False,
+                file_paths=[str(notes)],
+            )
+            self.assertTrue(summary["ok"])
+            self.assertEqual(summary["dataset_records"], 1)
+            self.assertGreaterEqual(summary["memory_documents"], 1)
+
     def test_control_plane_cli_exposes_autonomy_jobs_and_minimind_status(self) -> None:
         jobs = subprocess.run(
             [sys.executable, "-m", "ghostchimera.control_plane.cli", "autonomy", "jobs"],

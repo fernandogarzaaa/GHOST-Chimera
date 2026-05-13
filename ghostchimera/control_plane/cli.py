@@ -140,13 +140,21 @@ def _main(argv: list[str] | None = None) -> int:
     workspace_parser.add_argument("--goal", default="", help="Goal name for set-goal.")
     workspace_parser.add_argument("--description", default="", help="Goal description for set-goal.")
     minimind_parser = sub.add_parser("minimind", help="Inspect MiniMind local runtime support")
-    minimind_parser.add_argument("action", choices=["status", "architectures", "dataset", "log-failure"], nargs="?", default="status")
+    minimind_parser.add_argument("action", choices=["status", "architectures", "dataset", "log-failure", "bootstrap-personal", "beta-vision"], nargs="?", default="status")
     minimind_parser.add_argument("--profile", default="", help="MiniMind/local model profile.")
     minimind_parser.add_argument("--output", default="", help="Output JSONL path.")
     minimind_parser.add_argument("--prompt", default="", help="Prompt/instruction text.")
     minimind_parser.add_argument("--response", default="", help="Response/output text.")
     minimind_parser.add_argument("--confidence", type=float, default=0.0)
     minimind_parser.add_argument("--threshold", type=float, default=0.5)
+    minimind_parser.add_argument("--memory-db", default=".ghostchimera-memory.sqlite3", help="Memory DB path for personal ingestion.")
+    minimind_parser.add_argument("--allow-files", action="store_true", help="Allow ingestion of file paths/directories.")
+    minimind_parser.add_argument("--allow-email", action="store_true", help="Allow ingestion of .eml/.mbox paths/directories.")
+    minimind_parser.add_argument("--file-path", action="append", default=[], help="File or directory path to ingest. Repeatable.")
+    minimind_parser.add_argument("--email-path", action="append", default=[], help=".eml/.mbox file or directory path to ingest. Repeatable.")
+    minimind_parser.add_argument("--max-files", type=int, default=500, help="Maximum files to ingest per file directory.")
+    minimind_parser.add_argument("--max-emails", type=int, default=1000, help="Maximum emails/files to ingest per email directory/archive.")
+    minimind_parser.add_argument("--config", default="", help="Path to beta vision JSON config.")
     local_model_parser = sub.add_parser("local-model", help="Bootstrap and check local model inference readiness")
     local_model_parser.add_argument(
         "action",
@@ -462,6 +470,38 @@ def _run_minimind_cli(args: argparse.Namespace) -> int:
             output_path=args.output or None,
         )
         print(json.dumps({"ok": True, "logged": logged}, indent=2, sort_keys=True))
+        return 0
+    if args.action == "bootstrap-personal":
+        if not args.allow_files and not args.allow_email:
+            print(json.dumps({"ok": False, "error": "Pass --allow-files and/or --allow-email with explicit paths."}, indent=2, sort_keys=True))
+            return 2
+        summary = lifecycle.bootstrap_personal_dataset(
+            memory_db=args.memory_db,
+            allow_files=args.allow_files,
+            allow_email=args.allow_email,
+            file_paths=list(args.file_path or []),
+            email_paths=list(args.email_path or []),
+            max_files=args.max_files,
+            max_emails=args.max_emails,
+        )
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return 0
+    if args.action == "beta-vision":
+        from ..model_layer.minimind_beta_orchestrator import BetaVisionConfig, load_beta_config, run_beta_vision
+
+        if args.config:
+            config = load_beta_config(args.config)
+        else:
+            config = BetaVisionConfig(
+                memory_db=args.memory_db,
+                file_paths=list(args.file_path or []),
+                email_paths=list(args.email_path or []),
+                run_autonomy_jobs=True,
+                autonomy_profile="supervised",
+                autonomy_jobs=["self-audit", "memory-refresh"],
+            )
+        payload = run_beta_vision(config=config, profile_name=args.profile or None)
+        print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     return 2
 
