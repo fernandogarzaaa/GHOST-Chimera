@@ -14,6 +14,8 @@ Key capabilities:
 - **Conservative safety defaults** — Python, shell, network, and desktop execution are all off by default. Production mode adds deployment-level guardrails.
 - **Personal MiniMind** — consent-gated local memory bootstrap with system specs, approved files/email exports, optional whole-machine/email-artifact crawling, MiniMind JSONL dataset generation, and primary-model RAG handoff.
 
+- **Competitive capability intelligence** - CLI, console, docs, and eval gates compare Ghost Chimera against Codex, Claude Code, LangGraph, CrewAI, Hermes-style tool gateways, and OpenClaw-style local autonomy patterns.
+
 This is beta-stage software for real, user-supervised work in local-first environments. It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
 
 ---
@@ -35,6 +37,7 @@ This is beta-stage software for real, user-supervised work in local-first enviro
 - [Production Mode](#production-mode)
 - [Local Models](#local-models)
 - [Ghost MiniMind](#ghost-minimind)
+- [Competitive Capability Matrix](#competitive-capability-matrix)
 - [Extension Surfaces](#extension-surfaces)
 - [Verification and Confidence](#verification-and-confidence)
 - [Release Validation & Eval Suites](#release-validation--eval-suites)
@@ -54,7 +57,7 @@ Ghost Chimera is organized into independent layers. Each layer has a narrow cont
 | **Chimera Pilot** | `chimera_pilot` | Task IR (`TaskSpec`, `TaskKind`), rule-based compiler, backend registry, weighted scheduler, policy gate, fallback executor, verifier, telemetry, checkpointing, batch orchestration, subagent pool, Mixture-of-Agents, credential pool, context compressor, gateway server, cron scheduler, toolsets, lifecycle hooks, tool middleware, plugin manifests, and service registry. |
 | **Cognition Layer** | `cognition_layer` | Confidence values, hallucination flags, task ordering, self-model, working memory, attention, reflection primitives, and durable operator workspace state. |
 | **Control Plane** | `control_plane` | User-facing CLIs (`ghostchimera`, `chimera-pilot`, `ghostchimera-parallel`, `ghostchimera-eval`), setup wizard, doctor/health checks, model picker, policy management, parallel execution, and the Ghost Console gateway server + static UI. |
-| **Evals** | `evals` | 10 built-in evaluation suites: `smoke`, `safety`, `autonomy`, `user-journey`, `workspace`, `coverage`, `redteam`, `track2`, `track3`, `track4`. |
+| **Evals** | `evals` | 11 built-in evaluation suites: `smoke`, `safety`, `autonomy`, `user-journey`, `workspace`, `competitive`, `coverage`, `redteam`, `track2`, `track3`, `track4`. |
 | **Harness** | `harness` | Offline-first regression harness for deterministic case runs. Emits structured JSONL artifacts with compile events, execution traces, fallback records, and pass/fail metadata. |
 | **MCP** | `mcp` | Lightweight JSON-RPC MCP server/client surfaces and the `MCPBackend` Chimera Pilot backend. |
 | **Memory Layer** | `memory_layer` | SQLite FTS5 local memory store. Namespaced documents, freshness scoring (exponential decay), citation quality, `stale_after_days` filter, and `count()`. |
@@ -152,6 +155,7 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 | **Browser** | Fetch a URL (content scraping), open a URL in the agent browser workspace, take a DOM snapshot. |
 | **Security** | Security metric cards, HMAC audit chain status, recent LobsterTrap/DPI threat events. |
 | **Schedules** | Create cron schedules (start disabled for review), enable/disable/delete existing schedules, see next-run times. |
+| **Capabilities** | Competitive matrix with score, benchmark coverage, release-gate commands, and top gaps. Backed by `GET /api/console/capabilities`. |
 | **Readiness** | Release-readiness checklist with the exact commands to run before tagging a release. |
 
 **All actions produce toast notifications** (green ok / yellow warn / red error) — no need to watch the terminal for confirmation.
@@ -201,6 +205,10 @@ ghostchimera minimind personal-consent --admin-controls --allow-machine-crawl --
 ghostchimera minimind personal-bootstrap --include-system-specs
 ghostchimera minimind personal-handoff --objective "What should Ghost do next?"
 
+# Competitive capability matrix
+ghostchimera capabilities --format json
+ghostchimera capabilities --format markdown --save docs/capability-report.md
+
 # Local model bootstrap
 ghostchimera local-model check
 ghostchimera local-model guide
@@ -244,6 +252,7 @@ ghostchimera-eval run --suite safety
 ghostchimera-eval run --suite autonomy
 ghostchimera-eval run --suite user-journey
 ghostchimera-eval run --suite workspace
+ghostchimera-eval run --suite competitive
 ghostchimera-eval run --suite coverage
 ghostchimera-eval run --suite redteam
 ghostchimera-eval run --suite track2   # Gemini integration
@@ -546,6 +555,24 @@ The integration is derived from the public Apache-2.0 MiniMind project and attri
 
 ---
 
+## Competitive Capability Matrix
+
+Ghost Chimera ships a repo-grounded matrix that compares the project to Codex,
+Claude Code, LangGraph, CrewAI, Hermes-style tool gateways, and OpenClaw-style
+local autonomy patterns. The matrix checks real files and symbols, then reports
+complete, partial, and missing surfaces.
+
+```bash
+ghostchimera capabilities --format json
+python -m ghostchimera.evals run --suite competitive
+```
+
+The dashboard exposes the same report in the **Capabilities** tab. See
+`docs/COMPETITIVE_CAPABILITY_MATRIX.md` for benchmark context and beta
+positioning.
+
+---
+
 ## Extension Surfaces
 
 The `0.4.0-beta` line keeps the OpenClaw parity contracts from `0.3.0-beta` and adds Personal MiniMind as a dashboard-first local personalization layer:
@@ -594,6 +621,7 @@ python -m ghostchimera.evals run --suite safety
 python -m ghostchimera.evals run --suite autonomy
 python -m ghostchimera.evals run --suite user-journey
 python -m ghostchimera.evals run --suite workspace
+python -m ghostchimera.evals run --suite competitive
 python -m ghostchimera.evals run --suite coverage
 python -m ghostchimera.evals run --suite redteam
 python -m ghostchimera.evals run --suite track2
@@ -601,6 +629,7 @@ python -m ghostchimera.evals run --suite track3
 python -m ghostchimera.evals run --suite track4
 python scripts/smoke_installed_wheel.py
 python scripts/smoke_installed_wheel.py --extras gateway
+ghostchimera capabilities --format json
 ```
 
 **Eval suite summary:**
@@ -612,6 +641,7 @@ python scripts/smoke_installed_wheel.py --extras gateway
 | `autonomy` | Profile-aware job planning, fallback routing, approval gates. |
 | `user-journey` | End-to-end workspace evidence → CWR retrieval → task context injection. |
 | `workspace` | Workspace context injection, freshness scoring, citation quality, count(). |
+| `competitive` | Capability matrix score, console route, and CLI report against Codex/Claude/LangGraph/CrewAI/Hermes/OpenClaw-style benchmarks. |
 | `coverage` | SSRF policy, approval token, material policy, error classifier, MoA scoring, context compressor, autonomy queue, checkpoint save/restore, telemetry export. |
 | `redteam` | Prompt injection blocking, credential-leak blocking, PII detection, exfiltration blocking, intent-mismatch flagging, benign-prompt pass-through, LobsterTrap enforcement, SecurityMonitor aggregation. |
 | `track2` | Gemini provider integration (8 cases). |

@@ -17,6 +17,7 @@ from ghostchimera.chimera_pilot import ChimeraPilotKernel
 from ghostchimera.chimera_pilot.autonomy import get_autonomy_profile
 from ghostchimera.chimera_pilot.autonomy_jobs import AutonomyJobRunner
 from ghostchimera.chimera_pilot.backends import DeterministicBackend
+from ghostchimera.chimera_pilot.capability_intelligence import inspect_capabilities
 from ghostchimera.chimera_pilot.gateway_server import GatewayServer
 from ghostchimera.chimera_pilot.scheduler import ChimeraScheduler
 from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
@@ -79,6 +80,8 @@ def _suite_kpis(name: str, cases: list[dict[str, object]]) -> dict[str, float]:
         kpis["red_team_block_rate"] = round(pass_rate, 3)
     if name == "workspace":
         kpis["workspace_contract_pass_rate"] = round(pass_rate, 3)
+    if name == "competitive":
+        kpis["competitive_capability_pass_rate"] = round(pass_rate, 3)
     if name == "track2":
         kpis["gemini_integration_pass_rate"] = round(pass_rate, 3)
     if name == "track3":
@@ -102,6 +105,8 @@ def _suite_gates(name: str, kpis: dict[str, float]) -> dict[str, bool]:
         return {"red_team_gate": kpis.get("red_team_block_rate", 0.0) >= 1.0}
     if name == "workspace":
         return {"workspace_contract_gate": kpis.get("workspace_contract_pass_rate", 0.0) >= 1.0}
+    if name == "competitive":
+        return {"competitive_capability_gate": kpis.get("competitive_capability_pass_rate", 0.0) >= 1.0}
     if name == "track2":
         return {"gemini_gate": kpis.get("gemini_integration_pass_rate", 0.0) >= 1.0}
     if name == "track3":
@@ -403,6 +408,7 @@ def _case_readiness_runbook_includes_release_gate() -> tuple[bool, str]:
         "python -m ghostchimera.evals run --suite safety",
         "python -m ghostchimera.evals run --suite autonomy",
         "python -m ghostchimera.evals run --suite user-journey",
+        "python -m ghostchimera.evals run --suite competitive",
         "python scripts/smoke_installed_wheel.py",
         "python scripts/smoke_installed_wheel.py --extras gateway",
         "ghostchimera workspace show",
@@ -410,6 +416,46 @@ def _case_readiness_runbook_includes_release_gate() -> tuple[bool, str]:
     }
     missing = sorted(required.difference(commands))
     return not missing, "missing=" + ", ".join(missing)
+
+
+def _case_competitive_capability_score() -> tuple[bool, str]:
+    report = inspect_capabilities(ROOT)
+    high_priority_missing = [
+        cap["id"]
+        for cap in report["capabilities"]
+        if cap["status"] == "missing" and int(cap["priority"]) >= 5
+    ]
+    ok = report["score_ratio"] >= 0.75 and not high_priority_missing
+    detail = json.dumps(
+        {
+            "grade": report["grade"],
+            "score_ratio": report["score_ratio"],
+            "high_priority_missing": high_priority_missing,
+            "top_gaps": [gap["id"] for gap in report["top_gaps"]],
+        },
+        sort_keys=True,
+    )
+    return ok, detail
+
+
+def _case_competitive_console_route() -> tuple[bool, str]:
+    server = GatewayServer()
+    register_console_routes(server)
+    route = server.routes.find("GET", "/api/console/capabilities")
+    if route is None:
+        return False, "capability route missing"
+    payload = route.handler(_route_ctx("GET", "/api/console/capabilities"))
+    ok = bool(payload.get("ok")) and payload.get("capability_count", 0) >= 10
+    return ok, json.dumps({"ok": payload.get("ok"), "count": payload.get("capability_count")}, sort_keys=True)
+
+
+def _case_competitive_cli_json() -> tuple[bool, str]:
+    completed = _run_python_module(["ghostchimera", "capabilities"])
+    if completed.returncode != 0:
+        return False, completed.stderr or completed.stdout
+    payload = json.loads(completed.stdout)
+    ok = payload.get("ok") is True and payload.get("score_ratio", 0) >= 0.75
+    return ok, json.dumps({"grade": payload.get("grade"), "score_ratio": payload.get("score_ratio")}, sort_keys=True)
 
 
 # ── Coverage eval cases ──────────────────────────────────────────────
@@ -1485,6 +1531,11 @@ EVAL_SUITES: dict[str, list[tuple[str, CaseFn]]] = {
         ("workspace_sync_feeds_retrieval", _case_workspace_sync_feeds_retrieval),
         ("workspace_sync_quality_flags", _case_workspace_sync_quality_flags),
         ("readiness_runbook_includes_release_gate", _case_readiness_runbook_includes_release_gate),
+    ],
+    "competitive": [
+        ("competitive_capability_score", _case_competitive_capability_score),
+        ("competitive_console_route", _case_competitive_console_route),
+        ("competitive_cli_json", _case_competitive_cli_json),
     ],
     "workspace": [
         ("workspace_context_enriches_task", _case_workspace_context_enriches_task),

@@ -15,6 +15,7 @@ from ..chimera_pilot import ChimeraPilotKernel
 from ..chimera_pilot.autonomy import get_autonomy_profile, list_autonomy_profiles
 from ..chimera_pilot.autonomy_jobs import JOB_SPECS
 from ..chimera_pilot.autonomy_queue import AutonomyJobQueue
+from ..chimera_pilot.capability_intelligence import inspect_capabilities
 from ..chimera_pilot.desktop_policy import DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN
 from ..chimera_pilot.gateway_server import GatewayServer, HttpResponse
 from ..cognition_layer.workspace_state import OperatorWorkspaceStore
@@ -72,6 +73,11 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "purpose": "Exercises first-run local operator CLI and console paths.",
     },
     {
+        "name": "competitive capability eval",
+        "command": "python -m ghostchimera.evals run --suite competitive",
+        "purpose": "Checks Ghost Chimera against current agent-orchestration capability benchmarks.",
+    },
+    {
         "name": "production doctor",
         "command": "GHOSTCHIMERA_DEPLOYMENT_MODE=production GHOSTCHIMERA_EXTERNAL_ISOLATION=container GHOSTCHIMERA_SECURITY_REVIEWED=1 GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED=1 ghostchimera doctor --production",
         "purpose": "Verifies production-mode guardrail configuration.",
@@ -95,6 +101,11 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "name": "workspace memory sync smoke",
         "command": "ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30",
         "purpose": "Verifies high-confidence workspace evidence can feed local CWR memory with provenance.",
+    },
+    {
+        "name": "competitive capability smoke",
+        "command": "ghostchimera capabilities --format json",
+        "purpose": "Verifies the competitive capability matrix is reachable from the CLI.",
     },
 ]
 
@@ -671,6 +682,9 @@ def register_console_routes(
             return {"ok": False, "error": "Missing objective"}
         return personal_minimind().build_handoff(objective)
 
+    def capabilities(ctx: dict[str, Any]) -> dict[str, Any]:
+        return inspect_capabilities()
+
     def readiness(ctx: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": True,
@@ -855,6 +869,7 @@ def register_console_routes(
     _api_register("/api/console/minimind/personal/revoke", minimind_personal_revoke, method="POST", description="Revoke Personal MiniMind admin/source consent")
     _api_register("/api/console/minimind/personal/bootstrap", minimind_personal_bootstrap, method="POST", description="Bootstrap Personal MiniMind from consented local sources")
     _api_register("/api/console/minimind/personal/handoff", minimind_personal_handoff, method="POST", description="Build Personal MiniMind RAG handoff for the primary model")
+    _api_register("/api/console/capabilities", capabilities, method="GET", description="Inspect competitive agent-orchestration capability coverage")
     _api_register("/api/console/readiness", readiness, method="GET", description="Ghost Console release readiness runbook")
     _api_register("/api/console/skills", skills_list, method="GET", description="List registered skills")
     _api_register("/api/console/autonomy/jobs", jobs_list, method="GET", description="List autonomy jobs")

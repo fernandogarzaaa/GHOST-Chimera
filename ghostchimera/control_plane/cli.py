@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from ..agent_core.core import AgentCore
 from ..config import GhostChimeraConfig
@@ -108,6 +109,9 @@ def _main(argv: list[str] | None = None) -> int:
     console_parser.add_argument("--auth-token", default="", help="Require this bearer token on all /api/* routes (X-Gateway-Token header).")
     doctor_parser = sub.add_parser("doctor", help="Run health checks and report status")
     doctor_parser.add_argument("--production", action="store_true", help="Require production deployment guardrails.")
+    capabilities_parser = sub.add_parser("capabilities", help="Inspect competitive agent-orchestration capability coverage")
+    capabilities_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
+    capabilities_parser.add_argument("--save", default="", help="Optional path to write the report.")
     sub.add_parser("model", help="List and switch the current model provider")
     sub.add_parser("policy", help="Manage security policies")
     desktop_stop_parser = sub.add_parser("desktop-stop", help="Create the Chimera Pilot desktop kill-switch file")
@@ -283,6 +287,9 @@ def _main(argv: list[str] | None = None) -> int:
 
         return run_doctor(production=args.production)
 
+    if args.command == "capabilities":
+        return _run_capabilities_cli(args)
+
     if args.command == "model":
         from .model_picker import run_model_picker
 
@@ -427,6 +434,20 @@ def _run_autonomy_cli(args: argparse.Namespace) -> int:
         return 0 if result.ok else 1
 
     return 2
+
+
+def _run_capabilities_cli(args: argparse.Namespace) -> int:
+    from ..chimera_pilot.capability_intelligence import format_capability_report, inspect_capabilities
+
+    payload = inspect_capabilities()
+    if args.format == "markdown":
+        output = format_capability_report(payload)
+    else:
+        output = json.dumps(payload, indent=2, sort_keys=True)
+    if args.save:
+        Path(args.save).expanduser().write_text(output, encoding="utf-8")
+    print(output, end="" if output.endswith("\n") else "\n")
+    return 0 if payload.get("ok") else 1
 
 
 def _run_workspace_cli(args: argparse.Namespace) -> int:

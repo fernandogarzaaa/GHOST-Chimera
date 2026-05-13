@@ -85,6 +85,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 }
 .list-item .name { font-weight: 600; min-width: 120px; }
 .list-item .meta { color: var(--muted); font-size: 12px; flex: 1; }
+.list-item .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .list-item .actions { display: flex; gap: 6px; }
 .inline-check { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
 .inline-check input { width: auto; }

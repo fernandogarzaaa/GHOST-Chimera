@@ -30,6 +30,7 @@ REQUIRED_FILES = [
     "MANIFEST.in",
     "docs/ARCHITECTURE.md",
     "docs/CLEAN_ROOM.md",
+    "docs/COMPETITIVE_CAPABILITY_MATRIX.md",
     "docs/RELEASE_CHECKLIST.md",
     "scripts/smoke_installed_wheel.py",
 ]
@@ -191,14 +192,19 @@ def check_release_hardening() -> dict[str, Any]:
     errors: list[str] = []
     if "user-journey" not in EVAL_SUITES:
         errors.append("user-journey eval suite missing")
+    if "competitive" not in EVAL_SUITES:
+        errors.append("competitive eval suite missing")
 
     release_checklist = (ROOT / "docs" / "RELEASE_CHECKLIST.md").read_text(encoding="utf-8")
     missing_docs = [
         token
         for token in (
             "python -m ghostchimera.evals run --suite user-journey",
+            "python -m ghostchimera.evals run --suite competitive",
             "python scripts/smoke_installed_wheel.py",
             "python scripts/smoke_installed_wheel.py --extras gateway",
+            "ghostchimera capabilities --format json",
+            "docs/COMPETITIVE_CAPABILITY_MATRIX.md",
             "ghostchimera workspace show",
             "ghostchimera workspace sync-memory",
             "--stale-after-days 30",
@@ -216,8 +222,10 @@ def check_release_hardening() -> dict[str, Any]:
         "python -m pytest -q",
         "python -m ghostchimera.evals run --suite autonomy",
         "python -m ghostchimera.evals run --suite user-journey",
+        "python -m ghostchimera.evals run --suite competitive",
         "python scripts/smoke_installed_wheel.py",
         "python scripts/smoke_installed_wheel.py --extras gateway",
+        "ghostchimera capabilities --format json",
         "ghostchimera workspace show",
         "ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30",
     ):
@@ -231,6 +239,8 @@ def check_release_hardening() -> dict[str, Any]:
         errors.append("user-journey eval does not verify workspace sync feeds retrieval")
     if "workspace_sync_quality_flags" not in eval_runner:
         errors.append("user-journey eval does not verify workspace sync quality flags")
+    if "competitive_capability_score" not in eval_runner:
+        errors.append("competitive eval does not verify capability score")
 
     smoke_script = (ROOT / "scripts" / "smoke_installed_wheel.py").read_text(encoding="utf-8")
     if "ghostchimera[{normalized}] @" not in smoke_script:

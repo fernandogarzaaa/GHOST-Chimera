@@ -204,6 +204,7 @@
       await refreshWorkspace();
       await refreshMemory();
       await refreshPersonalMiniMind();
+      await refreshCapabilities();
       await refreshReadiness();
     } catch (e) {
       badge($("#health"), "offline", "error");
@@ -829,6 +830,42 @@
   })();
 
   // ── Readiness ─────────────────────────────────────────────────────────────
+  async function refreshCapabilities() {
+    try {
+      var data = await api("/api/console/capabilities");
+      var summary = $("#capabilitySummary");
+      summary.innerHTML = "";
+      [
+        ["Grade", data.grade || "unknown"],
+        ["Score", String(data.score_ratio || 0)],
+        ["Complete", String(data.complete_count || 0) + " / " + String(data.capability_count || 0)],
+        ["Gaps", String((data.top_gaps || []).length)],
+      ].forEach(function(m) {
+        var card = el("div", { class: "card" });
+        card.appendChild(el("h3", null, m[0]));
+        card.appendChild(el("div", { class: "value" }, m[1]));
+        summary.appendChild(card);
+      });
+
+      var list = $("#capabilityList");
+      list.innerHTML = "";
+      (data.capabilities || []).forEach(function(cap) {
+        var item = el("div", { class: "list-item capability-item" });
+        var cls = cap.status === "complete" ? "ok" : cap.status === "partial" ? "warn" : "error";
+        item.appendChild(el("span", { class: "name" }, cap.name));
+        item.appendChild(el("span", { class: "badge " + cls }, cap.status));
+        item.appendChild(el("span", { class: "meta" }, "coverage " + cap.coverage));
+        item.appendChild(el("span", { class: "meta" }, (cap.competitors || []).join(", ")));
+        if (cap.release_gate) item.appendChild(el("span", { class: "meta mono" }, cap.release_gate));
+        list.appendChild(item);
+      });
+      if (!(data.capabilities || []).length) empty("#capabilityList", "No capability data available.");
+    } catch (e) {
+      empty("#capabilityList", "Capability matrix unavailable.");
+    }
+  }
+  $("#refreshCapabilities").addEventListener("click", refreshCapabilities);
+
   async function refreshReadiness() {
     var data = await api("/api/console/readiness");
     var list = $("#readinessList");
@@ -857,6 +894,7 @@
     refreshBrowserStatus();
     refreshSecurity();
     refreshSkills();
+    refreshCapabilities();
   });
   setInterval(refreshStatus, 30000);
 })();

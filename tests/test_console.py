@@ -125,6 +125,18 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertEqual(workspace.calls[0][0], "open")
         self.assertEqual(workspace.calls[1][0], "snapshot")
 
+    def test_console_registers_capabilities_route(self) -> None:
+        server = GatewayServer()
+        register_console_routes(server)
+        route = server.routes.find("GET", "/api/console/capabilities")
+
+        self.assertIsNotNone(route)
+        payload = route.handler({"method": "GET", "path": "/api/console/capabilities", "headers": {}, "body": "", "query": {}})
+
+        self.assertTrue(payload["ok"])
+        self.assertGreaterEqual(payload["capability_count"], 10)
+        self.assertIn("OpenAI Codex", payload["benchmarks"])
+
     def test_console_browser_workspace_degrades_when_agent_browser_is_missing(self) -> None:
         workspace = AgentBrowserWorkspace(binary="definitely-missing-agent-browser")
         server = GatewayServer()

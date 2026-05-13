@@ -41,6 +41,7 @@
     <button class="tab" data-tab="browser">Browser</button>
     <button class="tab" data-tab="security">Security</button>
     <button class="tab" data-tab="schedules">Schedules</button>
+    <button class="tab" data-tab="capabilities">Capabilities</button>
     <button class="tab" data-tab="readiness">Readiness</button>
   </nav>
 
@@ -319,6 +320,16 @@
     <p class="hint" style="margin-bottom:14px;">New schedules start disabled — enable them after reviewing the cron expression.</p>
     <div class="section-hdr">Existing Schedules</div>
     <div id="scheduleList"></div>
+  </div>
+
+  <div class="tab-content" id="tab-capabilities">
+    <div class="section-hdr" style="margin-top:0;">Competitive Capability Matrix</div>
+    <div class="grid" id="capabilitySummary"></div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="refreshCapabilities" class="primary">Refresh Matrix</button>
+    </div>
+    <div class="section-hdr">Capability Surfaces</div>
+    <div id="capabilityList"></div>
   </div>
 
   <!-- ── READINESS ─────────────────────────────────────────────────────── -->

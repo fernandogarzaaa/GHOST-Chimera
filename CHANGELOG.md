@@ -11,11 +11,13 @@
 - SDK helpers: `enable_personal_minimind()`, `bootstrap_personal_minimind()`, `personal_minimind_status()`, `minimind_handoff()`, and `revoke_personal_minimind()`.
 - CLI actions: `ghostchimera minimind personal-status`, `personal-consent`, `personal-bootstrap`, `personal-handoff`, and `personal-revoke`.
 - Personal MiniMind privacy/operation documentation covering broad crawl behavior, email artifact discovery, local storage, and local quantized runtime options.
+- Competitive capability intelligence layer with `ghostchimera capabilities`, `/api/console/capabilities`, a dashboard Capabilities tab, `docs/COMPETITIVE_CAPABILITY_MATRIX.md`, and a `competitive` eval suite.
 
 ### Changed
 
 - Bumped package metadata to `0.4.0-beta`.
 - MiniMind personal bootstrap can generate training data from the full local memory corpus while preserving explicit consent gates.
+- Release readiness now gates the competitive matrix against Codex, Claude Code, LangGraph, CrewAI, Hermes-style tool gateways, and OpenClaw-style local autonomy benchmarks.
 
 ## 0.3.0-beta — 2026-05-12
 

@@ -14,8 +14,10 @@ python -m ghostchimera.evals run --suite safety
 python -m ghostchimera.evals run --suite autonomy
 python -m ghostchimera.evals run --suite user-journey
 python -m ghostchimera.evals run --suite workspace
+python -m ghostchimera.evals run --suite competitive
 python scripts/smoke_installed_wheel.py
 python scripts/smoke_installed_wheel.py --extras gateway
+ghostchimera capabilities --format json
 ghostchimera workspace show
 ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30
 ghostchimera minimind personal-status
@@ -41,6 +43,9 @@ environment.
 ## Manual checks
 
 - [ ] `python -m ghostchimera.evals run --suite workspace` passes.
+- [ ] `python -m ghostchimera.evals run --suite competitive` passes.
+- [ ] `ghostchimera capabilities --format json` reports `ok: true` and surfaces any remaining beta gaps.
+- [ ] `docs/COMPETITIVE_CAPABILITY_MATRIX.md` is current for Codex, Claude Code, LangGraph, CrewAI, Hermes-style, and OpenClaw-style benchmarks.
 - [ ] `ghostchimera local-model check` reports system readiness and llama-cpp install state.
 - [ ] `ghostchimera local-model profiles` lists tiny, balanced, and stronger profiles.
 - [ ] `ghostchimera local-model guide --profile balanced` prints install steps.

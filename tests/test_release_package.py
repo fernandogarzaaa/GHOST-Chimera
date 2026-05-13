@@ -41,6 +41,7 @@ class ReleasePackageTests(unittest.TestCase):
             "CHIMERA_PILOT.md",
             "docs/ARCHITECTURE.md",
             "docs/CLEAN_ROOM.md",
+            "docs/COMPETITIVE_CAPABILITY_MATRIX.md",
             "docs/RELEASE_CHECKLIST.md",
         ]
 
@@ -59,6 +60,8 @@ class ReleasePackageTests(unittest.TestCase):
         checklist = (ROOT / "docs" / "RELEASE_CHECKLIST.md").read_text(encoding="utf-8")
 
         self.assertIn("python -m ghostchimera.evals run --suite user-journey", checklist)
+        self.assertIn("python -m ghostchimera.evals run --suite competitive", checklist)
+        self.assertIn("ghostchimera capabilities --format json", checklist)
         self.assertIn("python scripts/smoke_installed_wheel.py", checklist)
         self.assertIn("python scripts/smoke_installed_wheel.py --extras gateway", checklist)
         self.assertIn("gateway extras", checklist)
