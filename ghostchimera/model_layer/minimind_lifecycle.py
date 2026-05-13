@@ -195,12 +195,15 @@ class MiniMindLifecycle:
                 else:
                     result = doc_ingester.ingest_file(p)
                 summary["files"].append({"path": str(p), **result.to_dict()})
-                dataset_records.append(
-                    {
-                        "prompt": f"Summarize and remember key points from: {p}",
-                        "response": f"Ingested {result.chunks} chunks from {p.name}.",
-                    }
-                )
+                if result.errors:
+                    summary["ok"] = False
+                if result.ingested > 0 and result.chunks > 0:
+                    dataset_records.append(
+                        {
+                            "prompt": f"Summarize and remember key points from: {p}",
+                            "response": f"Ingested {result.chunks} chunks from {p.name}.",
+                        }
+                    )
 
         if allow_email:
             for raw in email_paths:
@@ -212,12 +215,15 @@ class MiniMindLifecycle:
                 else:
                     result = mail_ingester.ingest_eml_file(p)
                 summary["emails"].append({"path": str(p), **result.to_dict()})
-                dataset_records.append(
-                    {
-                        "prompt": f"Extract actionable tasks from mailbox source: {p}",
-                        "response": f"Ingested {result.ingested} email records from {p.name}.",
-                    }
-                )
+                if result.errors:
+                    summary["ok"] = False
+                if result.ingested > 0:
+                    dataset_records.append(
+                        {
+                            "prompt": f"Extract actionable tasks from mailbox source: {p}",
+                            "response": f"Ingested {result.ingested} email records from {p.name}.",
+                        }
+                    )
 
         if dataset_records:
             dataset_path = self.generate_dataset(dataset_records)

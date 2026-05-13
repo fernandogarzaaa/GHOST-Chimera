@@ -155,6 +155,7 @@ def _main(argv: list[str] | None = None) -> int:
     minimind_parser.add_argument("--max-files", type=int, default=500, help="Maximum files to ingest per file directory.")
     minimind_parser.add_argument("--max-emails", type=int, default=1000, help="Maximum emails/files to ingest per email directory/archive.")
     minimind_parser.add_argument("--config", default="", help="Path to beta vision JSON config.")
+    minimind_parser.add_argument("--run-autonomy-jobs", action="store_true", help="For beta-vision inline mode, enqueue autonomy jobs.")
     local_model_parser = sub.add_parser("local-model", help="Bootstrap and check local model inference readiness")
     local_model_parser.add_argument(
         "action",
@@ -496,7 +497,7 @@ def _run_minimind_cli(args: argparse.Namespace) -> int:
                 memory_db=args.memory_db,
                 file_paths=list(args.file_path or []),
                 email_paths=list(args.email_path or []),
-                run_autonomy_jobs=True,
+                run_autonomy_jobs=bool(args.run_autonomy_jobs),
                 autonomy_profile="supervised",
                 autonomy_jobs=["self-audit", "memory-refresh"],
             )

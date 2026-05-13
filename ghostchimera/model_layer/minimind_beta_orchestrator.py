@@ -10,7 +10,6 @@ from typing import Any
 
 from ..chimera_pilot.autonomy_queue import AutonomyJobQueue
 from ..memory_layer.store import MemoryStore
-from ..personalization.email_ingester import EmailIngester
 from .minimind_lifecycle import MiniMindLifecycle
 
 
@@ -24,21 +23,31 @@ class BetaVisionConfig:
     autonomy_jobs: list[str]
 
 
+def _coerce_string_list(value: Any, *, default: list[str] | None = None) -> list[str]:
+    if value is None:
+        return list(default or [])
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple, set)):
+        return [str(item) for item in value if str(item).strip()]
+    return list(default or [])
+
+
 def load_beta_config(path: str | Path) -> BetaVisionConfig:
     payload = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
     return BetaVisionConfig(
         memory_db=str(payload.get("memory_db") or ".ghostchimera-memory.sqlite3"),
-        file_paths=[str(p) for p in payload.get("file_paths", [])],
-        email_paths=[str(p) for p in payload.get("email_paths", [])],
+        file_paths=_coerce_string_list(payload.get("file_paths")),
+        email_paths=_coerce_string_list(payload.get("email_paths")),
         run_autonomy_jobs=bool(payload.get("run_autonomy_jobs", False)),
         autonomy_profile=str(payload.get("autonomy_profile") or "supervised"),
-        autonomy_jobs=[str(p) for p in payload.get("autonomy_jobs", ["self-audit", "memory-refresh"])],
+        autonomy_jobs=_coerce_string_list(payload.get("autonomy_jobs"), default=["self-audit", "memory-refresh"]),
     )
 
 
 def _extract_email_tasks(memory_db: str | Path, *, limit: int = 20) -> list[dict[str, Any]]:
     store = MemoryStore(memory_db)
-    items = store.search("todo OR action OR follow-up OR deadline", limit=limit)
+    items = store.search("todo action follow-up deadline", limit=limit)
     out: list[dict[str, Any]] = []
     for item in items:
         content = str(item.get("content") or "")
@@ -56,10 +65,12 @@ def run_beta_vision(
     profile_name: str | None = None,
 ) -> dict[str, Any]:
     lifecycle = MiniMindLifecycle(profile_name=profile_name, state_dir=state_dir)
+    allow_files = bool(config.file_paths)
+    allow_email = bool(config.email_paths)
     bootstrap = lifecycle.bootstrap_personal_dataset(
         memory_db=config.memory_db,
-        allow_files=True,
-        allow_email=True,
+        allow_files=allow_files,
+        allow_email=allow_email,
         file_paths=config.file_paths,
         email_paths=config.email_paths,
     )

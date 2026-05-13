@@ -120,6 +120,27 @@ def test_load_beta_config_raises_for_invalid_json() -> None:
             load_beta_config(bad_path)
 
 
+def test_load_beta_config_coerces_single_string_paths_to_lists() -> None:
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-beta-config-string-paths-") as tmp:
+        base = Path(tmp)
+        config_path = base / "string_paths.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "memory_db": str(base / "mem.sqlite3"),
+                    "file_paths": "/tmp/file.txt",
+                    "email_paths": "/tmp/mail.eml",
+                    "autonomy_jobs": "self-audit",
+                }
+            ),
+            encoding="utf-8",
+        )
+        config = load_beta_config(config_path)
+        assert config.file_paths == ["/tmp/file.txt"]
+        assert config.email_paths == ["/tmp/mail.eml"]
+        assert config.autonomy_jobs == ["self-audit"]
+
+
 # ---------------------------------------------------------------------------
 # BetaVisionConfig dataclass
 # ---------------------------------------------------------------------------
@@ -261,7 +282,7 @@ def test_run_beta_vision_with_file_produces_bootstrap_records() -> None:
         assert result["ok"] is True
         assert result["bootstrap"]["dataset_records"] >= 1
         assert result["bootstrap"]["allow_files"] is True
-        assert result["bootstrap"]["allow_email"] is True
+        assert result["bootstrap"]["allow_email"] is False
 
 
 def test_run_beta_vision_with_eml_file() -> None:
