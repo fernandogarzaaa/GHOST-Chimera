@@ -28,7 +28,7 @@
   // ── Run history (localStorage) ───────────────────────────────────────────
   var HISTORY_KEY = "ghostchimera_run_history";
   function loadHistory() {
-    try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch (_) { return []; }
+    try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch (e) { console.warn("Failed to load run history:", e); return []; }
   }
   function saveHistory(hist) {
     try { localStorage.setItem(HISTORY_KEY, JSON.stringify(hist.slice(0, 20))); } catch (_) {}
@@ -564,12 +564,10 @@
     var skillName = $("#skillSelect").value;
     var input = ($("#skillInput").value || "").trim();
     if (!skillName) { toast("Select a skill first.", "warn"); return; }
+    var objective = (input || "Run skill: " + skillName) + " (skill:" + skillName + ")";
     $("#skillOutput").textContent = "Running skill…";
     try {
-      var r = await api("/api/console/run", {
-        method: "POST",
-        body: { objective: (input ? input : "Run skill: " + skillName) + " (skill:" + skillName + ")" },
-      });
+      var r = await api("/api/console/run", { method: "POST", body: { objective: objective } });
       $("#skillOutput").textContent = JSON.stringify(r, null, 2);
       toast(r.ok ? "Skill completed." : "Skill failed.", r.ok ? "ok" : "error");
     } catch (e) {

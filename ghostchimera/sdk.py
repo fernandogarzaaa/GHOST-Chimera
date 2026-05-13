@@ -34,7 +34,6 @@ use it.
 
 from __future__ import annotations
 
-import contextlib
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -260,11 +259,13 @@ class GhostClient:
         dataset_path = self._state_dir / "minimind" / "datasets" / "dataset.jsonl"
         dataset_count = 0
         if dataset_path.exists():
-            with contextlib.suppress(Exception):
+            try:
                 dataset_count = sum(
                     1 for line in dataset_path.read_text(encoding="utf-8").splitlines()
                     if line.strip()
                 )
+            except (OSError, UnicodeDecodeError):
+                dataset_count = -1
         status["dataset_path"] = str(dataset_path)
         status["dataset_count"] = dataset_count
         return status
