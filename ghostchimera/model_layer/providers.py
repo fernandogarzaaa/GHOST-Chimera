@@ -52,6 +52,7 @@ from .openai_compatible_providers import (
     TogetherProvider,
     VeniceProvider,
     VolcengineProvider,
+    VultrInferenceProvider,
     XAIProvider,
 )
 
@@ -331,6 +332,7 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
     TogetherProvider.name: TogetherProvider,
     VeniceProvider.name: VeniceProvider,
     VolcengineProvider.name: VolcengineProvider,
+    VultrInferenceProvider.name: VultrInferenceProvider,
     XAIProvider.name: XAIProvider,
 }
 
@@ -362,6 +364,7 @@ TEXT_PROVIDERS: dict[str, type[BaseProvider]] = {
     TogetherProvider.name: TogetherProvider,
     VeniceProvider.name: VeniceProvider,
     VolcengineProvider.name: VolcengineProvider,
+    VultrInferenceProvider.name: VultrInferenceProvider,
     XAIProvider.name: XAIProvider,
 }
 

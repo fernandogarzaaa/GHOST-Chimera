@@ -760,8 +760,8 @@ The full test suite requires `.[gateway]` (croniter) and `.[mcp]` (mcp) to be in
 - `docs/RUNNING.md` — step-by-step Docker and local Python run guide.
 - `docs/AUTONOMY_CAPABILITY_EXTRACTION.md` — extraction notes from AETHER, WRAITH, EVO, OpenChimera_v1, and appforge.
 - `docs/CLEAN_ROOM.md` — clean-room implementation boundary.
-- `docs/HACKATHON_ALL_IN_ONE.md` — single-product framing and four-track mapping.
-- `docs/hackathons/DEPLOYMENT_RUNBOOK.md` — public demo URL deployment runbook.
+- `docs/VULTR_HACKATHON_DEPLOYMENT.md` — Vultr VM public-demo deployment runbook.
+- `docs/HACKATHON_SUBMISSION_GUIDE.md` — challenge track, submission framing, and demo script.
 
 ---
 

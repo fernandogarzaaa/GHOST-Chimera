@@ -35,6 +35,7 @@ OpenAI-compatible (same HTTP request shape as OpenAI, different base URL + key):
     StepFunProvider    — https://api.stepfun.com/v1/chat/completions
     GlmProvider        — https://open.bigmodel.cn/api/paas/v4/... (ZhipuAI GLM-4)
     VeniceProvider     — https://api.venice.ai/api/v1/chat/completions (private)
+    VultrInferenceProvider — https://api.vultrinference.com/v1/chat/completions
     LMStudioProvider   — http://localhost:1234/v1/chat/completions  (local, no key)
 
 Custom API:
@@ -790,6 +791,49 @@ class VeniceProvider(OpenAICompatibleProvider):
     _DEFAULT_MODEL = "llama-3.3-70b"
     _KEY_ENV_VAR = "VENICE_API_KEY"
     _MODEL_ENV_VAR = "VENICE_MODEL"
+
+
+class VultrInferenceProvider(OpenAICompatibleProvider):
+    """Provider for Vultr Serverless Inference.
+
+    Vultr Serverless Inference exposes OpenAI-compatible chat completions for
+    hosted open-source models without requiring project-managed GPUs.  All
+    runtime details are env-driven so the hackathon demo can use Vultr as the
+    backend/system of record while failing closed when credits or credentials
+    are not configured.
+
+    Required environment variables:
+
+    ``VULTR_INFERENCE_API_KEY`` — Vultr inference API key.
+    ``VULTR_INFERENCE_MODEL`` — deployed/selected Vultr model identifier.
+    ``VULTR_INFERENCE_BASE_URL`` — full chat-completions endpoint.
+    """
+
+    name = "vultr"
+    _DEFAULT_BASE_URL = ""
+    _DEFAULT_MODEL = ""
+    _KEY_ENV_VAR = "VULTR_INFERENCE_API_KEY"
+    _MODEL_ENV_VAR = "VULTR_INFERENCE_MODEL"
+    _BASE_URL_ENV_VAR = "VULTR_INFERENCE_BASE_URL"
+
+    def __init__(self, profile: AuthProfile | None = None) -> None:
+        super().__init__(profile)
+        if profile is not None:
+            self._base_url = profile.base_url or os.environ.get(self._BASE_URL_ENV_VAR, self._DEFAULT_BASE_URL)
+        else:
+            self._base_url = os.environ.get(self._BASE_URL_ENV_VAR, self._DEFAULT_BASE_URL)
+        self.available = bool(self.api_key and self.model and self._base_url)
+
+    def validate_config(self) -> list[str]:
+        errors = super().validate_config()
+        if not self._base_url:
+            errors.append("VULTR_INFERENCE_BASE_URL is not set")
+        return errors
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = super().to_dict()
+        payload["base_url_configured"] = bool(self._base_url)
+        return payload
 
 
 class LMStudioProvider(BaseProvider):
