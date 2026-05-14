@@ -22,7 +22,22 @@ class RoleProfileTests(unittest.TestCase):
 
         self.assertIn("autonomous-engineer", ids)
         self.assertIn("ai-engineer-proxy", ids)
+        self.assertIn("manager-operator", ids)
+        self.assertIn("marketing-specialist", ids)
+        self.assertIn("virtual-assistant", ids)
         self.assertIn("enterprise-operator", ids)
+
+    def test_role_profiles_expose_personalization_and_work_domains(self) -> None:
+        manager = get_role_profile("manager-operator")
+        marketer = get_role_profile("marketing-specialist")
+        assistant = get_role_profile("virtual-assistant")
+
+        self.assertIn("email", manager.personalization_sources)
+        self.assertIn("team_coordination", manager.tool_domains)
+        self.assertIn("campaign_assets", marketer.personalization_sources)
+        self.assertIn("content_operations", marketer.tool_domains)
+        self.assertIn("schedule_exports", assistant.personalization_sources)
+        self.assertIn("personal_admin", assistant.tool_domains)
 
 
 if __name__ == "__main__":

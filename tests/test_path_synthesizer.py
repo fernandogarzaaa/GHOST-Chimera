@@ -20,6 +20,30 @@ class PathSynthesizerTests(unittest.TestCase):
         self.assertIn("license_check_required", result["source_policy"])
         self.assertTrue(result["proxy_policy"]["disclosure_required"])
 
+    def test_virtual_assistant_synthesis_emits_personal_ghost_blueprint(self) -> None:
+        result = synthesize_path(
+            "virtual-assistant",
+            preferences={"training_mode": "dataset_generation", "approval_level": "assist"},
+        )
+
+        blueprint = result["ghost_blueprint"]
+        self.assertEqual(blueprint["concept"], "personalized AI operator proxy")
+        self.assertIn("schedule_exports", blueprint["learns_from"])
+        self.assertIn("personal_admin", blueprint["can_operate"])
+        self.assertIn("local memory RAG", blueprint["training_pipeline"])
+        self.assertIn("MiniMind dataset generation", blueprint["training_pipeline"])
+        self.assertTrue(result["tool_policy"]["admin_controls_required"])
+
+    def test_marketing_profile_requires_approval_for_external_campaign_surfaces(self) -> None:
+        result = synthesize_path(
+            "marketing-specialist",
+            preferences={"training_mode": "rag-first", "approval_level": "supervised"},
+        )
+
+        self.assertIn("campaign_assets", result["ghost_blueprint"]["learns_from"])
+        self.assertIn("content_operations", result["ghost_blueprint"]["can_operate"])
+        self.assertTrue(result["tool_policy"]["admin_controls_required"])
+
     def test_default_path_synthesis_uses_autonomous_engineer(self) -> None:
         from ghostchimera.personalization.path_state import get_active_ghost_path
 
