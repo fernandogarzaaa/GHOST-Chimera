@@ -866,6 +866,49 @@
   }
   $("#refreshCapabilities").addEventListener("click", refreshCapabilities);
 
+  async function runPrReview() {
+    try {
+      var data = await api("/api/console/review-pr", {
+        method: "POST",
+        body: {
+          base: ($("#reviewBase").value || "origin/main").trim(),
+          head: ($("#reviewHead").value || "HEAD").trim(),
+        },
+      });
+      var summary = $("#reviewSummary");
+      summary.innerHTML = "";
+      [
+        ["Status", data.ok ? "ok" : "blocked"],
+        ["Files", String(data.file_count || 0)],
+        ["Findings", String(data.finding_count || 0)],
+        ["Risk", String(data.risk_score || 0)],
+      ].forEach(function(m) {
+        var card = el("div", { class: "card" });
+        card.appendChild(el("h3", null, m[0]));
+        card.appendChild(el("div", { class: "value" }, m[1]));
+        summary.appendChild(card);
+      });
+
+      var list = $("#reviewFindings");
+      list.innerHTML = "";
+      (data.findings || []).forEach(function(finding) {
+        var item = el("div", { class: "list-item" });
+        var cls = finding.severity === "P0" || finding.severity === "P1" ? "error" : finding.severity === "P2" ? "warn" : "ok";
+        item.appendChild(el("span", { class: "badge " + cls }, finding.severity || "P3"));
+        item.appendChild(el("span", { class: "name" }, finding.title || "finding"));
+        item.appendChild(el("span", { class: "meta" }, (finding.path || "repository") + (finding.line ? ":" + finding.line : "")));
+        item.appendChild(el("span", { class: "meta" }, finding.recommendation || finding.detail || ""));
+        list.appendChild(item);
+      });
+      if (!(data.findings || []).length) empty("#reviewFindings", data.summary || "No findings.");
+      toast("Review complete.", data.ok ? "ok" : "warn");
+    } catch (e) {
+      empty("#reviewFindings", "PR review failed.");
+      toast(e.message, "error");
+    }
+  }
+  $("#runPrReview").addEventListener("click", runPrReview);
+
   async function refreshReadiness() {
     var data = await api("/api/console/readiness");
     var list = $("#readinessList");

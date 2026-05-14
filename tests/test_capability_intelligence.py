@@ -18,7 +18,8 @@ class CapabilityIntelligenceTests(unittest.TestCase):
         report = inspect_capabilities(ROOT)
 
         self.assertTrue(report["ok"], json.dumps(report["top_gaps"], indent=2))
-        self.assertGreaterEqual(report["score_ratio"], 0.75)
+        self.assertEqual(report["score_ratio"], 1.0)
+        self.assertEqual(report["top_gaps"], [])
         self.assertGreaterEqual(report["capability_count"], 10)
         self.assertIn("OpenAI Codex", report["benchmarks"])
         self.assertIn("Claude Code", report["benchmarks"])

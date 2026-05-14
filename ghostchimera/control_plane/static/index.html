@@ -41,6 +41,7 @@
     <button class="tab" data-tab="browser">Browser</button>
     <button class="tab" data-tab="security">Security</button>
     <button class="tab" data-tab="schedules">Schedules</button>
+    <button class="tab" data-tab="review">Review</button>
     <button class="tab" data-tab="capabilities">Capabilities</button>
     <button class="tab" data-tab="readiness">Readiness</button>
   </nav>
@@ -330,6 +331,18 @@
     </div>
     <div class="section-hdr">Capability Surfaces</div>
     <div id="capabilityList"></div>
+  </div>
+
+  <div class="tab-content" id="tab-review">
+    <div class="section-hdr" style="margin-top:0;">PR / Diff Review</div>
+    <div class="row" style="margin-bottom:12px;">
+      <input id="reviewBase" placeholder="base ref" value="origin/main" style="flex:1;">
+      <input id="reviewHead" placeholder="head ref" value="HEAD" style="flex:1;">
+      <button id="runPrReview" class="primary">Run Review</button>
+    </div>
+    <div class="grid" id="reviewSummary"></div>
+    <div class="section-hdr">Findings</div>
+    <div id="reviewFindings"></div>
   </div>
 
   <!-- ── READINESS ─────────────────────────────────────────────────────── -->

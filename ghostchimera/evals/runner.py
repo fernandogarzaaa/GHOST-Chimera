@@ -412,6 +412,7 @@ def _case_readiness_runbook_includes_release_gate() -> tuple[bool, str]:
         "python scripts/smoke_installed_wheel.py",
         "python scripts/smoke_installed_wheel.py --extras gateway",
         "ghostchimera workspace show",
+        "ghostchimera review-pr --base HEAD --head HEAD",
         "ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30",
     }
     missing = sorted(required.difference(commands))
@@ -425,7 +426,7 @@ def _case_competitive_capability_score() -> tuple[bool, str]:
         for cap in report["capabilities"]
         if cap["status"] == "missing" and int(cap["priority"]) >= 5
     ]
-    ok = report["score_ratio"] >= 0.75 and not high_priority_missing
+    ok = report["score_ratio"] >= 1.0 and not high_priority_missing and not report["top_gaps"]
     detail = json.dumps(
         {
             "grade": report["grade"],
@@ -456,6 +457,15 @@ def _case_competitive_cli_json() -> tuple[bool, str]:
     payload = json.loads(completed.stdout)
     ok = payload.get("ok") is True and payload.get("score_ratio", 0) >= 0.75
     return ok, json.dumps({"grade": payload.get("grade"), "score_ratio": payload.get("score_ratio")}, sort_keys=True)
+
+
+def _case_competitive_pr_review_cli() -> tuple[bool, str]:
+    completed = _run_python_module(["ghostchimera", "review-pr", "--base", "HEAD", "--head", "HEAD"])
+    if completed.returncode != 0:
+        return False, completed.stderr or completed.stdout
+    payload = json.loads(completed.stdout)
+    ok = payload.get("ok") is True and payload.get("file_count") == 0
+    return ok, json.dumps({"ok": payload.get("ok"), "file_count": payload.get("file_count")}, sort_keys=True)
 
 
 # ── Coverage eval cases ──────────────────────────────────────────────
@@ -1536,6 +1546,7 @@ EVAL_SUITES: dict[str, list[tuple[str, CaseFn]]] = {
         ("competitive_capability_score", _case_competitive_capability_score),
         ("competitive_console_route", _case_competitive_console_route),
         ("competitive_cli_json", _case_competitive_cli_json),
+        ("competitive_pr_review_cli", _case_competitive_pr_review_cli),
     ],
     "workspace": [
         ("workspace_context_enriches_task", _case_workspace_context_enriches_task),

@@ -8,6 +8,8 @@ not just internal feature names. The source of truth is executable:
 ```bash
 ghostchimera capabilities --format json
 ghostchimera capabilities --format markdown --save docs/capability-report.md
+ghostchimera review-pr --base origin/main --head HEAD
+ghostchimera review-pr --base origin/main --head WORKTREE
 python -m ghostchimera.evals run --suite competitive
 ```
 
@@ -44,6 +46,12 @@ The competitive eval currently checks these capability families:
 Each capability must map to real files and symbols. Missing surfaces lower the
 score and appear as `top_gaps` in `ghostchimera capabilities --format json`.
 
+Automated review is exposed through `ghostchimera review-pr` and
+`POST /api/console/review-pr`. It performs deterministic checks for likely
+secrets, destructive commands, `shell=True`, unfinished placeholder code,
+missing tests for source changes, missing README/checklist updates for
+operator-facing release surfaces, and generated artifacts.
+
 ## Beta Positioning
 
 Ghost Chimera can be positioned as a local-first agent orchestration runtime
@@ -52,5 +60,5 @@ browser/desktop actions, release evals, and optional local inference.
 
 Do not claim complete superiority over cloud coding agents. The honest beta
 claim is stronger: Ghost Chimera exposes a broader local orchestration surface,
-and the competitive matrix shows exactly which surfaces exist, which are partial,
-and what must be built next.
+and the competitive matrix shows exactly which surfaces exist and what optional
+integrations can be built next.

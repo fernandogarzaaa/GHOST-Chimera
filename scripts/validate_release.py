@@ -204,6 +204,7 @@ def check_release_hardening() -> dict[str, Any]:
             "python scripts/smoke_installed_wheel.py",
             "python scripts/smoke_installed_wheel.py --extras gateway",
             "ghostchimera capabilities --format json",
+            "ghostchimera review-pr --base HEAD --head HEAD",
             "docs/COMPETITIVE_CAPABILITY_MATRIX.md",
             "ghostchimera workspace show",
             "ghostchimera workspace sync-memory",
@@ -226,6 +227,7 @@ def check_release_hardening() -> dict[str, Any]:
         "python scripts/smoke_installed_wheel.py",
         "python scripts/smoke_installed_wheel.py --extras gateway",
         "ghostchimera capabilities --format json",
+        "ghostchimera review-pr --base HEAD --head HEAD",
         "ghostchimera workspace show",
         "ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30",
     ):
@@ -241,6 +243,8 @@ def check_release_hardening() -> dict[str, Any]:
         errors.append("user-journey eval does not verify workspace sync quality flags")
     if "competitive_capability_score" not in eval_runner:
         errors.append("competitive eval does not verify capability score")
+    if "competitive_pr_review_cli" not in eval_runner:
+        errors.append("competitive eval does not verify PR review CLI")
 
     smoke_script = (ROOT / "scripts" / "smoke_installed_wheel.py").read_text(encoding="utf-8")
     if "ghostchimera[{normalized}] @" not in smoke_script:

@@ -206,15 +206,17 @@ COMPETITIVE_CAPABILITIES: tuple[CompetitiveCapability, ...] = (
         benchmark="Codex auto-review: compare PR intent, diff, codebase context, and tests.",
         competitors=("OpenAI Codex", "Claude Code"),
         priority=4,
-        description="Ghost has code-search and eval pieces, but no first-class GitHub PR review automation yet.",
+        description="Ghost reviews local PR diffs for blocking release, security, and test-coverage risks.",
         required_surfaces=(
+            CapabilitySurface("ghostchimera/chimera_pilot/pr_review.py", "run_pr_review", "deterministic PR review engine"),
             CapabilitySurface("ghostchimera/skill_layer/code_search.py", "CodeSearchSkill", "code search"),
             CapabilitySurface("ghostchimera/evals/runner.py", "EVAL_SUITES", "eval runner"),
-            CapabilitySurface("ghostchimera/control_plane/cli.py", "capabilities", "gap surfacing"),
-            CapabilitySurface("ghostchimera/control_plane/cli.py", "review-pr", "first-class PR review command"),
+            CapabilitySurface("ghostchimera/control_plane/cli.py", "review-pr", "operator CLI"),
+            CapabilitySurface("ghostchimera/control_plane/console.py", "/api/console/review-pr", "dashboard route"),
+            CapabilitySurface("tests/test_pr_review.py", "PRReviewTests", "review tests"),
         ),
-        improvement="Add a GitHub PR review command that loads diffs, maps intent to changed files, runs tests, and posts findings.",
-        release_gate="ghostchimera capabilities --format json",
+        improvement="Optional next step: post review findings directly to GitHub PR conversations when credentials are configured.",
+        release_gate="ghostchimera review-pr --base HEAD --head HEAD",
     ),
 )
 
@@ -307,8 +309,8 @@ def inspect_capabilities(root: str | Path | None = None) -> dict[str, Any]:
         "top_gaps": gaps[:5],
         "positioning": (
             "Ghost Chimera is strongest where agent orchestration, local-first memory, MCP, hooks, "
-            "desktop/browser control, and release evals converge. The remaining beta gap is first-class "
-            "automated PR review and deeper replayable workflow durability."
+            "desktop/browser control, automated PR review, and release evals converge. The next beta focus "
+            "is direct GitHub review posting and deeper replayable workflow durability."
         ),
     }
 

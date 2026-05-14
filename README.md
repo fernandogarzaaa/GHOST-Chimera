@@ -15,6 +15,7 @@ Key capabilities:
 - **Personal MiniMind** — consent-gated local memory bootstrap with system specs, approved files/email exports, optional whole-machine/email-artifact crawling, MiniMind JSONL dataset generation, and primary-model RAG handoff.
 
 - **Competitive capability intelligence** - CLI, console, docs, and eval gates compare Ghost Chimera against Codex, Claude Code, LangGraph, CrewAI, Hermes-style tool gateways, and OpenClaw-style local autonomy patterns.
+- **Automated PR review** - deterministic `ghostchimera review-pr` checks for secrets, destructive commands, missing tests, release-checklist drift, generated artifacts, and unfinished beta code.
 
 This is beta-stage software for real, user-supervised work in local-first environments. It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
 
@@ -155,6 +156,7 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 | **Browser** | Fetch a URL (content scraping), open a URL in the agent browser workspace, take a DOM snapshot. |
 | **Security** | Security metric cards, HMAC audit chain status, recent LobsterTrap/DPI threat events. |
 | **Schedules** | Create cron schedules (start disabled for review), enable/disable/delete existing schedules, see next-run times. |
+| **Review** | Run deterministic PR/diff review against a base/head ref and inspect blocking findings. Backed by `POST /api/console/review-pr`. |
 | **Capabilities** | Competitive matrix with score, benchmark coverage, release-gate commands, and top gaps. Backed by `GET /api/console/capabilities`. |
 | **Readiness** | Release-readiness checklist with the exact commands to run before tagging a release. |
 
@@ -208,6 +210,11 @@ ghostchimera minimind personal-handoff --objective "What should Ghost do next?"
 # Competitive capability matrix
 ghostchimera capabilities --format json
 ghostchimera capabilities --format markdown --save docs/capability-report.md
+
+# PR / diff review
+ghostchimera review-pr --base origin/main --head HEAD
+ghostchimera review-pr --base origin/main --head WORKTREE  # include staged/unstaged changes
+ghostchimera review-pr --base HEAD --head HEAD --format markdown
 
 # Local model bootstrap
 ghostchimera local-model check
@@ -571,6 +578,13 @@ The dashboard exposes the same report in the **Capabilities** tab. See
 `docs/COMPETITIVE_CAPABILITY_MATRIX.md` for benchmark context and beta
 positioning.
 
+The matrix includes first-party PR review automation. Run it before merging or
+pushing a beta branch:
+
+```bash
+ghostchimera review-pr --base origin/main --head HEAD
+```
+
 ---
 
 ## Extension Surfaces
@@ -630,6 +644,7 @@ python -m ghostchimera.evals run --suite track4
 python scripts/smoke_installed_wheel.py
 python scripts/smoke_installed_wheel.py --extras gateway
 ghostchimera capabilities --format json
+ghostchimera review-pr --base HEAD --head HEAD
 ```
 
 **Eval suite summary:**

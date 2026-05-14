@@ -137,6 +137,25 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertGreaterEqual(payload["capability_count"], 10)
         self.assertIn("OpenAI Codex", payload["benchmarks"])
 
+    def test_console_registers_pr_review_route(self) -> None:
+        server = GatewayServer()
+        register_console_routes(server)
+        route = server.routes.find("POST", "/api/console/review-pr")
+
+        self.assertIsNotNone(route)
+        payload = route.handler(
+            {
+                "method": "POST",
+                "path": "/api/console/review-pr",
+                "headers": {},
+                "body": json.dumps({"base": "HEAD", "head": "HEAD"}),
+                "query": {},
+            }
+        )
+
+        self.assertTrue(payload["ok"], payload)
+        self.assertEqual(payload["file_count"], 0)
+
     def test_console_browser_workspace_degrades_when_agent_browser_is_missing(self) -> None:
         workspace = AgentBrowserWorkspace(binary="definitely-missing-agent-browser")
         server = GatewayServer()

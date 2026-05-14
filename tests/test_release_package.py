@@ -62,6 +62,7 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertIn("python -m ghostchimera.evals run --suite user-journey", checklist)
         self.assertIn("python -m ghostchimera.evals run --suite competitive", checklist)
         self.assertIn("ghostchimera capabilities --format json", checklist)
+        self.assertIn("ghostchimera review-pr --base HEAD --head HEAD", checklist)
         self.assertIn("python scripts/smoke_installed_wheel.py", checklist)
         self.assertIn("python scripts/smoke_installed_wheel.py --extras gateway", checklist)
         self.assertIn("gateway extras", checklist)

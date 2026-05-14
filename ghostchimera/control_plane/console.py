@@ -18,6 +18,7 @@ from ..chimera_pilot.autonomy_queue import AutonomyJobQueue
 from ..chimera_pilot.capability_intelligence import inspect_capabilities
 from ..chimera_pilot.desktop_policy import DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN
 from ..chimera_pilot.gateway_server import GatewayServer, HttpResponse
+from ..chimera_pilot.pr_review import run_pr_review
 from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 from ..config import GhostChimeraConfig
 from ..memory_layer.store import MemoryStore
@@ -106,6 +107,11 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "name": "competitive capability smoke",
         "command": "ghostchimera capabilities --format json",
         "purpose": "Verifies the competitive capability matrix is reachable from the CLI.",
+    },
+    {
+        "name": "PR review smoke",
+        "command": "ghostchimera review-pr --base HEAD --head HEAD",
+        "purpose": "Verifies first-party PR/diff review automation is reachable from the CLI.",
     },
 ]
 
@@ -685,6 +691,15 @@ def register_console_routes(
     def capabilities(ctx: dict[str, Any]) -> dict[str, Any]:
         return inspect_capabilities()
 
+    def review_pr(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        report = run_pr_review(
+            base=str(body.get("base") or "origin/main"),
+            head=str(body.get("head") or "HEAD"),
+            max_diff_bytes=int(body.get("max_diff_bytes") or 500_000),
+        )
+        return report.to_dict()
+
     def readiness(ctx: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": True,
@@ -870,6 +885,7 @@ def register_console_routes(
     _api_register("/api/console/minimind/personal/bootstrap", minimind_personal_bootstrap, method="POST", description="Bootstrap Personal MiniMind from consented local sources")
     _api_register("/api/console/minimind/personal/handoff", minimind_personal_handoff, method="POST", description="Build Personal MiniMind RAG handoff for the primary model")
     _api_register("/api/console/capabilities", capabilities, method="GET", description="Inspect competitive agent-orchestration capability coverage")
+    _api_register("/api/console/review-pr", review_pr, method="POST", description="Run deterministic PR/diff review automation")
     _api_register("/api/console/readiness", readiness, method="GET", description="Ghost Console release readiness runbook")
     _api_register("/api/console/skills", skills_list, method="GET", description="List registered skills")
     _api_register("/api/console/autonomy/jobs", jobs_list, method="GET", description="List autonomy jobs")

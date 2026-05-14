@@ -112,6 +112,12 @@ def _main(argv: list[str] | None = None) -> int:
     capabilities_parser = sub.add_parser("capabilities", help="Inspect competitive agent-orchestration capability coverage")
     capabilities_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
     capabilities_parser.add_argument("--save", default="", help="Optional path to write the report.")
+    review_parser = sub.add_parser("review-pr", help="Run deterministic PR/diff review checks")
+    review_parser.add_argument("--base", default="origin/main", help="Base ref for review, default origin/main.")
+    review_parser.add_argument("--head", default="HEAD", help="Head ref for review, default HEAD. Use WORKTREE to include staged and unstaged local changes.")
+    review_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
+    review_parser.add_argument("--save", default="", help="Optional path to write the review report.")
+    review_parser.add_argument("--max-diff-bytes", type=int, default=500_000, help="Maximum diff bytes to inspect.")
     sub.add_parser("model", help="List and switch the current model provider")
     sub.add_parser("policy", help="Manage security policies")
     desktop_stop_parser = sub.add_parser("desktop-stop", help="Create the Chimera Pilot desktop kill-switch file")
@@ -290,6 +296,9 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "capabilities":
         return _run_capabilities_cli(args)
 
+    if args.command == "review-pr":
+        return _run_review_pr_cli(args)
+
     if args.command == "model":
         from .model_picker import run_model_picker
 
@@ -442,6 +451,25 @@ def _run_capabilities_cli(args: argparse.Namespace) -> int:
     payload = inspect_capabilities()
     if args.format == "markdown":
         output = format_capability_report(payload)
+    else:
+        output = json.dumps(payload, indent=2, sort_keys=True)
+    if args.save:
+        Path(args.save).expanduser().write_text(output, encoding="utf-8")
+    print(output, end="" if output.endswith("\n") else "\n")
+    return 0 if payload.get("ok") else 1
+
+
+def _run_review_pr_cli(args: argparse.Namespace) -> int:
+    from ..chimera_pilot.pr_review import format_pr_review_report, run_pr_review
+
+    report = run_pr_review(
+        base=args.base,
+        head=args.head,
+        max_diff_bytes=max(1_000, int(args.max_diff_bytes)),
+    )
+    payload = report.to_dict()
+    if args.format == "markdown":
+        output = format_pr_review_report(report)
     else:
         output = json.dumps(payload, indent=2, sort_keys=True)
     if args.save:
