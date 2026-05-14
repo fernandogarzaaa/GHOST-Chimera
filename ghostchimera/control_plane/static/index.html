@@ -33,6 +33,7 @@
   <nav class="tab-bar" id="tabBar">
     <button class="tab active" data-tab="status">Status</button>
     <button class="tab" data-tab="path">Path</button>
+    <button class="tab" data-tab="github">GitHub</button>
     <button class="tab" data-tab="run">▶ Run</button>
     <button class="tab" data-tab="jobs">Jobs</button>
     <button class="tab" data-tab="workspace">Workspace</button>
@@ -67,6 +68,29 @@
     </div>
     <div class="section-hdr">Synthesized Configuration</div>
     <pre class="output" id="pathOutput">Choose a path to synthesize Ghost Chimera.</pre>
+  </div>
+
+  <div class="tab-content" id="tab-github">
+    <div class="section-hdr" style="margin-top:0;">GitHub Autopilot</div>
+    <div class="grid" id="githubSummary"></div>
+    <div class="row" style="margin-bottom:12px;">
+      <input id="githubRepo" placeholder="owner/repo" style="flex:2;min-width:220px;">
+      <input id="githubIssue" placeholder="issue number" style="flex:1;min-width:120px;">
+      <input id="githubTitle" placeholder="issue title" style="flex:2;min-width:220px;">
+      <button id="githubPlan" class="primary">Plan Issue</button>
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <select id="githubPolicyAction" style="flex:1;min-width:180px;">
+        <option value="push_branch">Push branch</option>
+        <option value="open_pr">Open PR</option>
+        <option value="post_review">Post review</option>
+        <option value="read_private_repo">Read private repo</option>
+      </select>
+      <label class="inline-check"><input id="githubAllowPush" type="checkbox"> allow push</label>
+      <label class="inline-check"><input id="githubAllowAutonomy" type="checkbox"> allow autonomy</label>
+      <button id="githubPolicyPreview">Preview Policy</button>
+    </div>
+    <pre class="output" id="githubOutput">Connect GitHub to plan issue-to-PR work.</pre>
   </div>
 
   <div class="tab-content active" id="tab-status">

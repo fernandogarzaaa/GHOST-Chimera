@@ -82,6 +82,10 @@ def _suite_kpis(name: str, cases: list[dict[str, object]]) -> dict[str, float]:
         kpis["workspace_contract_pass_rate"] = round(pass_rate, 3)
     if name == "competitive":
         kpis["competitive_capability_pass_rate"] = round(pass_rate, 3)
+    if name == "github-connected":
+        kpis["github_connected_pass_rate"] = round(pass_rate, 3)
+    if name == "path-synthesis":
+        kpis["path_synthesis_pass_rate"] = round(pass_rate, 3)
     if name == "track2":
         kpis["gemini_integration_pass_rate"] = round(pass_rate, 3)
     if name == "track3":
@@ -107,6 +111,10 @@ def _suite_gates(name: str, kpis: dict[str, float]) -> dict[str, bool]:
         return {"workspace_contract_gate": kpis.get("workspace_contract_pass_rate", 0.0) >= 1.0}
     if name == "competitive":
         return {"competitive_capability_gate": kpis.get("competitive_capability_pass_rate", 0.0) >= 1.0}
+    if name == "github-connected":
+        return {"github_connected_gate": kpis.get("github_connected_pass_rate", 0.0) >= 1.0}
+    if name == "path-synthesis":
+        return {"path_synthesis_gate": kpis.get("path_synthesis_pass_rate", 0.0) >= 1.0}
     if name == "track2":
         return {"gemini_gate": kpis.get("gemini_integration_pass_rate", 0.0) >= 1.0}
     if name == "track3":
@@ -466,6 +474,64 @@ def _case_competitive_pr_review_cli() -> tuple[bool, str]:
     payload = json.loads(completed.stdout)
     ok = payload.get("ok") is True and payload.get("file_count") == 0
     return ok, json.dumps({"ok": payload.get("ok"), "file_count": payload.get("file_count")}, sort_keys=True)
+
+
+def _case_github_cli_status() -> tuple[bool, str]:
+    completed = _run_python_module(["ghostchimera", "github", "status"])
+    if completed.returncode != 0:
+        return False, completed.stderr or completed.stdout
+    payload = json.loads(completed.stdout)
+    ok = payload.get("ok") is True and payload.get("auth_mode") in {"token", "gh-cli"}
+    return ok, json.dumps(payload, sort_keys=True)
+
+
+def _case_github_issue_plan_contract() -> tuple[bool, str]:
+    completed = _run_python_module(["ghostchimera", "github", "plan", "--repo", "owner/repo", "--issue", "42", "--title", "Fix CI"])
+    if completed.returncode != 0:
+        return False, completed.stderr or completed.stdout
+    payload = json.loads(completed.stdout)
+    ok = payload.get("ok") is True and "owner/repo#42" in payload.get("objective", "")
+    return ok, json.dumps(payload, sort_keys=True)
+
+
+def _case_github_console_routes() -> tuple[bool, str]:
+    server = GatewayServer()
+    register_console_routes(server)
+    route = server.routes.find("GET", "/api/console/github/status")
+    plan_route = server.routes.find("POST", "/api/console/github/plan")
+    policy_route = server.routes.find("POST", "/api/console/github/policy-simulate")
+    ok = route is not None and plan_route is not None and policy_route is not None
+    return ok, json.dumps({"status": route is not None, "plan": plan_route is not None, "policy": policy_route is not None}, sort_keys=True)
+
+
+def _case_path_profiles_available() -> tuple[bool, str]:
+    from ghostchimera.personalization.role_profiles import list_role_profiles
+
+    ids = {profile.id for profile in list_role_profiles()}
+    ok = {"autonomous-engineer", "ai-engineer-proxy", "enterprise-operator"}.issubset(ids)
+    return ok, json.dumps({"ids": sorted(ids)}, sort_keys=True)
+
+
+def _case_path_synthesis_ai_engineer_proxy() -> tuple[bool, str]:
+    from ghostchimera.personalization.path_synthesizer import synthesize_path
+
+    payload = synthesize_path("ai-engineer-proxy", {"training_mode": "rag-first", "approval_level": "supervised"})
+    ok = payload["role"]["id"] == "ai-engineer-proxy" and payload["source_policy"]["license_check_required"] is True
+    return ok, json.dumps({"role": payload["role"]["id"], "source_policy": payload["source_policy"]}, sort_keys=True)
+
+
+def _case_path_source_policy_blocks_unknown_training() -> tuple[bool, str]:
+    from ghostchimera.integrations.source_discovery import SourceCandidate, filter_allowed_sources
+
+    allowed = filter_allowed_sources(
+        [
+            SourceCandidate(url="https://github.com/example/mit", kind="github", license="MIT", commit="abc"),
+            SourceCandidate(url="https://github.com/example/unknown", kind="github", license="", commit="def"),
+        ],
+        intended_use="fine_tuning",
+    )
+    ok = [item.url for item in allowed] == ["https://github.com/example/mit"]
+    return ok, json.dumps([item.to_dict() for item in allowed], sort_keys=True)
 
 
 # ── Coverage eval cases ──────────────────────────────────────────────
@@ -1547,6 +1613,16 @@ EVAL_SUITES: dict[str, list[tuple[str, CaseFn]]] = {
         ("competitive_console_route", _case_competitive_console_route),
         ("competitive_cli_json", _case_competitive_cli_json),
         ("competitive_pr_review_cli", _case_competitive_pr_review_cli),
+    ],
+    "github-connected": [
+        ("github_cli_status", _case_github_cli_status),
+        ("github_issue_plan_contract", _case_github_issue_plan_contract),
+        ("github_console_routes", _case_github_console_routes),
+    ],
+    "path-synthesis": [
+        ("path_profiles_available", _case_path_profiles_available),
+        ("path_synthesis_ai_engineer_proxy", _case_path_synthesis_ai_engineer_proxy),
+        ("path_source_policy_blocks_unknown_training", _case_path_source_policy_blocks_unknown_training),
     ],
     "workspace": [
         ("workspace_context_enriches_task", _case_workspace_context_enriches_task),

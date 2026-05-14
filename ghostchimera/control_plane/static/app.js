@@ -192,6 +192,66 @@
   }
   $("#pathSynthesize").addEventListener("click", synthesizeSelectedPath);
 
+  async function refreshGithubStatus() {
+    try {
+      var data = await api("/api/console/github/status");
+      var summary = $("#githubSummary");
+      if (!summary) return;
+      summary.innerHTML = "";
+      [
+        ["Status", data.ok ? "ready" : "unavailable"],
+        ["Auth", data.auth_mode || "unknown"],
+        ["Token", data.has_token ? "configured" : "not set"],
+      ].forEach(function(m) {
+        var card = el("div", { class: "card" });
+        card.appendChild(el("h3", null, m[0]));
+        card.appendChild(el("div", { class: "value" }, m[1]));
+        summary.appendChild(card);
+      });
+    } catch (e) {
+      empty("#githubSummary", "GitHub integration unavailable.");
+    }
+  }
+
+  async function planGithubIssue() {
+    try {
+      var issueNumber = Number(($("#githubIssue").value || "").trim());
+      var data = await api("/api/console/github/plan", {
+        method: "POST",
+        body: {
+          repo: ($("#githubRepo").value || "").trim(),
+          issue: issueNumber,
+          title: ($("#githubTitle").value || "").trim(),
+        },
+      });
+      $("#githubOutput").textContent = data.ok ? data.objective : data.error;
+    } catch (e) {
+      $("#githubOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function previewGithubPolicy() {
+    try {
+      var data = await api("/api/console/github/policy-simulate", {
+        method: "POST",
+        body: {
+          action: { action: $("#githubPolicyAction").value, autonomous: true },
+          controls: {
+            allow_push: $("#githubAllowPush").checked,
+            allow_autonomy: $("#githubAllowAutonomy").checked,
+          },
+        },
+      });
+      $("#githubOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+      $("#githubOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+  $("#githubPlan").addEventListener("click", planGithubIssue);
+  $("#githubPolicyPreview").addEventListener("click", previewGithubPolicy);
+
   // ── Status ───────────────────────────────────────────────────────────────
   async function refreshStatus() {
     try {
@@ -984,6 +1044,7 @@
     refreshSkills();
     refreshCapabilities();
     refreshPathProfiles();
+    refreshGithubStatus();
   });
   setInterval(refreshStatus, 30000);
 })();

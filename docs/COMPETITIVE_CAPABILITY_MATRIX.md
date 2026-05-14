@@ -11,6 +11,8 @@ ghostchimera capabilities --format markdown --save docs/capability-report.md
 ghostchimera review-pr --base origin/main --head HEAD
 ghostchimera review-pr --base origin/main --head WORKTREE
 python -m ghostchimera.evals run --suite competitive
+python -m ghostchimera.evals run --suite github-connected
+python -m ghostchimera.evals run --suite path-synthesis
 ```
 
 The matrix is also available in Ghost Console through
@@ -41,6 +43,8 @@ The competitive eval currently checks these capability families:
 - Personal local context
 - Model routing and local runtime
 - Red-team safety evals
+- GitHub-connected autonomous engineer
+- Multi-purpose Ghost path synthesis
 - Automated code review
 
 Each capability must map to real files and symbols. Missing surfaces lower the

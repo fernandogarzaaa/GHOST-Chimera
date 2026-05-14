@@ -162,6 +162,38 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 
 **All actions produce toast notifications** (green ok / yellow warn / red error) — no need to watch the terminal for confirmation.
 
+### Multi-Purpose Ghost Paths
+
+Use the Path tab to choose what Ghost Chimera should become for the current
+operator. Built-in paths include Autonomous Engineer, AI Engineer Proxy,
+Enterprise Operator, Personal Operations Assistant, Research Analyst, and
+Custom Ghost.
+
+The AI Engineer Proxy path configures Ghost as an authorized operator proxy for
+AI engineering work. It synthesizes source scopes, learning strategy, dashboard
+tabs, eval gates, and proxy policy. External GitHub repositories require license
+metadata, URL, commit SHA, and intended-use tracking before dataset generation or
+fine-tuning.
+
+See [Multi-Purpose Ghost Paths](docs/MULTIPURPOSE_GHOST_PATHS.md) for the
+source and disclosure policy.
+
+### GitHub-Connected Beta Workflow
+
+GitHub-connected mode lets Ghost Chimera turn issues into objectives, preview
+policy requirements, and prepare issue-to-PR work from the local runner.
+
+```powershell
+$env:GHOSTCHIMERA_GITHUB_TOKEN="..."
+ghostchimera github status
+ghostchimera github plan --repo owner/repo --issue 42 --title "Fix CI"
+ghostchimera console
+```
+
+The console GitHub tab exposes connection status, issue planning, and policy
+simulation. See
+[GitHub-Connected Autonomous Engineer](docs/GITHUB_CONNECTED_AUTONOMOUS_ENGINEER.md).
+
 Console options:
 
 ```bash

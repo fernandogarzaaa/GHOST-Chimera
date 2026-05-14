@@ -151,15 +151,58 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertTrue(synthesized["ok"])
         self.assertEqual(synthesized["path"]["role"]["id"], "ai-engineer-proxy")
 
+    def test_console_registers_github_routes(self) -> None:
+        server = GatewayServer()
+        register_console_routes(server)
+
+        status_route = server.routes.find("GET", "/api/console/github/status")
+        plan_route = server.routes.find("POST", "/api/console/github/plan")
+        policy_route = server.routes.find("POST", "/api/console/github/policy-simulate")
+
+        self.assertIsNotNone(status_route)
+        self.assertIsNotNone(plan_route)
+        self.assertIsNotNone(policy_route)
+
+        status = status_route.handler({"method": "GET", "path": "/api/console/github/status", "headers": {}, "body": "", "query": {}})
+        self.assertTrue(status["ok"])
+        self.assertIn(status["auth_mode"], {"token", "gh-cli"})
+
+        planned = plan_route.handler(
+            {
+                "method": "POST",
+                "path": "/api/console/github/plan",
+                "headers": {},
+                "body": json.dumps({"repo": "owner/repo", "issue": 42, "title": "Fix CI"}),
+                "query": {},
+            }
+        )
+        self.assertTrue(planned["ok"])
+        self.assertIn("owner/repo#42", planned["objective"])
+
+        policy = policy_route.handler(
+            {
+                "method": "POST",
+                "path": "/api/console/github/policy-simulate",
+                "headers": {},
+                "body": json.dumps({"action": {"action": "push_branch", "autonomous": True}, "controls": {}}),
+                "query": {},
+            }
+        )
+        self.assertFalse(policy["allowed"])
+
     def test_console_static_ui_exposes_path_synthesizer(self) -> None:
         root = Path(__file__).resolve().parents[1]
         html = (root / "ghostchimera" / "control_plane" / "static" / "index.html").read_text(encoding="utf-8")
         app = (root / "ghostchimera" / "control_plane" / "static" / "app.js").read_text(encoding="utf-8")
 
         self.assertIn('data-tab="path"', html)
+        self.assertIn('data-tab="github"', html)
         self.assertIn("pathProfile", html)
+        self.assertIn("githubRepo", html)
         self.assertIn("/api/console/paths", app)
         self.assertIn("/api/console/paths/synthesize", app)
+        self.assertIn("/api/console/github/status", app)
+        self.assertIn("/api/console/github/plan", app)
 
     def test_console_registers_capabilities_route(self) -> None:
         server = GatewayServer()

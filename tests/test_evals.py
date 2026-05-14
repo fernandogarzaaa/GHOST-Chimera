@@ -72,6 +72,22 @@ class EvaluationHarnessTests(unittest.TestCase):
         self.assertIn("operator_journey_pass_rate", report["kpis"])
         self.assertTrue(report["gates"]["operator_journey_gate"])
 
+    def test_github_connected_suite_reports_contracts(self) -> None:
+        report = run_suite("github-connected")
+
+        self.assertTrue(report["ok"])
+        self.assertGreaterEqual(report["passed"], 3)
+        self.assertIn("github_connected_pass_rate", report["kpis"])
+        self.assertTrue(report["gates"]["github_connected_gate"])
+
+    def test_path_synthesis_suite_reports_contracts(self) -> None:
+        report = run_suite("path-synthesis")
+
+        self.assertTrue(report["ok"])
+        self.assertGreaterEqual(report["passed"], 3)
+        self.assertIn("path_synthesis_pass_rate", report["kpis"])
+        self.assertTrue(report["gates"]["path_synthesis_gate"])
+
 
 if __name__ == "__main__":
     unittest.main()

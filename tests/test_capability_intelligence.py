@@ -24,6 +24,8 @@ class CapabilityIntelligenceTests(unittest.TestCase):
         self.assertIn("OpenAI Codex", report["benchmarks"])
         self.assertIn("Claude Code", report["benchmarks"])
         self.assertTrue(any(cap["id"] == "mcp_tool_gateway" for cap in report["capabilities"]))
+        self.assertTrue(any(cap["id"] == "github_connected_autonomous_engineer" for cap in report["capabilities"]))
+        self.assertTrue(any(cap["id"] == "multi_purpose_path_synthesis" for cap in report["capabilities"]))
 
     def test_missing_required_surface_marks_capability_partial(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-capability-") as tmp:

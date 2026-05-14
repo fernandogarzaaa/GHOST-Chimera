@@ -79,6 +79,16 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "purpose": "Checks Ghost Chimera against current agent-orchestration capability benchmarks.",
     },
     {
+        "name": "GitHub-connected eval",
+        "command": "python -m ghostchimera.evals run --suite github-connected",
+        "purpose": "Checks GitHub status, issue planning, and console route contracts.",
+    },
+    {
+        "name": "path synthesis eval",
+        "command": "python -m ghostchimera.evals run --suite path-synthesis",
+        "purpose": "Checks multi-purpose role profiles, path synthesis, and external-source policy.",
+    },
+    {
         "name": "production doctor",
         "command": "GHOSTCHIMERA_DEPLOYMENT_MODE=production GHOSTCHIMERA_EXTERNAL_ISOLATION=container GHOSTCHIMERA_SECURITY_REVIEWED=1 GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED=1 ghostchimera doctor --production",
         "purpose": "Verifies production-mode guardrail configuration.",
@@ -107,6 +117,11 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "name": "competitive capability smoke",
         "command": "ghostchimera capabilities --format json",
         "purpose": "Verifies the competitive capability matrix is reachable from the CLI.",
+    },
+    {
+        "name": "GitHub connection smoke",
+        "command": "ghostchimera github status",
+        "purpose": "Verifies GitHub-connected workflow auth detection is reachable from the CLI.",
     },
     {
         "name": "PR review smoke",
@@ -708,6 +723,39 @@ def register_console_routes(
             return {"ok": False, "error": "preferences must be an object"}
         return {"ok": True, "path": synthesize_path(profile_id, preferences=preferences)}
 
+    def github_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..integrations.github_client import GitHubAuth
+
+        auth = GitHubAuth.discover()
+        return {"ok": True, "auth_mode": auth.mode, "has_token": bool(auth.token)}
+
+    def github_plan(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..integrations.github_tasks import GitHubIssue, issue_to_objective
+
+        body = _json_body(ctx)
+        repo = str(body.get("repo") or "").strip()
+        issue_number = int(body.get("issue") or 0)
+        if not repo or issue_number <= 0:
+            return {"ok": False, "error": "repo and issue are required"}
+        issue = GitHubIssue(
+            repo=repo,
+            number=issue_number,
+            title=str(body.get("title") or f"Issue {issue_number}"),
+            body=str(body.get("body") or ""),
+            labels=[str(label) for label in body.get("labels") or []],
+        )
+        return {"ok": True, "objective": issue_to_objective(issue)}
+
+    def github_policy_simulate(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..integrations.github_policy import simulate_github_action_policy
+
+        body = _json_body(ctx)
+        action = body.get("action") or {}
+        controls = body.get("controls") or {}
+        if not isinstance(action, dict) or not isinstance(controls, dict):
+            return {"ok": False, "error": "action and controls must be objects"}
+        return simulate_github_action_policy(action, controls)
+
     def review_pr(ctx: dict[str, Any]) -> dict[str, Any]:
         body = _json_body(ctx)
         report = run_pr_review(
@@ -903,6 +951,9 @@ def register_console_routes(
     _api_register("/api/console/minimind/personal/handoff", minimind_personal_handoff, method="POST", description="Build Personal MiniMind RAG handoff for the primary model")
     _api_register("/api/console/paths", role_profiles, method="GET", description="List multi-purpose Ghost paths")
     _api_register("/api/console/paths/synthesize", synthesize_role_path, method="POST", description="Synthesize Ghost Chimera from a selected user path")
+    _api_register("/api/console/github/status", github_status, method="GET", description="Inspect GitHub integration status")
+    _api_register("/api/console/github/plan", github_plan, method="POST", description="Convert a GitHub issue into a Ghost objective")
+    _api_register("/api/console/github/policy-simulate", github_policy_simulate, method="POST", description="Preview GitHub action controls")
     _api_register("/api/console/capabilities", capabilities, method="GET", description="Inspect competitive agent-orchestration capability coverage")
     _api_register("/api/console/review-pr", review_pr, method="POST", description="Run deterministic PR/diff review automation")
     _api_register("/api/console/readiness", readiness, method="GET", description="Ghost Console release readiness runbook")

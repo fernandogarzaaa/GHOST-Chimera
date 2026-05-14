@@ -118,6 +118,13 @@ def _main(argv: list[str] | None = None) -> int:
     review_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
     review_parser.add_argument("--save", default="", help="Optional path to write the review report.")
     review_parser.add_argument("--max-diff-bytes", type=int, default=500_000, help="Maximum diff bytes to inspect.")
+    github_parser = sub.add_parser("github", help="Run GitHub-connected autonomous engineering workflows")
+    github_parser.add_argument("action", choices=["status", "plan"], nargs="?", default="status")
+    github_parser.add_argument("--repo", default="", help="Repository in owner/name form.")
+    github_parser.add_argument("--issue", type=int, default=0, help="GitHub issue number.")
+    github_parser.add_argument("--title", default="", help="Issue title for local planning.")
+    github_parser.add_argument("--body", default="", help="Issue body for local planning.")
+    github_parser.add_argument("--label", action="append", default=[], help="Issue label for local planning. Repeatable.")
     sub.add_parser("model", help="List and switch the current model provider")
     sub.add_parser("policy", help="Manage security policies")
     desktop_stop_parser = sub.add_parser("desktop-stop", help="Create the Chimera Pilot desktop kill-switch file")
@@ -299,6 +306,9 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "review-pr":
         return _run_review_pr_cli(args)
 
+    if args.command == "github":
+        return _run_github_cli(args)
+
     if args.command == "model":
         from .model_picker import run_model_picker
 
@@ -476,6 +486,30 @@ def _run_review_pr_cli(args: argparse.Namespace) -> int:
         Path(args.save).expanduser().write_text(output, encoding="utf-8")
     print(output, end="" if output.endswith("\n") else "\n")
     return 0 if payload.get("ok") else 1
+
+
+def _run_github_cli(args: argparse.Namespace) -> int:
+    from ..integrations.github_client import GitHubAuth
+    from ..integrations.github_tasks import GitHubIssue, issue_to_objective
+
+    auth = GitHubAuth.discover()
+    if args.action == "status":
+        print(json.dumps({"ok": True, "auth_mode": auth.mode, "has_token": bool(auth.token)}, indent=2, sort_keys=True))
+        return 0
+    if args.action == "plan":
+        if not args.repo or args.issue <= 0:
+            print(json.dumps({"ok": False, "error": "repo and issue are required"}, indent=2, sort_keys=True))
+            return 2
+        issue = GitHubIssue(
+            repo=args.repo,
+            number=args.issue,
+            title=args.title or f"Issue {args.issue}",
+            body=args.body,
+            labels=args.label,
+        )
+        print(json.dumps({"ok": True, "objective": issue_to_objective(issue)}, indent=2, sort_keys=True))
+        return 0
+    return 2
 
 
 def _run_workspace_cli(args: argparse.Namespace) -> int:
