@@ -340,6 +340,7 @@ def register_console_routes(
     cron_scheduler: Any | None = None,
     operator_workspace: OperatorWorkspaceStore | None = None,
     console_token: str = "",
+    config_path: str | Path | None = None,
 ) -> None:
     """Register browser console routes on an existing GatewayServer."""
 
@@ -348,6 +349,7 @@ def register_console_routes(
     workspace = browser_workspace or AgentBrowserWorkspace()
     queue = autonomy_queue or AutonomyJobQueue(state_dir=state_dir or server.config.state_dir)
     workspace_store = operator_workspace or OperatorWorkspaceStore(state_dir=state_dir or server.config.state_dir)
+    path_config_file = Path(config_path).expanduser() if config_path else None
     scheduler = cron_scheduler
     scheduler_error = ""
     if scheduler is None:
@@ -723,6 +725,24 @@ def register_console_routes(
             return {"ok": False, "error": "preferences must be an object"}
         return {"ok": True, "path": synthesize_path(profile_id, preferences=preferences)}
 
+    def active_role_path(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..personalization.path_state import get_active_ghost_path, set_active_ghost_path
+
+        if ctx.get("method") == "GET":
+            return {"ok": True, "path": get_active_ghost_path(config_path=path_config_file)}
+        body = _json_body(ctx)
+        profile_id = str(body.get("profile_id") or "").strip()
+        if not profile_id:
+            return {"ok": False, "error": "profile_id is required"}
+        preferences = body.get("preferences") or {}
+        if not isinstance(preferences, dict):
+            return {"ok": False, "error": "preferences must be an object"}
+        try:
+            path = set_active_ghost_path(profile_id, preferences=preferences, config_path=path_config_file)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "path": path}
+
     def github_status(ctx: dict[str, Any]) -> dict[str, Any]:
         from ..integrations.github_client import GitHubAuth
 
@@ -951,6 +971,8 @@ def register_console_routes(
     _api_register("/api/console/minimind/personal/handoff", minimind_personal_handoff, method="POST", description="Build Personal MiniMind RAG handoff for the primary model")
     _api_register("/api/console/paths", role_profiles, method="GET", description="List multi-purpose Ghost paths")
     _api_register("/api/console/paths/synthesize", synthesize_role_path, method="POST", description="Synthesize Ghost Chimera from a selected user path")
+    _api_register("/api/console/paths/active", active_role_path, method="GET", description="Show the active persisted Ghost path")
+    _api_register("/api/console/paths/active", active_role_path, method="POST", description="Persist the active Ghost path")
     _api_register("/api/console/github/status", github_status, method="GET", description="Inspect GitHub integration status")
     _api_register("/api/console/github/plan", github_plan, method="POST", description="Convert a GitHub issue into a Ghost objective")
     _api_register("/api/console/github/policy-simulate", github_policy_simulate, method="POST", description="Preview GitHub action controls")

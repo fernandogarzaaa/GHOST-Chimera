@@ -536,6 +536,52 @@ def _case_path_source_policy_blocks_unknown_training() -> tuple[bool, str]:
 
 # ── Coverage eval cases ──────────────────────────────────────────────
 
+def _case_path_active_console_route() -> tuple[bool, str]:
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-path-eval-") as tmp:
+        server = GatewayServer()
+        config_path = Path(tmp) / "config.json"
+        register_console_routes(server, config_path=config_path)
+        save_route = server.routes.find("POST", "/api/console/paths/active")
+        active_route = server.routes.find("GET", "/api/console/paths/active")
+        if save_route is None or active_route is None:
+            return False, "active path routes missing"
+        saved = save_route.handler(
+            {
+                "method": "POST",
+                "path": "/api/console/paths/active",
+                "headers": {},
+                "body": json.dumps(
+                    {
+                        "profile_id": "ai-engineer-proxy",
+                        "preferences": {"training_mode": "rag-first", "approval_level": "supervised"},
+                    }
+                ),
+                "query": {},
+            }
+        )
+        active = active_route.handler(
+            {"method": "GET", "path": "/api/console/paths/active", "headers": {}, "body": "", "query": {}}
+        )
+    ok = saved.get("ok") is True and active.get("path", {}).get("profile_id") == "ai-engineer-proxy"
+    return ok, json.dumps({"saved": saved.get("ok"), "active": active.get("path", {}).get("profile_id")}, sort_keys=True)
+
+
+def _case_path_cli_show_set() -> tuple[bool, str]:
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-path-cli-eval-") as tmp:
+        config_path = str(Path(tmp) / "config.json")
+        completed = _run_python_module(
+            ["ghostchimera", "path", "set", "--profile", "ai-engineer-proxy", "--config-path", config_path]
+        )
+        if completed.returncode != 0:
+            return False, completed.stderr or completed.stdout
+        shown = _run_python_module(["ghostchimera", "path", "show", "--config-path", config_path])
+        if shown.returncode != 0:
+            return False, shown.stderr or shown.stdout
+        payload = json.loads(shown.stdout)
+    ok = payload.get("profile_id") == "ai-engineer-proxy"
+    return ok, json.dumps({"active": payload.get("profile_id")}, sort_keys=True)
+
+
 def _case_ssrf_policy_blocks_private_ip() -> tuple[bool, str]:
     """
     Verifies the SSRF policy denies requests to loopback, private, and cloud metadata IP addresses.
@@ -1623,6 +1669,8 @@ EVAL_SUITES: dict[str, list[tuple[str, CaseFn]]] = {
         ("path_profiles_available", _case_path_profiles_available),
         ("path_synthesis_ai_engineer_proxy", _case_path_synthesis_ai_engineer_proxy),
         ("path_source_policy_blocks_unknown_training", _case_path_source_policy_blocks_unknown_training),
+        ("path_active_console_route", _case_path_active_console_route),
+        ("path_cli_show_set", _case_path_cli_show_set),
     ],
     "workspace": [
         ("workspace_context_enriches_task", _case_workspace_context_enriches_task),

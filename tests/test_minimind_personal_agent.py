@@ -157,6 +157,28 @@ def test_personal_minimind_builds_handoff_context_for_primary_model() -> None:
         assert "Personal MiniMind context" in handoff["primary_model_prompt"]
 
 
+def test_personal_minimind_handoff_includes_active_ghost_path() -> None:
+    from ghostchimera.personalization.path_synthesizer import synthesize_path
+
+    with tempfile.TemporaryDirectory(prefix="ghostchimera-personal-minimind-path-") as tmp:
+        base = Path(tmp)
+        note = base / "work.txt"
+        note.write_text("The user prefers pytest-first AI engineering work.", encoding="utf-8")
+        agent = MiniMindPersonalAgent(state_dir=base / "state", memory_db=base / "memory.sqlite3")
+        agent.grant_consent(admin_controls=True, allow_files=True, allow_training=True, file_paths=[str(note)])
+        agent.bootstrap()
+
+        handoff = agent.build_handoff(
+            "Implement a model eval harness.",
+            role_path=synthesize_path("ai-engineer-proxy", {"training_mode": "rag-first"}),
+        )
+
+        assert handoff["ok"] is True
+        assert handoff["ghost_path"]["role"]["id"] == "ai-engineer-proxy"
+        assert "AI Engineer Proxy" in handoff["primary_model_prompt"]
+        assert "authorized Ghost Chimera operator proxy" in handoff["primary_model_prompt"]
+
+
 def test_personal_minimind_can_revoke_consent() -> None:
     with tempfile.TemporaryDirectory(prefix="ghostchimera-personal-minimind-") as tmp:
         base = Path(tmp)

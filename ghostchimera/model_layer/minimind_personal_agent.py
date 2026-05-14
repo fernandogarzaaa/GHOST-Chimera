@@ -377,7 +377,7 @@ class MiniMindPersonalAgent:
             "errors": errors[:100],
         }
 
-    def build_handoff(self, objective: str, *, limit: int = 8) -> dict[str, Any]:
+    def build_handoff(self, objective: str, *, limit: int = 8, role_path: dict[str, Any] | None = None) -> dict[str, Any]:
         consent = self.load_consent()
         if not consent.enabled:
             return {
@@ -388,8 +388,16 @@ class MiniMindPersonalAgent:
         provider = PersonalContextProvider(memory_store=MemoryStore(self.memory_db), enable_minimind=True)
         context = provider.context_for_objective(objective, limit=limit)
         task_hints = _extract_email_tasks(self.memory_db, limit=limit)
+        if role_path is None:
+            from ..personalization.path_state import get_active_ghost_path
+
+            role_path = get_active_ghost_path()["synthesis"]
+        role = role_path.get("role", {}) if isinstance(role_path, dict) else {}
+        proxy_policy = role_path.get("proxy_policy", {}) if isinstance(role_path, dict) else {}
         prompt_parts = [
             "Personal MiniMind context for the primary Ghost Chimera model:",
+            f"Active Ghost path: {role.get('name', 'Autonomous Engineer')} ({role.get('id', 'autonomous-engineer')}).",
+            f"Proxy posture: {proxy_policy.get('allowed_claim', 'authorized Ghost Chimera operator proxy')}.",
             context.context or "No matching personal memory was found.",
         ]
         if task_hints:
@@ -400,6 +408,7 @@ class MiniMindPersonalAgent:
             "ok": True,
             "objective": objective,
             "personal_context": context.context,
+            "ghost_path": role_path,
             "sources": list(context.sources),
             "detail": context.detail,
             "task_hints": task_hints,

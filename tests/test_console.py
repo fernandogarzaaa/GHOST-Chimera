@@ -127,29 +127,48 @@ class ConsoleRouteTests(unittest.TestCase):
 
     def test_console_registers_path_synthesis_routes(self) -> None:
         server = GatewayServer()
-        register_console_routes(server)
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-console-path-") as tmp:
+            config_path = Path(tmp) / "config.json"
+            register_console_routes(server, config_path=config_path)
 
-        profiles_route = server.routes.find("GET", "/api/console/paths")
-        synthesize_route = server.routes.find("POST", "/api/console/paths/synthesize")
+            profiles_route = server.routes.find("GET", "/api/console/paths")
+            synthesize_route = server.routes.find("POST", "/api/console/paths/synthesize")
+            active_route = server.routes.find("GET", "/api/console/paths/active")
+            save_route = server.routes.find("POST", "/api/console/paths/active")
 
-        self.assertIsNotNone(profiles_route)
-        self.assertIsNotNone(synthesize_route)
+            self.assertIsNotNone(profiles_route)
+            self.assertIsNotNone(synthesize_route)
+            self.assertIsNotNone(active_route)
+            self.assertIsNotNone(save_route)
 
-        profiles = profiles_route.handler({"method": "GET", "path": "/api/console/paths", "headers": {}, "body": "", "query": {}})
-        self.assertTrue(profiles["ok"])
-        self.assertIn("ai-engineer-proxy", {profile["id"] for profile in profiles["profiles"]})
+            profiles = profiles_route.handler({"method": "GET", "path": "/api/console/paths", "headers": {}, "body": "", "query": {}})
+            self.assertTrue(profiles["ok"])
+            self.assertIn("ai-engineer-proxy", {profile["id"] for profile in profiles["profiles"]})
 
-        synthesized = synthesize_route.handler(
-            {
-                "method": "POST",
-                "path": "/api/console/paths/synthesize",
-                "headers": {},
-                "body": json.dumps({"profile_id": "ai-engineer-proxy", "preferences": {"training_mode": "rag-first"}}),
-                "query": {},
-            }
-        )
-        self.assertTrue(synthesized["ok"])
-        self.assertEqual(synthesized["path"]["role"]["id"], "ai-engineer-proxy")
+            synthesized = synthesize_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/paths/synthesize",
+                    "headers": {},
+                    "body": json.dumps({"profile_id": "ai-engineer-proxy", "preferences": {"training_mode": "rag-first"}}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(synthesized["ok"])
+            self.assertEqual(synthesized["path"]["role"]["id"], "ai-engineer-proxy")
+
+            saved = save_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/paths/active",
+                    "headers": {},
+                    "body": json.dumps({"profile_id": "ai-engineer-proxy", "preferences": {"training_mode": "rag-first"}}),
+                    "query": {},
+                }
+            )
+            active = active_route.handler({"method": "GET", "path": "/api/console/paths/active", "headers": {}, "body": "", "query": {}})
+            self.assertTrue(saved["ok"])
+            self.assertEqual(active["path"]["profile_id"], "ai-engineer-proxy")
 
     def test_console_registers_github_routes(self) -> None:
         server = GatewayServer()
@@ -198,9 +217,11 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIn('data-tab="path"', html)
         self.assertIn('data-tab="github"', html)
         self.assertIn("pathProfile", html)
+        self.assertIn("pathSave", html)
         self.assertIn("githubRepo", html)
         self.assertIn("/api/console/paths", app)
         self.assertIn("/api/console/paths/synthesize", app)
+        self.assertIn("/api/console/paths/active", app)
         self.assertIn("/api/console/github/status", app)
         self.assertIn("/api/console/github/plan", app)
 

@@ -63,7 +63,7 @@ Ghost Chimera is organized into independent layers. Each layer has a narrow cont
 | **MCP** | `mcp` | Lightweight JSON-RPC MCP server/client surfaces and the `MCPBackend` Chimera Pilot backend. |
 | **Memory Layer** | `memory_layer` | SQLite FTS5 local memory store. Namespaced documents, freshness scoring (exponential decay), citation quality, `stale_after_days` filter, and `count()`. |
 | **Model Layer** | `model_layer` | Provider abstraction and routing for 27 providers, auth profiles, model catalog with pricing/context metadata, media-provider interfaces, Ghost-native MiniMind architecture/runtime adapters, CuTeDSL-inspired runtime specialization planner, and optional llama.cpp/GGUF runtime. |
-| **Personalization** | `personalization` | `PersonalContextProvider` (FTS memory snippets → system context), `DocumentIngester` (text/CSV/Markdown chunking), and `EmailIngester` (RFC 2822 / mbox parsing). |
+| **Personalization** | `personalization` | `PersonalContextProvider` (FTS memory snippets -> system context), `DocumentIngester` (text/CSV/Markdown chunking), `EmailIngester` (RFC 2822 / mbox parsing), role profiles, path synthesis, and persisted active Ghost Path state. |
 | **Safety Layer** | `safety_layer` | `ExecutionPolicy` gating, `ApprovalHandler`/`ApprovalPolicy`, `MaterialRegistry` patterns, HMAC-SHA256 audit chain, `BuiltinDPIEngine`/`LobsterTrapProvider` DPI scanning, `SecurityMonitor`, `SSRFPolicy`/`NetworkDispatcher`, and rate limiting. |
 | **SDK** | `sdk` | `GhostClient` Python API for programmatic access without the CLI. |
 | **Skill Layer** | `skill_layer` | Built-in skills: `browser_operator`, `code_search`, `software_engineer`, `tech_support`, `to_issues`. External skills auto-discovered from `~/.ghostchimera/skills/<name>/skill.py`. |
@@ -175,6 +175,19 @@ tabs, eval gates, and proxy policy. External GitHub repositories require license
 metadata, URL, commit SHA, and intended-use tracking before dataset generation or
 fine-tuning.
 
+Use **Save Path** in the console to persist the active profile. Personal
+MiniMind handoff prompts inherit the active path automatically, so a saved AI
+Engineer Proxy path turns the RAG handoff into an authorized engineering-proxy
+brief for the configured primary model.
+
+CLI access:
+
+```powershell
+ghostchimera path list
+ghostchimera path set --profile ai-engineer-proxy --training-mode rag-first --approval-level supervised
+ghostchimera path show
+```
+
 See [Multi-Purpose Ghost Paths](docs/MULTIPURPOSE_GHOST_PATHS.md) for the
 source and disclosure policy.
 
@@ -230,6 +243,9 @@ ghostchimera workspace reflect --reflection-action "..." --outcome "..." --confi
 ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8
 
 # MiniMind
+ghostchimera path list
+ghostchimera path set --profile ai-engineer-proxy --training-mode rag-first --approval-level supervised
+ghostchimera path show
 ghostchimera minimind architectures
 ghostchimera minimind status
 ghostchimera minimind dataset --prompt "..." --response "..."
@@ -583,7 +599,7 @@ Personal MiniMind in `0.4.0-beta` is the local-first bridge between the user's p
 - System specs, explicit files, explicit email exports, whole-machine crawling, email-artifact crawling, autonomy handoff, and training are separate consent scopes.
 - Whole-machine crawl uses the current OS user permissions, default exclusions, configured roots, and file/email limits. It does not bypass permissions or decrypt protected stores.
 - The local memory corpus becomes both RAG context and MiniMind JSONL training data.
-- `personal-handoff` returns a ready prompt bundle containing relevant memory snippets and task hints for the configured main model.
+- `personal-handoff` returns a ready prompt bundle containing relevant memory snippets, task hints, and the active Ghost Path policy for the configured main model.
 - See `docs/PERSONAL_MINIMIND_PRIVACY.md` before enabling broad crawl on a machine that contains sensitive or regulated data.
 
 MiniMind does not require a cloud AI provider for local personalization. The memory store, dataset generation, and handoff prompt are local. Real MiniMind inference can run on the user's machine when weights and runtime dependencies are installed, including a Transformers/PyTorch checkpoint via `.[minimind]` or compatible quantized local weights through the llama.cpp/GGUF path when available. The primary Ghost model can be a remote provider or a local model; Personal MiniMind only supplies the personal RAG context and task hints.
@@ -689,6 +705,8 @@ ghostchimera review-pr --base HEAD --head HEAD
 | `user-journey` | End-to-end workspace evidence → CWR retrieval → task context injection. |
 | `workspace` | Workspace context injection, freshness scoring, citation quality, count(). |
 | `competitive` | Capability matrix score, console route, and CLI report against Codex/Claude/LangGraph/CrewAI/Hermes/OpenClaw-style benchmarks. |
+| `github-connected` | GitHub auth detection, issue planning, console routes, and policy simulation. |
+| `path-synthesis` | Role profiles, path synthesis, active path console route, path CLI, and source licensing policy. |
 | `coverage` | SSRF policy, approval token, material policy, error classifier, MoA scoring, context compressor, autonomy queue, checkpoint save/restore, telemetry export. |
 | `redteam` | Prompt injection blocking, credential-leak blocking, PII detection, exfiltration blocking, intent-mismatch flagging, benign-prompt pass-through, LobsterTrap enforcement, SecurityMonitor aggregation. |
 | `track2` | Gemini provider integration (8 cases). |

@@ -20,6 +20,14 @@ class PathSynthesizerTests(unittest.TestCase):
         self.assertIn("license_check_required", result["source_policy"])
         self.assertTrue(result["proxy_policy"]["disclosure_required"])
 
+    def test_default_path_synthesis_uses_autonomous_engineer(self) -> None:
+        from ghostchimera.personalization.path_state import get_active_ghost_path
+
+        result = get_active_ghost_path(config={})
+
+        self.assertEqual(result["profile_id"], "autonomous-engineer")
+        self.assertIn("github", result["synthesis"]["dashboard_tabs"])
+
 
 if __name__ == "__main__":
     unittest.main()

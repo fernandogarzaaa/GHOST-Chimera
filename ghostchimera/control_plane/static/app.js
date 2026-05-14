@@ -1,6 +1,6 @@
 (function () {
   "use strict";
-  var state = { profiles: [], pathProfiles: [], workspace: null, token: "" };
+  var state = { profiles: [], pathProfiles: [], activePath: null, workspace: null, token: "" };
 
   function $(sel) { return document.querySelector(sel); }
   function $$$(sel) { return document.querySelectorAll(sel); }
@@ -163,10 +163,42 @@
         card.appendChild(el("div", { class: "hint" }, profile.description));
         summary.appendChild(card);
       });
+      await refreshActivePath();
       if (state.pathProfiles.length) synthesizeSelectedPath();
     } catch (e) {
       empty("#pathSummary", "Path profiles unavailable.");
       toast(e.message, "error");
+    }
+  }
+
+  function selectedPathPreferences() {
+    return {
+      training_mode: $("#pathTrainingMode").value,
+      approval_level: $("#pathApprovalLevel").value,
+    };
+  }
+
+  function renderActivePath(path) {
+    state.activePath = path || null;
+    var active = $("#pathActive");
+    if (!active) return;
+    var role = path && path.synthesis && path.synthesis.role ? path.synthesis.role : {};
+    badge(active, role.name || path && path.profile_id || "default", path && path.profile_id ? "ok" : "warn");
+  }
+
+  async function refreshActivePath() {
+    try {
+      var data = await api("/api/console/paths/active");
+      var path = data.path || {};
+      var profile = $("#pathProfile");
+      if (profile && path.profile_id) profile.value = path.profile_id;
+      if (path.preferences) {
+        if ($("#pathTrainingMode") && path.preferences.training_mode) $("#pathTrainingMode").value = path.preferences.training_mode;
+        if ($("#pathApprovalLevel") && path.preferences.approval_level) $("#pathApprovalLevel").value = path.preferences.approval_level;
+      }
+      renderActivePath(path);
+    } catch (e) {
+      renderActivePath(null);
     }
   }
 
@@ -178,10 +210,7 @@
         method: "POST",
         body: {
           profile_id: profile.value,
-          preferences: {
-            training_mode: $("#pathTrainingMode").value,
-            approval_level: $("#pathApprovalLevel").value,
-          },
+          preferences: selectedPathPreferences(),
         },
       });
       $("#pathOutput").textContent = JSON.stringify(data.path || data, null, 2);
@@ -190,7 +219,25 @@
       toast(e.message, "error");
     }
   }
+
+  async function saveSelectedPath() {
+    try {
+      var profile = $("#pathProfile");
+      if (!profile || !profile.value) return;
+      var data = await api("/api/console/paths/active", {
+        method: "POST",
+        body: { profile_id: profile.value, preferences: selectedPathPreferences() },
+      });
+      renderActivePath(data.path || null);
+      $("#pathOutput").textContent = JSON.stringify(data.path || data, null, 2);
+      toast(data.ok ? "Ghost path saved." : (data.error || "Path save failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#pathOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
   $("#pathSynthesize").addEventListener("click", synthesizeSelectedPath);
+  $("#pathSave").addEventListener("click", saveSelectedPath);
 
   async function refreshGithubStatus() {
     try {

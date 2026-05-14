@@ -19,6 +19,20 @@ External repositories require URL, commit SHA, license signal, and intended use.
 3. Select a role profile.
 4. Choose RAG-first, dataset generation, or local fine-tuning.
 5. Review the synthesized source, tool, proxy, and eval policy before granting permissions.
+6. Select **Save Path** to persist the active profile for future console, CLI, and Personal MiniMind handoff use.
+
+## CLI Flow
+
+```powershell
+ghostchimera path list
+ghostchimera path set --profile ai-engineer-proxy --training-mode rag-first --approval-level supervised
+ghostchimera path show
+```
+
+The active path is stored in the Ghost Chimera config file and defaults to
+Autonomous Engineer when no profile has been selected. Personal MiniMind handoff
+prompts read the active path and include the role name, proxy posture, and
+synthesized policy in the prompt bundle sent to the configured primary model.
 
 ## Release Gate
 

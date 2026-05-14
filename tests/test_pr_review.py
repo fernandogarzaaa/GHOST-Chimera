@@ -4,8 +4,9 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from ghostchimera.chimera_pilot.pr_review import format_pr_review_report, run_pr_review
+from ghostchimera.chimera_pilot.pr_review import PRReviewReport, _git, format_pr_review_report, run_pr_review
 
 
 class PRReviewTests(unittest.TestCase):
@@ -63,6 +64,17 @@ class PRReviewTests(unittest.TestCase):
 
         self.assertIn("# Ghost Chimera PR Review", rendered)
         self.assertIn("Files changed:", rendered)
+
+    def test_git_diff_reader_forces_utf8_with_replacement(self) -> None:
+        report = PRReviewReport(base="HEAD", head="WORKTREE", root=str(Path.cwd()))
+        completed = subprocess.CompletedProcess(["git", "diff"], 0, stdout="ok\n", stderr="")
+
+        with patch("ghostchimera.chimera_pilot.pr_review.subprocess.run", return_value=completed) as run:
+            output = _git(Path.cwd(), ["diff"], report)
+
+        self.assertEqual(output, "ok\n")
+        self.assertEqual(run.call_args.kwargs["encoding"], "utf-8")
+        self.assertEqual(run.call_args.kwargs["errors"], "replace")
 
     def _git(self, repo: Path, *args: str) -> None:
         completed = subprocess.run(["git", *args], cwd=str(repo), text=True, capture_output=True, check=False, timeout=30)

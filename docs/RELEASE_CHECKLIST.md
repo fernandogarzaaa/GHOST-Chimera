@@ -21,6 +21,9 @@ python scripts/smoke_installed_wheel.py
 python scripts/smoke_installed_wheel.py --extras gateway
 ghostchimera capabilities --format json
 ghostchimera github status
+ghostchimera path list
+ghostchimera path set --profile ai-engineer-proxy --training-mode rag-first --approval-level supervised
+ghostchimera path show
 ghostchimera review-pr --base HEAD --head HEAD
 ghostchimera workspace show
 ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30
@@ -52,6 +55,8 @@ environment.
 - [ ] `python -m ghostchimera.evals run --suite path-synthesis` passes.
 - [ ] `ghostchimera capabilities --format json` reports `ok: true`, `score_ratio: 1.0`, and no `top_gaps`.
 - [ ] `ghostchimera github status` reports a usable auth mode (`token` or `gh-cli`).
+- [ ] `ghostchimera path set ...` persists an active Ghost Path and `ghostchimera path show` returns the same profile.
+- [ ] Console Path tab can synthesize and save the active Ghost Path through `/api/console/paths/active`.
 - [ ] `ghostchimera review-pr --base origin/main --head HEAD` reports no blocking P0/P1 findings before merge or push.
 - [ ] `docs/COMPETITIVE_CAPABILITY_MATRIX.md` is current for Codex, Claude Code, LangGraph, CrewAI, Hermes-style, and OpenClaw-style benchmarks.
 - [ ] `ghostchimera local-model check` reports system readiness and llama-cpp install state.

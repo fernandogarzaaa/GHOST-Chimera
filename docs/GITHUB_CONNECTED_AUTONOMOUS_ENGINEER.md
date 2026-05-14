@@ -12,6 +12,7 @@ Ghost Chimera's public beta default can run as a local runner connected to GitHu
 
 ```powershell
 $env:GHOSTCHIMERA_GITHUB_TOKEN="..."
+ghostchimera path set --profile ai-engineer-proxy --training-mode rag-first --approval-level supervised
 ghostchimera github status
 ghostchimera github plan --repo owner/repo --issue 42 --title "Fix CI"
 ghostchimera console
@@ -22,6 +23,11 @@ The Ghost Console exposes the same workflow through the GitHub tab:
 - connection status
 - issue-to-objective planning
 - policy preview for push, PR, review, and private-repo actions
+
+The Path tab persists the active AI Engineer Proxy role. Personal MiniMind
+handoffs inherit that role, so GitHub issue work can be grounded in the user's
+approved personal context while still disclosing Ghost as an authorized operator
+proxy.
 
 ## Safety Controls
 

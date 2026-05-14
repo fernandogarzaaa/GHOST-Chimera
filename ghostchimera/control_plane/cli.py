@@ -125,6 +125,22 @@ def _main(argv: list[str] | None = None) -> int:
     github_parser.add_argument("--title", default="", help="Issue title for local planning.")
     github_parser.add_argument("--body", default="", help="Issue body for local planning.")
     github_parser.add_argument("--label", action="append", default=[], help="Issue label for local planning. Repeatable.")
+    path_parser = sub.add_parser("path", help="Show, list, and persist the active multi-purpose Ghost path")
+    path_parser.add_argument("action", choices=["show", "set", "list"], nargs="?", default="show")
+    path_parser.add_argument("--profile", default="autonomous-engineer", help="Role profile id for 'set'.")
+    path_parser.add_argument(
+        "--training-mode",
+        choices=["rag-first", "dataset_generation", "local_fine_tuning"],
+        default="rag-first",
+        help="Learning strategy stored with the active path.",
+    )
+    path_parser.add_argument(
+        "--approval-level",
+        choices=["assist", "supervised", "autonomous"],
+        default="supervised",
+        help="Tool-approval posture stored with the active path.",
+    )
+    path_parser.add_argument("--config-path", default="", help="Optional config file path for testing or portable installs.")
     sub.add_parser("model", help="List and switch the current model provider")
     sub.add_parser("policy", help="Manage security policies")
     desktop_stop_parser = sub.add_parser("desktop-stop", help="Create the Chimera Pilot desktop kill-switch file")
@@ -308,6 +324,9 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "github":
         return _run_github_cli(args)
+
+    if args.command == "path":
+        return _run_path_cli(args)
 
     if args.command == "model":
         from .model_picker import run_model_picker
@@ -510,6 +529,29 @@ def _run_github_cli(args: argparse.Namespace) -> int:
         print(json.dumps({"ok": True, "objective": issue_to_objective(issue)}, indent=2, sort_keys=True))
         return 0
     return 2
+
+
+def _run_path_cli(args: argparse.Namespace) -> int:
+    from ..personalization.path_state import get_active_ghost_path, set_active_ghost_path
+    from ..personalization.role_profiles import list_role_profiles
+
+    config_path = Path(args.config_path).expanduser() if args.config_path else None
+    if args.action == "list":
+        payload = {"ok": True, "profiles": [profile.to_dict() for profile in list_role_profiles()]}
+    elif args.action == "set":
+        try:
+            payload = set_active_ghost_path(
+                args.profile,
+                preferences={"training_mode": args.training_mode, "approval_level": args.approval_level},
+                config_path=config_path,
+            )
+        except ValueError as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}, indent=2, sort_keys=True))
+            return 2
+    else:
+        payload = get_active_ghost_path(config_path=config_path)
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
 
 
 def _run_workspace_cli(args: argparse.Namespace) -> int:

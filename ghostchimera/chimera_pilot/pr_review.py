@@ -160,7 +160,16 @@ def format_pr_review_report(report: PRReviewReport | dict[str, Any]) -> str:
 def _git(repo: Path, args: list[str], report: PRReviewReport) -> str:
     command = ["git", *args]
     report.commands.append(" ".join(command))
-    completed = subprocess.run(command, cwd=str(repo), text=True, capture_output=True, check=False, timeout=30)
+    completed = subprocess.run(
+        command,
+        cwd=str(repo),
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
     if completed.returncode != 0:
         raise RuntimeError((completed.stderr or completed.stdout or "git command failed").strip())
     return completed.stdout
