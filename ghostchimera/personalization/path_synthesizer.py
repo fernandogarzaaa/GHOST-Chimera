@@ -7,6 +7,25 @@ from typing import Any
 from .role_profiles import get_role_profile
 
 
+_SENSITIVE_SOURCE_SCOPES = {
+    "local_machine",
+    "email",
+    "calendar_exports",
+    "approved_integrations",
+    "organization_repositories",
+    "campaign_assets",
+}
+
+
+def _training_pipeline(training_mode: str) -> list[str]:
+    pipeline = ["local memory RAG", "operator preference capture"]
+    if training_mode == "dataset_generation":
+        pipeline.append("MiniMind dataset generation")
+    elif training_mode == "local_fine_tuning":
+        pipeline.extend(["MiniMind dataset generation", "local fine-tuning handoff"])
+    return pipeline
+
+
 def synthesize_path(profile_id: str, preferences: dict[str, Any] | None = None) -> dict[str, Any]:
     """Resolve role, source, learning, dashboard, and proxy policy for a Ghost path."""
 
@@ -16,9 +35,20 @@ def synthesize_path(profile_id: str, preferences: dict[str, Any] | None = None) 
     approval_level = str(preferences.get("approval_level") or "supervised")
     external_training = training_mode in {"dataset_generation", "local_fine_tuning"}
     uses_public_github = "github_public_repositories" in profile.source_scopes
+    uses_sensitive_sources = bool(set(profile.source_scopes) & _SENSITIVE_SOURCE_SCOPES)
     return {
         "role": profile.to_dict(),
         "dashboard_tabs": list(profile.dashboard_tabs),
+        "ghost_blueprint": {
+            "concept": "personalized AI operator proxy",
+            "role": profile.name,
+            "becomes": profile.description,
+            "operator_outcomes": list(profile.operator_outcomes),
+            "learns_from": list(profile.personalization_sources),
+            "can_operate": list(profile.tool_domains),
+            "training_pipeline": _training_pipeline(training_mode),
+            "handoff_contract": "act only through approved tools, consented sources, and configured autonomy policy",
+        },
         "learning_strategy": {
             "default_mode": training_mode,
             "allowed_modes": list(profile.learning_modes),
@@ -36,7 +66,7 @@ def synthesize_path(profile_id: str, preferences: dict[str, Any] | None = None) 
             "approval_level": approval_level,
             "push_requires_approval": True,
             "destructive_actions_require_approval": True,
-            "admin_controls_required": profile.id in {"ai-engineer-proxy", "enterprise-operator"},
+            "admin_controls_required": profile.id in {"ai-engineer-proxy", "enterprise-operator"} or uses_sensitive_sources,
         },
         "proxy_policy": {
             "disclosure_required": profile.requires_disclosure,

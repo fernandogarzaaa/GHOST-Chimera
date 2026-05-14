@@ -143,19 +143,25 @@ class ConsoleRouteTests(unittest.TestCase):
 
             profiles = profiles_route.handler({"method": "GET", "path": "/api/console/paths", "headers": {}, "body": "", "query": {}})
             self.assertTrue(profiles["ok"])
-            self.assertIn("ai-engineer-proxy", {profile["id"] for profile in profiles["profiles"]})
+            profile_ids = {profile["id"] for profile in profiles["profiles"]}
+            self.assertIn("ai-engineer-proxy", profile_ids)
+            self.assertIn("marketing-specialist", profile_ids)
+            marketing = next(profile for profile in profiles["profiles"] if profile["id"] == "marketing-specialist")
+            self.assertIn("campaign_assets", marketing["personalization_sources"])
 
             synthesized = synthesize_route.handler(
                 {
                     "method": "POST",
                     "path": "/api/console/paths/synthesize",
                     "headers": {},
-                    "body": json.dumps({"profile_id": "ai-engineer-proxy", "preferences": {"training_mode": "rag-first"}}),
+                    "body": json.dumps({"profile_id": "virtual-assistant", "preferences": {"training_mode": "dataset_generation"}}),
                     "query": {},
                 }
             )
             self.assertTrue(synthesized["ok"])
-            self.assertEqual(synthesized["path"]["role"]["id"], "ai-engineer-proxy")
+            self.assertEqual(synthesized["path"]["role"]["id"], "virtual-assistant")
+            self.assertEqual(synthesized["path"]["ghost_blueprint"]["concept"], "personalized AI operator proxy")
+            self.assertIn("personal_admin", synthesized["path"]["ghost_blueprint"]["can_operate"])
 
             saved = save_route.handler(
                 {
@@ -222,6 +228,8 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIn("/api/console/paths", app)
         self.assertIn("/api/console/paths/synthesize", app)
         self.assertIn("/api/console/paths/active", app)
+        self.assertIn("Learns from:", app)
+        self.assertIn("Operates:", app)
         self.assertIn("/api/console/github/status", app)
         self.assertIn("/api/console/github/plan", app)
 

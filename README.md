@@ -166,14 +166,15 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 
 Use the Path tab to choose what Ghost Chimera should become for the current
 operator. Built-in paths include Autonomous Engineer, AI Engineer Proxy,
-Enterprise Operator, Personal Operations Assistant, Research Analyst, and
-Custom Ghost.
+Manager Operator, Marketing Specialist, Virtual Assistant, Enterprise Operator,
+Personal Operations Assistant, Research Analyst, and Custom Ghost.
 
-The AI Engineer Proxy path configures Ghost as an authorized operator proxy for
-AI engineering work. It synthesizes source scopes, learning strategy, dashboard
-tabs, eval gates, and proxy policy. External GitHub repositories require license
-metadata, URL, commit SHA, and intended-use tracking before dataset generation or
-fine-tuning.
+Each path configures Ghost as an authorized operator proxy for a work domain. It
+synthesizes a `ghost_blueprint` with what the Ghost becomes, what it learns from,
+what it can operate, which training pipeline is active, source scopes, learning
+strategy, dashboard tabs, eval gates, and proxy policy. External GitHub
+repositories require license metadata, URL, commit SHA, and intended-use tracking
+before dataset generation or fine-tuning.
 
 Use **Save Path** in the console to persist the active profile. Personal
 MiniMind handoff prompts inherit the active path automatically, so a saved AI
@@ -185,6 +186,7 @@ CLI access:
 ```powershell
 ghostchimera path list
 ghostchimera path set --profile ai-engineer-proxy --training-mode rag-first --approval-level supervised
+ghostchimera path set --profile virtual-assistant --training-mode dataset_generation --approval-level assist
 ghostchimera path show
 ```
 

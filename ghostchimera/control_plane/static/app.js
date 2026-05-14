@@ -161,6 +161,12 @@
         var card = el("div", { class: "card" });
         card.appendChild(el("h3", null, profile.name));
         card.appendChild(el("div", { class: "hint" }, profile.description));
+        if (profile.personalization_sources && profile.personalization_sources.length) {
+          card.appendChild(el("div", { class: "meta" }, "Learns from: " + profile.personalization_sources.slice(0, 4).join(", ")));
+        }
+        if (profile.tool_domains && profile.tool_domains.length) {
+          card.appendChild(el("div", { class: "meta" }, "Operates: " + profile.tool_domains.slice(0, 4).join(", ")));
+        }
         summary.appendChild(card);
       });
       await refreshActivePath();
