@@ -125,6 +125,42 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertEqual(workspace.calls[0][0], "open")
         self.assertEqual(workspace.calls[1][0], "snapshot")
 
+    def test_console_registers_path_synthesis_routes(self) -> None:
+        server = GatewayServer()
+        register_console_routes(server)
+
+        profiles_route = server.routes.find("GET", "/api/console/paths")
+        synthesize_route = server.routes.find("POST", "/api/console/paths/synthesize")
+
+        self.assertIsNotNone(profiles_route)
+        self.assertIsNotNone(synthesize_route)
+
+        profiles = profiles_route.handler({"method": "GET", "path": "/api/console/paths", "headers": {}, "body": "", "query": {}})
+        self.assertTrue(profiles["ok"])
+        self.assertIn("ai-engineer-proxy", {profile["id"] for profile in profiles["profiles"]})
+
+        synthesized = synthesize_route.handler(
+            {
+                "method": "POST",
+                "path": "/api/console/paths/synthesize",
+                "headers": {},
+                "body": json.dumps({"profile_id": "ai-engineer-proxy", "preferences": {"training_mode": "rag-first"}}),
+                "query": {},
+            }
+        )
+        self.assertTrue(synthesized["ok"])
+        self.assertEqual(synthesized["path"]["role"]["id"], "ai-engineer-proxy")
+
+    def test_console_static_ui_exposes_path_synthesizer(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "ghostchimera" / "control_plane" / "static" / "index.html").read_text(encoding="utf-8")
+        app = (root / "ghostchimera" / "control_plane" / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('data-tab="path"', html)
+        self.assertIn("pathProfile", html)
+        self.assertIn("/api/console/paths", app)
+        self.assertIn("/api/console/paths/synthesize", app)
+
     def test_console_registers_capabilities_route(self) -> None:
         server = GatewayServer()
         register_console_routes(server)

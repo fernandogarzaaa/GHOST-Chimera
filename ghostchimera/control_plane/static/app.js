@@ -1,6 +1,6 @@
 (function () {
   "use strict";
-  var state = { profiles: [], workspace: null, token: "" };
+  var state = { profiles: [], pathProfiles: [], workspace: null, token: "" };
 
   function $(sel) { return document.querySelector(sel); }
   function $$$(sel) { return document.querySelectorAll(sel); }
@@ -146,6 +146,51 @@
   }
 
   function badge(el, text, cls) { el.textContent = text; el.className = "badge " + (cls || ""); }
+
+  async function refreshPathProfiles() {
+    try {
+      var data = await api("/api/console/paths");
+      state.pathProfiles = data.profiles || [];
+      var select = $("#pathProfile");
+      var summary = $("#pathSummary");
+      if (!select || !summary) return;
+      select.innerHTML = "";
+      summary.innerHTML = "";
+      state.pathProfiles.forEach(function(profile) {
+        select.appendChild(el("option", { value: profile.id }, profile.name));
+        var card = el("div", { class: "card" });
+        card.appendChild(el("h3", null, profile.name));
+        card.appendChild(el("div", { class: "hint" }, profile.description));
+        summary.appendChild(card);
+      });
+      if (state.pathProfiles.length) synthesizeSelectedPath();
+    } catch (e) {
+      empty("#pathSummary", "Path profiles unavailable.");
+      toast(e.message, "error");
+    }
+  }
+
+  async function synthesizeSelectedPath() {
+    try {
+      var profile = $("#pathProfile");
+      if (!profile || !profile.value) return;
+      var data = await api("/api/console/paths/synthesize", {
+        method: "POST",
+        body: {
+          profile_id: profile.value,
+          preferences: {
+            training_mode: $("#pathTrainingMode").value,
+            approval_level: $("#pathApprovalLevel").value,
+          },
+        },
+      });
+      $("#pathOutput").textContent = JSON.stringify(data.path || data, null, 2);
+    } catch (e) {
+      $("#pathOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+  $("#pathSynthesize").addEventListener("click", synthesizeSelectedPath);
 
   // ── Status ───────────────────────────────────────────────────────────────
   async function refreshStatus() {
@@ -938,6 +983,7 @@
     refreshSecurity();
     refreshSkills();
     refreshCapabilities();
+    refreshPathProfiles();
   });
   setInterval(refreshStatus, 30000);
 })();

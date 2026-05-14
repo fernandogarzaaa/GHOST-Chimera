@@ -691,6 +691,23 @@ def register_console_routes(
     def capabilities(ctx: dict[str, Any]) -> dict[str, Any]:
         return inspect_capabilities()
 
+    def role_profiles(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..personalization.role_profiles import list_role_profiles
+
+        return {"ok": True, "profiles": [profile.to_dict() for profile in list_role_profiles()]}
+
+    def synthesize_role_path(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..personalization.path_synthesizer import synthesize_path
+
+        body = _json_body(ctx)
+        profile_id = str(body.get("profile_id") or "").strip()
+        if not profile_id:
+            return {"ok": False, "error": "profile_id is required"}
+        preferences = body.get("preferences") or {}
+        if not isinstance(preferences, dict):
+            return {"ok": False, "error": "preferences must be an object"}
+        return {"ok": True, "path": synthesize_path(profile_id, preferences=preferences)}
+
     def review_pr(ctx: dict[str, Any]) -> dict[str, Any]:
         body = _json_body(ctx)
         report = run_pr_review(
@@ -884,6 +901,8 @@ def register_console_routes(
     _api_register("/api/console/minimind/personal/revoke", minimind_personal_revoke, method="POST", description="Revoke Personal MiniMind admin/source consent")
     _api_register("/api/console/minimind/personal/bootstrap", minimind_personal_bootstrap, method="POST", description="Bootstrap Personal MiniMind from consented local sources")
     _api_register("/api/console/minimind/personal/handoff", minimind_personal_handoff, method="POST", description="Build Personal MiniMind RAG handoff for the primary model")
+    _api_register("/api/console/paths", role_profiles, method="GET", description="List multi-purpose Ghost paths")
+    _api_register("/api/console/paths/synthesize", synthesize_role_path, method="POST", description="Synthesize Ghost Chimera from a selected user path")
     _api_register("/api/console/capabilities", capabilities, method="GET", description="Inspect competitive agent-orchestration capability coverage")
     _api_register("/api/console/review-pr", review_pr, method="POST", description="Run deterministic PR/diff review automation")
     _api_register("/api/console/readiness", readiness, method="GET", description="Ghost Console release readiness runbook")

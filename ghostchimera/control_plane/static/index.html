@@ -32,6 +32,7 @@
   </header>
   <nav class="tab-bar" id="tabBar">
     <button class="tab active" data-tab="status">Status</button>
+    <button class="tab" data-tab="path">Path</button>
     <button class="tab" data-tab="run">▶ Run</button>
     <button class="tab" data-tab="jobs">Jobs</button>
     <button class="tab" data-tab="workspace">Workspace</button>
@@ -47,6 +48,27 @@
   </nav>
 
   <!-- ── STATUS ────────────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-path">
+    <div class="section-hdr" style="margin-top:0;">Choose Ghost Path</div>
+    <div class="grid" id="pathSummary"></div>
+    <div class="row" style="margin-bottom:12px;">
+      <select id="pathProfile" style="flex:2;min-width:220px;"></select>
+      <select id="pathTrainingMode" style="flex:1;min-width:180px;">
+        <option value="rag-first">RAG first</option>
+        <option value="dataset_generation">Dataset generation</option>
+        <option value="local_fine_tuning">Local fine-tuning</option>
+      </select>
+      <select id="pathApprovalLevel" style="flex:1;min-width:160px;">
+        <option value="supervised">Supervised</option>
+        <option value="assist">Assist</option>
+        <option value="autonomous">Autonomous</option>
+      </select>
+      <button id="pathSynthesize" class="primary">Synthesize</button>
+    </div>
+    <div class="section-hdr">Synthesized Configuration</div>
+    <pre class="output" id="pathOutput">Choose a path to synthesize Ghost Chimera.</pre>
+  </div>
+
   <div class="tab-content active" id="tab-status">
     <div class="grid" id="statusCards"></div>
 
