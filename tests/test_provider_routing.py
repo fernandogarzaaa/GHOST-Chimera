@@ -25,6 +25,7 @@ from ghostchimera.model_layer.openai_compatible_providers import (
     TogetherProvider,
     VeniceProvider,
     VolcengineProvider,
+    VultrInferenceProvider,
     XAIProvider,
 )
 from ghostchimera.model_layer.providers import (
@@ -247,6 +248,7 @@ class PROVIDERSAndTEXT_PROVIDERSTests(unittest.TestCase):
             "glm": GlmProvider,
             "venice": VeniceProvider,
             "lmstudio": LMStudioProvider,
+            "vultr": VultrInferenceProvider,
         }
         for name, cls in expected.items():
             self.assertIn(name, PROVIDERS, f"Expected '{name}' in PROVIDERS")
@@ -1236,6 +1238,57 @@ class LMStudioProviderTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Vultr Serverless Inference
+# ---------------------------------------------------------------------------
+
+
+class VultrInferenceProviderTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("VULTR_INFERENCE_API_KEY", None)
+        os.environ.pop("VULTR_INFERENCE_MODEL", None)
+        os.environ.pop("VULTR_INFERENCE_BASE_URL", None)
+
+    def tearDown(self):
+        os.environ.pop("VULTR_INFERENCE_API_KEY", None)
+        os.environ.pop("VULTR_INFERENCE_MODEL", None)
+        os.environ.pop("VULTR_INFERENCE_BASE_URL", None)
+
+    def test_missing_env_fails_closed(self):
+        p = VultrInferenceProvider()
+
+        self.assertFalse(p.available)
+        self.assertIn("VULTR_INFERENCE_API_KEY is not set", p.validate_config())
+        self.assertIn("VULTR_INFERENCE_MODEL must be non-empty", p.validate_config())
+        self.assertIn("VULTR_INFERENCE_BASE_URL is not set", p.validate_config())
+
+    def test_env_config_makes_provider_available(self):
+        os.environ["VULTR_INFERENCE_API_KEY"] = "vultr-test-key"
+        os.environ["VULTR_INFERENCE_MODEL"] = "test-model"
+        os.environ["VULTR_INFERENCE_BASE_URL"] = "https://api.vultrinference.com/v1/chat/completions"
+
+        p = VultrInferenceProvider()
+
+        self.assertTrue(p.available)
+        self.assertEqual(p.model, "test-model")
+        self.assertEqual(p._base_url, "https://api.vultrinference.com/v1/chat/completions")
+        self.assertEqual(p.validate_config(), [])
+
+    def test_to_dict_does_not_leak_secret_or_endpoint(self):
+        os.environ["VULTR_INFERENCE_API_KEY"] = "vultr-secret-value"
+        os.environ["VULTR_INFERENCE_MODEL"] = "test-model"
+        os.environ["VULTR_INFERENCE_BASE_URL"] = "https://api.vultrinference.com/v1/chat/completions"
+
+        payload = VultrInferenceProvider().to_dict()
+
+        self.assertEqual(payload["name"], "vultr")
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["model"], "test-model")
+        self.assertTrue(payload["base_url_configured"])
+        self.assertNotIn("vultr-secret-value", repr(payload))
+        self.assertNotIn("api.vultrinference.com", repr(payload))
+
+
+# ---------------------------------------------------------------------------
 # Tier-5 get_provider integration
 # ---------------------------------------------------------------------------
 
@@ -1281,6 +1334,20 @@ class Tier5ProviderRegistryTests(unittest.TestCase):
         p = get_provider("lmstudio")
         self.assertIsNotNone(p)
         self.assertEqual(p.name, "lmstudio")
+
+    def test_vultr(self):
+        os.environ["VULTR_INFERENCE_API_KEY"] = "vultr-test-key"
+        os.environ["VULTR_INFERENCE_MODEL"] = "test-model"
+        os.environ["VULTR_INFERENCE_BASE_URL"] = "https://api.vultrinference.com/v1/chat/completions"
+        try:
+            p = get_provider("vultr")
+            self.assertIsNotNone(p)
+            self.assertEqual(p.name, "vultr")
+            self.assertTrue(p.available)
+        finally:
+            os.environ.pop("VULTR_INFERENCE_API_KEY", None)
+            os.environ.pop("VULTR_INFERENCE_MODEL", None)
+            os.environ.pop("VULTR_INFERENCE_BASE_URL", None)
 
 
 if __name__ == "__main__":
