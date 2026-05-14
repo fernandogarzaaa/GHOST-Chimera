@@ -762,6 +762,7 @@ The full test suite requires `.[gateway]` (croniter) and `.[mcp]` (mcp) to be in
 - `docs/CLEAN_ROOM.md` — clean-room implementation boundary.
 - `docs/VULTR_HACKATHON_DEPLOYMENT.md` — Vultr VM public-demo deployment runbook.
 - `docs/HACKATHON_SUBMISSION_GUIDE.md` — challenge track, submission framing, and demo script.
+- `streamlit-demo/` — optional safe judge landing app when a form requires Streamlit/Replit/Vercel.
 
 ---
 

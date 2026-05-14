@@ -51,3 +51,17 @@ def test_vultr_hackathon_docs_frame_track_and_demo_acceptance():
     assert "No private local files" in deployment
     assert "Manager Operator" in deployment
     assert "Virtual Assistant" in deployment
+
+
+def test_optional_streamlit_landing_page_is_repo_deployable():
+    app = (ROOT / "streamlit-demo" / "streamlit_app.py").read_text(encoding="utf-8")
+    requirements = (ROOT / "streamlit-demo" / "requirements.txt").read_text(encoding="utf-8")
+    readme = (ROOT / "streamlit-demo" / "README.md").read_text(encoding="utf-8")
+
+    assert "import streamlit as st" in app
+    assert "Ghost Chimera" in app
+    assert "Vultr-hosted Ghost Console" in app
+    assert "does not access your machine" in app
+    assert "private repositories" in app
+    assert "streamlit" in requirements
+    assert "streamlit-demo/streamlit_app.py" in readme

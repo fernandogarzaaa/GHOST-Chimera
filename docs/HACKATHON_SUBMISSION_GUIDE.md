@@ -50,6 +50,7 @@ Commit setup and deployment materials required by the challenge:
 
 - `docker-compose.vultr.yml`
 - `.env.vultr.example`
+- `streamlit-demo/streamlit_app.py`
 - `docs/VULTR_HACKATHON_DEPLOYMENT.md`
 - `docs/HACKATHON_SUBMISSION_GUIDE.md`
 
