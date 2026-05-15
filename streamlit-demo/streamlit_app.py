@@ -96,6 +96,7 @@ BOB_BACKLOG = {
 BOB_BUILT_TOOLS = {
     "scripts/bob_accelerator.py": "Generates a developer productivity report from Bob's backlog.",
     "scripts/coverage_report.py": "Maps source modules to direct test signals and recommends next targets.",
+    "scripts/bob_delivery_package.py": "Creates a PR-ready delivery package for judges with Bob findings.",
     "docs/adr/": "Captures architectural decisions so new developers can understand rationale faster.",
     "docs/IBM_BOB_WORKFLOW.md": "Preserves Bob's analysis, completed sprint work, and scaffolded roadmap.",
 }
@@ -288,7 +289,8 @@ with tab_vultr:
         """python scripts/bob_accelerator.py
 python scripts/bob_accelerator.py --section test_coverage
 python scripts/coverage_report.py --format markdown
-python -m pytest tests/test_bob_accelerator.py -q""",
+python scripts/bob_delivery_package.py
+python -m pytest tests/test_bob_accelerator.py tests/test_bob_delivery_package.py -q""",
         language="bash",
     )
 
