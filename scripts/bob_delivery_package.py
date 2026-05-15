@@ -30,6 +30,7 @@ from scripts.bob_accelerator import (
     analyze_test_coverage,
     check_dependencies,
     check_system_readiness,
+    detect_bob_tools,
 )
 from scripts.coverage_report import analyze_coverage
 
@@ -86,6 +87,9 @@ def get_repository_snapshot() -> dict[str, Any]:
 
 def get_bob_tools_summary() -> dict[str, Any]:
     """Summarize Bob-built tools."""
+    # Get tools from detect_bob_tools
+    bob_tools_data = detect_bob_tools()
+
     tools = [
         {
             "name": "Bob Accelerator",
@@ -111,16 +115,6 @@ def get_bob_tools_summary() -> dict[str, Any]:
             ],
         },
         {
-            "name": "ADR System",
-            "path": "docs/adr/",
-            "description": "Architecture Decision Records",
-            "features": [
-                "Template for new ADRs",
-                "First ADR: Chimera Pilot scheduling",
-                "Captures design rationale",
-            ],
-        },
-        {
             "name": "Delivery Package Generator",
             "path": "scripts/bob_delivery_package.py",
             "description": "PR-ready delivery package for judges",
@@ -131,6 +125,49 @@ def get_bob_tools_summary() -> dict[str, Any]:
                 "Risk assessment",
             ],
         },
+        {
+            "name": "Changelog Generator",
+            "path": "scripts/generate_changelog.py",
+            "description": "Automated changelog from git history",
+            "features": [
+                "Categorizes commits by type",
+                "Markdown and JSON output",
+                "Conventional commit support",
+                "Customizable date ranges",
+            ],
+        },
+        {
+            "name": "Configuration Validator",
+            "path": "scripts/validate_config.py",
+            "description": "Production config validation",
+            "features": [
+                "Validates production guardrails",
+                "Redacts secrets in output",
+                "Environment file support",
+                "Strict production mode",
+            ],
+        },
+        {
+            "name": "Dependency Auditor",
+            "path": "scripts/audit_dependencies.py",
+            "description": "Dependency specification audit",
+            "features": [
+                "Analyzes pyproject.toml",
+                "Identifies unpinned dependencies",
+                "Risk assessment",
+                "Markdown/JSON reports",
+            ],
+        },
+        {
+            "name": "ADR System",
+            "path": "docs/adr/",
+            "description": "Architecture Decision Records",
+            "features": [
+                "Template for new ADRs",
+                "First ADR: Chimera Pilot scheduling",
+                "Captures design rationale",
+            ],
+        },
     ]
     
     # Check which tools exist
@@ -138,7 +175,11 @@ def get_bob_tools_summary() -> dict[str, Any]:
         tool_path = ROOT / tool["path"]
         tool["exists"] = tool_path.exists()
     
-    return {"tools": tools, "total_count": len(tools)}
+    return {
+        "tools": tools,
+        "total_count": len(tools),
+        "installed_count": bob_tools_data["installed_count"],
+    }
 
 
 def get_top_test_targets(coverage_data: dict[str, Any], limit: int = 10) -> list[dict[str, str]]:
@@ -306,6 +347,15 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("# Coverage analysis")
     lines.append("python scripts/coverage_report.py")
     lines.append("")
+    lines.append("# Generate changelog")
+    lines.append("python scripts/generate_changelog.py --max-count 10")
+    lines.append("")
+    lines.append("# Validate configuration")
+    lines.append("python scripts/validate_config.py --env-file .env.vultr.example")
+    lines.append("")
+    lines.append("# Audit dependencies")
+    lines.append("python scripts/audit_dependencies.py --format markdown")
+    lines.append("")
     lines.append("# Generate this delivery package")
     lines.append("python scripts/bob_delivery_package.py")
     lines.append("```")
@@ -315,6 +365,9 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("# Bob-specific tests")
     lines.append("python -m pytest tests/test_bob_accelerator.py -v")
     lines.append("python -m pytest tests/test_bob_delivery_package.py -v")
+    lines.append("python -m pytest tests/test_generate_changelog.py -v")
+    lines.append("python -m pytest tests/test_validate_config.py -v")
+    lines.append("python -m pytest tests/test_audit_dependencies.py -v")
     lines.append("")
     lines.append("# Full test suite")
     lines.append("python -m pytest tests/ -q")

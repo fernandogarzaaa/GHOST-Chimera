@@ -215,6 +215,37 @@ def generate_onboarding_guide() -> dict[str, Any]:
     }
 
 
+def detect_bob_tools() -> dict[str, Any]:
+    """Detect installed Bob developer tools."""
+    scripts_dir = ROOT / "scripts"
+
+    bob_tools = {
+        "bob_accelerator.py": "Developer productivity report",
+        "coverage_report.py": "Test coverage analysis",
+        "bob_delivery_package.py": "PR-ready delivery package generator",
+        "generate_changelog.py": "Automated changelog generator",
+        "validate_config.py": "Configuration validator",
+        "audit_dependencies.py": "Dependency specification audit",
+    }
+
+    installed = []
+    missing = []
+
+    for tool, description in bob_tools.items():
+        tool_path = scripts_dir / tool
+        if tool_path.exists():
+            installed.append({"name": tool, "description": description})
+        else:
+            missing.append({"name": tool, "description": description})
+
+    return {
+        "installed_count": len(installed),
+        "installed_tools": installed,
+        "missing_count": len(missing),
+        "missing_tools": missing,
+    }
+
+
 def identify_quick_wins() -> list[dict[str, Any]]:
     """Identify quick win improvements based on Bob's backlog."""
     coverage = analyze_test_coverage()
@@ -238,24 +269,6 @@ def identify_quick_wins() -> list[dict[str, Any]]:
             "action": "mkdir -p docs/adr && create ADR template",
         })
     
-    # Check for changelog automation
-    if not (ROOT / "scripts" / "generate_changelog.py").exists():
-        wins.append({
-            "item": "Add automated changelog generator",
-            "effort": "low",
-            "impact": "high",
-            "action": "Create script to generate changelog from git history",
-        })
-    
-    # Check for coverage reporter
-    if not (ROOT / "scripts" / "coverage_report.py").exists():
-        wins.append({
-            "item": "Add test coverage reporter",
-            "effort": "low",
-            "impact": "high",
-            "action": "Create script to report test coverage gaps",
-        })
-    
     return wins
 
 
@@ -269,6 +282,7 @@ def generate_report(format_type: str = "text", section: str | None = None) -> st
     
     sections_to_run = {
         "system": check_system_readiness,
+        "bob_tools": detect_bob_tools,
         "test_coverage": analyze_test_coverage,
         "documentation": analyze_documentation,
         "dependencies": check_dependencies,
@@ -306,6 +320,21 @@ def generate_report(format_type: str = "text", section: str | None = None) -> st
         lines.append(f"  Virtual Environment: {'OK' if sys_data['venv_active'] else 'FAIL'}")
         lines.append("")
     
+    # Bob Tools
+    if "bob_tools" in report_data["sections"]:
+        bob_data = report_data["sections"]["bob_tools"]
+        lines.append("## IBM Bob Developer Tools")
+        lines.append(f"  Installed Tools: {bob_data['installed_count']}/6")
+        if bob_data['installed_tools']:
+            lines.append("  Available:")
+            for tool in bob_data['installed_tools']:
+                lines.append(f"    - {tool['name']}: {tool['description']}")
+        if bob_data['missing_tools']:
+            lines.append("  Missing:")
+            for tool in bob_data['missing_tools']:
+                lines.append(f"    - {tool['name']}: {tool['description']}")
+        lines.append("")
+
     # Test Coverage
     if "test_coverage" in report_data["sections"]:
         cov_data = report_data["sections"]["test_coverage"]
@@ -395,7 +424,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--section",
-        choices=["system", "test_coverage", "documentation", "dependencies", "release_readiness", "onboarding"],
+        choices=["system", "bob_tools", "test_coverage", "documentation", "dependencies", "release_readiness", "onboarding"],
         help="Run only specific section",
     )
     
