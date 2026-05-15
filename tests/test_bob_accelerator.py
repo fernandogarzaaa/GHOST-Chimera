@@ -56,6 +56,18 @@ class TestBobAccelerator(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("System Readiness", result.stdout)
 
+    def test_bob_tools_section_reports_dynamic_total(self):
+        """Test that the Bob tools section reports the current tool catalog."""
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "bob_accelerator.py"), "--section", "bob_tools"],
+            capture_output=True,
+            text=True,
+            cwd=ROOT,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Installed Tools: 7/7", result.stdout)
+        self.assertIn("generate_test_scaffold.py", result.stdout)
+
 
 class TestCoverageReport(unittest.TestCase):
     """Test the coverage report tool."""

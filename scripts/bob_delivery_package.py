@@ -159,6 +159,17 @@ def get_bob_tools_summary() -> dict[str, Any]:
             ],
         },
         {
+            "name": "Test Scaffold Generator",
+            "path": "scripts/generate_test_scaffold.py",
+            "description": "Intelligent test scaffold generator",
+            "features": [
+                "AST-based code analysis",
+                "Generates pytest-style scaffolds",
+                "Detects functions, classes, methods",
+                "CLI with dry-run and force modes",
+            ],
+        },
+        {
             "name": "ADR System",
             "path": "docs/adr/",
             "description": "Architecture Decision Records",
@@ -356,6 +367,9 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("# Audit dependencies")
     lines.append("python scripts/audit_dependencies.py --format markdown")
     lines.append("")
+    lines.append("# Generate test scaffold (dry-run)")
+    lines.append("python scripts/generate_test_scaffold.py --source ghostchimera/config.py --output tests/test_config_scaffold.py --dry-run")
+    lines.append("")
     lines.append("# Generate this delivery package")
     lines.append("python scripts/bob_delivery_package.py")
     lines.append("```")
@@ -368,6 +382,7 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("python -m pytest tests/test_generate_changelog.py -v")
     lines.append("python -m pytest tests/test_validate_config.py -v")
     lines.append("python -m pytest tests/test_audit_dependencies.py -v")
+    lines.append("python -m pytest tests/test_generate_test_scaffold.py -v")
     lines.append("")
     lines.append("# Full test suite")
     lines.append("python -m pytest tests/ -q")

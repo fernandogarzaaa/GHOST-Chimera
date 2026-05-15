@@ -226,6 +226,7 @@ def detect_bob_tools() -> dict[str, Any]:
         "generate_changelog.py": "Automated changelog generator",
         "validate_config.py": "Configuration validator",
         "audit_dependencies.py": "Dependency specification audit",
+        "generate_test_scaffold.py": "Intelligent test scaffold generator",
     }
 
     installed = []
@@ -239,6 +240,7 @@ def detect_bob_tools() -> dict[str, Any]:
             missing.append({"name": tool, "description": description})
 
     return {
+        "expected_count": len(bob_tools),
         "installed_count": len(installed),
         "installed_tools": installed,
         "missing_count": len(missing),
@@ -324,7 +326,7 @@ def generate_report(format_type: str = "text", section: str | None = None) -> st
     if "bob_tools" in report_data["sections"]:
         bob_data = report_data["sections"]["bob_tools"]
         lines.append("## IBM Bob Developer Tools")
-        lines.append(f"  Installed Tools: {bob_data['installed_count']}/6")
+        lines.append(f"  Installed Tools: {bob_data['installed_count']}/{bob_data['expected_count']}")
         if bob_data['installed_tools']:
             lines.append("  Available:")
             for tool in bob_data['installed_tools']:
