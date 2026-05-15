@@ -1,12 +1,13 @@
 # Ghost Chimera Streamlit Demo
 
-This is the optional judge-facing Streamlit landing page for hackathon forms
-that require Streamlit, Replit, or Vercel.
+This is the judge-facing Streamlit landing page for the IBM Bob and Vultr
+hackathon submissions.
 
 It is intentionally safe for hosted judging. It shows the Ghost path selector,
 personalization sources, tool domains, generated Ghost blueprint, and trust
 boundary without exposing a real local machine, email account, shell, desktop,
-or private repository.
+or private repository. For the IBM Bob Hackathon, it also shows how Bob's
+repository analysis becomes a Bob-to-Ghost delivery package.
 
 ## Run Locally
 

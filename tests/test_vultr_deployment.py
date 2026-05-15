@@ -60,8 +60,28 @@ def test_optional_streamlit_landing_page_is_repo_deployable():
 
     assert "import streamlit as st" in app
     assert "Ghost Chimera" in app
-    assert "Vultr-hosted Ghost Console" in app
+    assert "Vultr Alignment" in app
     assert "does not access your machine" in app
     assert "private repositories" in app
     assert "streamlit" in requirements
     assert "streamlit-demo/streamlit_app.py" in readme
+
+
+def test_streamlit_demo_shows_ibm_bob_workflow():
+    app = (ROOT / "streamlit-demo" / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert "IBM Bob" in app
+    assert "Bob-to-Ghost Delivery Package" in app
+    assert "Developer onboarding friction" in app
+    assert "Interactive onboarding tool" in app
+    assert "Automated test coverage reporter" in app
+
+
+def test_ibm_bob_hackathon_workflow_doc_uses_bob_evidence():
+    doc = (ROOT / "docs" / "IBM_BOB_HACKATHON_WORKFLOW.md").read_text(encoding="utf-8")
+
+    assert "IBM Bob" in doc
+    assert "Completed comprehensive analysis" in doc
+    assert "Prioritized Backlog" in doc
+    assert "Bob-to-Ghost" in doc
+    assert "meaningful use of Bob" in doc
