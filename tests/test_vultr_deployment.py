@@ -72,6 +72,9 @@ def test_streamlit_demo_shows_ibm_bob_workflow():
 
     assert "IBM Bob" in app
     assert "Bob-to-Ghost Delivery Package" in app
+    assert "Bob-Built Tools" in app
+    assert "scripts/bob_accelerator.py" in app
+    assert "scripts/coverage_report.py" in app
     assert "Developer onboarding friction" in app
     assert "Interactive onboarding tool" in app
     assert "Automated test coverage reporter" in app

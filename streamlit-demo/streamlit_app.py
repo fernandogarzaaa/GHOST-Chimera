@@ -93,6 +93,13 @@ BOB_BACKLOG = {
     ),
 }
 
+BOB_BUILT_TOOLS = {
+    "scripts/bob_accelerator.py": "Generates a developer productivity report from Bob's backlog.",
+    "scripts/coverage_report.py": "Maps source modules to direct test signals and recommends next targets.",
+    "docs/adr/": "Captures architectural decisions so new developers can understand rationale faster.",
+    "docs/IBM_BOB_WORKFLOW.md": "Preserves Bob's analysis, completed sprint work, and scaffolded roadmap.",
+}
+
 
 def bullet_list(items: tuple[str, ...]) -> str:
     return "\n".join(f"- {item}" for item in items)
@@ -222,6 +229,10 @@ with tab_bob:
     st.subheader("Bob-to-Ghost Delivery Package")
     st.json(build_bob_delivery_package(priority_area))
 
+    st.subheader("Bob-Built Tools")
+    for path, description in BOB_BUILT_TOOLS.items():
+        st.markdown(f"- `{path}` - {description}")
+
     st.info(
         "Meaningful Bob use: Bob supplies repository understanding, findings, and backlog. "
         "Ghost Chimera adds execution discipline, policy gates, verification, and PR-ready packaging."
@@ -274,10 +285,10 @@ with tab_vultr:
 
     st.header("Demo Commands")
     st.code(
-        """ghostchimera bob import docs/IBM_BOB_HACKATHON_WORKFLOW.md
-ghostchimera bob package --priority "Developer Experience"
-ghostchimera capabilities --format json
-ghostchimera doctor --production""",
+        """python scripts/bob_accelerator.py
+python scripts/bob_accelerator.py --section test_coverage
+python scripts/coverage_report.py --format markdown
+python -m pytest tests/test_bob_accelerator.py -q""",
         language="bash",
     )
 

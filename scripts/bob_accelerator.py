@@ -22,6 +22,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from coverage_report import analyze_coverage
+
 ROOT = Path(__file__).resolve().parents[1]
 GHOSTCHIMERA_DIR = ROOT / "ghostchimera"
 TESTS_DIR = ROOT / "tests"
@@ -50,37 +52,15 @@ def check_system_readiness() -> dict[str, Any]:
 
 def analyze_test_coverage() -> dict[str, Any]:
     """Analyze test coverage by mapping source files to test files."""
-    source_files = list(GHOSTCHIMERA_DIR.rglob("*.py"))
-    source_files = [f for f in source_files if "__pycache__" not in str(f)]
-    
-    test_files = list(TESTS_DIR.rglob("test_*.py"))
-    
-    # Map source modules to test files
-    tested_modules = set()
-    for test_file in test_files:
-        # Extract module name from test file
-        module_name = test_file.stem.replace("test_", "")
-        tested_modules.add(module_name)
-    
-    # Find untested modules
-    untested = []
-    for source_file in source_files:
-        if source_file.name == "__init__.py":
-            continue
-        module_name = source_file.stem
-        if module_name not in tested_modules:
-            rel_path = source_file.relative_to(ROOT)
-            untested.append(str(rel_path))
-    
-    coverage_ratio = 1.0 - (len(untested) / max(len(source_files), 1))
+    coverage = analyze_coverage()
     
     return {
-        "total_source_files": len(source_files),
-        "total_test_files": len(test_files),
-        "untested_modules": untested[:10],  # Show first 10
-        "untested_count": len(untested),
-        "coverage_ratio": round(coverage_ratio, 2),
-        "status": "good" if coverage_ratio > 0.8 else "needs_improvement",
+        "total_source_files": coverage["total_modules"],
+        "total_test_files": len(list(TESTS_DIR.rglob("test_*.py"))),
+        "untested_modules": [item["source"] for item in coverage["untested"][:10]],
+        "untested_count": coverage["untested_count"],
+        "coverage_ratio": round(coverage["coverage_ratio"], 2),
+        "status": "good" if coverage["coverage_ratio"] > 0.8 else "needs_improvement",
     }
 
 
