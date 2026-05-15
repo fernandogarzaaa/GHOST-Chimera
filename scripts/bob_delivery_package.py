@@ -48,7 +48,7 @@ def get_repository_snapshot() -> dict[str, Any]:
         ]
         
         md_files = list(ROOT.glob("**/*.md"))
-        test_files = list((ROOT / "tests").glob("test_*.py"))
+        test_files = list((ROOT / "tests").rglob("test_*.py"))
         
         # Get git info if available
         git_info = {}

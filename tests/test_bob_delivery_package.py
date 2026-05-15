@@ -68,6 +68,7 @@ class TestDeliveryPackageGenerator(unittest.TestCase):
             self.assertIn("repository_snapshot", data)
             self.assertIn("test_coverage", data)
             self.assertIn("bob_tools", data)
+            self.assertGreaterEqual(data["repository_snapshot"]["test_files"], 70)
 
     def test_delivery_package_markdown_content(self):
         """Test that markdown delivery package has required sections."""
@@ -163,6 +164,18 @@ class TestDeliveryPackageGenerator(unittest.TestCase):
             
             for command in expected_commands:
                 self.assertIn(command, content, f"Missing command: {command}")
+
+    def test_submission_doc_is_judge_ready(self):
+        """Test that the judge-facing submission doc has concrete repo links and no placeholders."""
+        doc = ROOT / "docs" / "IBM_BOB_SUBMISSION.md"
+        self.assertTrue(doc.exists())
+        content = doc.read_text(encoding="utf-8")
+
+        self.assertIn("git clone https://github.com/fernandogarzaaa/GHOST-Chimera.git", content)
+        self.assertIn("docs/bob_delivery_package.md", content)
+        self.assertIn("[OK] **Bob built 5 working tools:**", content)
+        self.assertNotIn("your-org", content)
+        self.assertNotIn("100% test coverage", content)
 
 
 if __name__ == "__main__":

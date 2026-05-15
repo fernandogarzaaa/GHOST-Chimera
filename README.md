@@ -1,22 +1,22 @@
-# Ghost Chimera
+﻿# Ghost Chimera
 
 ![Version](https://img.shields.io/badge/version-0.4.0--beta-blueviolet)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![CI](https://img.shields.io/badge/CI-ubuntu%20%7C%20windows%20%7C%20macos-brightgreen)
 
-Ghost Chimera is a **local-first agent orchestration runtime** built around **Chimera Pilot** — a resource-control layer that compiles natural-language objectives into a task IR, schedules them across registered backends using weighted scoring, enforces safety policy, executes with fallback, and records telemetry.
+Ghost Chimera is a **local-first agent orchestration runtime** built around **Chimera Pilot** â€” a resource-control layer that compiles natural-language objectives into a task IR, schedules them across registered backends using weighted scoring, enforces safety policy, executes with fallback, and records telemetry.
 
 Key capabilities:
-- **27 model providers** (OpenAI, Anthropic, Gemini, Groq, Mistral, Ollama, and 21 more) — swap or chain them without rewriting code.
-- **10 Chimera Pilot backends** — deterministic, Python, memory retrieval, Gemini reasoning, local GGUF, analytics, simulation, desktop control, MCP, and quantum simulator.
-- **Browser console (Ghost Console)** — full point-and-click UI with Quick Actions, Skills browser, Run history, live security monitor, cron scheduler, and provider visibility. No terminal needed for day-to-day use.
-- **Conservative safety defaults** — Python, shell, network, and desktop execution are all off by default. Production mode adds deployment-level guardrails.
-- **Personal MiniMind** — consent-gated local memory bootstrap with system specs, approved files/email exports, optional whole-machine/email-artifact crawling, MiniMind JSONL dataset generation, and primary-model RAG handoff.
+- **27 model providers** (OpenAI, Anthropic, Gemini, Groq, Mistral, Ollama, and 21 more) â€” swap or chain them without rewriting code.
+- **10 Chimera Pilot backends** â€” deterministic, Python, memory retrieval, Gemini reasoning, local GGUF, analytics, simulation, desktop control, MCP, and quantum simulator.
+- **Browser console (Ghost Console)** â€” full point-and-click UI with Quick Actions, Skills browser, Run history, live security monitor, cron scheduler, and provider visibility. No terminal needed for day-to-day use.
+- **Conservative safety defaults** â€” Python, shell, network, and desktop execution are all off by default. Production mode adds deployment-level guardrails.
+- **Personal MiniMind** â€” consent-gated local memory bootstrap with system specs, approved files/email exports, optional whole-machine/email-artifact crawling, MiniMind JSONL dataset generation, and primary-model RAG handoff.
 
 - **Competitive capability intelligence** - CLI, console, docs, and eval gates compare Ghost Chimera against Codex, Claude Code, LangGraph, CrewAI, Hermes-style tool gateways, and OpenClaw-style local autonomy patterns.
 - **Automated PR review** - deterministic `ghostchimera review-pr` checks for secrets, destructive commands, missing tests, release-checklist drift, generated artifacts, and unfinished beta code.
-- **IBM Bob Developer Accelerator** - repo-aware productivity tools that analyze codebase health, test coverage, documentation completeness, and provide personalized onboarding guidance. See [`docs/IBM_BOB_WORKFLOW.md`](docs/IBM_BOB_WORKFLOW.md).
+- **IBM Bob Developer Accelerator** - repo-aware productivity tools that analyze codebase health, test coverage, documentation completeness, and provide personalized onboarding guidance. **[Hackathon Submission](docs/IBM_BOB_SUBMISSION.md)** | [Workflow Guide](docs/IBM_BOB_WORKFLOW.md)
 
 This is beta-stage software for real, user-supervised work in local-first environments. It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
 
@@ -25,9 +25,9 @@ This is beta-stage software for real, user-supervised work in local-first enviro
 ## Table of Contents
 
 - [Architecture](#architecture)
-- [Quick Start — Docker](#quick-start--docker)
+- [Quick Start â€” Docker](#quick-start--docker)
 - [Developer Install](#developer-install)
-- [Ghost Console — Browser UI](#ghost-console--browser-ui)
+- [Ghost Console â€” Browser UI](#ghost-console--browser-ui)
 - [CLI Reference](#cli-reference)
 - [Python SDK](#python-sdk)
 - [Model Providers](#model-providers)
@@ -74,33 +74,33 @@ Ghost Chimera is organized into independent layers. Each layer has a narrow cont
 
 ```
 Objective
-  → RuleBasedTaskCompiler → TaskSpec list
-  → ChimeraScheduler (weighted scoring + health cache)
-  → best backend (with fallback)
-  → ChimeraPilotExecutor
-  → SemanticVerifier
-  → Telemetry / ResultEnvelope
+  â†’ RuleBasedTaskCompiler â†’ TaskSpec list
+  â†’ ChimeraScheduler (weighted scoring + health cache)
+  â†’ best backend (with fallback)
+  â†’ ChimeraPilotExecutor
+  â†’ SemanticVerifier
+  â†’ Telemetry / ResultEnvelope
 ```
 
 **Safety boundary:** the scheduler decides *where* to run; the policy decides *whether* it is allowed. `PilotPolicy` (Chimera Pilot layer) and `ExecutionPolicy` (tool layer) are separate gates.
 
 ---
 
-## Quick Start — Docker
+## Quick Start â€” Docker
 
-Build and run the browser console with the included Docker artifacts — no local Python install required:
+Build and run the browser console with the included Docker artifacts â€” no local Python install required:
 
 ```bash
 docker compose up --build
 ```
 
-Open **http://localhost:8766/** in your browser. The Ghost Console provides a full point-and-click UI — no terminal needed for day-to-day operation.
+Open **http://localhost:8766/** in your browser. The Ghost Console provides a full point-and-click UI â€” no terminal needed for day-to-day operation.
 
 ---
 
 ## Developer Install
 
-From a clean checkout (Python 3.11–3.13 required):
+From a clean checkout (Python 3.11â€“3.13 required):
 
 ```bash
 python -m venv .venv
@@ -126,7 +126,7 @@ The base package is stdlib-first with zero mandatory dependencies. Heavy runtime
 
 ---
 
-## Ghost Console — Browser UI
+## Ghost Console â€” Browser UI
 
 The Ghost Console is a gateway-backed browser UI that exposes all major Ghost Chimera controls without the terminal. Start it with:
 
@@ -148,7 +148,7 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 | Tab | What you can do |
 |---|---|
 | **Status** | System health metrics, autonomy profile selector, personal context toggle, True Autonomy (live desktop) toggle, active model provider, registered backends. |
-| **Run** | Quick Actions (8 pre-built objectives), custom objective box with **Ctrl+Enter / ⌘+Enter** shortcut, run button (disabled while running), output panel, and last-20-run history persisted in localStorage — click any entry to reload it. |
+| **Run** | Quick Actions (8 pre-built objectives), custom objective box with **Ctrl+Enter / âŒ˜+Enter** shortcut, run button (disabled while running), output panel, and last-20-run history persisted in localStorage â€” click any entry to reload it. |
 | **Jobs** | Run profile-aware autonomy jobs (`self-audit`, `dependency-scan`, `test-regression`, `memory-refresh`, `model-health-check`, `repair-preview`) and view their durable history. |
 | **Workspace** | Set goals, add evidence, add reflections, view full workspace state, sync high-confidence evidence into CWR memory. |
 | **Memory** | Ingest emails (`.eml` / `.mbox` files or pasted raw RFC 2822 text), ingest files/directories, ingest plain text, search memory, teach Ghost by recording prompt/response training pairs, export MiniMind JSONL datasets, view MiniMind status. |
@@ -161,7 +161,7 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 | **Capabilities** | Competitive matrix with score, benchmark coverage, release-gate commands, and top gaps. Backed by `GET /api/console/capabilities`. |
 | **Readiness** | Release-readiness checklist with the exact commands to run before tagging a release. |
 
-**All actions produce toast notifications** (green ok / yellow warn / red error) — no need to watch the terminal for confirmation.
+**All actions produce toast notifications** (green ok / yellow warn / red error) â€” no need to watch the terminal for confirmation.
 
 ### Multi-Purpose Ghost Paths
 
@@ -221,7 +221,7 @@ ghostchimera console --state-dir /data/ghost-state --no-open
 
 ## CLI Reference
 
-### `ghostchimera` — main control-plane CLI
+### `ghostchimera` â€” main control-plane CLI
 
 ```bash
 ghostchimera setup                    # interactive setup wizard
@@ -279,7 +279,7 @@ ghostchimera runtime-warmup --runtime-specialization-cache-dir .ghost/rs --local
 ghostchimera desktop-stop --desktop-kill-switch-path .ghost/DESKTOP_STOP
 ```
 
-### `chimera-pilot` — Pilot-specific CLI
+### `chimera-pilot` â€” Pilot-specific CLI
 
 ```bash
 chimera-pilot status --include-deterministic-backend
@@ -295,14 +295,14 @@ chimera-pilot runtime-specialization "prompt" --local-model-profile tiny
 chimera-pilot runtime-warmup --runtime-specialization-cache-dir .ghost/rs --local-model-profile tiny
 ```
 
-### `ghostchimera-parallel` — parallel and batch execution
+### `ghostchimera-parallel` â€” parallel and batch execution
 
 ```bash
 ghostchimera-parallel run "obj1" "obj2" "obj3" --parallel 3 --output-dir ./out
 ghostchimera-parallel batch objectives.jsonl --workers 4 --output-dir ./batch-out
 ```
 
-### `ghostchimera-eval` — evaluation runner
+### `ghostchimera-eval` â€” evaluation runner
 
 ```bash
 ghostchimera-eval run --suite smoke
@@ -343,7 +343,7 @@ client.ingest_raw_email("From: ...\nSubject: ...\n\nbody text")
 # Search local memory
 results = client.search("project milestones", limit=5)
 
-# Teach Ghost — record a prompt/response training example
+# Teach Ghost â€” record a prompt/response training example
 client.teach(prompt="What is Ghost Chimera?", response="A local-first agent runtime.")
 
 # Check training dataset status
@@ -361,7 +361,7 @@ store = client.memory    # MemoryStore instance
 
 ## Model Providers
 
-Ghost Chimera supports **27 model providers**. All are optional — set the relevant environment variable and select the provider.
+Ghost Chimera supports **27 model providers**. All are optional â€” set the relevant environment variable and select the provider.
 
 | Provider | Env var | Default model |
 |---|---|---|
@@ -418,14 +418,14 @@ Every backend exposes `id`, `name`, `capabilities`, `probe()`, `can_run(task)`, 
 
 ## Autonomy Profiles
 
-Ghost Chimera exposes autonomy as an operator-adjustable profile — not as a claim of AGI or consciousness.
+Ghost Chimera exposes autonomy as an operator-adjustable profile â€” not as a claim of AGI or consciousness.
 
 | Profile | Behavior |
 |---|---|
 | `assist` | Single-backend execution, small tool-loop budgets. |
-| `supervised` | Default beta posture — fallback routing, approval requirements. |
+| `supervised` | Default beta posture â€” fallback routing, approval requirements. |
 | `autonomous` | Larger tool-loop budgets, scheduler adaptation, bounded parallel execution. |
-| `generalist` | Highest local-first beta profile — MoA-style strategy selection, preview-only self-improvement. |
+| `generalist` | Highest local-first beta profile â€” MoA-style strategy selection, preview-only self-improvement. |
 
 ```bash
 ghostchimera autonomy show
@@ -433,7 +433,7 @@ ghostchimera autonomy set --level autonomous --local-model-profile stronger
 chimera-pilot autonomy-profiles
 ```
 
-`GHOSTCHIMERA_AUTONOMY_LEVEL` sets the default profile. The aliases `agi` and `sgi` are accepted as shorthand for `generalist` — Ghost Chimera still does not claim AGI or fully autonomous operation.
+`GHOSTCHIMERA_AUTONOMY_LEVEL` sets the default profile. The aliases `agi` and `sgi` are accepted as shorthand for `generalist` â€” Ghost Chimera still does not claim AGI or fully autonomous operation.
 
 **Profile-aware autonomy jobs:** `self-audit`, `dependency-scan`, `test-regression`, `memory-refresh`, `model-health-check`, `repair-preview`. Conservative profiles return preview plans; `autonomous`/`generalist` may run bounded checks when `--execute` is passed, but source mutation, training, network access, Python execution, shell execution, and desktop control still require their existing policy opt-ins.
 
@@ -443,12 +443,12 @@ chimera-pilot autonomy-profiles
 
 Ghost Chimera includes a **local-first personal memory system** backed by SQLite FTS5:
 
-- **Document ingestion** — `DocumentIngester` chunks `.txt`, `.md`, `.py`, `.json`, and CSV files. Duplicate-safe insert via `add_document_once`.
-- **Email ingestion** — `EmailIngester` parses RFC 2822 / mbox files, extracts all MIME parts, and stores them as memory records.
-- **Freshness scoring** — `MemoryStore.search()` returns `freshness_score` (exponential decay, 30-day half-life), `citation_quality` (freshness × content-length heuristic), and `created_at`. Accepts a `stale_after_days` filter.
-- **Personal context injection** — `PersonalContextProvider` retrieves top FTS matches and injects them into the system prompt for `REASONING`, `LONG_CONTEXT_DOC`, and `CODE_EDIT` tasks, or into `inputs["context"]` for `WEB_RESEARCH`, `FILE_ANALYSIS`, `RAG_QUERY`, and `ANALYTICS_QUERY`.
-- **Teaching pipeline** — record prompt/response pairs through the Memory tab or `GhostClient.teach()`. Pairs accumulate in `~/.ghostchimera/minimind/datasets/dataset.jsonl` for local MiniMind fine-tuning.
-- **Personal MiniMind bootstrap** — `MiniMindPersonalAgent` stores explicit admin consent, ingests approved system specs/files/email exports, optionally discovers readable local files and `.eml`/`.mbox` email artifacts under crawl roots, builds a personal dataset from local memory, and returns a primary-model handoff prompt so the configured Ghost model can execute with personal context.
+- **Document ingestion** â€” `DocumentIngester` chunks `.txt`, `.md`, `.py`, `.json`, and CSV files. Duplicate-safe insert via `add_document_once`.
+- **Email ingestion** â€” `EmailIngester` parses RFC 2822 / mbox files, extracts all MIME parts, and stores them as memory records.
+- **Freshness scoring** â€” `MemoryStore.search()` returns `freshness_score` (exponential decay, 30-day half-life), `citation_quality` (freshness Ã— content-length heuristic), and `created_at`. Accepts a `stale_after_days` filter.
+- **Personal context injection** â€” `PersonalContextProvider` retrieves top FTS matches and injects them into the system prompt for `REASONING`, `LONG_CONTEXT_DOC`, and `CODE_EDIT` tasks, or into `inputs["context"]` for `WEB_RESEARCH`, `FILE_ANALYSIS`, `RAG_QUERY`, and `ANALYTICS_QUERY`.
+- **Teaching pipeline** â€” record prompt/response pairs through the Memory tab or `GhostClient.teach()`. Pairs accumulate in `~/.ghostchimera/minimind/datasets/dataset.jsonl` for local MiniMind fine-tuning.
+- **Personal MiniMind bootstrap** â€” `MiniMindPersonalAgent` stores explicit admin consent, ingests approved system specs/files/email exports, optionally discovers readable local files and `.eml`/`.mbox` email artifacts under crawl roots, builds a personal dataset from local memory, and returns a primary-model handoff prompt so the configured Ghost model can execute with personal context.
 
 ```bash
 chimera-pilot memory-add --memory-db .ghostchimera-memory.sqlite3 --source notes --content "..."
@@ -481,7 +481,7 @@ chimera-pilot run "live desktop: click app=chrome window=Docs then type hello wo
   --enable-desktop-backend --enable-live-desktop --allow-desktop-control --ghost-mode possess \
   --desktop-allow-app chrome --desktop-allow-window Docs
 
-# Emergency stop — creates kill-switch file before the next action fires
+# Emergency stop â€” creates kill-switch file before the next action fires
 chimera-pilot desktop-stop --desktop-kill-switch-path .ghost/DESKTOP_STOP
 
 # Replayable sessions with before/after screenshots
@@ -663,10 +663,10 @@ Results move through `ResultEnvelope` with confidence, provenance, claims, warni
 
 The cognition layer exposes four confidence classes:
 
-- `ConfidentValue` — high-quality evidence, no significant uncertainty.
-- `ConvergeValue` — multiple signals converging on a stable answer.
-- `ProvisionalValue` — plausible but requires validation.
-- `ExploreValue` — speculative; treat as a hypothesis.
+- `ConfidentValue` â€” high-quality evidence, no significant uncertainty.
+- `ConvergeValue` â€” multiple signals converging on a stable answer.
+- `ProvisionalValue` â€” plausible but requires validation.
+- `ExploreValue` â€” speculative; treat as a hypothesis.
 
 Confidence uses product-rule composition: multiple uncertain signals cannot combine into false certainty.
 
@@ -705,7 +705,7 @@ ghostchimera review-pr --base HEAD --head HEAD
 | `smoke` | Core compile/schedule/execute/verify pipeline. |
 | `safety` | Policy gating, DPI scanning, Python execution denial, SSRF. |
 | `autonomy` | Profile-aware job planning, fallback routing, approval gates. |
-| `user-journey` | End-to-end workspace evidence → CWR retrieval → task context injection. |
+| `user-journey` | End-to-end workspace evidence â†’ CWR retrieval â†’ task context injection. |
 | `workspace` | Workspace context injection, freshness scoring, citation quality, count(). |
 | `competitive` | Capability matrix score, console route, and CLI report against Codex/Claude/LangGraph/CrewAI/Hermes/OpenClaw-style benchmarks. |
 | `github-connected` | GitHub auth detection, issue planning, console routes, and policy simulation. |
@@ -755,30 +755,30 @@ The full test suite requires `.[gateway]` (croniter) and `.[mcp]` (mcp) to be in
 
 ## Documentation
 
-- `CHIMERA_PILOT.md` — focused Chimera Pilot usage and backend notes.
-- `SECURITY.md` — supported status, high-risk capabilities, and hardening guidance.
-- `CHANGELOG.md` — detailed per-version change log.
-- `docs/PERSONAL_MINIMIND_PRIVACY.md` — Personal MiniMind consent scopes, whole-machine/email crawling behavior, local storage, and local runtime guidance.
-- `docs/ARCHITECTURE.md` — layered architecture and runtime convergence.
-- `docs/AGENT_LOOP.md` — multi-turn `AIAgent` loop design.
-- `docs/GATEWAY_SERVER.md` — gateway server HTTP route registry and WebSocket protocol.
-- `docs/CRON_SCHEDULER.md` — cron scheduler design and safe defaults.
-- `docs/MIXTURE_OF_AGENTS.md` — MoA scoring and Jaccard strategy selection.
-- `docs/SUBAGENT_DELEGATION.md` — subagent pool and depth-limited tree spawning.
-- `docs/CREDENTIAL_POOL.md` — credential pool and external auth provider contracts.
-- `docs/DESKTOP_CONTROL_HANDOFF.md` — desktop control policy and handoff notes.
-- `docs/IBM_BOB_WORKFLOW.md` — IBM Bob developer accelerator workflow and tools.
-- `docs/adr/` — Architecture Decision Records documenting key design choices.
-- `docs/PRODUCTION_ISOLATION.md` — production guardrail requirements.
-- `docs/MISSING_IMPLEMENTATIONS.md` — beta wiring audit.
-- `docs/RELEASE_CHECKLIST.md` — manual release verification checklist.
-- `docs/RUNNING.md` — step-by-step Docker and local Python run guide.
-- `docs/AUTONOMY_CAPABILITY_EXTRACTION.md` — extraction notes from AETHER, WRAITH, EVO, OpenChimera_v1, and appforge.
-- `docs/CLEAN_ROOM.md` — clean-room implementation boundary.
-- `docs/VULTR_HACKATHON_DEPLOYMENT.md` — Vultr VM public-demo deployment runbook.
-- `docs/HACKATHON_SUBMISSION_GUIDE.md` — challenge track, submission framing, and demo script.
-- `docs/IBM_BOB_HACKATHON_WORKFLOW.md` — Bob analysis evidence and Bob-to-Ghost delivery package.
-- `streamlit-demo/` — optional safe judge landing app when a form requires Streamlit/Replit/Vercel.
+- `CHIMERA_PILOT.md` â€” focused Chimera Pilot usage and backend notes.
+- `SECURITY.md` â€” supported status, high-risk capabilities, and hardening guidance.
+- `CHANGELOG.md` â€” detailed per-version change log.
+- `docs/PERSONAL_MINIMIND_PRIVACY.md` â€” Personal MiniMind consent scopes, whole-machine/email crawling behavior, local storage, and local runtime guidance.
+- `docs/ARCHITECTURE.md` â€” layered architecture and runtime convergence.
+- `docs/AGENT_LOOP.md` â€” multi-turn `AIAgent` loop design.
+- `docs/GATEWAY_SERVER.md` â€” gateway server HTTP route registry and WebSocket protocol.
+- `docs/CRON_SCHEDULER.md` â€” cron scheduler design and safe defaults.
+- `docs/MIXTURE_OF_AGENTS.md` â€” MoA scoring and Jaccard strategy selection.
+- `docs/SUBAGENT_DELEGATION.md` â€” subagent pool and depth-limited tree spawning.
+- `docs/CREDENTIAL_POOL.md` â€” credential pool and external auth provider contracts.
+- `docs/DESKTOP_CONTROL_HANDOFF.md` â€” desktop control policy and handoff notes.
+- `docs/IBM_BOB_WORKFLOW.md` â€” IBM Bob developer accelerator workflow and tools.
+- `docs/adr/` â€” Architecture Decision Records documenting key design choices.
+- `docs/PRODUCTION_ISOLATION.md` â€” production guardrail requirements.
+- `docs/MISSING_IMPLEMENTATIONS.md` â€” beta wiring audit.
+- `docs/RELEASE_CHECKLIST.md` â€” manual release verification checklist.
+- `docs/RUNNING.md` â€” step-by-step Docker and local Python run guide.
+- `docs/AUTONOMY_CAPABILITY_EXTRACTION.md` â€” extraction notes from AETHER, WRAITH, EVO, OpenChimera_v1, and appforge.
+- `docs/CLEAN_ROOM.md` â€” clean-room implementation boundary.
+- `docs/VULTR_HACKATHON_DEPLOYMENT.md` â€” Vultr VM public-demo deployment runbook.
+- `docs/HACKATHON_SUBMISSION_GUIDE.md` â€” challenge track, submission framing, and demo script.
+- `docs/IBM_BOB_HACKATHON_WORKFLOW.md` â€” Bob analysis evidence and Bob-to-Ghost delivery package.
+- `streamlit-demo/` â€” optional safe judge landing app when a form requires Streamlit/Replit/Vercel.
 
 ---
 
@@ -786,7 +786,7 @@ The full test suite requires `.[gateway]` (croniter) and `.[mcp]` (mcp) to be in
 
 - User-supervised automation and assistance for real work (planning + execution) in local-first mode.
 - Desktop workflows via the desktop backend (dry-run by default; live mode requires explicit enablement).
-- Governed repository change workflows: evidence retrieval → plan → policy checks → PR-ready output.
+- Governed repository change workflows: evidence retrieval â†’ plan â†’ policy checks â†’ PR-ready output.
 - Building user-specific context via Operator Workspace evidence/reflections synced into local CWR memory.
 - Production automation inside externally isolated, reviewed deployments that pass `ghostchimera doctor --production`.
 - Batch orchestration and subagent workflow development.
@@ -807,4 +807,5 @@ The full test suite requires `.[gateway]` (croniter) and `.[mcp]` (mcp) to be in
 
 ## License
 
-MIT — see `LICENSE`. Third-party attribution in `NOTICE`.
+MIT â€” see `LICENSE`. Third-party attribution in `NOTICE`.
+
