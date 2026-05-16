@@ -1,0 +1,24 @@
+name: Bob Quality
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  bob-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install project
+        run: python -m pip install -e .[dev]
+      - name: Bob accelerator
+        run: python scripts/bob_accelerator.py
+      - name: Dependency audit
+        run: python scripts/audit_dependencies.py --format markdown
+      - name: Delivery package check
+        run: python scripts/bob_delivery_package.py --output docs/bob_delivery_package.md
+      - name: Bob tests
+        run: python -m pytest tests/test_bob_accelerator.py tests/test_bob_delivery_package.py tests/test_bob_roadmap.py tests/test_generate_changelog.py tests/test_validate_config.py tests/test_audit_dependencies.py tests/test_generate_test_scaffold.py tests/integration/test_bob_toolchain.py tests/performance/test_bob_tool_performance.py -q

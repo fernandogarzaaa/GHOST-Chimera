@@ -38,7 +38,7 @@ class TestBobAcceleratorToDeliveryPackage:
         """Test that bob_accelerator detects all current Bob tools."""
         tools_data = detect_bob_tools()
         
-        assert tools_data["installed_count"] >= 7, "Should detect at least 7 Bob tools"
+        assert tools_data["installed_count"] >= 12, "Should detect at least 12 Bob tools"
         
         # Verify specific tools are detected
         tool_names = [tool["name"] for tool in tools_data["installed_tools"]]
@@ -51,6 +51,11 @@ class TestBobAcceleratorToDeliveryPackage:
             "validate_config.py",
             "audit_dependencies.py",
             "generate_test_scaffold.py",
+            "generate_api_reference.py",
+            "generate_sbom.py",
+            "dependency_graph.py",
+            "analyze_logs.py",
+            "dev_env.py",
         ]
         
         for expected in expected_tools:
@@ -75,6 +80,11 @@ class TestBobAcceleratorToDeliveryPackage:
             "Configuration Validator",
             "Dependency Auditor",
             "Test Scaffold Generator",
+            "API Reference Generator",
+            "SBOM-lite Generator",
+            "Dependency Graph Visualizer",
+            "Debug Logging Analyzer",
+            "Dev Environment Manager",
         ]
         
         for expected in expected_tools:

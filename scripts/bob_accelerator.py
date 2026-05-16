@@ -227,6 +227,11 @@ def detect_bob_tools() -> dict[str, Any]:
         "validate_config.py": "Configuration validator",
         "audit_dependencies.py": "Dependency specification audit",
         "generate_test_scaffold.py": "Intelligent test scaffold generator",
+        "generate_api_reference.py": "AST-based API reference generator",
+        "generate_sbom.py": "SBOM-lite generator",
+        "dependency_graph.py": "Dependency graph visualizer",
+        "analyze_logs.py": "Debug log analyzer",
+        "dev_env.py": "Local dev environment manager",
     }
 
     installed = []

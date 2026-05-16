@@ -170,6 +170,58 @@ def get_bob_tools_summary() -> dict[str, Any]:
             ],
         },
         {
+            "name": "API Reference Generator",
+            "path": "scripts/generate_api_reference.py",
+            "description": "AST-based API reference generator",
+            "features": [
+                "Avoids importing modules",
+                "Markdown and JSON output",
+                "Public functions, classes, and methods",
+                "Configurable module limit",
+            ],
+        },
+        {
+            "name": "SBOM-lite Generator",
+            "path": "scripts/generate_sbom.py",
+            "description": "Dependency SBOM-lite generator",
+            "features": [
+                "Parses pyproject.toml",
+                "Runtime and optional dependency scopes",
+                "Markdown and JSON output",
+                "No vulnerability-scan overclaiming",
+            ],
+        },
+        {
+            "name": "Dependency Graph Visualizer",
+            "path": "scripts/dependency_graph.py",
+            "description": "AST-based internal import graph",
+            "features": [
+                "No external graph dependencies",
+                "Package-scoped imports",
+                "Markdown and JSON output",
+            ],
+        },
+        {
+            "name": "Debug Logging Analyzer",
+            "path": "scripts/analyze_logs.py",
+            "description": "Plain-text log analysis",
+            "features": [
+                "Level and logger counts",
+                "Repeated message detection",
+                "Text, markdown, and JSON output",
+            ],
+        },
+        {
+            "name": "Dev Environment Manager",
+            "path": "scripts/dev_env.py",
+            "description": "Local setup command profiles",
+            "features": [
+                "Minimal, dev, gateway, mcp, and full profiles",
+                "Print-only safety",
+                "Text, markdown, and JSON output",
+            ],
+        },
+        {
             "name": "ADR System",
             "path": "docs/adr/",
             "description": "Architecture Decision Records",
@@ -370,6 +422,18 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("# Generate test scaffold (dry-run)")
     lines.append("python scripts/generate_test_scaffold.py --source ghostchimera/config.py --output tests/test_config_scaffold.py --dry-run")
     lines.append("")
+    lines.append("# Generate API reference")
+    lines.append("python scripts/generate_api_reference.py --package ghostchimera --output docs/api-reference.md --max-modules 20")
+    lines.append("")
+    lines.append("# Generate SBOM-lite")
+    lines.append("python scripts/generate_sbom.py --format markdown")
+    lines.append("")
+    lines.append("# Generate dependency graph")
+    lines.append("python scripts/dependency_graph.py --package ghostchimera --format markdown")
+    lines.append("")
+    lines.append("# Print dev environment commands")
+    lines.append("python scripts/dev_env.py --profile dev")
+    lines.append("")
     lines.append("# Generate this delivery package")
     lines.append("python scripts/bob_delivery_package.py")
     lines.append("```")
@@ -383,6 +447,8 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("python -m pytest tests/test_validate_config.py -v")
     lines.append("python -m pytest tests/test_audit_dependencies.py -v")
     lines.append("python -m pytest tests/test_generate_test_scaffold.py -v")
+    lines.append("python -m pytest tests/test_api_reference_generator.py tests/test_sbom_generator.py tests/test_dependency_graph.py -v")
+    lines.append("python -m pytest tests/test_log_analyzer.py tests/test_dev_env.py tests/test_examples.py -v")
     lines.append("")
     lines.append("# Full test suite")
     lines.append("python -m pytest tests/ -q")

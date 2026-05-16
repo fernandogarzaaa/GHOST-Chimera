@@ -65,8 +65,9 @@ class TestBobAccelerator(unittest.TestCase):
             cwd=ROOT,
         )
         self.assertEqual(result.returncode, 0)
-        self.assertIn("Installed Tools: 7/7", result.stdout)
+        self.assertIn("Installed Tools: 12/12", result.stdout)
         self.assertIn("generate_test_scaffold.py", result.stdout)
+        self.assertIn("generate_api_reference.py", result.stdout)
 
 
 class TestCoverageReport(unittest.TestCase):

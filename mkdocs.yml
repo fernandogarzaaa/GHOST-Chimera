@@ -1,0 +1,17 @@
+site_name: Ghost Chimera
+site_description: Local-first agent orchestration platform and Bob developer tooling.
+docs_dir: docs
+nav:
+  - Home: index.md
+  - Quick Start: quick-start.md
+  - IBM Bob Tools: bob-tools.md
+  - API Reference: api-reference.md
+  - Safety and Production: safety-production.md
+  - Release Process: release-process.md
+  - Roadmap: BOB_POST_HACKATHON_ROADMAP.md
+theme:
+  name: readthedocs
+markdown_extensions:
+  - toc
+  - tables
+  - fenced_code
