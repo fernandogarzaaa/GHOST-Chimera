@@ -11,7 +11,10 @@ PROFILES: dict[str, dict[str, Any]] = {
     "dev": {"extras": "dev", "commands": ["python -m pip install -e .[dev]", "python -m pytest tests/ -q"]},
     "gateway": {"extras": "dev,gateway", "commands": ["python -m pip install -e .[dev,gateway]"]},
     "mcp": {"extras": "dev,mcp", "commands": ["python -m pip install -e .[dev,mcp]"]},
-    "full": {"extras": "dev,gateway,mcp,local,minimind", "commands": ["python -m pip install -e .[dev,gateway,mcp,local,minimind]"]},
+    "full": {
+        "extras": "dev,gateway,mcp,local,minimind",
+        "commands": ["python -m pip install -e .[dev,gateway,mcp,local,minimind]"],
+    },
 }
 
 

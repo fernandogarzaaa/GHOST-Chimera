@@ -35,12 +35,13 @@ class TestDeliveryPackageGenerator(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, f"Delivery package failed: {result.stderr}")
             self.assertTrue(output_path.exists())
-            
+
             # Verify content
             content = output_path.read_text(encoding="utf-8")
             self.assertIn("IBM Bob", content)
             self.assertIn("Delivery Package", content)
             self.assertIn("Repository Snapshot", content)
+            self.assertIn("not required by the `ghostchimera/` runtime package", content)
 
     def test_delivery_package_json_format(self):
         """Test that bob_delivery_package.py produces JSON output."""
@@ -61,7 +62,7 @@ class TestDeliveryPackageGenerator(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0)
             self.assertTrue(output_path.exists())
-            
+
             # Verify JSON is valid
             data = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertIn("generated_by", data)
@@ -86,21 +87,21 @@ class TestDeliveryPackageGenerator(unittest.TestCase):
                 cwd=ROOT,
             )
             self.assertEqual(result.returncode, 0)
-            
+
             content = output_path.read_text(encoding="utf-8")
-            
+
             # Check for required sections
             required_sections = [
                 "Repository Snapshot",
                 "Bob Findings Summary",
-                "Bob-Built Tools",
+                "Optional Bob Developer Tools",
                 "Top Recommended Test Targets",
                 "Architecture Decision Records",
                 "Verification Commands",
                 "PR Summary for Judges",
                 "Risks and Limitations",
             ]
-            
+
             for section in required_sections:
                 self.assertIn(section, content, f"Missing section: {section}")
 
@@ -120,9 +121,9 @@ class TestDeliveryPackageGenerator(unittest.TestCase):
                 cwd=ROOT,
             )
             self.assertEqual(result.returncode, 0)
-            
+
             content = output_path.read_text(encoding="utf-8")
-            
+
             # Check for Bob tools
             expected_tools = [
                 "Bob Accelerator",
@@ -131,7 +132,7 @@ class TestDeliveryPackageGenerator(unittest.TestCase):
                 "Delivery Package Generator",
                 "scripts/bob_delivery_package.py",
             ]
-            
+
             for tool in expected_tools:
                 self.assertIn(tool, content, f"Missing tool: {tool}")
 
@@ -151,9 +152,9 @@ class TestDeliveryPackageGenerator(unittest.TestCase):
                 cwd=ROOT,
             )
             self.assertEqual(result.returncode, 0)
-            
+
             content = output_path.read_text(encoding="utf-8")
-            
+
             # Check for verification commands
             expected_commands = [
                 "python scripts/bob_accelerator.py",
@@ -161,7 +162,7 @@ class TestDeliveryPackageGenerator(unittest.TestCase):
                 "python scripts/bob_delivery_package.py",
                 "python -m pytest",
             ]
-            
+
             for command in expected_commands:
                 self.assertIn(command, content, f"Missing command: {command}")
 

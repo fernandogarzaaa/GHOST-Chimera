@@ -215,8 +215,7 @@ class ServiceRegistry:
             try:
                 results[svc.service_id] = svc.probe()
             except Exception as exc:
-                results[svc.service_id] = ServiceHealth(ok=False, state="probe_error",
-                                                         details={"error": str(exc)})
+                results[svc.service_id] = ServiceHealth(ok=False, state="probe_error", details={"error": str(exc)})
         return results
 
     def status_all(self) -> list[dict[str, Any]]:

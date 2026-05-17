@@ -183,7 +183,9 @@ def plan_runtime_specialization(
     load_width_bits = 256 if environment.is_blackwell else 128
     vector_width = _vector_width_elements(workload.dtype or profile.quantization, load_width_bits)
     recommended_warps = _recommended_warps(phase=phase, workload=workload, sm_count=environment.sm_count)
-    use_grid_barrier = phase == WorkloadPhase.DECODE and bool(environment.sm_count) and workload.batch_size <= environment.sm_count
+    use_grid_barrier = (
+        phase == WorkloadPhase.DECODE and bool(environment.sm_count) and workload.batch_size <= environment.sm_count
+    )
 
     if not environment.has_gpu_offload:
         execution_path = "llama_cpp.cpu"

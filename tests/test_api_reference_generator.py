@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from scripts.generate_api_reference import collect_api, format_markdown
 
 

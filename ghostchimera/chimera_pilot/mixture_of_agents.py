@@ -46,9 +46,11 @@ REASONING_PROMPTS = [
 # Data types
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class MoAResult:
     """Result from a mixture-of-agents run."""
+
     query: str
     votes: list[dict[str, Any]]
     consensus_answer: str
@@ -83,6 +85,7 @@ class MoAResult:
 @dataclass(frozen=True)
 class MoAConfig:
     """Configuration for mixture-of-agents."""
+
     num_agents: int = DEFAULT_NUM_AGENTS
     temperature: float = DEFAULT_TEMPERATURE
     min_consensus_pct: float = DEFAULT_MIN_CONSENSUS_PCT
@@ -94,6 +97,7 @@ class MoAConfig:
 # ---------------------------------------------------------------------------
 # Mixture of agents
 # ---------------------------------------------------------------------------
+
 
 class MixtureOfAgents:
     """Parallel reasoning with consensus via contradiction detection.
@@ -125,7 +129,7 @@ class MixtureOfAgents:
     def vote(self, query: str, reasoning_prompts: list[str] | None = None) -> MoAResult:
         """Run the full MoA pipeline for a single query."""
         start = time.time()
-        prompts = reasoning_prompts or self.config.reasoning_prompt_prefixes[:self.config.num_agents]
+        prompts = reasoning_prompts or self.config.reasoning_prompt_prefixes[: self.config.num_agents]
 
         # Ensure we don't request more prompts than available
         n_agents = min(self.config.num_agents, len(prompts))
@@ -231,11 +235,14 @@ class MixtureOfAgents:
 
         # Specificity: outputs with numbers/dates/versions score higher
         import re
-        numbers = re.findall(r'\b\d+[\.,]?\d*\b', output)
+
+        numbers = re.findall(r"\b\d+[\.,]?\d*\b", output)
         score += min(20, len(numbers) * 2)
 
         # Coherence: outputs with logical connectors score higher
-        connectors = len(re.findall(r'(therefore|however|consequently|thus|since|because|thus|accordingly)', output.lower()))
+        connectors = len(
+            re.findall(r"(therefore|however|consequently|thus|since|because|thus|accordingly)", output.lower())
+        )
         score += min(20, connectors * 5)
 
         # Completeness: longer, structured outputs score higher (capped)
@@ -243,7 +250,7 @@ class MixtureOfAgents:
         score += min(20, words / 20)
 
         # Uncertainty markers: hedging language reduces score
-        hedge_words = len(re.findall(r'(might|perhaps|possibly|unclear|unknown|speculate|guess)', output.lower()))
+        hedge_words = len(re.findall(r"(might|perhaps|possibly|unclear|unknown|speculate|guess)", output.lower()))
         score -= hedge_words * 3
 
         # Contradiction penalty: conflicting claims reduce score
@@ -271,12 +278,14 @@ class MixtureOfAgents:
                 ),
             )
             agent = AIAgent(system_prompt=session.system_prompt, session=session)
-            agents.append({
-                "index": i,
-                "agent": agent,
-                "prompt": prompt_prefix,
-                "query": query,
-            })
+            agents.append(
+                {
+                    "index": i,
+                    "agent": agent,
+                    "prompt": prompt_prefix,
+                    "query": query,
+                }
+            )
         return agents
 
     def _run_agents_parallel(self, agents: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -295,15 +304,17 @@ class MixtureOfAgents:
                     result["prompt_style"] = agent_info["prompt"]
                     results.append(result)
                 except FuturesTimeout:
-                    results.append({
-                        "agent_index": agent_info["index"],
-                        "agent_output": "",
-                        "success": False,
-                        "error": "Timeout",
-                        "prompt_style": agent_info["prompt"],
-                        "tokens": 0,
-                        "duration": self.config.timeout,
-                    })
+                    results.append(
+                        {
+                            "agent_index": agent_info["index"],
+                            "agent_output": "",
+                            "success": False,
+                            "error": "Timeout",
+                            "prompt_style": agent_info["prompt"],
+                            "tokens": 0,
+                            "duration": self.config.timeout,
+                        }
+                    )
         return results
 
     def _run_single_agent(self, agent_info: dict) -> dict:
@@ -370,11 +381,13 @@ class MixtureOfAgents:
                 scored.append({**r, "score": 0.0, "agrees_with_consensus": False})
                 continue
             quality_score = self.score_output(r["agent_output"], query)
-            scored.append({
-                **r,
-                "score": round(quality_score, 1),
-                "agrees_with_consensus": False,  # set in _find_consensus
-            })
+            scored.append(
+                {
+                    **r,
+                    "score": round(quality_score, 1),
+                    "agrees_with_consensus": False,  # set in _find_consensus
+                }
+            )
         return scored
 
     def _find_consensus(
@@ -428,10 +441,9 @@ class MixtureOfAgents:
             for j in range(i + 1, len(outputs)):
                 c = self._detect_contradictions_for_text([outputs[i][1], outputs[j][1]])
                 if c:
-                    contradictions.extend([
-                        {**contrad, "from_agent": outputs[i][0], "against_agent": outputs[j][0]}
-                        for contrad in c
-                    ])
+                    contradictions.extend(
+                        [{**contrad, "from_agent": outputs[i][0], "against_agent": outputs[j][0]} for contrad in c]
+                    )
         return contradictions
 
     def _detect_contradictions_for_text(self, texts: list[str]) -> list[dict]:
@@ -442,9 +454,9 @@ class MixtureOfAgents:
 
         # Look for direct negation patterns
         patterns = [
-            (r'(\w+)\s+(is|are|was|were)\s+([^\s.]+)', r'\1\s+(is not|are not|was not|were not)\s+([^\s.]+)'),
-            (r'(\w+)\s+can\s+(not|never)\s+(\w+)', r'(\w+)\s+(can|could)\s+(\w+)'),
-            (r'(\d+)[\.,]?\d*\s+(percent|%)', r'(\d+)[\.,]?\d*\s+(percent|%)'),  # numeric contradictions
+            (r"(\w+)\s+(is|are|was|were)\s+([^\s.]+)", r"\1\s+(is not|are not|was not|were not)\s+([^\s.]+)"),
+            (r"(\w+)\s+can\s+(not|never)\s+(\w+)", r"(\w+)\s+(can|could)\s+(\w+)"),
+            (r"(\d+)[\.,]?\d*\s+(percent|%)", r"(\d+)[\.,]?\d*\s+(percent|%)"),  # numeric contradictions
         ]
 
         for text_a, text_b in [(texts[0], texts[1])]:
@@ -455,11 +467,13 @@ class MixtureOfAgents:
                     # Simple string overlap check for contradictions
                     overlap = matches_a & matches_b
                     if overlap:
-                        contradictions.append({
-                            "type": "direct_negation",
-                            "text_a": text_a[:200],
-                            "text_b": text_b[:200],
-                        })
+                        contradictions.append(
+                            {
+                                "type": "direct_negation",
+                                "text_a": text_a[:200],
+                                "text_b": text_b[:200],
+                            }
+                        )
 
         return contradictions
 

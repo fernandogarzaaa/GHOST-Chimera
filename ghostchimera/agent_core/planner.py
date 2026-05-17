@@ -68,7 +68,11 @@ class Planner:
         # Simple code search pattern: "search code for <query>" or "search codebase for <query>"
         # We support both "search code for" and "search the codebase for" forms.  If such a
         # pattern is matched, the remainder of the string after "for" becomes the query.
-        elif req_lower.startswith("search code for") or req_lower.startswith("search the code for") or req_lower.startswith("search codebase for"):
+        elif (
+            req_lower.startswith("search code for")
+            or req_lower.startswith("search the code for")
+            or req_lower.startswith("search codebase for")
+        ):
             try:
                 # Split on 'for' and strip the query
                 query = request.split("for", 1)[1].strip()

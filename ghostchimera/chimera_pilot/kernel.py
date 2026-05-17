@@ -110,7 +110,9 @@ class ChimeraPilotKernel:
             allow_network=allow_network,
             allow_desktop_control=allow_desktop_control,
             ghost_mode=ghost_mode,
-            allowed_desktop_action_classes=tuple(desktop_action_classes) if desktop_action_classes else ("read_only", "mutating"),
+            allowed_desktop_action_classes=tuple(desktop_action_classes)
+            if desktop_action_classes
+            else ("read_only", "mutating"),
             allowed_desktop_apps=tuple(desktop_allowed_apps or ()),
             denied_desktop_apps=tuple(desktop_denied_apps or ()),
             allowed_desktop_windows=tuple(desktop_allowed_windows or ()),
@@ -217,7 +219,9 @@ class ChimeraPilotKernel:
                 ctx_prefix = f"Personal context (local memory):\n{personal_context_text}".strip()
                 if task.kind in _SYSTEM_PROMPT_KINDS:
                     existing_system = str(merged_inputs.get("system") or "").strip()
-                    merged_inputs["system"] = (ctx_prefix + ("\n\n" + existing_system if existing_system else "")).strip()
+                    merged_inputs["system"] = (
+                        ctx_prefix + ("\n\n" + existing_system if existing_system else "")
+                    ).strip()
                 elif task.kind in _QUERY_CONTEXT_KINDS:
                     # Inject as a separate "context" field; backends that call
                     # LLMs can pick this up without modifying the query itself.
@@ -230,6 +234,7 @@ class ChimeraPilotKernel:
 
     def execute_task(self, task: TaskSpec) -> PilotExecution:
         from ..safety_layer.material_policy import MaterialRegistry
+
         if task.kind == TaskKind.DESKTOP_CONTROL and self.desktop_confirmation_token:
             task = replace(
                 task,

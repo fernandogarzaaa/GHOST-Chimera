@@ -110,9 +110,13 @@ class AutonomyJobRunner:
         state_dir: str | Path | None = None,
         kernel: ChimeraPilotKernel | None = None,
     ) -> None:
-        self.profile = get_autonomy_profile(profile) if isinstance(profile, str) else profile or get_autonomy_profile("supervised")
+        self.profile = (
+            get_autonomy_profile(profile) if isinstance(profile, str) else profile or get_autonomy_profile("supervised")
+        )
         self.state_dir = Path(state_dir or Path.home() / ".ghostchimera").expanduser()
-        self.kernel = kernel or ChimeraPilotKernel.default(autonomy_level=self.profile.name, include_deterministic_backend=True)
+        self.kernel = kernel or ChimeraPilotKernel.default(
+            autonomy_level=self.profile.name, include_deterministic_backend=True
+        )
 
     @staticmethod
     def list_jobs() -> list[dict[str, Any]]:
@@ -133,7 +137,9 @@ class AutonomyJobRunner:
             if not backend.get("available"):
                 findings.append({"severity": "warning", "area": "backend", "detail": backend})
         if self.profile.allow_background_jobs and self.profile.max_background_jobs > 0:
-            findings.append({"severity": "info", "area": "autonomy", "detail": "background jobs are enabled by profile"})
+            findings.append(
+                {"severity": "info", "area": "autonomy", "detail": "background jobs are enabled by profile"}
+            )
         return AutonomyJobResult(
             job="self-audit",
             status="ok",
@@ -144,10 +150,14 @@ class AutonomyJobRunner:
         )
 
     def _run_dependency_scan(self, *, execute: bool = False) -> AutonomyJobResult:
-        minimind_status = MiniMindLifecycle(
-            profile_name=self.profile.local_model_profile,
-            state_dir=self.state_dir,
-        ).status().to_dict()
+        minimind_status = (
+            MiniMindLifecycle(
+                profile_name=self.profile.local_model_profile,
+                state_dir=self.state_dir,
+            )
+            .status()
+            .to_dict()
+        )
         checks = {
             "build": importlib.util.find_spec("build") is not None,
             "croniter": importlib.util.find_spec("croniter") is not None,

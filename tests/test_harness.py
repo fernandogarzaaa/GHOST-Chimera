@@ -15,9 +15,7 @@ class HarnessRunnerTests(unittest.TestCase):
                 id="case-1",
                 objective="retrieve harness memory",
                 kernel={"include_deterministic_backend": True, "allow_network": False},
-                memory_documents=(
-                    MemoryDocument(source="harness", content="Harness memory retrieval works."),
-                ),
+                memory_documents=(MemoryDocument(source="harness", content="Harness memory retrieval works."),),
             )
             runner = HarnessRunner(output_dir=out_dir)
             results = runner.run([case])

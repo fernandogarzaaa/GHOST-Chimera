@@ -37,9 +37,7 @@ from .base import Skill
 logger = logging.getLogger(__name__)
 
 # Default workspace root (overridable via env var)
-_DEFAULT_SKILLS_DIR = Path(
-    os.environ.get("GHOSTCHIMERA_SKILLS_DIR", "~/.ghostchimera/skills")
-).expanduser()
+_DEFAULT_SKILLS_DIR = Path(os.environ.get("GHOSTCHIMERA_SKILLS_DIR", "~/.ghostchimera/skills")).expanduser()
 
 
 class SkillRegistry:

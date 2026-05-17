@@ -29,10 +29,16 @@ logger = get_logger("subagent")
 # Constants
 # ---------------------------------------------------------------------------
 
-DELEGATE_BLOCKED_TOOLS = frozenset([
-    "delegate_task", "clarify", "memory", "send_message",
-    "execute_code", "create_delegation_tool",
-])
+DELEGATE_BLOCKED_TOOLS = frozenset(
+    [
+        "delegate_task",
+        "clarify",
+        "memory",
+        "send_message",
+        "execute_code",
+        "create_delegation_tool",
+    ]
+)
 DEFAULT_DEPTH_CAP = 1
 DEFAULT_MAX_WORKERS = 3
 DELEGATE_STATE_DIR = Path(os.environ.get("GHOSTCHIMERA_STATE_DIR", str(Path.home() / ".ghostchimera")))
@@ -41,9 +47,11 @@ DELEGATE_STATE_DIR = Path(os.environ.get("GHOSTCHIMERA_STATE_DIR", str(Path.home
 # Data types
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class SubagentTask:
     """A task for a child subagent."""
+
     id: str
     goal: str
     tools: list[str] = field(default_factory=list)
@@ -60,6 +68,7 @@ class SubagentTask:
 @dataclass(frozen=True)
 class SubagentResult:
     """Result from a single subagent."""
+
     id: str
     goal: str
     result: str
@@ -88,6 +97,7 @@ class SubagentResult:
 @dataclass(frozen=True)
 class DelegationResult:
     """Aggregated results from a batch of subagents."""
+
     parent_objective: str
     results: list[SubagentResult]
     total_duration_seconds: float = 0.0
@@ -133,6 +143,7 @@ class DelegationContract:
 # ---------------------------------------------------------------------------
 # Subagent pool
 # ---------------------------------------------------------------------------
+
 
 class SubagentPool:
     """Spawns and manages isolated child subagents."""
@@ -196,7 +207,9 @@ class SubagentPool:
                     error=str(exc),
                     duration_seconds=duration,
                     depth=0,
-                    metadata={"classification": classification.categories[0].value if classification.categories else "unknown"},
+                    metadata={
+                        "classification": classification.categories[0].value if classification.categories else "unknown"
+                    },
                 )
                 self._results.append(result)
             return result
@@ -234,14 +247,16 @@ class SubagentPool:
                     result = future.result(timeout=self.timeout)
                     results.append(result)
                 except FuturesTimeout:
-                    results.append(SubagentResult(
-                        id="subagent-timeout",
-                        goal="timed out",
-                        result="",
-                        success=False,
-                        error="Delegation timed out",
-                        duration_seconds=self.timeout,
-                    ))
+                    results.append(
+                        SubagentResult(
+                            id="subagent-timeout",
+                            goal="timed out",
+                            result="",
+                            success=False,
+                            error="Delegation timed out",
+                            duration_seconds=self.timeout,
+                        )
+                    )
 
         duration = time.time() - start
         successful = sum(1 for r in results if r.success)
@@ -342,8 +357,9 @@ class SubagentPool:
             "requires_approval": True,
         }
 
-    def _delegate_handler(self, goal: str, tools: list[str] | None = None,
-                         depth_cap: int = 1, max_workers: int = 3, timeout: int = 300) -> dict[str, Any]:
+    def _delegate_handler(
+        self, goal: str, tools: list[str] | None = None, depth_cap: int = 1, max_workers: int = 3, timeout: int = 300
+    ) -> dict[str, Any]:
         """Handler for the delegation tool."""
         pool = SubagentPool(
             parent_objective=self.parent_objective,
@@ -414,6 +430,7 @@ class SubagentPool:
 # ---------------------------------------------------------------------------
 # Module-level convenience
 # ---------------------------------------------------------------------------
+
 
 def delegate(
     objective: str,

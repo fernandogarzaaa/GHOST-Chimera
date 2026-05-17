@@ -24,15 +24,14 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.bob_accelerator import (
+from scripts.bob_accelerator import (  # noqa: E402
     analyze_documentation,
     analyze_release_readiness,
-    analyze_test_coverage,
     check_dependencies,
     check_system_readiness,
     detect_bob_tools,
 )
-from scripts.coverage_report import analyze_coverage
+from scripts.coverage_report import analyze_coverage  # noqa: E402
 
 
 def get_repository_snapshot() -> dict[str, Any]:
@@ -40,17 +39,13 @@ def get_repository_snapshot() -> dict[str, Any]:
     try:
         # Count files by type
         source_files = [
-            f for f in (ROOT / "ghostchimera").rglob("*.py")
-            if "__pycache__" not in str(f) and f.name != "__init__.py"
+            f for f in (ROOT / "ghostchimera").rglob("*.py") if "__pycache__" not in str(f) and f.name != "__init__.py"
         ]
-        script_files = [
-            f for f in (ROOT / "scripts").glob("*.py")
-            if "__pycache__" not in str(f)
-        ]
-        
+        script_files = [f for f in (ROOT / "scripts").glob("*.py") if "__pycache__" not in str(f)]
+
         md_files = list(ROOT.glob("**/*.md"))
         test_files = list((ROOT / "tests").rglob("test_*.py"))
-        
+
         # Get git info if available
         git_info = {}
         try:
@@ -62,7 +57,7 @@ def get_repository_snapshot() -> dict[str, Any]:
                 cwd=ROOT,
             )
             git_info["branch"] = branch.stdout.strip()
-            
+
             commit = subprocess.run(
                 ["git", "rev-parse", "--short", "HEAD"],
                 capture_output=True,
@@ -73,7 +68,7 @@ def get_repository_snapshot() -> dict[str, Any]:
             git_info["commit"] = commit.stdout.strip()
         except (subprocess.CalledProcessError, FileNotFoundError):
             git_info = {"branch": "unknown", "commit": "unknown"}
-        
+
         return {
             "source_modules": len(source_files),
             "developer_scripts": len(script_files),
@@ -232,12 +227,12 @@ def get_bob_tools_summary() -> dict[str, Any]:
             ],
         },
     ]
-    
+
     # Check which tools exist
     for tool in tools:
         tool_path = ROOT / tool["path"]
         tool["exists"] = tool_path.exists()
-    
+
     return {
         "tools": tools,
         "total_count": len(tools),
@@ -248,7 +243,7 @@ def get_bob_tools_summary() -> dict[str, Any]:
 def get_top_test_targets(coverage_data: dict[str, Any], limit: int = 10) -> list[dict[str, str]]:
     """Identify top priority modules for testing."""
     untested = coverage_data.get("untested", [])
-    
+
     # Prioritize by criticality (heuristic based on path)
     priority_paths = [
         "chimera_pilot/kernel",
@@ -258,23 +253,25 @@ def get_top_test_targets(coverage_data: dict[str, Any], limit: int = 10) -> list
         "model_layer/router",
         "control_plane/cli",
     ]
-    
+
     prioritized = []
     for item in untested[:limit]:
         source = item["source"]
         priority = "medium"
-        
+
         for path in priority_paths:
             if path in source:
                 priority = "high"
                 break
-        
-        prioritized.append({
-            "module": item["module"],
-            "source": source,
-            "priority": priority,
-        })
-    
+
+        prioritized.append(
+            {
+                "module": item["module"],
+                "source": source,
+                "priority": priority,
+            }
+        )
+
     return prioritized
 
 
@@ -284,13 +281,12 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     snapshot = get_repository_snapshot()
     system = check_system_readiness()
     coverage_data = analyze_coverage()
-    test_coverage = analyze_test_coverage()
     docs = analyze_documentation()
     deps = check_dependencies()
     release = analyze_release_readiness()
     tools = get_bob_tools_summary()
     top_targets = get_top_test_targets(coverage_data, limit=10)
-    
+
     package_data = {
         "generated_at": datetime.now(UTC).isoformat(),
         "generated_by": "IBM Bob - Delivery Package Generator",
@@ -308,10 +304,10 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
         "bob_tools": tools,
         "top_test_targets": top_targets,
     }
-    
+
     if format_type == "json":
         return package_data
-    
+
     # Generate markdown
     lines = []
     lines.append("# IBM Bob - Ghost Chimera Delivery Package")
@@ -321,7 +317,7 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("")
     lines.append("---")
     lines.append("")
-    
+
     # Repository Snapshot
     lines.append("## Repository Snapshot")
     lines.append("")
@@ -334,7 +330,7 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
         lines.append(f"- **Git Branch:** {snap['git_info']['branch']}")
         lines.append(f"- **Git Commit:** {snap['git_info']['commit']}")
     lines.append("")
-    
+
     # Bob Findings Summary
     lines.append("## Bob Findings Summary")
     lines.append("")
@@ -345,22 +341,27 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append(f"- **Untested Modules:** {cov['untested_count']}")
     lines.append(f"- **Coverage Ratio:** {cov['coverage_ratio']:.1%}")
     lines.append("")
-    
+
     lines.append("### Documentation")
     lines.append(f"- **Total Documentation Files:** {docs['total_doc_files']}")
     lines.append(f"- **ADR System:** {'Present' if docs['has_adr_system'] else 'Missing'}")
-    if docs['missing_required']:
+    if docs["missing_required"]:
         lines.append(f"- **Missing Required Docs:** {', '.join(docs['missing_required'])}")
     lines.append("")
-    
+
     lines.append("### Dependencies")
     lines.append(f"- **Base Dependencies:** {deps['base_dependencies']}")
     lines.append(f"- **Optional Extras:** {deps['total_extras']}")
     lines.append(f"- **Installed Extras:** {', '.join(deps['installed_extras']) or 'none'}")
     lines.append("")
-    
-    # Bob-Built Tools
-    lines.append("## Bob-Built Tools")
+
+    # Optional Bob Developer Tools
+    lines.append("## Optional Bob Developer Tools")
+    lines.append("")
+    lines.append(
+        "These tools are opt-in hackathon/developer-experience utilities. They are not required by the "
+        "`ghostchimera/` runtime package or the standard Ghost Chimera CLIs."
+    )
     lines.append("")
     for tool in tools["tools"]:
         status = "OK" if tool["exists"] else "MISSING"
@@ -372,7 +373,7 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
         for feature in tool["features"]:
             lines.append(f"- {feature}")
         lines.append("")
-    
+
     # Top Test Targets
     lines.append("## Top Recommended Test Targets")
     lines.append("")
@@ -382,7 +383,7 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
         priority_badge = f"[{target['priority'].upper()}]"
         lines.append(f"{i}. {priority_badge} `{target['source']}`")
     lines.append("")
-    
+
     # ADR Updates
     lines.append("## Architecture Decision Records")
     lines.append("")
@@ -398,7 +399,7 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("- Consequences (positive, negative, neutral)")
     lines.append("- Alternatives considered")
     lines.append("")
-    
+
     # Verification Commands
     lines.append("## Verification Commands")
     lines.append("")
@@ -420,10 +421,14 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("python scripts/audit_dependencies.py --format markdown")
     lines.append("")
     lines.append("# Generate test scaffold (dry-run)")
-    lines.append("python scripts/generate_test_scaffold.py --source ghostchimera/config.py --output tests/test_config_scaffold.py --dry-run")
+    lines.append(
+        "python scripts/generate_test_scaffold.py --source ghostchimera/config.py --output tests/test_config_scaffold.py --dry-run"
+    )
     lines.append("")
     lines.append("# Generate API reference")
-    lines.append("python scripts/generate_api_reference.py --package ghostchimera --output docs/api-reference.md --max-modules 20")
+    lines.append(
+        "python scripts/generate_api_reference.py --package ghostchimera --output docs/api-reference.md --max-modules 20"
+    )
     lines.append("")
     lines.append("# Generate SBOM-lite")
     lines.append("python scripts/generate_sbom.py --format markdown")
@@ -447,7 +452,9 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("python -m pytest tests/test_validate_config.py -v")
     lines.append("python -m pytest tests/test_audit_dependencies.py -v")
     lines.append("python -m pytest tests/test_generate_test_scaffold.py -v")
-    lines.append("python -m pytest tests/test_api_reference_generator.py tests/test_sbom_generator.py tests/test_dependency_graph.py -v")
+    lines.append(
+        "python -m pytest tests/test_api_reference_generator.py tests/test_sbom_generator.py tests/test_dependency_graph.py -v"
+    )
     lines.append("python -m pytest tests/test_log_analyzer.py tests/test_dev_env.py tests/test_examples.py -v")
     lines.append("")
     lines.append("# Full test suite")
@@ -464,7 +471,7 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("cat docs/adr/001-chimera-pilot-scheduling.md")
     lines.append("```")
     lines.append("")
-    
+
     # PR Summary
     lines.append("## PR Summary for Judges")
     lines.append("")
@@ -502,7 +509,7 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("4. **Run tests** - All Bob tests passing")
     lines.append("5. **Review this delivery package** - Comprehensive summary")
     lines.append("")
-    
+
     # Risks and Limitations
     lines.append("## Risks and Limitations")
     lines.append("")
@@ -527,6 +534,7 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("")
     lines.append("- All tools work without optional dependencies")
     lines.append("- No changes to core Ghost Chimera architecture")
+    lines.append("- No Bob imports or references in the `ghostchimera/` runtime package")
     lines.append("- No modifications to existing CLI behavior")
     lines.append("- All new code in `scripts/` and `docs/` directories")
     lines.append("- No secrets, credentials, or private paths added")
@@ -538,15 +546,15 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("- Safe to run in any environment")
     lines.append("- CI-ready with proper exit codes")
     lines.append("")
-    
+
     # Footer
     lines.append("---")
     lines.append("")
     lines.append("**IBM Bob** - Codebase-Aware Development Partner")
     lines.append("")
-    lines.append("*This delivery package was generated automatically by Bob's tools.*")
+    lines.append("*This delivery package was generated automatically by optional Bob developer tools.*")
     lines.append("*For more information, see `docs/IBM_BOB_WORKFLOW.md`*")
-    
+
     return "\n".join(lines)
 
 
@@ -567,26 +575,26 @@ def main() -> int:
         default="markdown",
         help="Output format (default: markdown)",
     )
-    
+
     args = parser.parse_args()
-    
+
     package = generate_delivery_package(format_type=args.format)
-    
+
     if args.format == "json":
         output = json.dumps(package, indent=2)
         if args.output.suffix != ".json":
             args.output = args.output.with_suffix(".json")
     else:
         output = package
-    
+
     # Write to file
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(output, encoding="utf-8")
-    
+
     print(f"Delivery package generated: {args.output}")
     print(f"Format: {args.format}")
     print(f"Size: {len(output)} characters")
-    
+
     return 0
 
 

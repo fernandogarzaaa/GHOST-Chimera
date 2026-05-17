@@ -35,7 +35,9 @@ class AgentBrowserWorkspaceTests(unittest.TestCase):
         self.assertEqual(calls[1], ["agent-browser", "--session", "demo", "snapshot", "-i"])
 
     def test_rejects_unsafe_urls_and_session_names(self) -> None:
-        workspace = AgentBrowserWorkspace(binary="agent-browser", runner=lambda *args, **kwargs: None, resolver=lambda binary: binary)
+        workspace = AgentBrowserWorkspace(
+            binary="agent-browser", runner=lambda *args, **kwargs: None, resolver=lambda binary: binary
+        )
 
         with self.assertRaises(ValueError):
             workspace.open("http://example.com")

@@ -57,5 +57,3 @@ class MCPBackend:
             return ExecutionResult(self.id, task.id, True, str(result.get("result", "")), None, {"tool": tool_name})
         except Exception as exc:
             return ExecutionResult(self.id, task.id, False, "", str(exc), {})
-
-

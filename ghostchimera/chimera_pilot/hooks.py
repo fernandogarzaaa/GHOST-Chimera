@@ -146,9 +146,11 @@ class HookRegistry:
             def log_tasks(*, objective, tasks, **kwargs):
                 print(f"{len(tasks)} tasks compiled for: {objective}")
         """
+
         def decorator(fn: Handler) -> Handler:
             self.register_hook(name, fn)
             return fn
+
         return decorator
 
     # ------------------------------------------------------------------

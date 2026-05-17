@@ -51,7 +51,9 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertEqual(root_response.content_type, "text/html; charset=utf-8")
         self.assertIn("Ghost Console", root_response.body)
 
-        status_payload = status.handler({"method": "GET", "path": "/api/console/status", "headers": {}, "body": "", "query": {}})
+        status_payload = status.handler(
+            {"method": "GET", "path": "/api/console/status", "headers": {}, "body": "", "query": {}}
+        )
         self.assertTrue(status_payload["ok"])
         self.assertIn("gateway", status_payload)
         self.assertIn("autonomy", status_payload)
@@ -69,7 +71,9 @@ class ConsoleRouteTests(unittest.TestCase):
         route = server.routes.find("POST", "/api/console/browser/fetch")
         self.assertIsNotNone(route)
 
-        missing = route.handler({"method": "POST", "path": "/api/console/browser/fetch", "headers": {}, "body": "{}", "query": {}})
+        missing = route.handler(
+            {"method": "POST", "path": "/api/console/browser/fetch", "headers": {}, "body": "{}", "query": {}}
+        )
         self.assertFalse(missing["ok"])
         self.assertIn("url", missing["error"])
 
@@ -98,7 +102,11 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIsNotNone(status_route)
         self.assertIsNotNone(open_route)
         self.assertIsNotNone(snapshot_route)
-        self.assertTrue(status_route.handler({"method": "GET", "path": "/api/console/browser/status", "headers": {}, "body": "", "query": {}})["available"])
+        self.assertTrue(
+            status_route.handler(
+                {"method": "GET", "path": "/api/console/browser/status", "headers": {}, "body": "", "query": {}}
+            )["available"]
+        )
 
         opened = open_route.handler(
             {
@@ -141,7 +149,9 @@ class ConsoleRouteTests(unittest.TestCase):
             self.assertIsNotNone(active_route)
             self.assertIsNotNone(save_route)
 
-            profiles = profiles_route.handler({"method": "GET", "path": "/api/console/paths", "headers": {}, "body": "", "query": {}})
+            profiles = profiles_route.handler(
+                {"method": "GET", "path": "/api/console/paths", "headers": {}, "body": "", "query": {}}
+            )
             self.assertTrue(profiles["ok"])
             profile_ids = {profile["id"] for profile in profiles["profiles"]}
             self.assertIn("ai-engineer-proxy", profile_ids)
@@ -154,7 +164,9 @@ class ConsoleRouteTests(unittest.TestCase):
                     "method": "POST",
                     "path": "/api/console/paths/synthesize",
                     "headers": {},
-                    "body": json.dumps({"profile_id": "virtual-assistant", "preferences": {"training_mode": "dataset_generation"}}),
+                    "body": json.dumps(
+                        {"profile_id": "virtual-assistant", "preferences": {"training_mode": "dataset_generation"}}
+                    ),
                     "query": {},
                 }
             )
@@ -168,11 +180,15 @@ class ConsoleRouteTests(unittest.TestCase):
                     "method": "POST",
                     "path": "/api/console/paths/active",
                     "headers": {},
-                    "body": json.dumps({"profile_id": "ai-engineer-proxy", "preferences": {"training_mode": "rag-first"}}),
+                    "body": json.dumps(
+                        {"profile_id": "ai-engineer-proxy", "preferences": {"training_mode": "rag-first"}}
+                    ),
                     "query": {},
                 }
             )
-            active = active_route.handler({"method": "GET", "path": "/api/console/paths/active", "headers": {}, "body": "", "query": {}})
+            active = active_route.handler(
+                {"method": "GET", "path": "/api/console/paths/active", "headers": {}, "body": "", "query": {}}
+            )
             self.assertTrue(saved["ok"])
             self.assertEqual(active["path"]["profile_id"], "ai-engineer-proxy")
 
@@ -188,7 +204,9 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIsNotNone(plan_route)
         self.assertIsNotNone(policy_route)
 
-        status = status_route.handler({"method": "GET", "path": "/api/console/github/status", "headers": {}, "body": "", "query": {}})
+        status = status_route.handler(
+            {"method": "GET", "path": "/api/console/github/status", "headers": {}, "body": "", "query": {}}
+        )
         self.assertTrue(status["ok"])
         self.assertIn(status["auth_mode"], {"token", "gh-cli"})
 
@@ -239,7 +257,9 @@ class ConsoleRouteTests(unittest.TestCase):
         route = server.routes.find("GET", "/api/console/capabilities")
 
         self.assertIsNotNone(route)
-        payload = route.handler({"method": "GET", "path": "/api/console/capabilities", "headers": {}, "body": "", "query": {}})
+        payload = route.handler(
+            {"method": "GET", "path": "/api/console/capabilities", "headers": {}, "body": "", "query": {}}
+        )
 
         self.assertTrue(payload["ok"])
         self.assertGreaterEqual(payload["capability_count"], 10)
@@ -271,7 +291,9 @@ class ConsoleRouteTests(unittest.TestCase):
 
         route = server.routes.find("GET", "/api/console/browser/status")
         self.assertIsNotNone(route)
-        payload = route.handler({"method": "GET", "path": "/api/console/browser/status", "headers": {}, "body": "", "query": {}})
+        payload = route.handler(
+            {"method": "GET", "path": "/api/console/browser/status", "headers": {}, "body": "", "query": {}}
+        )
 
         self.assertFalse(payload["available"])
         self.assertIn("agent-browser binary not found", payload["detail"])
@@ -288,7 +310,9 @@ class ConsoleRouteTests(unittest.TestCase):
         route = server.routes.find("POST", "/api/console/run")
         self.assertIsNotNone(route)
 
-        missing = route.handler({"method": "POST", "path": "/api/console/run", "headers": {}, "body": "{}", "query": {}})
+        missing = route.handler(
+            {"method": "POST", "path": "/api/console/run", "headers": {}, "body": "{}", "query": {}}
+        )
         self.assertFalse(missing["ok"])
         self.assertIn("objective", missing["error"])
         self.assertEqual(calls, [])
@@ -320,7 +344,9 @@ class ConsoleRouteTests(unittest.TestCase):
                     "method": "POST",
                     "path": "/api/console/autonomy",
                     "headers": {},
-                    "body": json.dumps({"level": "autonomous", "true_autonomy_desktop": True, "personal_context": True}),
+                    "body": json.dumps(
+                        {"level": "autonomous", "true_autonomy_desktop": True, "personal_context": True}
+                    ),
                     "query": {},
                 }
             )
@@ -365,7 +391,9 @@ class ConsoleRouteTests(unittest.TestCase):
                 ),
                 patch("ghostchimera.control_plane.console.load_config", return_value={"autonomy": {}}),
                 patch("ghostchimera.control_plane.console.GhostChimeraConfig.from_env", return_value=config),
-                patch("ghostchimera.control_plane.console.ChimeraPilotKernel.default", return_value=_Kernel()) as factory,
+                patch(
+                    "ghostchimera.control_plane.console.ChimeraPilotKernel.default", return_value=_Kernel()
+                ) as factory,
             ):
                 result = _default_run_objective("open settings and configure sync")
                 self.assertTrue(result["ok"])
@@ -391,7 +419,9 @@ class ConsoleRouteTests(unittest.TestCase):
             self.assertIsNotNone(detail_route)
             self.assertIsNotNone(cancel_route)
 
-            listed = list_route.handler({"method": "GET", "path": "/api/console/autonomy/jobs", "headers": {}, "body": "", "query": {}})
+            listed = list_route.handler(
+                {"method": "GET", "path": "/api/console/autonomy/jobs", "headers": {}, "body": "", "query": {}}
+            )
             self.assertIn("available_jobs", listed)
             self.assertEqual(listed["history"], [])
 
@@ -464,7 +494,9 @@ class ConsoleRouteTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertEqual(result["job"]["name"], "self-audit")
 
-            disabled = list_route.handler({"method": "GET", "path": "/api/console/autonomy/schedules", "headers": {}, "body": "", "query": {}})
+            disabled = list_route.handler(
+                {"method": "GET", "path": "/api/console/autonomy/schedules", "headers": {}, "body": "", "query": {}}
+            )
             self.assertEqual(disabled["schedules"][0]["enabled"], False)
 
     def test_console_registers_operator_workspace_routes(self) -> None:
@@ -484,7 +516,9 @@ class ConsoleRouteTests(unittest.TestCase):
             self.assertIsNotNone(goal_route)
             self.assertIsNotNone(sync_route)
 
-            initial = workspace_route.handler({"method": "GET", "path": "/api/console/workspace", "headers": {}, "body": "", "query": {}})
+            initial = workspace_route.handler(
+                {"method": "GET", "path": "/api/console/workspace", "headers": {}, "body": "", "query": {}}
+            )
             self.assertTrue(initial["ok"])
             self.assertIn("no_subjective_consciousness", initial["self_model"]["limits"])
 
@@ -510,7 +544,9 @@ class ConsoleRouteTests(unittest.TestCase):
                     "method": "POST",
                     "path": "/api/console/workspace/reflections",
                     "headers": {},
-                    "body": json.dumps({"action": "inspected console", "outcome": "workspace state visible", "confidence": 0.9}),
+                    "body": json.dumps(
+                        {"action": "inspected console", "outcome": "workspace state visible", "confidence": 0.9}
+                    ),
                     "query": {},
                 }
             )
@@ -538,7 +574,9 @@ class ConsoleRouteTests(unittest.TestCase):
                 }
             )
             self.assertTrue(sync["ok"])
-            snapshot = workspace_route.handler({"method": "GET", "path": "/api/console/workspace", "headers": {}, "body": "", "query": {}})
+            snapshot = workspace_route.handler(
+                {"method": "GET", "path": "/api/console/workspace", "headers": {}, "body": "", "query": {}}
+            )
             results = MemoryStore(memory_db).search("workspace state visible", limit=5)
 
         self.assertEqual(snapshot["working_memory"]["evidence"][0]["source"], "operator")
@@ -707,7 +745,15 @@ class ConsoleRouteTests(unittest.TestCase):
             self.assertIsNotNone(bootstrap_route)
             self.assertIsNotNone(handoff_route)
 
-            initial = status_route.handler({"method": "GET", "path": "/api/console/minimind/personal/status", "headers": {}, "body": "", "query": {}})
+            initial = status_route.handler(
+                {
+                    "method": "GET",
+                    "path": "/api/console/minimind/personal/status",
+                    "headers": {},
+                    "body": "",
+                    "query": {},
+                }
+            )
             self.assertFalse(initial["status"]["enabled"])
 
             note = base / "notes.txt"
@@ -768,7 +814,9 @@ class ConsoleRouteTests(unittest.TestCase):
         route = server.routes.find("GET", "/api/console/readiness")
 
         self.assertIsNotNone(route)
-        payload = route.handler({"method": "GET", "path": "/api/console/readiness", "headers": {}, "body": "", "query": {}})
+        payload = route.handler(
+            {"method": "GET", "path": "/api/console/readiness", "headers": {}, "body": "", "query": {}}
+        )
 
         commands = [check["command"] for check in payload["checks"]]
         self.assertIn("python scripts/validate_release.py", commands)
@@ -826,7 +874,9 @@ class ConsoleCliTests(unittest.TestCase):
         token_route = server.routes.find("GET", "/api/console/token")
         self.assertIsNotNone(token_route)
         self.assertEqual(token_route.auth, "open")
-        payload = token_route.handler({"method": "GET", "path": "/api/console/token", "headers": {}, "body": "", "query": {}})
+        payload = token_route.handler(
+            {"method": "GET", "path": "/api/console/token", "headers": {}, "body": "", "query": {}}
+        )
         self.assertFalse(payload["auth_enabled"])
 
         # With token: auth_enabled is True, and API routes require the token
@@ -834,7 +884,9 @@ class ConsoleCliTests(unittest.TestCase):
         register_console_routes(server2, console_token="test-secret")
         token_route2 = server2.routes.find("GET", "/api/console/token")
         self.assertEqual(token_route2.auth, "open")
-        payload2 = token_route2.handler({"method": "GET", "path": "/api/console/token", "headers": {}, "body": "", "query": {}})
+        payload2 = token_route2.handler(
+            {"method": "GET", "path": "/api/console/token", "headers": {}, "body": "", "query": {}}
+        )
         self.assertTrue(payload2["auth_enabled"])
 
         # API routes should require token auth
@@ -892,6 +944,7 @@ class ConsoleCliTests(unittest.TestCase):
 
     def test_index_html_includes_skills_tab(self) -> None:
         from pathlib import Path
+
         html_path = Path(__file__).parent.parent / "ghostchimera" / "control_plane" / "static" / "index.html"
         if not html_path.exists():
             self.skipTest("index.html not found")

@@ -57,7 +57,10 @@ class TestKinematics(unittest.TestCase):
         result = _simulate_kinematics(
             [[0, 0, 0], [1, 0, 0]],
             {"name": "arm", "dof": 6, "max_velocity": 1.0},
-            {"bounds": [[-5, 5], [-5, 5], [0, 2]], "obstacles": [{"name": "wall", "position": [1, 0, 0], "radius": 0.3}]},
+            {
+                "bounds": [[-5, 5], [-5, 5], [0, 2]],
+                "obstacles": [{"name": "wall", "position": [1, 0, 0], "radius": 0.3}],
+            },
         )
         self.assertGreater(len(result["collisions"]), 0)
         self.assertFalse(result["success"])
@@ -90,8 +93,10 @@ class TestDigitalTwin(unittest.TestCase):
         from ghostchimera.chimera_pilot.backends.simulation import _simulate_digital_twin
 
         result = _simulate_digital_twin(
-            [{"name": "idle", "duration_s": 0.5, "metrics": {"temp": 20}},
-             {"name": "running", "duration_s": 0.5, "metrics": {"temp": 80}}],
+            [
+                {"name": "idle", "duration_s": 0.5, "metrics": {"temp": 20}},
+                {"name": "running", "duration_s": 0.5, "metrics": {"temp": 80}},
+            ],
             [{"type": "imu", "name": "imu0"}],
             tick_rate_hz=10.0,
         )

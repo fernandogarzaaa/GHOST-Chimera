@@ -117,8 +117,7 @@ class LobsterTrapProvider(BaseProvider):
         )
         if not prompt_result.allowed:
             raise LobsterTrapViolation(
-                f"Prompt blocked by DPI [{prompt_result.action}]: "
-                f"{', '.join(prompt_result.threats[:5])}"
+                f"Prompt blocked by DPI [{prompt_result.action}]: {', '.join(prompt_result.threats[:5])}"
             )
 
         # --- forward to real provider ---
@@ -138,8 +137,7 @@ class LobsterTrapProvider(BaseProvider):
                 response_result.threats[:5],
             )
             raise LobsterTrapViolation(
-                f"Response blocked by DPI [{response_result.action}]: "
-                f"{', '.join(response_result.threats[:5])}"
+                f"Response blocked by DPI [{response_result.action}]: {', '.join(response_result.threats[:5])}"
             )
 
         return response

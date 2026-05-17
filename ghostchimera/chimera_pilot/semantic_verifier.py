@@ -83,8 +83,9 @@ class SemanticVerifier:
 
         return len(warnings) == 0, warnings
 
-    def verify(self, task: TaskSpec, result: ExecutionResult,
-               envelope: ResultEnvelope | None = None) -> tuple[bool, str | None, list[str]]:
+    def verify(
+        self, task: TaskSpec, result: ExecutionResult, envelope: ResultEnvelope | None = None
+    ) -> tuple[bool, str | None, list[str]]:
         """Run all semantic verification checks."""
         all_ok = True
         errors: list[str] = []

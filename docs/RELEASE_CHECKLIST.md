@@ -42,6 +42,25 @@ The browser console also exposes `/api/console/readiness` as a local runbook vie
 of these commands. It is intentionally a checklist surface, not an unattended
 production deployment workflow.
 
+## Optional Bob developer tooling checks
+
+These checks validate the optional IBM Bob developer-tooling layer. They are not
+required to run Ghost Chimera, but they must keep passing when release notes or
+developer-tooling claims mention the Bob roadmap.
+
+```bash
+python scripts/bob_accelerator.py
+python scripts/audit_dependencies.py --format markdown
+python scripts/bob_delivery_package.py --output docs/bob_delivery_package.md
+python scripts/generate_api_reference.py
+python scripts/generate_sbom.py
+python scripts/dependency_graph.py
+python scripts/analyze_logs.py --demo
+python scripts/dev_env.py
+python -m pytest tests/integration/test_bob_toolchain.py -q
+python -m pytest tests/performance/test_bob_tool_performance.py -q
+```
+
 Run the installed-wheel smoke once without extras to verify the base package
 does not require optional dependencies. Run it again with gateway extras to
 verify console scheduling and the local operator user journey in a clean virtual
@@ -62,6 +81,7 @@ environment.
 - [ ] `ghostchimera local-model check` reports system readiness and llama-cpp install state.
 - [ ] `ghostchimera local-model profiles` lists tiny, balanced, and stronger profiles.
 - [ ] `ghostchimera local-model guide --profile balanced` prints install steps.
+- [ ] Optional hackathon/developer tooling, including IBM Bob files, remains outside the `ghostchimera/` runtime package and is documented in `docs/BOB_OPTIONAL_TOOLING.md`.
 - [ ] README quickstart works from a clean virtual environment.
 - [ ] CI installs `.[gateway,dev]` for full source validation and separately smokes the base wheel with no extras.
 - [ ] `ghostchimera --config-show` prints JSON with expected state paths and policy defaults.

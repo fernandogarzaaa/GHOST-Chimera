@@ -23,9 +23,11 @@ logger = get_logger("credential_pool")
 # Credential store entry
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class CredentialEntry:
     """A single provider credential with metadata."""
+
     provider: str
     api_key: str
     api_secret: str = ""
@@ -58,6 +60,7 @@ class CredentialEntry:
 @dataclass
 class ProviderHealth:
     """Health of a provider from credential pool's perspective."""
+
     provider: str
     available: bool
     usage_pct: float
@@ -86,6 +89,7 @@ class ProviderHealth:
 # Credential pool — singleton store
 # ---------------------------------------------------------------------------
 
+
 class CredentialPool:
     """Multi-provider credential management with rotation and quota tracking.
 
@@ -96,6 +100,7 @@ class CredentialPool:
         4. Rotate keys on expiration or failure threshold
         5. Track per-provider quota usage
     """
+
     """Multi-provider credential management with rotation and quota tracking.
 
     Architecture:
@@ -207,6 +212,7 @@ class CredentialPool:
             # ExternalAuthProvider, fail closed instead of returning stale auth.
             try:
                 from ..model_layer.auth_profiles import OAuthCredential
+
                 oauth = OAuthCredential(
                     token=entry.oauth_token,
                     expires_at=entry.expires_at,
@@ -224,9 +230,7 @@ class CredentialPool:
                     self._creds[provider] = new_entry
                 return new_entry
             except RuntimeError:
-                logger.warning(
-                    "OAuth token for %s is expired and no external auth provider is registered", provider
-                )
+                logger.warning("OAuth token for %s is expired and no external auth provider is registered", provider)
                 return None
             except Exception as exc:
                 logger.warning("OAuth refresh for %s failed: %s", provider, exc)
@@ -251,6 +255,7 @@ class CredentialPool:
         if not provider_cls:
             return None
         from ..model_layer.auth_profiles import AuthProfile
+
         profile = AuthProfile(
             provider=provider,
             auth_kind="oauth" if entry.oauth_token and not entry.api_key else "api_key",
@@ -280,7 +285,11 @@ class CredentialPool:
                 last_rotated=time.time(),
                 expires_at=entry.expires_at,
                 enabled=True,
-                metadata={**entry.metadata, "rotated": True, "rotation_count": entry.metadata.get("rotation_count", 0) + 1},
+                metadata={
+                    **entry.metadata,
+                    "rotated": True,
+                    "rotation_count": entry.metadata.get("rotation_count", 0) + 1,
+                },
             )
             self._creds[provider] = new_entry
             self._health[provider] = ProviderHealth(
@@ -334,6 +343,7 @@ class CredentialPool:
             return None
         try:
             from ..model_layer.auth_profiles import OAuthCredential
+
             old_oauth = OAuthCredential(
                 token=entry.oauth_token,
                 refresh_token=entry.api_secret,
@@ -396,7 +406,7 @@ class CredentialPool:
             return None
 
         # Score by weighted success rate + remaining quota
-        candidates.sort(key=lambda x: (x[1] * 0.6 + x[2] * 0.4), reverse=True)
+        candidates.sort(key=lambda x: x[1] * 0.6 + x[2] * 0.4, reverse=True)
         return candidates[0][0]
 
     def list_credentials(self) -> list[dict]:
@@ -404,15 +414,17 @@ class CredentialPool:
         with self._lock:
             result = []
             for name, entry in self._creds.items():
-                result.append({
-                    "provider": name,
-                    "available": entry.is_available,
-                    "usage_pct": entry.usage_pct(),
-                    "model": entry.model,
-                    "expires_at": entry.expires_at,
-                    "key_masked": self._mask_key(entry.api_key),
-                    "health": self._health.get(name).__dict__ if self._health.get(name) else None,
-                })
+                result.append(
+                    {
+                        "provider": name,
+                        "available": entry.is_available,
+                        "usage_pct": entry.usage_pct(),
+                        "model": entry.model,
+                        "expires_at": entry.expires_at,
+                        "key_masked": self._mask_key(entry.api_key),
+                        "health": self._health.get(name).__dict__ if self._health.get(name) else None,
+                    }
+                )
             return result
 
     def _mask_key(self, key: str) -> str:

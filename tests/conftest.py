@@ -32,6 +32,7 @@ def client(scheduler):
     from ghostchimera.chimera_pilot.executor import ChimeraPilotExecutor
     from ghostchimera.chimera_pilot.policy import PilotPolicy
     from ghostchimera.chimera_pilot.telemetry import InMemoryTelemetryStore
+
     return ChimeraPilotExecutor(scheduler, policy=PilotPolicy(), telemetry=InMemoryTelemetryStore())
 
 

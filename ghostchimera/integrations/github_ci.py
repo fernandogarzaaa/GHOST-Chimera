@@ -11,7 +11,8 @@ def classify_check_runs(check_runs: list[dict[str, Any]]) -> dict[str, Any]:
     failed = [
         str(run.get("name") or "unnamed")
         for run in check_runs
-        if str(run.get("status") or "") == "completed" and str(run.get("conclusion") or "") not in {"success", "neutral", "skipped"}
+        if str(run.get("status") or "") == "completed"
+        and str(run.get("conclusion") or "") not in {"success", "neutral", "skipped"}
     ]
     return {
         "ok": not failed,

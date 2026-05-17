@@ -114,4 +114,3 @@ class LlamaCppBackend:
             output=output,
             metrics=metrics,
         )
-

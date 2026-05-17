@@ -190,4 +190,5 @@ class GhostClientTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="gc-sdk-test-") as tmp:
             client = self._client(tmp)
             from ghostchimera.memory_layer.store import MemoryStore
+
             self.assertIsInstance(client.memory, MemoryStore)

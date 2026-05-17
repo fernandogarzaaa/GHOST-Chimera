@@ -157,7 +157,9 @@ def _smoke_commands(python: Path, extras: str, state_dir: Path) -> list[list[str
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Smoke a built Ghost Chimera wheel in a clean venv")
     parser.add_argument("--dist-dir", default=str(ROOT / "dist"), help="Directory containing built wheel artifacts.")
-    parser.add_argument("--extras", default="", help="Optional extras to install from the built wheel, for example 'gateway'.")
+    parser.add_argument(
+        "--extras", default="", help="Optional extras to install from the built wheel, for example 'gateway'."
+    )
     args = parser.parse_args(argv)
 
     wheel = _latest_wheel(Path(args.dist_dir))

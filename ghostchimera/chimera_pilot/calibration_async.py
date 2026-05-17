@@ -63,10 +63,7 @@ def calibrate_backends_parallel(
     workers = max_workers if max_workers is not None else len(backends)
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [
-            executor.submit(_probe_one, backend, results, lock, errors)
-            for backend in backends
-        ]
+        futures = [executor.submit(_probe_one, backend, results, lock, errors) for backend in backends]
         for future in futures:
             future.result()  # propagate any unexpected executor-level errors
 

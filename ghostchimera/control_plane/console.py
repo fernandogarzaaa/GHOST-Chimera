@@ -356,7 +356,9 @@ def register_console_routes(
         try:
             from ..chimera_pilot.cron_scheduler import CronScheduler
 
-            scheduler = CronScheduler(state_dir=state_dir or server.config.state_dir, job_executor=_scheduled_executor(queue))
+            scheduler = CronScheduler(
+                state_dir=state_dir or server.config.state_dir, job_executor=_scheduled_executor(queue)
+            )
         except Exception as exc:  # pragma: no cover - depends on optional croniter availability
             scheduler_error = str(exc)
 
@@ -364,9 +366,13 @@ def register_console_routes(
     _api_auth = "token" if console_token else "open"
     _api_token = console_token
 
-    def _api_register(path: str, handler: Any, *, method: str = "GET", prefix: bool = False, description: str = "") -> None:
+    def _api_register(
+        path: str, handler: Any, *, method: str = "GET", prefix: bool = False, description: str = ""
+    ) -> None:
         """Register an API route with the appropriate auth mode."""
-        server.routes.register(path, handler, method=method, auth=_api_auth, token=_api_token, prefix=prefix, description=description)
+        server.routes.register(
+            path, handler, method=method, auth=_api_auth, token=_api_token, prefix=prefix, description=description
+        )
 
     def console_page(ctx: dict[str, Any]) -> HttpResponse:
         return HttpResponse(body=CONSOLE_HTML, content_type="text/html; charset=utf-8")
@@ -606,9 +612,7 @@ def register_console_routes(
         dataset_count = 0
         if dataset_path.exists():
             with contextlib.suppress(Exception):
-                dataset_count = sum(
-                    1 for line in dataset_path.read_text(encoding="utf-8").splitlines() if line.strip()
-                )
+                dataset_count = sum(1 for line in dataset_path.read_text(encoding="utf-8").splitlines() if line.strip())
         status["dataset_path"] = str(dataset_path)
         status["dataset_count"] = dataset_count
         return {"ok": True, "status": status}
@@ -634,9 +638,7 @@ def register_console_routes(
         path = lifecycle.generate_dataset([{"prompt": prompt, "response": response}])
         dataset_count = 0
         with contextlib.suppress(Exception):
-            dataset_count = sum(
-                1 for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()
-            )
+            dataset_count = sum(1 for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip())
         return {"ok": True, "path": str(path), "dataset_count": dataset_count}
 
     def minimind_status(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -796,6 +798,7 @@ def register_console_routes(
         """Return all registered skills (bundled + workspace) for the Skills tab."""
         try:
             from ..skill_layer.registry import get_registry
+
             registry = get_registry()
             skills = [
                 {
@@ -950,51 +953,209 @@ def register_console_routes(
     _api_register("/api/console/status", status, method="GET", description="Ghost Console status")
     _api_register("/api/console/autonomy", autonomy, method="GET", description="Ghost Console autonomy")
     _api_register("/api/console/autonomy", autonomy, method="POST", description="Ghost Console autonomy")
-    _api_register("/api/console/workspace", operator_workspace_snapshot, method="GET", description="Inspect operator workspace state")
-    _api_register("/api/console/workspace/evidence", operator_workspace_evidence, method="POST", description="Record operator workspace evidence")
-    _api_register("/api/console/workspace/reflections", operator_workspace_reflection, method="POST", description="Record operator workspace reflection")
-    _api_register("/api/console/workspace/goals", operator_workspace_goal, method="POST", description="Set operator workspace goal")
-    _api_register("/api/console/workspace/sync-memory", operator_workspace_sync_memory, method="POST", description="Promote operator workspace records into CWR memory")
+    _api_register(
+        "/api/console/workspace",
+        operator_workspace_snapshot,
+        method="GET",
+        description="Inspect operator workspace state",
+    )
+    _api_register(
+        "/api/console/workspace/evidence",
+        operator_workspace_evidence,
+        method="POST",
+        description="Record operator workspace evidence",
+    )
+    _api_register(
+        "/api/console/workspace/reflections",
+        operator_workspace_reflection,
+        method="POST",
+        description="Record operator workspace reflection",
+    )
+    _api_register(
+        "/api/console/workspace/goals",
+        operator_workspace_goal,
+        method="POST",
+        description="Set operator workspace goal",
+    )
+    _api_register(
+        "/api/console/workspace/sync-memory",
+        operator_workspace_sync_memory,
+        method="POST",
+        description="Promote operator workspace records into CWR memory",
+    )
     _api_register("/api/console/memory/status", memory_status, method="GET", description="Show local CWR memory status")
-    _api_register("/api/console/memory/ingest", memory_ingest, method="POST", description="Ingest text into local CWR memory")
-    _api_register("/api/console/memory/ingest-email", memory_ingest_email, method="POST", description="Ingest email (.eml/.mbox or raw text) into personal memory")
-    _api_register("/api/console/memory/ingest-file", memory_ingest_file, method="POST", description="Ingest a local file or directory into personal memory")
+    _api_register(
+        "/api/console/memory/ingest", memory_ingest, method="POST", description="Ingest text into local CWR memory"
+    )
+    _api_register(
+        "/api/console/memory/ingest-email",
+        memory_ingest_email,
+        method="POST",
+        description="Ingest email (.eml/.mbox or raw text) into personal memory",
+    )
+    _api_register(
+        "/api/console/memory/ingest-file",
+        memory_ingest_file,
+        method="POST",
+        description="Ingest a local file or directory into personal memory",
+    )
     _api_register("/api/console/memory/search", memory_search, method="POST", description="Search local CWR memory")
-    _api_register("/api/console/training/status", training_status, method="GET", description="MiniMind training setup status and dataset record count")
-    _api_register("/api/console/training/teach", training_teach, method="POST", description="Append a prompt/response pair to the personal training dataset")
-    _api_register("/api/console/minimind/status", minimind_status, method="GET", description="Show MiniMind local runtime status")
-    _api_register("/api/console/minimind/dataset", minimind_dataset, method="POST", description="Write a MiniMind JSONL dataset from prompt/response records")
-    _api_register("/api/console/minimind/personal/status", minimind_personal_status, method="GET", description="Show Personal MiniMind consent, memory, dataset, and RAG readiness")
-    _api_register("/api/console/minimind/personal/consent", minimind_personal_consent, method="POST", description="Grant Personal MiniMind admin/source consent")
-    _api_register("/api/console/minimind/personal/revoke", minimind_personal_revoke, method="POST", description="Revoke Personal MiniMind admin/source consent")
-    _api_register("/api/console/minimind/personal/bootstrap", minimind_personal_bootstrap, method="POST", description="Bootstrap Personal MiniMind from consented local sources")
-    _api_register("/api/console/minimind/personal/handoff", minimind_personal_handoff, method="POST", description="Build Personal MiniMind RAG handoff for the primary model")
+    _api_register(
+        "/api/console/training/status",
+        training_status,
+        method="GET",
+        description="MiniMind training setup status and dataset record count",
+    )
+    _api_register(
+        "/api/console/training/teach",
+        training_teach,
+        method="POST",
+        description="Append a prompt/response pair to the personal training dataset",
+    )
+    _api_register(
+        "/api/console/minimind/status", minimind_status, method="GET", description="Show MiniMind local runtime status"
+    )
+    _api_register(
+        "/api/console/minimind/dataset",
+        minimind_dataset,
+        method="POST",
+        description="Write a MiniMind JSONL dataset from prompt/response records",
+    )
+    _api_register(
+        "/api/console/minimind/personal/status",
+        minimind_personal_status,
+        method="GET",
+        description="Show Personal MiniMind consent, memory, dataset, and RAG readiness",
+    )
+    _api_register(
+        "/api/console/minimind/personal/consent",
+        minimind_personal_consent,
+        method="POST",
+        description="Grant Personal MiniMind admin/source consent",
+    )
+    _api_register(
+        "/api/console/minimind/personal/revoke",
+        minimind_personal_revoke,
+        method="POST",
+        description="Revoke Personal MiniMind admin/source consent",
+    )
+    _api_register(
+        "/api/console/minimind/personal/bootstrap",
+        minimind_personal_bootstrap,
+        method="POST",
+        description="Bootstrap Personal MiniMind from consented local sources",
+    )
+    _api_register(
+        "/api/console/minimind/personal/handoff",
+        minimind_personal_handoff,
+        method="POST",
+        description="Build Personal MiniMind RAG handoff for the primary model",
+    )
     _api_register("/api/console/paths", role_profiles, method="GET", description="List multi-purpose Ghost paths")
-    _api_register("/api/console/paths/synthesize", synthesize_role_path, method="POST", description="Synthesize Ghost Chimera from a selected user path")
-    _api_register("/api/console/paths/active", active_role_path, method="GET", description="Show the active persisted Ghost path")
-    _api_register("/api/console/paths/active", active_role_path, method="POST", description="Persist the active Ghost path")
-    _api_register("/api/console/github/status", github_status, method="GET", description="Inspect GitHub integration status")
-    _api_register("/api/console/github/plan", github_plan, method="POST", description="Convert a GitHub issue into a Ghost objective")
-    _api_register("/api/console/github/policy-simulate", github_policy_simulate, method="POST", description="Preview GitHub action controls")
-    _api_register("/api/console/capabilities", capabilities, method="GET", description="Inspect competitive agent-orchestration capability coverage")
-    _api_register("/api/console/review-pr", review_pr, method="POST", description="Run deterministic PR/diff review automation")
-    _api_register("/api/console/readiness", readiness, method="GET", description="Ghost Console release readiness runbook")
+    _api_register(
+        "/api/console/paths/synthesize",
+        synthesize_role_path,
+        method="POST",
+        description="Synthesize Ghost Chimera from a selected user path",
+    )
+    _api_register(
+        "/api/console/paths/active", active_role_path, method="GET", description="Show the active persisted Ghost path"
+    )
+    _api_register(
+        "/api/console/paths/active", active_role_path, method="POST", description="Persist the active Ghost path"
+    )
+    _api_register(
+        "/api/console/github/status", github_status, method="GET", description="Inspect GitHub integration status"
+    )
+    _api_register(
+        "/api/console/github/plan",
+        github_plan,
+        method="POST",
+        description="Convert a GitHub issue into a Ghost objective",
+    )
+    _api_register(
+        "/api/console/github/policy-simulate",
+        github_policy_simulate,
+        method="POST",
+        description="Preview GitHub action controls",
+    )
+    _api_register(
+        "/api/console/capabilities",
+        capabilities,
+        method="GET",
+        description="Inspect competitive agent-orchestration capability coverage",
+    )
+    _api_register(
+        "/api/console/review-pr", review_pr, method="POST", description="Run deterministic PR/diff review automation"
+    )
+    _api_register(
+        "/api/console/readiness", readiness, method="GET", description="Ghost Console release readiness runbook"
+    )
     _api_register("/api/console/skills", skills_list, method="GET", description="List registered skills")
     _api_register("/api/console/autonomy/jobs", jobs_list, method="GET", description="List autonomy jobs")
     _api_register("/api/console/autonomy/jobs", jobs_create, method="POST", description="Queue autonomy job")
-    _api_register("/api/console/autonomy/jobs/", jobs_detail, method="GET", prefix=True, description="Inspect autonomy job record")
-    _api_register("/api/console/autonomy/jobs/", jobs_cancel, method="POST", prefix=True, description="Cancel queued autonomy job")
-    _api_register("/api/console/autonomy/schedules", schedules_list, method="GET", description="List autonomy schedules")
-    _api_register("/api/console/autonomy/schedules", schedules_create, method="POST", description="Create autonomy schedule")
-    _api_register("/api/console/autonomy/schedules/", schedules_action, method="POST", prefix=True, description="Update, run, or delete autonomy schedule")
+    _api_register(
+        "/api/console/autonomy/jobs/", jobs_detail, method="GET", prefix=True, description="Inspect autonomy job record"
+    )
+    _api_register(
+        "/api/console/autonomy/jobs/", jobs_cancel, method="POST", prefix=True, description="Cancel queued autonomy job"
+    )
+    _api_register(
+        "/api/console/autonomy/schedules", schedules_list, method="GET", description="List autonomy schedules"
+    )
+    _api_register(
+        "/api/console/autonomy/schedules", schedules_create, method="POST", description="Create autonomy schedule"
+    )
+    _api_register(
+        "/api/console/autonomy/schedules/",
+        schedules_action,
+        method="POST",
+        prefix=True,
+        description="Update, run, or delete autonomy schedule",
+    )
     _api_register("/api/console/run", run, method="POST", description="Run a Ghost objective")
-    _api_register("/api/console/browser/fetch", browser_fetch, method="POST", description="Fetch an HTTPS URL through the Ghost browser tool")
-    _api_register("/api/console/browser/status", browser_workspace_status, method="GET", description="Inspect optional agent-browser workspace availability")
-    _api_register("/api/console/browser/open", browser_open, method="POST", description="Open an HTTPS URL in the optional agent-browser workspace")
-    _api_register("/api/console/browser/snapshot", browser_snapshot, method="POST", description="Capture an accessibility snapshot from the optional agent-browser workspace")
-    _api_register("/api/console/security/events", _security_events_handler, method="GET", description="Security event log from DPI inspection (Lobster Trap)")
-    _api_register("/api/console/security/summary", _security_summary_handler, method="GET", description="Aggregated threat statistics and risk timeline")
-    _api_register("/api/console/security/audit", _security_audit_handler, method="GET", description="HMAC-chained audit log entries and chain integrity check")
+    _api_register(
+        "/api/console/browser/fetch",
+        browser_fetch,
+        method="POST",
+        description="Fetch an HTTPS URL through the Ghost browser tool",
+    )
+    _api_register(
+        "/api/console/browser/status",
+        browser_workspace_status,
+        method="GET",
+        description="Inspect optional agent-browser workspace availability",
+    )
+    _api_register(
+        "/api/console/browser/open",
+        browser_open,
+        method="POST",
+        description="Open an HTTPS URL in the optional agent-browser workspace",
+    )
+    _api_register(
+        "/api/console/browser/snapshot",
+        browser_snapshot,
+        method="POST",
+        description="Capture an accessibility snapshot from the optional agent-browser workspace",
+    )
+    _api_register(
+        "/api/console/security/events",
+        _security_events_handler,
+        method="GET",
+        description="Security event log from DPI inspection (Lobster Trap)",
+    )
+    _api_register(
+        "/api/console/security/summary",
+        _security_summary_handler,
+        method="GET",
+        description="Aggregated threat statistics and risk timeline",
+    )
+    _api_register(
+        "/api/console/security/audit",
+        _security_audit_handler,
+        method="GET",
+        description="HMAC-chained audit log entries and chain integrity check",
+    )
 
 
 def _console_url(server: GatewayServer) -> str:
@@ -1033,7 +1194,9 @@ def run_console(
     config = GhostChimeraConfig.from_env()
     if state_dir:
         resolved = Path(state_dir).expanduser()
-        config = replace(config, state_dir=resolved, memory_db=resolved / "memory.sqlite3", audit_file=resolved / "audit.json")
+        config = replace(
+            config, state_dir=resolved, memory_db=resolved / "memory.sqlite3", audit_file=resolved / "audit.json"
+        )
     server = GatewayServer(host=host, port=port, http_port=http_port, config=config)
     _register_static_routes(server)
     register_console_routes(server, state_dir=state_dir or config.state_dir, console_token=auth_token or "")
@@ -1085,7 +1248,11 @@ def _register_static_routes(server: GatewayServer) -> None:
         if not full.is_file():
             continue
         body = full.read_bytes()
-        ct = {"index.html": "text/html; charset=utf-8", "app.js": "application/javascript; charset=utf-8", "styles.css": "text/css; charset=utf-8"}.get(rel, "application/octet-stream")
+        ct = {
+            "index.html": "text/html; charset=utf-8",
+            "app.js": "application/javascript; charset=utf-8",
+            "styles.css": "text/css; charset=utf-8",
+        }.get(rel, "application/octet-stream")
 
         def make_handler(data: bytes, ct_: str) -> Callable[[dict[str, Any]], HttpResponse]:
             """
@@ -1101,9 +1268,15 @@ def _register_static_routes(server: GatewayServer) -> None:
             return lambda ctx: HttpResponse(body=data, content_type=ct_)
 
         if rel == "index.html":
-            server.routes.register("/", make_handler(body, ct), method="GET", auth="open", description="Ghost Console static page")
-            server.routes.register("/console", make_handler(body, ct), method="GET", auth="open", description="Ghost Console static page")
-        server.routes.register("/static/" + rel, make_handler(body, ct), method="GET", auth="open", description="Static asset")
+            server.routes.register(
+                "/", make_handler(body, ct), method="GET", auth="open", description="Ghost Console static page"
+            )
+            server.routes.register(
+                "/console", make_handler(body, ct), method="GET", auth="open", description="Ghost Console static page"
+            )
+        server.routes.register(
+            "/static/" + rel, make_handler(body, ct), method="GET", auth="open", description="Static asset"
+        )
 
 
 __all__ = ["CONSOLE_HTML", "register_console_routes", "run_console"]

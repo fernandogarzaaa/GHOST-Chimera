@@ -95,6 +95,7 @@ def _main(argv: list[str] | None = None) -> int:
     effective_argv = list(sys.argv[1:] if argv is None else argv)
     if _first_command_token(effective_argv) in _PARALLEL_COMMANDS:
         from .parallel_cli import _main as _parallel_main
+
         return _parallel_main(effective_argv)
 
     parser = argparse.ArgumentParser(description="Ghost Chimera CLI")
@@ -104,17 +105,29 @@ def _main(argv: list[str] | None = None) -> int:
     console_parser.add_argument("--host", default="127.0.0.1", help="Gateway bind host for the console.")
     console_parser.add_argument("--port", type=int, default=8765, help="Gateway WebSocket port.")
     console_parser.add_argument("--http-port", type=int, default=8766, help="Console HTTP port.")
-    console_parser.add_argument("--state-dir", default="", help="Optional state directory for console jobs and schedules.")
-    console_parser.add_argument("--no-open", action="store_true", help="Print the console URL without opening a browser.")
-    console_parser.add_argument("--auth-token", default="", help="Require this bearer token on all /api/* routes (X-Gateway-Token header).")
+    console_parser.add_argument(
+        "--state-dir", default="", help="Optional state directory for console jobs and schedules."
+    )
+    console_parser.add_argument(
+        "--no-open", action="store_true", help="Print the console URL without opening a browser."
+    )
+    console_parser.add_argument(
+        "--auth-token", default="", help="Require this bearer token on all /api/* routes (X-Gateway-Token header)."
+    )
     doctor_parser = sub.add_parser("doctor", help="Run health checks and report status")
     doctor_parser.add_argument("--production", action="store_true", help="Require production deployment guardrails.")
-    capabilities_parser = sub.add_parser("capabilities", help="Inspect competitive agent-orchestration capability coverage")
+    capabilities_parser = sub.add_parser(
+        "capabilities", help="Inspect competitive agent-orchestration capability coverage"
+    )
     capabilities_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
     capabilities_parser.add_argument("--save", default="", help="Optional path to write the report.")
     review_parser = sub.add_parser("review-pr", help="Run deterministic PR/diff review checks")
     review_parser.add_argument("--base", default="origin/main", help="Base ref for review, default origin/main.")
-    review_parser.add_argument("--head", default="HEAD", help="Head ref for review, default HEAD. Use WORKTREE to include staged and unstaged local changes.")
+    review_parser.add_argument(
+        "--head",
+        default="HEAD",
+        help="Head ref for review, default HEAD. Use WORKTREE to include staged and unstaged local changes.",
+    )
     review_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
     review_parser.add_argument("--save", default="", help="Optional path to write the review report.")
     review_parser.add_argument("--max-diff-bytes", type=int, default=500_000, help="Maximum diff bytes to inspect.")
@@ -124,7 +137,9 @@ def _main(argv: list[str] | None = None) -> int:
     github_parser.add_argument("--issue", type=int, default=0, help="GitHub issue number.")
     github_parser.add_argument("--title", default="", help="Issue title for local planning.")
     github_parser.add_argument("--body", default="", help="Issue body for local planning.")
-    github_parser.add_argument("--label", action="append", default=[], help="Issue label for local planning. Repeatable.")
+    github_parser.add_argument(
+        "--label", action="append", default=[], help="Issue label for local planning. Repeatable."
+    )
     path_parser = sub.add_parser("path", help="Show, list, and persist the active multi-purpose Ghost path")
     path_parser.add_argument("action", choices=["show", "set", "list"], nargs="?", default="show")
     path_parser.add_argument("--profile", default="autonomous-engineer", help="Role profile id for 'set'.")
@@ -140,7 +155,9 @@ def _main(argv: list[str] | None = None) -> int:
         default="supervised",
         help="Tool-approval posture stored with the active path.",
     )
-    path_parser.add_argument("--config-path", default="", help="Optional config file path for testing or portable installs.")
+    path_parser.add_argument(
+        "--config-path", default="", help="Optional config file path for testing or portable installs."
+    )
     sub.add_parser("model", help="List and switch the current model provider")
     sub.add_parser("policy", help="Manage security policies")
     desktop_stop_parser = sub.add_parser("desktop-stop", help="Create the Chimera Pilot desktop kill-switch file")
@@ -153,7 +170,9 @@ def _main(argv: list[str] | None = None) -> int:
     autonomy_parser.add_argument("--max-tool-rounds", type=int)
     autonomy_parser.add_argument("--max-parallel-tasks", type=int)
     autonomy_parser.add_argument("--local-model-profile", choices=["tiny", "balanced", "stronger"])
-    autonomy_parser.add_argument("--execute", action="store_true", help="Allow jobs that otherwise return preview-only plans.")
+    autonomy_parser.add_argument(
+        "--execute", action="store_true", help="Allow jobs that otherwise return preview-only plans."
+    )
     workspace_parser = sub.add_parser("workspace", help="Inspect and update the local operator workspace state")
     workspace_parser.add_argument(
         "action",
@@ -163,8 +182,12 @@ def _main(argv: list[str] | None = None) -> int:
     )
     workspace_parser.add_argument("--state-dir", default="", help="Optional state directory for workspace state.")
     workspace_parser.add_argument("--memory-db", default="", help="Memory database path for sync-memory.")
-    workspace_parser.add_argument("--min-confidence", type=float, default=0.0, help="Minimum confidence for sync-memory.")
-    workspace_parser.add_argument("--stale-after-days", type=float, default=30.0, help="Mark synced workspace records stale after this many days.")
+    workspace_parser.add_argument(
+        "--min-confidence", type=float, default=0.0, help="Minimum confidence for sync-memory."
+    )
+    workspace_parser.add_argument(
+        "--stale-after-days", type=float, default=30.0, help="Mark synced workspace records stale after this many days."
+    )
     workspace_parser.add_argument("--source", default="", help="Evidence source for add-evidence.")
     workspace_parser.add_argument("--content", default="", help="Evidence content for add-evidence.")
     workspace_parser.add_argument("--confidence", type=float, default=0.5, help="Confidence from 0.0 to 1.0.")
@@ -197,27 +220,72 @@ def _main(argv: list[str] | None = None) -> int:
     minimind_parser.add_argument("--response", default="", help="Response/output text.")
     minimind_parser.add_argument("--confidence", type=float, default=0.0)
     minimind_parser.add_argument("--threshold", type=float, default=0.5)
-    minimind_parser.add_argument("--memory-db", default=".ghostchimera-memory.sqlite3", help="Memory DB path for personal ingestion.")
-    minimind_parser.add_argument("--state-dir", default="", help="Optional state directory for Personal MiniMind consent/datasets.")
-    minimind_parser.add_argument("--allow-files", action="store_true", help="Allow ingestion of file paths/directories.")
-    minimind_parser.add_argument("--allow-email", action="store_true", help="Allow ingestion of .eml/.mbox paths/directories.")
+    minimind_parser.add_argument(
+        "--memory-db", default=".ghostchimera-memory.sqlite3", help="Memory DB path for personal ingestion."
+    )
+    minimind_parser.add_argument(
+        "--state-dir", default="", help="Optional state directory for Personal MiniMind consent/datasets."
+    )
+    minimind_parser.add_argument(
+        "--allow-files", action="store_true", help="Allow ingestion of file paths/directories."
+    )
+    minimind_parser.add_argument(
+        "--allow-email", action="store_true", help="Allow ingestion of .eml/.mbox paths/directories."
+    )
     minimind_parser.add_argument("--admin-controls", action="store_true", help="Grant Personal MiniMind admin consent.")
-    minimind_parser.add_argument("--allow-system-specs", action="store_true", help="Allow Personal MiniMind to read local system specs.")
-    minimind_parser.add_argument("--allow-machine-crawl", action="store_true", help="Allow Personal MiniMind to discover supported files from crawl roots.")
-    minimind_parser.add_argument("--allow-email-crawl", action="store_true", help="Allow Personal MiniMind to discover .eml/.mbox files from crawl roots.")
-    minimind_parser.add_argument("--allow-autonomy", action="store_true", help="Allow Personal MiniMind to prepare autonomy job handoffs.")
-    minimind_parser.add_argument("--allow-training", action="store_true", help="Allow Personal MiniMind to write training dataset records.")
-    minimind_parser.add_argument("--include-system-specs", action="store_true", help="Include local system specs during Personal MiniMind bootstrap.")
-    minimind_parser.add_argument("--operator", default="cli", help="Operator label stored with Personal MiniMind consent.")
+    minimind_parser.add_argument(
+        "--allow-system-specs", action="store_true", help="Allow Personal MiniMind to read local system specs."
+    )
+    minimind_parser.add_argument(
+        "--allow-machine-crawl",
+        action="store_true",
+        help="Allow Personal MiniMind to discover supported files from crawl roots.",
+    )
+    minimind_parser.add_argument(
+        "--allow-email-crawl",
+        action="store_true",
+        help="Allow Personal MiniMind to discover .eml/.mbox files from crawl roots.",
+    )
+    minimind_parser.add_argument(
+        "--allow-autonomy", action="store_true", help="Allow Personal MiniMind to prepare autonomy job handoffs."
+    )
+    minimind_parser.add_argument(
+        "--allow-training", action="store_true", help="Allow Personal MiniMind to write training dataset records."
+    )
+    minimind_parser.add_argument(
+        "--include-system-specs",
+        action="store_true",
+        help="Include local system specs during Personal MiniMind bootstrap.",
+    )
+    minimind_parser.add_argument(
+        "--operator", default="cli", help="Operator label stored with Personal MiniMind consent."
+    )
     minimind_parser.add_argument("--objective", default="", help="Objective for Personal MiniMind handoff.")
-    minimind_parser.add_argument("--file-path", action="append", default=[], help="File or directory path to ingest. Repeatable.")
-    minimind_parser.add_argument("--email-path", action="append", default=[], help=".eml/.mbox file or directory path to ingest. Repeatable.")
-    minimind_parser.add_argument("--crawl-root", action="append", default=[], help="Root to scan when whole-machine crawl is enabled. Repeatable; defaults to local drives/home.")
-    minimind_parser.add_argument("--exclude-path", action="append", default=[], help="Path to exclude from whole-machine crawl. Repeatable.")
-    minimind_parser.add_argument("--max-files", type=int, default=500, help="Maximum files to ingest per file directory.")
-    minimind_parser.add_argument("--max-emails", type=int, default=1000, help="Maximum emails/files to ingest per email directory/archive.")
+    minimind_parser.add_argument(
+        "--file-path", action="append", default=[], help="File or directory path to ingest. Repeatable."
+    )
+    minimind_parser.add_argument(
+        "--email-path", action="append", default=[], help=".eml/.mbox file or directory path to ingest. Repeatable."
+    )
+    minimind_parser.add_argument(
+        "--crawl-root",
+        action="append",
+        default=[],
+        help="Root to scan when whole-machine crawl is enabled. Repeatable; defaults to local drives/home.",
+    )
+    minimind_parser.add_argument(
+        "--exclude-path", action="append", default=[], help="Path to exclude from whole-machine crawl. Repeatable."
+    )
+    minimind_parser.add_argument(
+        "--max-files", type=int, default=500, help="Maximum files to ingest per file directory."
+    )
+    minimind_parser.add_argument(
+        "--max-emails", type=int, default=1000, help="Maximum emails/files to ingest per email directory/archive."
+    )
     minimind_parser.add_argument("--config", default="", help="Path to beta vision JSON config.")
-    minimind_parser.add_argument("--run-autonomy-jobs", action="store_true", help="For beta-vision inline mode, enqueue autonomy jobs.")
+    minimind_parser.add_argument(
+        "--run-autonomy-jobs", action="store_true", help="For beta-vision inline mode, enqueue autonomy jobs."
+    )
     local_model_parser = sub.add_parser("local-model", help="Bootstrap and check local model inference readiness")
     local_model_parser.add_argument(
         "action",
@@ -226,12 +294,27 @@ def _main(argv: list[str] | None = None) -> int:
         default="check",
         help="check: report readiness; guide: print install steps; profiles: list all profiles",
     )
-    local_model_parser.add_argument("--profile", default="", help="Local model profile name (tiny, balanced, stronger).")
+    local_model_parser.add_argument(
+        "--profile", default="", help="Local model profile name (tiny, balanced, stronger)."
+    )
     runtime_warmup_parser = sub.add_parser("runtime-warmup", help="Precompute local runtime specialization manifests")
-    runtime_warmup_parser.add_argument("--runtime-specialization-cache-dir", default=".ghost/runtime-specialization", help="Directory for warmup manifests.")
-    runtime_warmup_parser.add_argument("--local-model-profile", action="append", default=[], help="Profile to warm. Repeat for multiple; omit for all profiles.")
-    runtime_warmup_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
-    runtime_warmup_parser.add_argument("--gpu-architecture", default="", help="Optional GPU architecture hint, for example sm100.")
+    runtime_warmup_parser.add_argument(
+        "--runtime-specialization-cache-dir",
+        default=".ghost/runtime-specialization",
+        help="Directory for warmup manifests.",
+    )
+    runtime_warmup_parser.add_argument(
+        "--local-model-profile",
+        action="append",
+        default=[],
+        help="Profile to warm. Repeat for multiple; omit for all profiles.",
+    )
+    runtime_warmup_parser.add_argument(
+        "--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload."
+    )
+    runtime_warmup_parser.add_argument(
+        "--gpu-architecture", default="", help="Optional GPU architecture hint, for example sm100."
+    )
     runtime_warmup_parser.add_argument("--gpu-sm-count", type=int, default=0, help="Optional GPU SM count hint.")
     parser.add_argument(
         "--log-level",
@@ -252,7 +335,9 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pilot-cwd", default="", help="Allowed working directory for Chimera Pilot local execution.")
     parser.add_argument("--allow-python", action="store_true", help="Allow Chimera Pilot local Python/test execution.")
     parser.add_argument("--allow-network", action="store_true", help="Allow Chimera Pilot network-requiring tasks.")
-    parser.add_argument("--allow-desktop-control", action="store_true", help="Allow Chimera Pilot desktop control tasks.")
+    parser.add_argument(
+        "--allow-desktop-control", action="store_true", help="Allow Chimera Pilot desktop control tasks."
+    )
     parser.add_argument(
         "--desktop-action-class",
         action="append",
@@ -261,27 +346,51 @@ def _main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--desktop-allow-app", action="append", default=[], help="Allowlisted desktop app target.")
     parser.add_argument("--desktop-deny-app", action="append", default=[], help="Denied desktop app target.")
-    parser.add_argument("--desktop-allow-window", action="append", default=[], help="Allowlisted desktop window target.")
+    parser.add_argument(
+        "--desktop-allow-window", action="append", default=[], help="Allowlisted desktop window target."
+    )
     parser.add_argument("--desktop-deny-window", action="append", default=[], help="Denied desktop window target.")
-    parser.add_argument("--enable-desktop-backend", action="store_true", help="Register Chimera Pilot desktop backend (dry-run).")
+    parser.add_argument(
+        "--enable-desktop-backend", action="store_true", help="Register Chimera Pilot desktop backend (dry-run)."
+    )
     parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
     parser.add_argument("--desktop-kill-switch-path", default="", help="If file exists, desktop actions are blocked.")
-    parser.add_argument("--desktop-confirm-token", default="", help="Required token for destructive live desktop actions.")
+    parser.add_argument(
+        "--desktop-confirm-token", default="", help="Required token for destructive live desktop actions."
+    )
     parser.add_argument("--desktop-action-log-path", default="", help="JSONL log path for desktop actions.")
-    parser.add_argument("--desktop-screenshot-dir", default="", help="Directory for live desktop before/after screenshots.")
-    parser.add_argument("--desktop-max-actions", type=int, default=25, help="Maximum live desktop actions per backend session.")
-    parser.add_argument("--desktop-max-duration-seconds", type=float, default=300.0, help="Maximum live desktop session duration.")
+    parser.add_argument(
+        "--desktop-screenshot-dir", default="", help="Directory for live desktop before/after screenshots."
+    )
+    parser.add_argument(
+        "--desktop-max-actions", type=int, default=25, help="Maximum live desktop actions per backend session."
+    )
+    parser.add_argument(
+        "--desktop-max-duration-seconds", type=float, default=300.0, help="Maximum live desktop session duration."
+    )
     parser.add_argument(
         "--ghost-mode",
         default="",
         choices=["", "whisper", "haunt", "possess"],
         help="Ghost operation mode: whisper (suggest), haunt (observe), possess (act).",
     )
-    parser.add_argument("--include-quantum-backend", action="store_true", help="Probe and register optional pyqpanda3 backend if installed.")
-    parser.add_argument("--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist.")
-    parser.add_argument("--disable-runtime-specialization", action="store_true", help="Disable local runtime specialization planning.")
-    parser.add_argument("--runtime-specialization-cache-dir", default="", help="Write local runtime specialization manifests here.")
-    parser.add_argument("--config-show", action="store_true", help="Print resolved Ghost Chimera runtime config as JSON and exit.")
+    parser.add_argument(
+        "--include-quantum-backend",
+        action="store_true",
+        help="Probe and register optional pyqpanda3 backend if installed.",
+    )
+    parser.add_argument(
+        "--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist."
+    )
+    parser.add_argument(
+        "--disable-runtime-specialization", action="store_true", help="Disable local runtime specialization planning."
+    )
+    parser.add_argument(
+        "--runtime-specialization-cache-dir", default="", help="Write local runtime specialization manifests here."
+    )
+    parser.add_argument(
+        "--config-show", action="store_true", help="Print resolved Ghost Chimera runtime config as JSON and exit."
+    )
     args = parser.parse_args(effective_argv)
     if args.ghost_mode:
         import os
@@ -421,7 +530,11 @@ def _main(argv: list[str] | None = None) -> int:
         try:
             executions = kernel.run(args.pilot_run)
         except PermissionError as exc:
-            print(json.dumps({"ok": False, "error": str(exc), "policy": kernel.policy.to_dict()}, indent=2, sort_keys=True))
+            print(
+                json.dumps(
+                    {"ok": False, "error": str(exc), "policy": kernel.policy.to_dict()}, indent=2, sort_keys=True
+                )
+            )
             return 1
         payload = [execution.to_dict() for execution in executions]
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -455,11 +568,21 @@ def _run_autonomy_cli(args: argparse.Namespace) -> int:
         config["autonomy"] = autonomy
         save_config(config)
         profile = get_autonomy_profile(str(autonomy.get("level") or "supervised"))
-        print(json.dumps({"ok": True, "config": autonomy, "resolved_profile": profile.to_dict()}, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {"ok": True, "config": autonomy, "resolved_profile": profile.to_dict()}, indent=2, sort_keys=True
+            )
+        )
         return 0
 
     if args.action == "jobs":
-        print(json.dumps({"profiles": [p.to_dict() for p in list_autonomy_profiles()], "jobs": AutonomyJobRunner.list_jobs()}, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {"profiles": [p.to_dict() for p in list_autonomy_profiles()], "jobs": AutonomyJobRunner.list_jobs()},
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
 
     if args.action == "run":
@@ -634,7 +757,13 @@ def _run_minimind_cli(args: argparse.Namespace) -> int:
         return 0
     if args.action == "bootstrap-personal":
         if not args.allow_files and not args.allow_email:
-            print(json.dumps({"ok": False, "error": "Pass --allow-files and/or --allow-email with explicit paths."}, indent=2, sort_keys=True))
+            print(
+                json.dumps(
+                    {"ok": False, "error": "Pass --allow-files and/or --allow-email with explicit paths."},
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
             return 2
         summary = lifecycle.bootstrap_personal_dataset(
             memory_db=args.memory_db,
@@ -697,7 +826,9 @@ def _run_minimind_cli(args: argparse.Namespace) -> int:
         return 0 if payload.get("ok") else 2
     if args.action == "personal-handoff":
         if not args.objective:
-            print(json.dumps({"ok": False, "error": "Pass --objective for personal-handoff."}, indent=2, sort_keys=True))
+            print(
+                json.dumps({"ok": False, "error": "Pass --objective for personal-handoff."}, indent=2, sort_keys=True)
+            )
             return 2
         payload = personal.build_handoff(args.objective)
         print(json.dumps(payload, indent=2, sort_keys=True))

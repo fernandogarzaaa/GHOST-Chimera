@@ -141,9 +141,9 @@ class HttpRouteRegistry:
             route registered with ``auth="token"`` but no *token* will
             always reject requests.
         """
-        route = HttpRoute(path=path, handler=handler, method=method,
-                          auth=auth, prefix=prefix, description=description,
-                          token=token)
+        route = HttpRoute(
+            path=path, handler=handler, method=method, auth=auth, prefix=prefix, description=description, token=token
+        )
         with self._lock:
             self._routes.append(route)
         logger.debug("Registered HTTP route %s %s (auth=%s)", method, path, auth)
@@ -158,8 +158,7 @@ class HttpRouteRegistry:
     def list_all(self) -> list[dict[str, Any]]:
         with self._lock:
             return [
-                {"path": r.path, "method": r.method, "auth": r.auth,
-                 "prefix": r.prefix, "description": r.description}
+                {"path": r.path, "method": r.method, "auth": r.auth, "prefix": r.prefix, "description": r.description}
                 for r in self._routes
             ]
 
@@ -177,13 +176,16 @@ class HttpRouteRegistry:
             return bool(route.token) and bool(token_header) and secrets.compare_digest(token_header, route.token)
         return False
 
+
 # ---------------------------------------------------------------------------
 # Data types
 # ------------ ----------- -- ------ ------ -----------
 
+
 @dataclass(frozen=True)
 class GatewayMessage:
     """Message sent over the WebSocket gateway."""
+
     type: str  # "text" | "tool_output" | "error" | "status" | "ping" | "pong" | "checkpoint"
     session_id: str
     data: dict[str, Any]
@@ -191,13 +193,15 @@ class GatewayMessage:
     sender: str = "server"
 
     def to_json(self) -> str:
-        return json.dumps({
-            "type": self.type,
-            "session_id": self.session_id,
-            "data": self.data,
-            "timestamp": self.timestamp,
-            "sender": self.sender,
-        })
+        return json.dumps(
+            {
+                "type": self.type,
+                "session_id": self.session_id,
+                "data": self.data,
+                "timestamp": self.timestamp,
+                "sender": self.sender,
+            }
+        )
 
     @classmethod
     def from_json(cls, raw: str) -> GatewayMessage:
@@ -214,6 +218,7 @@ class GatewayMessage:
 @dataclass
 class GatewaySession:
     """A persistent WebSocket session with an agent."""
+
     session_id: str
     agent: AIAgent
     credential_pool: Any = None
@@ -242,6 +247,7 @@ class GatewaySession:
 # ---------------------------------------------------------------------------
 # Gateway server
 # ------------ ----------- -- ------ ------ -----------
+
 
 class GatewayServer(BackgroundService):
     """WebSocket server with persistent agent sessions and HTTP route registry.
@@ -278,12 +284,17 @@ class GatewayServer(BackgroundService):
 
     def _register_builtin_routes(self) -> None:
         """Register built-in HTTP routes."""
-        self.routes.register("/health", self._handle_health, method="GET", auth="open",
-                             description="Health check endpoint")
-        self.routes.register("/status", self._handle_status, method="GET", auth="open",
-                             description="Gateway status")
-        self.routes.register("/sessions", self._handle_list_sessions, method="GET", auth="gateway",
-                             description="List active WebSocket sessions")
+        self.routes.register(
+            "/health", self._handle_health, method="GET", auth="open", description="Health check endpoint"
+        )
+        self.routes.register("/status", self._handle_status, method="GET", auth="open", description="Gateway status")
+        self.routes.register(
+            "/sessions",
+            self._handle_list_sessions,
+            method="GET",
+            auth="gateway",
+            description="List active WebSocket sessions",
+        )
 
     def _handle_health(self, ctx: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "timestamp": time.time()}
@@ -323,13 +334,12 @@ class GatewayServer(BackgroundService):
         description:
             Human-readable description.
         """
-        self.routes.register(path, handler, method=method, auth=auth,
-                             prefix=prefix, description=description)
+        self.routes.register(path, handler, method=method, auth=auth, prefix=prefix, description=description)
 
-    def create_session(self, session_id: str | None = None,
-                      system_prompt: str = "") -> GatewaySession:
+    def create_session(self, session_id: str | None = None, system_prompt: str = "") -> GatewaySession:
         """Create a new agent session."""
         import uuid
+
         session_id = session_id or f"ws-{uuid.uuid4().hex[:8]}"
 
         agent = AIAgent(
@@ -368,9 +378,13 @@ class GatewayServer(BackgroundService):
                 session.touch()
 
                 if msg.type == "ping":
-                    await websocket.send(GatewayMessage(
-                        type="pong", session_id=session_id, data={"latency": time.time() - msg.timestamp},
-                    ).to_json())
+                    await websocket.send(
+                        GatewayMessage(
+                            type="pong",
+                            session_id=session_id,
+                            data={"latency": time.time() - msg.timestamp},
+                        ).to_json()
+                    )
                     continue
 
                 if msg.type == "text":
@@ -379,10 +393,13 @@ class GatewayServer(BackgroundService):
                     continue
 
                 if msg.type == "status":
-                    await websocket.send(GatewayMessage(
-                        type="status", session_id=session_id,
-                        data=session.to_dict(),
-                    ).to_json())
+                    await websocket.send(
+                        GatewayMessage(
+                            type="status",
+                            session_id=session_id,
+                            data=session.to_dict(),
+                        ).to_json()
+                    )
                     continue
 
                 if msg.type == "checkpoint":
@@ -391,38 +408,49 @@ class GatewayServer(BackgroundService):
                         agent=session.agent,
                     )
                     if ckpt:
-                        await websocket.send(GatewayMessage(
-                            type="checkpoint", session_id=session_id,
-                            data=ckpt.to_dict(),
-                        ).to_json())
+                        await websocket.send(
+                            GatewayMessage(
+                                type="checkpoint",
+                                session_id=session_id,
+                                data=ckpt.to_dict(),
+                            ).to_json()
+                        )
 
         except Exception as exc:
             logger.warning("Client %s disconnected: %s", session_id, exc)
         finally:
             session.is_connected = False
 
-    async def _handle_user_message(self, session: GatewaySession,
-                                  message: str, websocket) -> None:
+    async def _handle_user_message(self, session: GatewaySession, message: str, websocket) -> None:
         """Process a user message and stream agent response."""
         session_id = session.session_id
 
         # Send tool_output start
-        await websocket.send(GatewayMessage(
-            type="tool_output", session_id=session_id,
-            data={"phase": "processing", "message": "Running agent..."},
-        ).to_json())
+        await websocket.send(
+            GatewayMessage(
+                type="tool_output",
+                session_id=session_id,
+                data={"phase": "processing", "message": "Running agent..."},
+            ).to_json()
+        )
 
         try:
             result = session.agent.run(message)
-            await websocket.send(GatewayMessage(
-                type="text", session_id=session_id,
-                data={"message": str(result)[:5000]},
-            ).to_json())
+            await websocket.send(
+                GatewayMessage(
+                    type="text",
+                    session_id=session_id,
+                    data={"message": str(result)[:5000]},
+                ).to_json()
+            )
         except Exception as exc:
-            await websocket.send(GatewayMessage(
-                type="error", session_id=session_id,
-                data={"error": str(exc)},
-            ).to_json())
+            await websocket.send(
+                GatewayMessage(
+                    type="error",
+                    session_id=session_id,
+                    data={"error": str(exc)},
+                ).to_json()
+            )
 
     def start(self) -> None:
         """Start the WebSocket server and the HTTP route server."""
@@ -431,8 +459,11 @@ class GatewayServer(BackgroundService):
 
         async def _start_async():
             import websockets
+
             async with websockets.serve(
-                self._handle_connection, self.host, self.port,
+                self._handle_connection,
+                self.host,
+                self.port,
                 ping_interval=WS_PING_INTERVAL,
                 ping_timeout=WS_CLOSE_GRACE_PERIOD,
                 max_size=WS_MAX_MESSAGE_BYTES,
@@ -451,8 +482,9 @@ class GatewayServer(BackgroundService):
         # Start HTTP server on adjacent port
         self._start_http_server()
 
-        logger.info("Gateway server starting on ws://%s:%d, http://%s:%d",
-                    self.host, self.port, self.host, self.http_port)
+        logger.info(
+            "Gateway server starting on ws://%s:%d, http://%s:%d", self.host, self.port, self.host, self.http_port
+        )
 
     def _start_http_server(self) -> None:
         """Start a lightweight HTTP server for route registry."""
@@ -469,6 +501,7 @@ class GatewayServer(BackgroundService):
 
             def _dispatch(self, method: str, body: bytes = b"") -> None:
                 import urllib.parse
+
                 parsed = urllib.parse.urlparse(self.path)
                 path = parsed.path
                 query_str = parsed.query
@@ -527,9 +560,7 @@ class GatewayServer(BackgroundService):
 
         try:
             self._http_server = HTTPServer((self.host, self.http_port), _Handler)
-            self._http_thread = threading.Thread(
-                target=self._http_server.serve_forever, daemon=True
-            )
+            self._http_thread = threading.Thread(target=self._http_server.serve_forever, daemon=True)
             self._http_thread.start()
             logger.info("HTTP route server listening on http://%s:%d", self.host, self.http_port)
         except OSError as exc:
@@ -538,6 +569,7 @@ class GatewayServer(BackgroundService):
     async def _handle_connection(self, websocket, path) -> None:
         """Handle incoming WebSocket connection — create or resume session."""
         import uuid
+
         session_id = f"ws-{uuid.uuid4().hex[:8]}"
         await self.handle_client(websocket, session_id)
 

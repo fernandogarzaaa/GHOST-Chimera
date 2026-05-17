@@ -154,8 +154,7 @@ class ChimeraScheduler:
 
         return decisions
 
-    def _apply_policy_constraints(self, task: TaskSpec,
-                                  decisions: list[ScheduleDecision]) -> list[ScheduleDecision]:
+    def _apply_policy_constraints(self, task: TaskSpec, decisions: list[ScheduleDecision]) -> list[ScheduleDecision]:
         """Filter/re-score backends based on MaterialRegistry policy patterns."""
         policy_id = task.constraints.get("policy_pattern", "strict_factual")
         pattern = self._registry.get_pattern(policy_id)

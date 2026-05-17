@@ -6,7 +6,6 @@ from typing import Any
 
 from .role_profiles import get_role_profile
 
-
 _SENSITIVE_SOURCE_SCOPES = {
     "local_machine",
     "email",
@@ -66,7 +65,8 @@ def synthesize_path(profile_id: str, preferences: dict[str, Any] | None = None) 
             "approval_level": approval_level,
             "push_requires_approval": True,
             "destructive_actions_require_approval": True,
-            "admin_controls_required": profile.id in {"ai-engineer-proxy", "enterprise-operator"} or uses_sensitive_sources,
+            "admin_controls_required": profile.id in {"ai-engineer-proxy", "enterprise-operator"}
+            or uses_sensitive_sources,
         },
         "proxy_policy": {
             "disclosure_required": profile.requires_disclosure,

@@ -41,9 +41,11 @@ DEFAULT_TIMEZONE = "UTC"
 # Data types
 # --------------------------- ----------------------- ---------------
 
+
 @dataclass()
 class CronJob:
     """A scheduled cron job."""
+
     id: str
     name: str
     cron_expression: str
@@ -102,6 +104,7 @@ class CronJob:
 @dataclass(frozen=True)
 class CronJobResult:
     """Result from executing a cron job."""
+
     job_id: str
     job_name: str
     objective: str
@@ -120,9 +123,11 @@ class CronJobResult:
             "run_at": self.run_at,
         }
 
+
 # ---------------------------------------------------------------------------
 # Cron scheduler
 # --------------------------- ----------------------- ---------------
+
 
 class CronScheduler(BackgroundService):
     """Persistent cron-style task scheduler.
@@ -163,6 +168,7 @@ class CronScheduler(BackgroundService):
     ) -> CronJob:
         """Add a new scheduled job."""
         import uuid
+
         job_id = f"cron-{uuid.uuid4().hex[:8]}"
         job = CronJob(
             id=job_id,

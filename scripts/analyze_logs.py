@@ -12,6 +12,11 @@ from typing import Any
 
 LEVEL_RE = re.compile(r"\b(CRITICAL|ERROR|WARNING|WARN|INFO|DEBUG)\b", re.IGNORECASE)
 LOGGER_RE = re.compile(r"\b(?:logger|name)=([A-Za-z0-9_.-]+)|\b([A-Za-z_][A-Za-z0-9_.-]+):\s")
+DEMO_LOG_LINES = [
+    "ghostchimera.console: INFO readiness check started",
+    "ghostchimera.bob: WARNING optional Bob tooling check skipped in runtime mode",
+    "ghostchimera.console: INFO readiness check complete",
+]
 
 
 def analyze_lines(lines: list[str]) -> dict[str, Any]:
@@ -77,12 +82,19 @@ def format_markdown(data: dict[str, Any]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Analyze plain-text logs")
-    parser.add_argument("--input", required=True, help="Log file path")
+    parser.add_argument("--input", help="Log file path")
+    parser.add_argument("--demo", action="store_true", help="Analyze a built-in demo log sample")
     parser.add_argument("--format", choices=["text", "json", "markdown"], default="text")
     args = parser.parse_args()
 
     try:
-        data = analyze_lines(Path(args.input).read_text(encoding="utf-8").splitlines())
+        if args.demo:
+            lines = DEMO_LOG_LINES
+        elif args.input:
+            lines = Path(args.input).read_text(encoding="utf-8").splitlines()
+        else:
+            parser.error("--input is required unless --demo is supplied")
+        data = analyze_lines(lines)
         if args.format == "json":
             print(json.dumps(data, indent=2))
         elif args.format == "markdown":

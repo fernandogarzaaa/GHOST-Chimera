@@ -50,6 +50,7 @@ _PROTECT_LAST_N = 6
 # Content helpers
 # ---------------------------------------------------------------------------
 
+
 def _content_length(raw_content: Any) -> int:
     """Return the effective character-length for token budgeting."""
     if isinstance(raw_content, str):
@@ -104,6 +105,7 @@ def _append_text(content: Any, text: str, *, prepend: bool = False) -> Any:
 # Context engine base
 # ---------------------------------------------------------------------------
 
+
 class ContextEngine(ABC):
     """Base class all context engines must implement."""
 
@@ -146,6 +148,7 @@ class ContextEngine(ABC):
 # ---------------------------------------------------------------------------
 # Default compressor — deterministic + optional LLM
 # ---------------------------------------------------------------------------
+
 
 class ContextCompressor(ContextEngine):
     """Deterministic context window compression with optional LLM summarization.
@@ -236,9 +239,9 @@ class ContextCompressor(ContextEngine):
         if len(messages) <= protected:
             return messages  # nothing to compress
 
-        head = messages[:self.protect_first_n]
-        middle = messages[self.protect_first_n:-self.protect_last_n]
-        tail = messages[-self.protect_last_n:]
+        head = messages[: self.protect_first_n]
+        middle = messages[self.protect_first_n : -self.protect_last_n]
+        tail = messages[-self.protect_last_n :]
 
         if not middle:
             return messages
@@ -276,8 +279,12 @@ class ContextCompressor(ContextEngine):
         self._compressed_messages = [summary_msg] + tail
         self._iterative_summary = full_summary
         self.compression_count += 1
-        logger.info("Compressed: %d messages -> %d (compression #%d)",
-                     len(messages), len(self._compressed_messages), self.compression_count)
+        logger.info(
+            "Compressed: %d messages -> %d (compression #%d)",
+            len(messages),
+            len(self._compressed_messages),
+            self.compression_count,
+        )
         return self._compressed_messages
 
     def _prune_tool_outputs(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -331,7 +338,7 @@ class ContextCompressor(ContextEngine):
         summary = "\n\n".join(parts)
         # Truncate to budget
         if len(summary) > budget:
-            summary = summary[:budget - 50] + "\n\n[Summary truncated to budget]"
+            summary = summary[: budget - 50] + "\n\n[Summary truncated to budget]"
         return summary or "[No compressible content found in middle section]"
 
     def _llm_summarize(
@@ -360,8 +367,9 @@ class ContextCompressor(ContextEngine):
             summarize_prompt += f"\nSpecial focus topic: {focus_topic}"
 
         # In practice, this would call the auxiliary LLM client
-        logger.info("LLM summarization requested — %d messages, budget: %d tokens",
-                     len(messages), self.summary_budget_tokens)
+        logger.info(
+            "LLM summarization requested — %d messages, budget: %d tokens", len(messages), self.summary_budget_tokens
+        )
         return f"[LLM-summarized {len(messages)} turns — integration requires auxiliary LLM client]"
 
 

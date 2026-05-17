@@ -18,21 +18,23 @@ T = TypeVar("T")
 
 class ConfidenceLevel(Enum):
     """Semantic confidence tiers (not arbitrary floats)."""
-    HIGH = auto()       # >= 0.95 -- "Confident"
-    MEDIUM = auto()     # 0.5 - 0.95 -- explorable range
-    LOW = auto()        # < 0.5 -- very uncertain
-    UNKNOWN = auto()    # no confidence info
+
+    HIGH = auto()  # >= 0.95 -- "Confident"
+    MEDIUM = auto()  # 0.5 - 0.95 -- explorable range
+    LOW = auto()  # < 0.5 -- very uncertain
+    UNKNOWN = auto()  # no confidence info
 
 
 class MemoryScope(Enum):
-    EPHEMERAL = auto()    # dies when scope exits
-    PERSISTENT = auto()   # survives across executions
+    EPHEMERAL = auto()  # dies when scope exits
+    PERSISTENT = auto()  # survives across executions
     PROVISIONAL = auto()  # held until contradicted
 
 
 @dataclass(slots=True)
 class Confidence:
     """Numerical confidence with a source trace."""
+
     value: float
     source: str = "inferred"
     timestamp: float = field(default_factory=time.time)
@@ -63,6 +65,7 @@ class Confidence:
 @dataclass
 class ChimeraValue:
     """Base for all probabilistic runtime values."""
+
     raw: Any
     confidence: Confidence
     memory_scope: MemoryScope = MemoryScope.EPHEMERAL
@@ -84,20 +87,20 @@ class ConfidentValue(ChimeraValue):
 
     def __post_init__(self) -> None:
         if self.confidence.value < 0.95:
-            raise ConfidenceViolation(
-                f"Confident requires confidence >= 0.95, got {self.confidence.value}"
-            )
+            raise ConfidenceViolation(f"Confident requires confidence >= 0.95, got {self.confidence.value}")
 
 
 @dataclass
 class ExploreValue(ChimeraValue):
     """Value in exploration space -- hallucination explicitly allowed."""
+
     exploration_budget: float = 1.0
 
 
 @dataclass
 class ConvergeValue(ChimeraValue):
     """Value requiring multi-branch consensus."""
+
     branch_values: list[ChimeraValue] = field(default_factory=list)
     consensus_method: str = "majority"
 
@@ -105,6 +108,7 @@ class ConvergeValue(ChimeraValue):
 @dataclass
 class ProvisionalValue(ChimeraValue):
     """Revocable value -- valid until contradicted."""
+
     revoked: bool = False
 
     def revoke(self) -> ProvisionalValue:

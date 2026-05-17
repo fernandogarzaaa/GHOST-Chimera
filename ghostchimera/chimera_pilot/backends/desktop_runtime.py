@@ -83,7 +83,9 @@ class DesktopRuntimeBackend:
         if action not in self._SUPPORTED_ACTIONS:
             return ExecutionResult(self.id, task.id, False, "", error=f"Unsupported desktop action: {action}")
         # Accept either task constraints or task inputs so callers can pass trace IDs via compiler constraints or direct backend APIs.
-        trace_id = str(task.constraints.get("trace_id") or task.inputs.get("trace_id") or f"desktop-trace-{uuid.uuid4().hex[:10]}")
+        trace_id = str(
+            task.constraints.get("trace_id") or task.inputs.get("trace_id") or f"desktop-trace-{uuid.uuid4().hex[:10]}"
+        )
         if action == "plan":
             return self._execute_plan(task, trace_id=trace_id)
         single = self._execute_single_action(
@@ -136,7 +138,9 @@ class DesktopRuntimeBackend:
                 if step_result["ok"]:
                     break
             if last_step_result is None:
-                return ExecutionResult(self.id, task.id, False, "", error=f"Desktop plan step {idx + 1} produced no result")
+                return ExecutionResult(
+                    self.id, task.id, False, "", error=f"Desktop plan step {idx + 1} produced no result"
+                )
             if not last_step_result["ok"] and stop_on_failure:
                 metrics = self._desktop_metrics(
                     "plan",
@@ -162,7 +166,12 @@ class DesktopRuntimeBackend:
             self.id,
             task.id,
             True,
-            {"mode": "dry_run" if self.dry_run else "live", "executed": not self.dry_run, "trace_id": trace_id, "steps": step_outcomes},
+            {
+                "mode": "dry_run" if self.dry_run else "live",
+                "executed": not self.dry_run,
+                "trace_id": trace_id,
+                "steps": step_outcomes,
+            },
             metrics=metrics,
         )
 

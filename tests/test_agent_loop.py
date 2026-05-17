@@ -166,12 +166,14 @@ class AIAgentToolCallTests(unittest.TestCase):
 
     def test_execute_tool_calls_with_handler(self) -> None:
         agent = AIAgent(model_name="claude-haiku-4-20250514")
-        tools = [{
-            "name": "echo",
-            "description": "echo back",
-            "schema": {"type": "object"},
-            "handler": lambda **kw: kw.get("msg", ""),
-        }]
+        tools = [
+            {
+                "name": "echo",
+                "description": "echo back",
+                "schema": {"type": "object"},
+                "handler": lambda **kw: kw.get("msg", ""),
+            }
+        ]
         calls = [{"id": "c1", "name": "echo", "arguments": {"msg": "hello"}}]
         results = agent._execute_tool_calls(calls, tools=tools)
         self.assertEqual(len(results), 1)
@@ -331,7 +333,9 @@ class ContextCompressorTests(unittest.TestCase):
         for i in range(20):
             messages.append({"role": "user", "content": f"msg {i}"})
             messages.append({"role": "assistant", "content": f"reply {i}"})
-        messages.append({"role": "tool", "content": "very long tool output that should be pruned when context is small"})
+        messages.append(
+            {"role": "tool", "content": "very long tool output that should be pruned when context is small"}
+        )
         engine._iterative_summary = ""
         result = engine.compress(messages, current_tokens=500)
         # Result is [summary_msg] + tail — the tool output is pruned into the summary
@@ -383,9 +387,15 @@ class ContextCompressorTests(unittest.TestCase):
             @property
             def name(self) -> str:
                 return "my_engine"
-            def update_from_response(self, usage): pass
-            def should_compress(self, prompt_tokens=None): return False
-            def compress(self, messages, current_tokens=None, focus_topic=None): return messages
+
+            def update_from_response(self, usage):
+                pass
+
+            def should_compress(self, prompt_tokens=None):
+                return False
+
+            def compress(self, messages, current_tokens=None, focus_topic=None):
+                return messages
 
         register_context_engine("my_engine", MyEngine)
         engine = get_context_engine("my_engine")

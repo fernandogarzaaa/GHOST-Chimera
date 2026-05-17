@@ -30,10 +30,67 @@ REQUIRED_FILES = [
     "MANIFEST.in",
     "docs/ARCHITECTURE.md",
     "docs/CLEAN_ROOM.md",
+    "docs/BOB_OPTIONAL_TOOLING.md",
     "docs/COMPETITIVE_CAPABILITY_MATRIX.md",
     "docs/RELEASE_CHECKLIST.md",
     "scripts/smoke_installed_wheel.py",
 ]
+
+BOB_RUNTIME_MARKERS = (
+    "IBM Bob",
+    "Bob-to-Ghost",
+    "bob_accelerator",
+    "bob_delivery_package",
+)
+
+BOB_TOOLING_FILES = [
+    ".github/pull_request_template.md",
+    ".github/workflows/bob-quality.yml",
+    ".github/workflows/test-matrix.yml",
+    "docs/BOB_POST_HACKATHON_ROADMAP.md",
+    "docs/bob-tools.md",
+    "docs/sbom-lite.md",
+    "examples/basic_config.py",
+    "examples/bob_coverage_report.py",
+    "examples/production_guardrails.py",
+    "examples/test_scaffold_preview.py",
+    "mkdocs.yml",
+    "scripts/analyze_logs.py",
+    "scripts/audit_dependencies.py",
+    "scripts/bob_accelerator.py",
+    "scripts/bob_delivery_package.py",
+    "scripts/coverage_report.py",
+    "scripts/dependency_graph.py",
+    "scripts/dev_env.py",
+    "scripts/generate_api_reference.py",
+    "scripts/generate_changelog.py",
+    "scripts/generate_sbom.py",
+    "scripts/generate_test_scaffold.py",
+    "scripts/validate_config.py",
+    "tests/integration/test_bob_toolchain.py",
+    "tests/performance/test_bob_tool_performance.py",
+    "tests/test_api_reference_generator.py",
+    "tests/test_dependency_graph.py",
+    "tests/test_dev_env.py",
+    "tests/test_docs_site.py",
+    "tests/test_examples.py",
+    "tests/test_log_analyzer.py",
+    "tests/test_sbom_generator.py",
+    "tests/test_workflows_and_pr_template.py",
+]
+
+BOB_TOOLING_COMMANDS = (
+    "python scripts/bob_accelerator.py",
+    "python scripts/audit_dependencies.py --format markdown",
+    "python scripts/bob_delivery_package.py --output docs/bob_delivery_package.md",
+    "python scripts/generate_api_reference.py",
+    "python scripts/generate_sbom.py",
+    "python scripts/dependency_graph.py",
+    "python scripts/analyze_logs.py --demo",
+    "python scripts/dev_env.py",
+    "python -m pytest tests/integration/test_bob_toolchain.py -q",
+    "python -m pytest tests/performance/test_bob_tool_performance.py -q",
+)
 
 
 def check_required_files() -> dict[str, Any]:
@@ -107,7 +164,9 @@ def check_compileall() -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="ghostchimera-compile-") as cache_dir:
         sys.pycache_prefix = cache_dir
         try:
-            ok = compileall.compile_dir(str(ROOT / "ghostchimera"), quiet=1) and compileall.compile_dir(str(ROOT / "tests"), quiet=1)
+            ok = compileall.compile_dir(str(ROOT / "ghostchimera"), quiet=1) and compileall.compile_dir(
+                str(ROOT / "tests"), quiet=1
+            )
         finally:
             sys.pycache_prefix = previous_prefix
     return {"ok": bool(ok)}
@@ -234,6 +293,9 @@ def check_release_hardening() -> dict[str, Any]:
         if command not in commands:
             errors.append(f"console readiness missing {command!r}")
 
+    if "python -m pytest -q" not in release_checklist:
+        errors.append("release checklist missing full pytest gate")
+
     eval_runner = (ROOT / "ghostchimera" / "evals" / "runner.py").read_text(encoding="utf-8")
     if "/api/console/workspace" not in eval_runner:
         errors.append("user-journey eval does not exercise console workspace state")
@@ -257,22 +319,108 @@ def check_release_hardening() -> dict[str, Any]:
     return {"ok": not errors, "errors": errors}
 
 
+def check_optional_tooling_boundary() -> dict[str, Any]:
+    """Check optional hackathon/developer tooling does not enter runtime code."""
+
+    errors: list[str] = []
+    boundary_doc = ROOT / "docs" / "BOB_OPTIONAL_TOOLING.md"
+    if not boundary_doc.exists():
+        errors.append("docs/BOB_OPTIONAL_TOOLING.md missing")
+    else:
+        content = boundary_doc.read_text(encoding="utf-8")
+        for token in (
+            "not required to run Ghost Chimera",
+            "Users who do not care about IBM Bob can ignore all Bob-named files",
+            "Do not import Bob tooling from `ghostchimera/`",
+        ):
+            if token not in content:
+                errors.append(f"Bob optional tooling doc missing {token!r}")
+
+    runtime_dir = ROOT / "ghostchimera"
+    for path in runtime_dir.rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        for marker in BOB_RUNTIME_MARKERS:
+            if marker in text:
+                errors.append(
+                    f"runtime package references optional Bob tooling: {path.relative_to(ROOT)} contains {marker!r}"
+                )
+
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = pyproject.get("project", {}).get("dependencies", [])
+    optional_dependencies = pyproject.get("project", {}).get("optional-dependencies", {})
+    dep_text = "\n".join([*dependencies, *[dep for deps in optional_dependencies.values() for dep in deps]]).lower()
+    if "ibm" in dep_text and "bob" in dep_text:
+        errors.append("pyproject dependencies appear to require IBM Bob")
+
+    return {"ok": not errors, "errors": errors}
+
+
+def check_bob_tooling_artifacts() -> dict[str, Any]:
+    """Check that completed Bob roadmap claims remain backed by real artifacts."""
+
+    errors: list[str] = []
+    missing = [path for path in BOB_TOOLING_FILES if not (ROOT / path).exists()]
+    errors.extend(f"Bob tooling artifact missing: {path}" for path in missing)
+
+    roadmap = (ROOT / "docs" / "BOB_POST_HACKATHON_ROADMAP.md").read_text(encoding="utf-8")
+    for token in (
+        "Phase 1: Developer Tools (COMPLETE)",
+        "Phase 2: Testing Infrastructure (COMPLETE)",
+        "Phase 3: Documentation (COMPLETE)",
+        "Phase 4: CI/CD and Release (COMPLETE)",
+        "Phase 5: Advanced Developer Intelligence (COMPLETE)",
+        "Do Not Fake Completion Policy",
+        "Runtime Boundary",
+    ):
+        if token not in roadmap:
+            errors.append(f"Bob roadmap missing {token!r}")
+
+    bob_workflow = (ROOT / ".github" / "workflows" / "bob-quality.yml").read_text(encoding="utf-8")
+    for token in (
+        "python scripts/bob_accelerator.py",
+        "python scripts/audit_dependencies.py --format markdown",
+        "python scripts/bob_delivery_package.py --output docs/bob_delivery_package.md",
+        "tests/integration/test_bob_toolchain.py",
+        "tests/performance/test_bob_tool_performance.py",
+    ):
+        if token not in bob_workflow:
+            errors.append(f"Bob quality workflow missing {token!r}")
+
+    matrix_workflow = (ROOT / ".github" / "workflows" / "test-matrix.yml").read_text(encoding="utf-8")
+    for token in ("ubuntu-latest", "macos-latest", "windows-latest", '"3.11"', '"3.12"', '"3.13"'):
+        if token not in matrix_workflow:
+            errors.append(f"test matrix workflow missing {token!r}")
+
+    docs_site = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
+    for token in ("IBM Bob Tools: bob-tools.md", "API Reference: api-reference.md", "Roadmap: BOB_POST_HACKATHON_ROADMAP.md"):
+        if token not in docs_site:
+            errors.append(f"mkdocs navigation missing {token!r}")
+
+    release_checklist = (ROOT / "docs" / "RELEASE_CHECKLIST.md").read_text(encoding="utf-8")
+    missing_commands = [command for command in BOB_TOOLING_COMMANDS if command not in release_checklist]
+    errors.extend(f"release checklist missing Bob tooling command {command!r}" for command in missing_commands)
+
+    return {"ok": not errors, "errors": errors, "artifact_count": len(BOB_TOOLING_FILES)}
+
+
 def check_unittest() -> dict[str, Any]:
     stream = io.StringIO()
-    suite = unittest.defaultTestLoader.loadTestsFromNames([
-        "tests.test_agent_core_pilot",
-        "tests.test_chimera_pilot",
-        "tests.test_code_search",
-        "tests.test_config",
-        "tests.test_conscious_workspace",
-        "tests.test_console",
-        "tests.test_cwr_backend",
-        "tests.test_evals",
-        "tests.test_llamacpp_backend",
-        "tests.test_local_model_profiles",
-        "tests.test_release_package",
-        "tests.test_safety_policy",
-    ])
+    suite = unittest.defaultTestLoader.loadTestsFromNames(
+        [
+            "tests.test_agent_core_pilot",
+            "tests.test_chimera_pilot",
+            "tests.test_code_search",
+            "tests.test_config",
+            "tests.test_conscious_workspace",
+            "tests.test_console",
+            "tests.test_cwr_backend",
+            "tests.test_evals",
+            "tests.test_llamacpp_backend",
+            "tests.test_local_model_profiles",
+            "tests.test_release_package",
+            "tests.test_safety_policy",
+        ]
+    )
     result = unittest.TextTestRunner(stream=stream, verbosity=2).run(suite)
     output = stream.getvalue()
     return {
@@ -291,6 +439,8 @@ def main() -> int:
         "imports": check_imports(),
         "beta_features": check_beta_features(),
         "release_hardening": check_release_hardening(),
+        "optional_tooling_boundary": check_optional_tooling_boundary(),
+        "bob_tooling_artifacts": check_bob_tooling_artifacts(),
         "policy_defaults": check_policy_defaults(),
         "compileall": check_compileall(),
         "unittest": check_unittest(),

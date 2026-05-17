@@ -19,8 +19,13 @@ from ghostchimera.chimera_pilot.checkpoint import (
 class CheckpointTests(unittest.TestCase):
     def test_checkpoint_to_dict(self) -> None:
         ckpt = Checkpoint(
-            name="test-1", git_hash="abc123", created_at=time.time(),
-            state_dir="/tmp/state", file_count=10, size_bytes=1024, description="test",
+            name="test-1",
+            git_hash="abc123",
+            created_at=time.time(),
+            state_dir="/tmp/state",
+            file_count=10,
+            size_bytes=1024,
+            description="test",
         )
         d = ckpt.to_dict()
         self.assertEqual(d["name"], "test-1")
@@ -46,6 +51,7 @@ class CheckpointManagerTests(unittest.TestCase):
         os.makedirs(self.state_dir, exist_ok=True)
         # Patch the module-level CHECKPOINT_BASE so no real checkpoints leak
         import ghostchimera.chimera_pilot.checkpoint as cp
+
         self._orig_checkpoint_base = cp.CHECKPOINT_BASE
         cp.CHECKPOINT_BASE = Path(self.tmpdir) / "checkpoints"
         self.manager = CheckpointManager(self.config)
@@ -59,6 +65,7 @@ class CheckpointManagerTests(unittest.TestCase):
         This undoes the modification performed in setUp by assigning the saved original value back to ghostchimera.chimera_pilot.checkpoint.CHECKPOINT_BASE.
         """
         import ghostchimera.chimera_pilot.checkpoint as cp
+
         cp.CHECKPOINT_BASE = self._orig_checkpoint_base
 
     def test_create_checkpoint(self) -> None:
@@ -118,6 +125,7 @@ class CheckpointManagerTests(unittest.TestCase):
         # Artificially age it using object.__setattr__ since Checkpoint is frozen
         old_ckpt = self.manager._checkpoints[ckpt.name]
         import dataclasses
+
         new_ckpt = dataclasses.replace(old_ckpt, created_at=time.time() - (40 * 86400))
         self.manager._checkpoints[ckpt.name] = new_ckpt
         removed = self.manager.prune_old(max_age_days=30)

@@ -67,6 +67,7 @@ class TestSecurityMonitor(unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _make_event(self, **kwargs) -> SecurityEvent:
@@ -229,6 +230,7 @@ class TestSecurityMonitor(unittest.TestCase):
 class TestGetMonitorSingleton(unittest.TestCase):
     def test_returns_same_instance(self):
         import ghostchimera.safety_layer.security_monitor as _mod
+
         old = _mod._monitor_instance
         try:
             _mod._monitor_instance = None

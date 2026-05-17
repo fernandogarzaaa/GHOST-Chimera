@@ -74,7 +74,11 @@ class Vec3:
     @classmethod
     def from_list(cls, data: list | tuple) -> Vec3:
         data = list(data or [0, 0, 0])
-        return cls(float(data[0]) if len(data) > 0 else 0.0, float(data[1]) if len(data) > 1 else 0.0, float(data[2]) if len(data) > 2 else 0.0)
+        return cls(
+            float(data[0]) if len(data) > 0 else 0.0,
+            float(data[1]) if len(data) > 1 else 0.0,
+            float(data[2]) if len(data) > 2 else 0.0,
+        )
 
 
 @dataclass
@@ -159,7 +163,9 @@ def _simulate_kinematics(
             vel_mag = max_velocity * math.sin(t * math.pi)  # bell curve
             direction = Vec3((wp.x - prev_pos.x) / dist, (wp.y - prev_pos.y) / dist, (wp.z - prev_pos.z) / dist)
             vel = Vec3(vel_mag * direction.x, vel_mag * direction.y, vel_mag * direction.z)
-            state = RobotState(position=pos, velocity=vel, joint_angles=joints, timestamp=round(total_time + step * dt, 4))
+            state = RobotState(
+                position=pos, velocity=vel, joint_angles=joints, timestamp=round(total_time + step * dt, 4)
+            )
 
         total_time += travel_time
         total_distance += dist
@@ -169,7 +175,13 @@ def _simulate_kinematics(
             obs_pos = Vec3.from_list(obs.get("position", [0, 0, 0]))
             obs_radius = float(obs.get("radius", 0.1))
             if wp.distance_to(obs_pos) < obs_radius + 0.05:  # 5cm margin
-                collisions.append({"waypoint": i, "obstacle": obs.get("name", "unknown"), "distance": round(wp.distance_to(obs_pos), 4)})
+                collisions.append(
+                    {
+                        "waypoint": i,
+                        "obstacle": obs.get("name", "unknown"),
+                        "distance": round(wp.distance_to(obs_pos), 4),
+                    }
+                )
 
         trajectory.append({**state.to_dict(), "waypoint": i, "event": "arrived"})
         prev_pos = wp
@@ -229,7 +241,7 @@ def _simulate_digital_twin(
         "state_count": len(states),
         "total_ticks": total_ticks,
         "simulation_time_s": round(t, 4),
-        "state_log": state_log[-50:],   # cap for output size
+        "state_log": state_log[-50:],  # cap for output size
         "sensor_log": sensor_log[-100:],
         "anomalies": _detect_sensor_anomalies(sensor_log),
         "success": True,
@@ -378,12 +390,14 @@ def _simulate_policy_test(
         outcome = "goal" if reached_goal else ("collision" if collision else "timeout")
         if outcome == "goal":
             total_success += 1
-        episode_results.append({
-            "episode": ep,
-            "outcome": outcome,
-            "steps": steps,
-            "final_distance": round(pos.distance_to(goal), 4),
-        })
+        episode_results.append(
+            {
+                "episode": ep,
+                "outcome": outcome,
+                "steps": steps,
+                "final_distance": round(pos.distance_to(goal), 4),
+            }
+        )
 
     return {
         "mode": "policy_test",

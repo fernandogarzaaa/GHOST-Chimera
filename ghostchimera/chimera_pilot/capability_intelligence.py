@@ -47,9 +47,13 @@ COMPETITIVE_CAPABILITIES: tuple[CompetitiveCapability, ...] = (
         priority=5,
         description="Queue, schedule, and inspect long-running autonomy jobs from CLI and console surfaces.",
         required_surfaces=(
-            CapabilitySurface("ghostchimera/chimera_pilot/autonomy_queue.py", "AutonomyJobQueue", "persistent job queue"),
+            CapabilitySurface(
+                "ghostchimera/chimera_pilot/autonomy_queue.py", "AutonomyJobQueue", "persistent job queue"
+            ),
             CapabilitySurface("ghostchimera/chimera_pilot/cron_scheduler.py", "CronScheduler", "recurring scheduler"),
-            CapabilitySurface("ghostchimera/control_plane/console.py", "/api/console/autonomy/jobs", "dashboard job routes"),
+            CapabilitySurface(
+                "ghostchimera/control_plane/console.py", "/api/console/autonomy/jobs", "dashboard job routes"
+            ),
             CapabilitySurface("ghostchimera/control_plane/cli.py", "autonomy", "operator CLI"),
         ),
         improvement="Add distributed workers and resumable worktree sandboxes for multi-machine task execution.",
@@ -79,9 +83,17 @@ COMPETITIVE_CAPABILITIES: tuple[CompetitiveCapability, ...] = (
         priority=4,
         description="Gateway browser routes and optional agent-browser workspace let Ghost inspect rendered pages.",
         required_surfaces=(
-            CapabilitySurface("ghostchimera/tool_layer/browser_workspace.py", "AgentBrowserWorkspace", "browser session adapter"),
-            CapabilitySurface("ghostchimera/control_plane/console.py", "/api/console/browser/snapshot", "dashboard browser snapshot route"),
-            CapabilitySurface("tests/test_console.py", "test_console_registers_browser_workspace_routes", "route coverage"),
+            CapabilitySurface(
+                "ghostchimera/tool_layer/browser_workspace.py", "AgentBrowserWorkspace", "browser session adapter"
+            ),
+            CapabilitySurface(
+                "ghostchimera/control_plane/console.py",
+                "/api/console/browser/snapshot",
+                "dashboard browser snapshot route",
+            ),
+            CapabilitySurface(
+                "tests/test_console.py", "test_console_registers_browser_workspace_routes", "route coverage"
+            ),
         ),
         improvement="Capture screenshot artifacts and pixel assertions in the release gate for frontend tasks.",
         release_gate="python -m ghostchimera.evals run --suite user-journey",
@@ -97,8 +109,12 @@ COMPETITIVE_CAPABILITIES: tuple[CompetitiveCapability, ...] = (
             CapabilitySurface("ghostchimera/chimera_pilot/hooks.py", "HookRegistry", "tool hook registry"),
             CapabilitySurface("ghostchimera/safety_layer/approval.py", "ApprovalPolicy", "human approval gate"),
             CapabilitySurface("ghostchimera/safety_layer/ssrf.py", "SSRFPolicy", "network egress guard"),
-            CapabilitySurface("ghostchimera/safety_layer/lobster_trap.py", "BuiltinDPIEngine", "prompt/data inspection"),
-            CapabilitySurface("ghostchimera/chimera_pilot/desktop_policy.py", "DESKTOP_ACTION_CLASSES", "desktop action policy"),
+            CapabilitySurface(
+                "ghostchimera/safety_layer/lobster_trap.py", "BuiltinDPIEngine", "prompt/data inspection"
+            ),
+            CapabilitySurface(
+                "ghostchimera/chimera_pilot/desktop_policy.py", "DESKTOP_ACTION_CLASSES", "desktop action policy"
+            ),
         ),
         improvement="Expose policy simulation and hook dry-run diffs in the console before enabling live actions.",
         release_gate="python -m ghostchimera.evals run --suite safety",
@@ -144,7 +160,9 @@ COMPETITIVE_CAPABILITIES: tuple[CompetitiveCapability, ...] = (
         description="Checkpoints, workspace state, queue records, and telemetry preserve execution context.",
         required_surfaces=(
             CapabilitySurface("ghostchimera/chimera_pilot/checkpoint.py", "CheckpointManager", "checkpoint manager"),
-            CapabilitySurface("ghostchimera/cognition_layer/workspace_state.py", "OperatorWorkspaceStore", "workspace state"),
+            CapabilitySurface(
+                "ghostchimera/cognition_layer/workspace_state.py", "OperatorWorkspaceStore", "workspace state"
+            ),
             CapabilitySurface("ghostchimera/chimera_pilot/autonomy_queue.py", "list_jobs", "job history"),
             CapabilitySurface("ghostchimera/chimera_pilot/telemetry.py", "InMemoryTelemetryStore", "telemetry"),
         ),
@@ -159,8 +177,12 @@ COMPETITIVE_CAPABILITIES: tuple[CompetitiveCapability, ...] = (
         priority=4,
         description="Personal MiniMind grants scoped consent, ingests local/email context, and builds RAG handoffs.",
         required_surfaces=(
-            CapabilitySurface("ghostchimera/model_layer/minimind_personal_agent.py", "MiniMindPersonalAgent", "personal agent"),
-            CapabilitySurface("ghostchimera/personalization/document_ingester.py", "DocumentIngester", "document ingestion"),
+            CapabilitySurface(
+                "ghostchimera/model_layer/minimind_personal_agent.py", "MiniMindPersonalAgent", "personal agent"
+            ),
+            CapabilitySurface(
+                "ghostchimera/personalization/document_ingester.py", "DocumentIngester", "document ingestion"
+            ),
             CapabilitySurface("ghostchimera/personalization/email_ingester.py", "EmailIngester", "email ingestion"),
             CapabilitySurface("docs/PERSONAL_MINIMIND_PRIVACY.md", "whole-machine", "privacy documentation"),
         ),
@@ -176,10 +198,18 @@ COMPETITIVE_CAPABILITIES: tuple[CompetitiveCapability, ...] = (
         description="Provider router, local profiles, MiniMind contracts, llama.cpp runtime, and specialization hints.",
         required_surfaces=(
             CapabilitySurface("ghostchimera/model_layer/router.py", "ModelRouter", "provider router"),
-            CapabilitySurface("ghostchimera/model_layer/local_profiles.py", "list_local_model_profiles", "local profiles"),
+            CapabilitySurface(
+                "ghostchimera/model_layer/local_profiles.py", "list_local_model_profiles", "local profiles"
+            ),
             CapabilitySurface("ghostchimera/model_layer/llamacpp_runtime.py", "LlamaCppRuntime", "GGUF runtime"),
-            CapabilitySurface("ghostchimera/model_layer/minimind_runtime.py", "MiniMindTransformersRuntime", "MiniMind runtime"),
-            CapabilitySurface("ghostchimera/model_layer/runtime_specialization.py", "warm_runtime_specialization_cache", "runtime specialization"),
+            CapabilitySurface(
+                "ghostchimera/model_layer/minimind_runtime.py", "MiniMindTransformersRuntime", "MiniMind runtime"
+            ),
+            CapabilitySurface(
+                "ghostchimera/model_layer/runtime_specialization.py",
+                "warm_runtime_specialization_cache",
+                "runtime specialization",
+            ),
         ),
         improvement="Benchmark local profiles on first run and auto-select the fastest acceptable model plan.",
         release_gate="ghostchimera local-model check",
@@ -208,10 +238,16 @@ COMPETITIVE_CAPABILITIES: tuple[CompetitiveCapability, ...] = (
         priority=5,
         description="Issue planning, worktree isolation, review posting, CI classification, policy simulation, and dashboard access make GitHub the default beta work surface.",
         required_surfaces=(
-            CapabilitySurface("ghostchimera/integrations/github_client.py", "GitHubClient", "GitHub API and gh CLI client"),
-            CapabilitySurface("ghostchimera/integrations/github_worktree.py", "GitHubWorktreePlan", "isolated worktree planning"),
+            CapabilitySurface(
+                "ghostchimera/integrations/github_client.py", "GitHubClient", "GitHub API and gh CLI client"
+            ),
+            CapabilitySurface(
+                "ghostchimera/integrations/github_worktree.py", "GitHubWorktreePlan", "isolated worktree planning"
+            ),
             CapabilitySurface("ghostchimera/integrations/github_ci.py", "classify_check_runs", "CI failure classifier"),
-            CapabilitySurface("ghostchimera/control_plane/console.py", "/api/console/github/status", "dashboard GitHub routes"),
+            CapabilitySurface(
+                "ghostchimera/control_plane/console.py", "/api/console/github/status", "dashboard GitHub routes"
+            ),
             CapabilitySurface("ghostchimera/control_plane/cli.py", "github", "operator CLI"),
         ),
         improvement="Add live GitHub App installation flow and autonomous CI repair push loop after public beta consent controls settle.",
@@ -226,9 +262,15 @@ COMPETITIVE_CAPABILITIES: tuple[CompetitiveCapability, ...] = (
         description="User-selectable Ghost paths synthesize role, source, training, dashboard, proxy, eval, and policy configuration.",
         required_surfaces=(
             CapabilitySurface("ghostchimera/personalization/role_profiles.py", "RoleProfile", "role profile model"),
-            CapabilitySurface("ghostchimera/personalization/path_synthesizer.py", "synthesize_path", "path synthesis engine"),
-            CapabilitySurface("ghostchimera/integrations/source_discovery.py", "filter_allowed_sources", "external source policy"),
-            CapabilitySurface("ghostchimera/control_plane/console.py", "/api/console/paths/synthesize", "dashboard path route"),
+            CapabilitySurface(
+                "ghostchimera/personalization/path_synthesizer.py", "synthesize_path", "path synthesis engine"
+            ),
+            CapabilitySurface(
+                "ghostchimera/integrations/source_discovery.py", "filter_allowed_sources", "external source policy"
+            ),
+            CapabilitySurface(
+                "ghostchimera/control_plane/console.py", "/api/console/paths/synthesize", "dashboard path route"
+            ),
         ),
         improvement="Persist selected paths per workspace and use them to preconfigure MiniMind source scopes and eval gates.",
         release_gate="python -m ghostchimera.evals run --suite path-synthesis",
@@ -241,7 +283,9 @@ COMPETITIVE_CAPABILITIES: tuple[CompetitiveCapability, ...] = (
         priority=4,
         description="Ghost reviews local PR diffs for blocking release, security, and test-coverage risks.",
         required_surfaces=(
-            CapabilitySurface("ghostchimera/chimera_pilot/pr_review.py", "run_pr_review", "deterministic PR review engine"),
+            CapabilitySurface(
+                "ghostchimera/chimera_pilot/pr_review.py", "run_pr_review", "deterministic PR review engine"
+            ),
             CapabilitySurface("ghostchimera/skill_layer/code_search.py", "CodeSearchSkill", "code search"),
             CapabilitySurface("ghostchimera/evals/runner.py", "EVAL_SUITES", "eval runner"),
             CapabilitySurface("ghostchimera/control_plane/cli.py", "review-pr", "operator CLI"),
@@ -327,7 +371,8 @@ def inspect_capabilities(root: str | Path | None = None) -> dict[str, Any]:
         key=lambda item: (-int(item["priority"]), float(item["coverage"]), str(item["name"])),
     )
     return {
-        "ok": score_ratio >= 0.75 and not any(cap["status"] == "missing" and cap["priority"] >= 5 for cap in capabilities),
+        "ok": score_ratio >= 0.75
+        and not any(cap["status"] == "missing" and cap["priority"] >= 5 for cap in capabilities),
         "root": str(base),
         "score": round(weighted_score, 2),
         "max_score": round(weighted_max, 2),

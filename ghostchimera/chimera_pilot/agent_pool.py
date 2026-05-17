@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BatchResult:
     """Result of a single batch task."""
+
     objective: str
     index: int
     result: str
@@ -46,6 +47,7 @@ class BatchResult:
 @dataclass
 class BatchSummary:
     """Summary of a batch run."""
+
     total_tasks: int
     successful_tasks: int
     failed_tasks: int
@@ -147,10 +149,7 @@ class BatchAgent:
         completed = 0
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.workers) as pool:
-            futures = {
-                pool.submit(self._process_objective, obj, idx): idx
-                for idx, obj in enumerate(self.objectives)
-            }
+            futures = {pool.submit(self._process_objective, obj, idx): idx for idx, obj in enumerate(self.objectives)}
             for future in concurrent.futures.as_completed(futures):
                 result = future.result()
                 self._results.append(result)

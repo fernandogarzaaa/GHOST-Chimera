@@ -24,9 +24,11 @@ logger = get_logger("toolsets")
 # Toolset definitions
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class ToolDefinition:
     """A single tool available within a toolset."""
+
     name: str
     description: str
     schema: dict[str, Any]
@@ -34,9 +36,11 @@ class ToolDefinition:
     skill_name: str = ""
     category: str = "general"
 
+
 @dataclass(frozen=True)
 class ToolsetDefinition:
     """A composable group of tools with context injection."""
+
     name: str
     description: str
     tools: list[ToolDefinition]
@@ -53,9 +57,11 @@ class ToolsetDefinition:
     def tool_count(self) -> int:
         return len(self.tools)
 
+
 # ---------------------------------------------------------------------------
 # Toolset registry
 # ---------------------------------------------------------------------------
+
 
 class ToolsetRegistry:
     """Registry of composable toolsets with progressive disclosure."""
@@ -95,9 +101,10 @@ class ToolsetRegistry:
         return combined
 
     def list_all(self) -> list[dict[str, Any]]:
-        return [{"name": ts.name, "description": ts.description,
-                 "tool_count": ts.tool_count, "tools": ts.tool_names}
-                for ts in self._toolsets.values()]
+        return [
+            {"name": ts.name, "description": ts.description, "tool_count": ts.tool_count, "tools": ts.tool_names}
+            for ts in self._toolsets.values()
+        ]
 
     def register_builtin_toolsets(self) -> None:
         """Register default toolsets based on existing skills."""
@@ -108,90 +115,166 @@ class ToolsetRegistry:
 
         # coding toolset
         coding_tools = [
-            ToolDefinition(name="write_file", description="Write or overwrite a file",
-                          schema={"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}},
-                          requires_approval=True, category="coding"),
-            ToolDefinition(name="read_file", description="Read file contents",
-                          schema={"type": "object", "properties": {"path": {"type": "string"}}},
-                          category="coding"),
-            ToolDefinition(name="shell", description="Execute shell command",
-                          schema={"type": "object", "properties": {"command": {"type": "string"}, "timeout": {"type": "integer"}}},
-                          requires_approval=True, category="coding"),
-            ToolDefinition(name="code_search", description="Search codebase for patterns",
-                          schema={"type": "object", "properties": {"query": {"type": "string"}, "extensions": {"type": "array", "items": {"type": "string"}}}},
-                          category="coding"),
+            ToolDefinition(
+                name="write_file",
+                description="Write or overwrite a file",
+                schema={"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}},
+                requires_approval=True,
+                category="coding",
+            ),
+            ToolDefinition(
+                name="read_file",
+                description="Read file contents",
+                schema={"type": "object", "properties": {"path": {"type": "string"}}},
+                category="coding",
+            ),
+            ToolDefinition(
+                name="shell",
+                description="Execute shell command",
+                schema={
+                    "type": "object",
+                    "properties": {"command": {"type": "string"}, "timeout": {"type": "integer"}},
+                },
+                requires_approval=True,
+                category="coding",
+            ),
+            ToolDefinition(
+                name="code_search",
+                description="Search codebase for patterns",
+                schema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "extensions": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                category="coding",
+            ),
         ]
-        self.register(ToolsetDefinition(
-            name="coding", description="File editing, shell execution, and code search",
-            tools=coding_tools,
-            permissions={"allow_shell": True, "allow_file_write": True, "allow_file_read": True},
-            context_injection={"code_root": os.environ.get("GHOSTCHIMERA_CODE_ROOT", ".")},
-        ))
+        self.register(
+            ToolsetDefinition(
+                name="coding",
+                description="File editing, shell execution, and code search",
+                tools=coding_tools,
+                permissions={"allow_shell": True, "allow_file_write": True, "allow_file_read": True},
+                context_injection={"code_root": os.environ.get("GHOSTCHIMERA_CODE_ROOT", ".")},
+            )
+        )
 
         # research toolset
         research_tools = [
-            ToolDefinition(name="http_get", description="Fetch URL content via HTTPS",
-                          schema={"type": "object", "properties": {"url": {"type": "string"}}},
-                          requires_approval=True, category="research"),
-            ToolDefinition(name="web_research", description="Research a topic via web search",
-                          schema={"type": "object", "properties": {"query": {"type": "string"}}},
-                          requires_approval=True, category="research"),
-            ToolDefinition(name="code_search", description="Search codebase patterns",
-                          schema={"type": "object", "properties": {"query": {"type": "string"}}},
-                          category="research"),
-            ToolDefinition(name="rag_query", description="Query local knowledge base",
-                          schema={"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}},
-                          category="research"),
+            ToolDefinition(
+                name="http_get",
+                description="Fetch URL content via HTTPS",
+                schema={"type": "object", "properties": {"url": {"type": "string"}}},
+                requires_approval=True,
+                category="research",
+            ),
+            ToolDefinition(
+                name="web_research",
+                description="Research a topic via web search",
+                schema={"type": "object", "properties": {"query": {"type": "string"}}},
+                requires_approval=True,
+                category="research",
+            ),
+            ToolDefinition(
+                name="code_search",
+                description="Search codebase patterns",
+                schema={"type": "object", "properties": {"query": {"type": "string"}}},
+                category="research",
+            ),
+            ToolDefinition(
+                name="rag_query",
+                description="Query local knowledge base",
+                schema={"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}},
+                category="research",
+            ),
         ]
-        self.register(ToolsetDefinition(
-            name="research", description="Web research, code search, and knowledge retrieval",
-            tools=research_tools,
-            permissions={"allow_network": True},
-        ))
+        self.register(
+            ToolsetDefinition(
+                name="research",
+                description="Web research, code search, and knowledge retrieval",
+                tools=research_tools,
+                permissions={"allow_network": True},
+            )
+        )
 
         # safety toolset
         safety_tools = [
-            ToolDefinition(name="safety_check", description="Validate content against safety policy",
-                          schema={"type": "object", "properties": {"content": {"type": "string"}, "policy": {"type": "string"}}},
-                          category="safety"),
-            ToolDefinition(name="hallucination_detect", description="Detect hallucination signals",
-                          schema={"type": "object", "properties": {"text": {"type": "string"}, "strategy": {"type": "string"}}},
-                          category="safety"),
+            ToolDefinition(
+                name="safety_check",
+                description="Validate content against safety policy",
+                schema={"type": "object", "properties": {"content": {"type": "string"}, "policy": {"type": "string"}}},
+                category="safety",
+            ),
+            ToolDefinition(
+                name="hallucination_detect",
+                description="Detect hallucination signals",
+                schema={"type": "object", "properties": {"text": {"type": "string"}, "strategy": {"type": "string"}}},
+                category="safety",
+            ),
         ]
-        self.register(ToolsetDefinition(
-            name="safety", description="Safety validation and hallucination detection",
-            tools=safety_tools,
-            permissions={},
-        ))
+        self.register(
+            ToolsetDefinition(
+                name="safety",
+                description="Safety validation and hallucination detection",
+                tools=safety_tools,
+                permissions={},
+            )
+        )
 
         # devops toolset
         devops_tools = [
-            ToolDefinition(name="test_run", description="Run test suite",
-                          schema={"type": "object", "properties": {"pattern": {"type": "string"}, "parallel": {"type": "boolean"}}},
-                          requires_approval=True, category="devops"),
-            ToolDefinition(name="lint", description="Run linting checks",
-                          schema={"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}}},
-                          category="devops"),
-            ToolDefinition(name="build", description="Build the project",
-                          schema={"type": "object", "properties": {"target": {"type": "string"}}},
-                          requires_approval=True, category="devops"),
+            ToolDefinition(
+                name="test_run",
+                description="Run test suite",
+                schema={
+                    "type": "object",
+                    "properties": {"pattern": {"type": "string"}, "parallel": {"type": "boolean"}},
+                },
+                requires_approval=True,
+                category="devops",
+            ),
+            ToolDefinition(
+                name="lint",
+                description="Run linting checks",
+                schema={"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}}},
+                category="devops",
+            ),
+            ToolDefinition(
+                name="build",
+                description="Build the project",
+                schema={"type": "object", "properties": {"target": {"type": "string"}}},
+                requires_approval=True,
+                category="devops",
+            ),
         ]
-        self.register(ToolsetDefinition(
-            name="devops", description="Testing, linting, and build operations",
-            tools=devops_tools,
-            permissions={"allow_shell": True},
-        ))
+        self.register(
+            ToolsetDefinition(
+                name="devops",
+                description="Testing, linting, and build operations",
+                tools=devops_tools,
+                permissions={"allow_shell": True},
+            )
+        )
 
         # MCP toolset (dynamic)
         try:
             mcp_tools = list_available_tools()
             if mcp_tools:
-                self.register(ToolsetDefinition(
-                    name="mcp", description="Tools from connected MCP servers",
-                    tools=[ToolDefinition(name=t["name"], description=t.get("description", ""),
-                                         schema=t.get("inputSchema", {})) for t in mcp_tools[:50]],
-                    permissions={"allow_network": True},
-                ))
+                self.register(
+                    ToolsetDefinition(
+                        name="mcp",
+                        description="Tools from connected MCP servers",
+                        tools=[
+                            ToolDefinition(
+                                name=t["name"], description=t.get("description", ""), schema=t.get("inputSchema", {})
+                            )
+                            for t in mcp_tools[:50]
+                        ],
+                        permissions={"allow_network": True},
+                    )
+                )
         except Exception as exc:
             logger.debug("MCP toolset discovery failed: %s", exc)
 
@@ -204,9 +287,11 @@ class ToolsetRegistry:
                 logger.debug("MCP tool discovery failed: %s", exc)
         return self._mcp_tools
 
+
 # ---------------------------------------------------------------------------
 # Toolset manager — progressive disclosure
 # ---------------------------------------------------------------------------
+
 
 class ToolsetManager:
     """Manages active toolsets and progressive tool disclosure."""
@@ -220,7 +305,9 @@ class ToolsetManager:
 
     def _load_active(self) -> None:
         """Load active toolsets from state or defaults."""
-        state_file = Path(os.environ.get("GHOSTCHIMERA_STATE_DIR", str(Path.home() / ".ghostchimera"))) / "active_toolsets.json"
+        state_file = (
+            Path(os.environ.get("GHOSTCHIMERA_STATE_DIR", str(Path.home() / ".ghostchimera"))) / "active_toolsets.json"
+        )
         if state_file.exists():
             try:
                 with open(state_file) as f:
@@ -231,7 +318,9 @@ class ToolsetManager:
             self._active_toolsets = ["coding"]  # default: coding only
 
     def _save_active(self) -> None:
-        state_file = Path(os.environ.get("GHOSTCHIMERA_STATE_DIR", str(Path.home() / ".ghostchimera"))) / "active_toolsets.json"
+        state_file = (
+            Path(os.environ.get("GHOSTCHIMERA_STATE_DIR", str(Path.home() / ".ghostchimera"))) / "active_toolsets.json"
+        )
         try:
             state_file.parent.mkdir(parents=True, exist_ok=True)
             with open(state_file, "w") as f:
@@ -316,6 +405,7 @@ class ToolsetManager:
             instance to append to the default chain.
         """
         from .tool_middleware import get_default_chain
+
         get_default_chain().add(middleware)
         logger.info("Registered tool result middleware '%s'", getattr(middleware, "name", repr(middleware)))
 

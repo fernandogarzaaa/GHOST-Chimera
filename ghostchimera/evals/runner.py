@@ -182,7 +182,9 @@ def _case_cwr_retrieval() -> tuple[bool, str]:
         store = MemoryStore(Path(tmp) / "memory.sqlite3")
         store.add_document("eval", "Ghost Chimera CWR retrieval works in smoke evals.")
         execution = ChimeraPilotKernel.default(memory_store=store).run("retrieve smoke evals")[0]
-    ok = execution.ok and execution.result.backend_id == "cwr.local" and execution.result.output["citations"] == ["eval"]
+    ok = (
+        execution.ok and execution.result.backend_id == "cwr.local" and execution.result.output["citations"] == ["eval"]
+    )
     return ok, str(execution.to_dict())
 
 
@@ -346,7 +348,9 @@ def _case_console_operator_routes() -> tuple[bool, str]:
         and job["job"]["status"] == "preview"
         and schedule["ok"] is True
         and schedule["schedule"]["enabled"] is False
-        and any(check["command"] == "python -m ghostchimera.evals run --suite user-journey" for check in readiness["checks"])
+        and any(
+            check["command"] == "python -m ghostchimera.evals run --suite user-journey" for check in readiness["checks"]
+        )
     )
     detail = {
         "browser": browser,
@@ -430,9 +434,7 @@ def _case_readiness_runbook_includes_release_gate() -> tuple[bool, str]:
 def _case_competitive_capability_score() -> tuple[bool, str]:
     report = inspect_capabilities(ROOT)
     high_priority_missing = [
-        cap["id"]
-        for cap in report["capabilities"]
-        if cap["status"] == "missing" and int(cap["priority"]) >= 5
+        cap["id"] for cap in report["capabilities"] if cap["status"] == "missing" and int(cap["priority"]) >= 5
     ]
     ok = report["score_ratio"] >= 1.0 and not high_priority_missing and not report["top_gaps"]
     detail = json.dumps(
@@ -486,7 +488,9 @@ def _case_github_cli_status() -> tuple[bool, str]:
 
 
 def _case_github_issue_plan_contract() -> tuple[bool, str]:
-    completed = _run_python_module(["ghostchimera", "github", "plan", "--repo", "owner/repo", "--issue", "42", "--title", "Fix CI"])
+    completed = _run_python_module(
+        ["ghostchimera", "github", "plan", "--repo", "owner/repo", "--issue", "42", "--title", "Fix CI"]
+    )
     if completed.returncode != 0:
         return False, completed.stderr or completed.stdout
     payload = json.loads(completed.stdout)
@@ -501,7 +505,10 @@ def _case_github_console_routes() -> tuple[bool, str]:
     plan_route = server.routes.find("POST", "/api/console/github/plan")
     policy_route = server.routes.find("POST", "/api/console/github/policy-simulate")
     ok = route is not None and plan_route is not None and policy_route is not None
-    return ok, json.dumps({"status": route is not None, "plan": plan_route is not None, "policy": policy_route is not None}, sort_keys=True)
+    return ok, json.dumps(
+        {"status": route is not None, "plan": plan_route is not None, "policy": policy_route is not None},
+        sort_keys=True,
+    )
 
 
 def _case_path_profiles_available() -> tuple[bool, str]:
@@ -536,6 +543,7 @@ def _case_path_source_policy_blocks_unknown_training() -> tuple[bool, str]:
 
 # ── Coverage eval cases ──────────────────────────────────────────────
 
+
 def _case_path_active_console_route() -> tuple[bool, str]:
     with tempfile.TemporaryDirectory(prefix="ghostchimera-path-eval-") as tmp:
         server = GatewayServer()
@@ -563,7 +571,9 @@ def _case_path_active_console_route() -> tuple[bool, str]:
             {"method": "GET", "path": "/api/console/paths/active", "headers": {}, "body": "", "query": {}}
         )
     ok = saved.get("ok") is True and active.get("path", {}).get("profile_id") == "ai-engineer-proxy"
-    return ok, json.dumps({"saved": saved.get("ok"), "active": active.get("path", {}).get("profile_id")}, sort_keys=True)
+    return ok, json.dumps(
+        {"saved": saved.get("ok"), "active": active.get("path", {}).get("profile_id")}, sort_keys=True
+    )
 
 
 def _case_path_cli_show_set() -> tuple[bool, str]:
@@ -660,7 +670,14 @@ def _case_production_mode_blocks_shell() -> tuple[bool, str]:
     )
     not_ready = ProductionGuardrails(deployment_mode="production", security_reviewed=False)
     ok = guard.is_production and not not_ready.ready and guard.has_external_isolation
-    return ok, json.dumps({"is_production": guard.is_production, "has_isolation": guard.has_external_isolation, "ready": guard.ready, "not_ready_no_review": not_ready.ready})
+    return ok, json.dumps(
+        {
+            "is_production": guard.is_production,
+            "has_isolation": guard.has_external_isolation,
+            "ready": guard.ready,
+            "not_ready_no_review": not_ready.ready,
+        }
+    )
 
 
 def _case_material_policy_applies_rules() -> tuple[bool, str]:
@@ -681,7 +698,9 @@ def _case_material_policy_applies_rules() -> tuple[bool, str]:
         len(attacks) > 0,
         isinstance(security.get("overall_risk"), (int, float)),
     )
-    return all(ok), json.dumps({"classification": classification, "attack_matches": len(attacks), "overall_risk": security.get("overall_risk")})
+    return all(ok), json.dumps(
+        {"classification": classification, "attack_matches": len(attacks), "overall_risk": security.get("overall_risk")}
+    )
 
 
 def _case_error_classifies_network_failure() -> tuple[bool, str]:
@@ -707,7 +726,9 @@ def _case_error_classifies_network_failure() -> tuple[bool, str]:
         plan.retry is True,
         "rate_limit" in taxonomy,
     )
-    return all(ok), json.dumps({"categories": [c.value for c in plan.categories], "retry": plan.retry, "taxonomy_keys": list(taxonomy.keys())})
+    return all(ok), json.dumps(
+        {"categories": [c.value for c in plan.categories], "retry": plan.retry, "taxonomy_keys": list(taxonomy.keys())}
+    )
 
 
 def _case_mixture_of_agents_scores_outputs() -> tuple[bool, str]:
@@ -745,8 +766,7 @@ def _case_context_compressor_truncates() -> tuple[bool, str]:
     comp = ContextCompressor(model_context_length=100, use_llm_summarization=False)
     # 12 messages: protect_first_n(3) + middle(3) + protect_last_n(6) = 12, so middle is non-empty
     messages = [
-        {"role": "user" if i % 2 == 0 else "assistant", "content": "x" * 20 + str(i).zfill(2)}
-        for i in range(12)
+        {"role": "user" if i % 2 == 0 else "assistant", "content": "x" * 20 + str(i).zfill(2)} for i in range(12)
     ]
     current_tokens = 200
     should = comp.should_compress(current_tokens)
@@ -828,7 +848,13 @@ def _case_telemetry_export_format() -> tuple[bool, str]:
         "summary" in dashboard,
         "diagnostics" in dashboard,
     )
-    return all(ok), json.dumps({"total_events": summary["total_events"], "successes": summary["successes"], "dashboard_keys": list(dashboard.keys())})
+    return all(ok), json.dumps(
+        {
+            "total_events": summary["total_events"],
+            "successes": summary["successes"],
+            "dashboard_keys": list(dashboard.keys()),
+        }
+    )
 
 
 def _case_production_mode_blocks_file_write() -> tuple[bool, str]:
@@ -870,7 +896,13 @@ def _case_production_mode_blocks_desktop() -> tuple[bool, str]:
     )
     not_ready = ProductionGuardrails(deployment_mode="production", external_isolation="")
     ok = guard.is_production and not not_ready.ready and guard.has_external_isolation
-    return ok, json.dumps({"is_production": guard.is_production, "has_isolation": guard.has_external_isolation, "not_ready": not_ready.ready})
+    return ok, json.dumps(
+        {
+            "is_production": guard.is_production,
+            "has_isolation": guard.has_external_isolation,
+            "not_ready": not_ready.ready,
+        }
+    )
 
 
 def _case_production_doctor_checks_guardrails() -> tuple[bool, str]:
@@ -890,10 +922,13 @@ def _case_production_doctor_checks_guardrails() -> tuple[bool, str]:
     )
     report = production_readiness_report(guard)
     ok = report.get("ok") is True
-    return ok, json.dumps({"ok": report.get("ok"), "requirement_rows_count": len(report.get("guardrails", {}).get("requirements", []))})
+    return ok, json.dumps(
+        {"ok": report.get("ok"), "requirement_rows_count": len(report.get("guardrails", {}).get("requirements", []))}
+    )
 
 
 # ── Red-team eval cases ─────────────────────────────────────────────────────
+
 
 def _case_dpi_blocks_prompt_injection() -> tuple[bool, str]:
     """DPI engine must block classic 'ignore previous instructions' injection."""
@@ -907,7 +942,9 @@ def _case_dpi_blocks_prompt_injection() -> tuple[bool, str]:
     ]
     results = [engine.inspect(a) for a in attacks]
     all_blocked = all(not r.allowed and r.injection_detected for r in results)
-    detail = [{"text": a[:60], "allowed": r.allowed, "action": r.action} for a, r in zip(attacks, results, strict=False)]
+    detail = [
+        {"text": a[:60], "allowed": r.allowed, "action": r.action} for a, r in zip(attacks, results, strict=False)
+    ]
     return all_blocked, json.dumps(detail)
 
 
@@ -1017,30 +1054,36 @@ def _case_security_monitor_aggregates_events() -> tuple[bool, str]:
 
     with _tempfile.TemporaryDirectory(prefix="ghostchimera-redteam-") as tmp:
         monitor = SecurityMonitor(events_file=str(Path(tmp) / "sec.json"))
-        monitor.record_event(SecurityEvent(
-            session_id="s1",
-            categories=[ThreatCategory.PROMPT_INJECTION],
-            risk_score=0.85,
-            threats=["prompt_injection:ignore_previous"],
-            action="DENY",
-            blocked=True,
-        ))
-        monitor.record_event(SecurityEvent(
-            session_id="s2",
-            categories=[ThreatCategory.CREDENTIAL_LEAK],
-            risk_score=0.90,
-            threats=["credential:openai_api_key"],
-            action="DENY",
-            blocked=True,
-        ))
-        monitor.record_event(SecurityEvent(
-            session_id="s3",
-            categories=[ThreatCategory.PII_EXFILTRATION],
-            risk_score=0.65,
-            threats=["pii:ssn"],
-            action="LOG",
-            blocked=False,
-        ))
+        monitor.record_event(
+            SecurityEvent(
+                session_id="s1",
+                categories=[ThreatCategory.PROMPT_INJECTION],
+                risk_score=0.85,
+                threats=["prompt_injection:ignore_previous"],
+                action="DENY",
+                blocked=True,
+            )
+        )
+        monitor.record_event(
+            SecurityEvent(
+                session_id="s2",
+                categories=[ThreatCategory.CREDENTIAL_LEAK],
+                risk_score=0.90,
+                threats=["credential:openai_api_key"],
+                action="DENY",
+                blocked=True,
+            )
+        )
+        monitor.record_event(
+            SecurityEvent(
+                session_id="s3",
+                categories=[ThreatCategory.PII_EXFILTRATION],
+                risk_score=0.65,
+                threats=["pii:ssn"],
+                action="LOG",
+                blocked=False,
+            )
+        )
         summary = monitor.get_threat_summary()
 
     ok = (
@@ -1049,7 +1092,9 @@ def _case_security_monitor_aggregates_events() -> tuple[bool, str]:
         and summary["by_category"].get("prompt_injection", 0) >= 1
         and summary["by_category"].get("credential_leak", 0) >= 1
     )
-    return ok, json.dumps({"total": summary["total_events"], "blocked": summary["blocked_events"], "by_category": summary["by_category"]})
+    return ok, json.dumps(
+        {"total": summary["total_events"], "blocked": summary["blocked_events"], "by_category": summary["by_category"]}
+    )
 
 
 def _case_dpi_config_from_env() -> tuple[bool, str]:
@@ -1064,14 +1109,23 @@ def _case_dpi_config_from_env() -> tuple[bool, str]:
         _os.environ["GHOSTCHIMERA_LOBSTERTRAP_FAIL_OPEN"] = "0"
         config = LobsterTrapConfig.from_env()
     finally:
-        for key in ("GHOSTCHIMERA_LOBSTERTRAP_ENABLED", "GHOSTCHIMERA_LOBSTERTRAP_URL", "GHOSTCHIMERA_LOBSTERTRAP_FAIL_OPEN"):
+        for key in (
+            "GHOSTCHIMERA_LOBSTERTRAP_ENABLED",
+            "GHOSTCHIMERA_LOBSTERTRAP_URL",
+            "GHOSTCHIMERA_LOBSTERTRAP_FAIL_OPEN",
+        ):
             _os.environ.pop(key, None)
 
-    ok = config.enabled and config.proxy_url == "http://proxy.example.com:4000/v1/chat/completions" and not config.fail_open
+    ok = (
+        config.enabled
+        and config.proxy_url == "http://proxy.example.com:4000/v1/chat/completions"
+        and not config.fail_open
+    )
     return ok, json.dumps({"enabled": config.enabled, "proxy_url": config.proxy_url, "fail_open": config.fail_open})
 
 
 # ── Track 2 eval cases (Google AI Studio / Gemini) ──────────────────────────
+
 
 def _case_gemini_provider_registered() -> tuple[bool, str]:
     """GeminiProvider must be registered in PROVIDERS and TEXT_PROVIDERS."""
@@ -1119,7 +1173,9 @@ def _case_gemini_backend_can_run_reasoning() -> tuple[bool, str]:
     _os.environ["GOOGLE_API_KEY"] = "fake-key-for-probe"
     try:
         backend = GeminiBackend()
-        task = TaskSpec.create(kind=TaskKind.REASONING, objective="test", inputs={"prompt": "hello"}, requires_network=True)
+        task = TaskSpec.create(
+            kind=TaskKind.REASONING, objective="test", inputs={"prompt": "hello"}, requires_network=True
+        )
         ok = backend.can_run(task)
     finally:
         _os.environ.pop("GOOGLE_API_KEY", None)
@@ -1223,6 +1279,7 @@ def _case_compiler_routes_long_context_doc() -> tuple[bool, str]:
 
 # ── Track 3 eval cases (Robotics & Simulation) ──────────────────────────────
 
+
 def _case_simulation_backend_probes_available() -> tuple[bool, str]:
     """SimulationBackend must probe as available offline."""
     from ghostchimera.chimera_pilot.backends.simulation import SimulationBackend
@@ -1252,7 +1309,9 @@ def _case_simulation_kinematics_runs() -> tuple[bool, str]:
     result = backend.execute(task)
     output = result.output if isinstance(result.output, dict) else {}
     ok = result.ok and output.get("success") is True and len(output.get("trajectory", [])) > 0
-    return ok, json.dumps({"ok": result.ok, "waypoints": output.get("waypoint_count"), "collisions": len(output.get("collisions", []))})
+    return ok, json.dumps(
+        {"ok": result.ok, "waypoints": output.get("waypoint_count"), "collisions": len(output.get("collisions", []))}
+    )
 
 
 def _case_simulation_digital_twin_generates_sensor_data() -> tuple[bool, str]:
@@ -1281,7 +1340,9 @@ def _case_simulation_digital_twin_generates_sensor_data() -> tuple[bool, str]:
     result = backend.execute(task)
     output = result.output if isinstance(result.output, dict) else {}
     ok = result.ok and output.get("total_ticks", 0) > 0 and len(output.get("sensor_log", [])) > 0
-    return ok, json.dumps({"ok": result.ok, "ticks": output.get("total_ticks"), "sensor_entries": len(output.get("sensor_log", []))})
+    return ok, json.dumps(
+        {"ok": result.ok, "ticks": output.get("total_ticks"), "sensor_entries": len(output.get("sensor_log", []))}
+    )
 
 
 def _case_simulation_policy_test_reports_success_rate() -> tuple[bool, str]:
@@ -1345,6 +1406,7 @@ def _case_compiler_routes_simulation() -> tuple[bool, str]:
 
 # ── Track 4 eval cases (Data & Intelligence) ────────────────────────────────
 
+
 def _case_analytics_count_query() -> tuple[bool, str]:
     """AnalyticsBackend must correctly count records grouped by a column."""
     from ghostchimera.chimera_pilot.backends.analytics import AnalyticsBackend
@@ -1358,11 +1420,20 @@ def _case_analytics_count_query() -> tuple[bool, str]:
         {"region": "US", "revenue": 2100},
     ]
     backend = AnalyticsBackend()
-    task = TaskSpec.create(kind=TaskKind.ANALYTICS_QUERY, objective="count records per region", inputs={"query": "count records by region", "data": data})
+    task = TaskSpec.create(
+        kind=TaskKind.ANALYTICS_QUERY,
+        objective="count records per region",
+        inputs={"query": "count records by region", "data": data},
+    )
     result = backend.execute(task)
     output = result.output if isinstance(result.output, dict) else {}
     res = output.get("result", {})
-    ok = result.ok and isinstance(res, dict) and res.get("EU", {}).get("count", 0) == 2 and res.get("US", {}).get("count", 0) == 2
+    ok = (
+        result.ok
+        and isinstance(res, dict)
+        and res.get("EU", {}).get("count", 0) == 2
+        and res.get("US", {}).get("count", 0) == 2
+    )
     return ok, json.dumps({"ok": ok, "result": res})
 
 
@@ -1373,7 +1444,11 @@ def _case_analytics_forecast() -> tuple[bool, str]:
 
     data = [{"revenue": v} for v in [100, 120, 140, 160, 180, 200]]
     backend = AnalyticsBackend()
-    task = TaskSpec.create(kind=TaskKind.ANALYTICS_QUERY, objective="forecast revenue", inputs={"query": "forecast revenue for next 3 periods", "data": data})
+    task = TaskSpec.create(
+        kind=TaskKind.ANALYTICS_QUERY,
+        objective="forecast revenue",
+        inputs={"query": "forecast revenue for next 3 periods", "data": data},
+    )
     result = backend.execute(task)
     output = result.output if isinstance(result.output, dict) else {}
     ok = result.ok and output.get("trend") == "up" and len(output.get("forecast", [])) == 3
@@ -1387,7 +1462,11 @@ def _case_analytics_anomaly_detection() -> tuple[bool, str]:
 
     data = [{"latency": v} for v in [10, 11, 10, 12, 10, 11, 500, 10, 11, 10, 11, 10]]
     backend = AnalyticsBackend()
-    task = TaskSpec.create(kind=TaskKind.ANALYTICS_QUERY, objective="detect anomalies in latency", inputs={"query": "detect anomalies in latency", "data": data})
+    task = TaskSpec.create(
+        kind=TaskKind.ANALYTICS_QUERY,
+        objective="detect anomalies in latency",
+        inputs={"query": "detect anomalies in latency", "data": data},
+    )
     result = backend.execute(task)
     output = result.output if isinstance(result.output, dict) else {}
     ok = result.ok and output.get("anomaly_count", 0) >= 1
@@ -1405,7 +1484,7 @@ def _case_data_pipeline_validates_schema() -> tuple[bool, str]:
 
     data = [
         {"revenue": 1200, "region": "EU"},
-        {"revenue": "not_a_number", "region": "US"},   # type violation
+        {"revenue": "not_a_number", "region": "US"},  # type violation
         {"revenue": 800, "region": "APAC"},
     ]
     backend = AnalyticsBackend()
@@ -1421,7 +1500,9 @@ def _case_data_pipeline_validates_schema() -> tuple[bool, str]:
     result = backend.execute(task)
     output = result.output if isinstance(result.output, dict) else {}
     ok = result.ok and not output.get("schema_valid") and len(output.get("schema_violations", [])) >= 1
-    return ok, json.dumps({"ok": ok, "schema_valid": output.get("schema_valid"), "violations": output.get("schema_violations", [])})
+    return ok, json.dumps(
+        {"ok": ok, "schema_valid": output.get("schema_valid"), "violations": output.get("schema_violations", [])}
+    )
 
 
 def _case_data_pipeline_knowledge_graph() -> tuple[bool, str]:
@@ -1430,7 +1511,9 @@ def _case_data_pipeline_knowledge_graph() -> tuple[bool, str]:
     from ghostchimera.chimera_pilot.task_ir import TaskKind, TaskSpec
 
     data = [
-        {"content": "Ghost Chimera is an AI agent orchestration system. Ghost Chimera provides multi-agent workflow support."},
+        {
+            "content": "Ghost Chimera is an AI agent orchestration system. Ghost Chimera provides multi-agent workflow support."
+        },
         {"content": "Chimera Pilot manages task scheduling. Chimera Pilot uses backends for execution."},
     ]
     backend = AnalyticsBackend()
@@ -1460,12 +1543,14 @@ def _case_document_ingester_ingests_text() -> tuple[bool, str]:
     with _tempfile.TemporaryDirectory(prefix="gc-eval-") as tmp:
         store = MemoryStore(f"{tmp}/mem.sqlite3")
         ingester = DocumentIngester(store)
-        result = ingester.ingest(IngestionSource(
-            source_type="text",
-            content="Ghost Chimera is a local-first agent orchestration prototype. " * 10,
-            metadata={"namespace": "docs", "title": "Overview"},
-            source_id="overview-doc",
-        ))
+        result = ingester.ingest(
+            IngestionSource(
+                source_type="text",
+                content="Ghost Chimera is a local-first agent orchestration prototype. " * 10,
+                metadata={"namespace": "docs", "title": "Overview"},
+                source_id="overview-doc",
+            )
+        )
     ok = result.ingested_count >= 1 and len(result.errors) == 0
     return ok, json.dumps({"ingested": result.ingested_count, "skipped": result.skipped_count, "errors": result.errors})
 
@@ -1484,7 +1569,9 @@ def _case_document_ingester_deduplicates() -> tuple[bool, str]:
         r1 = ingester.ingest(src)
         r2 = ingester.ingest(src)
     ok = r1.ingested_count >= 1 and r2.ingested_count == 0 and r2.skipped_count == r1.ingested_count
-    return ok, json.dumps({"first_ingested": r1.ingested_count, "second_ingested": r2.ingested_count, "second_skipped": r2.skipped_count})
+    return ok, json.dumps(
+        {"first_ingested": r1.ingested_count, "second_ingested": r2.ingested_count, "second_skipped": r2.skipped_count}
+    )
 
 
 def _case_document_ingester_csv() -> tuple[bool, str]:
@@ -1512,13 +1599,18 @@ def _case_compiler_routes_analytics() -> tuple[bool, str]:
     aq = compiler.compile("analytics: total sales by region")
     dp = compiler.compile("data pipeline: validate data and detect anomalies")
     ok = (
-        len(aq) == 1 and aq[0].kind == TaskKind.ANALYTICS_QUERY
-        and len(dp) == 1 and dp[0].kind == TaskKind.DATA_PIPELINE
+        len(aq) == 1
+        and aq[0].kind == TaskKind.ANALYTICS_QUERY
+        and len(dp) == 1
+        and dp[0].kind == TaskKind.DATA_PIPELINE
     )
-    return ok, json.dumps({"analytics_kind": aq[0].kind if aq else None, "pipeline_kind": dp[0].kind if dp else None, "ok": ok})
+    return ok, json.dumps(
+        {"analytics_kind": aq[0].kind if aq else None, "pipeline_kind": dp[0].kind if dp else None, "ok": ok}
+    )
 
 
 # ── Workspace eval cases ──────────────────────────────────────────────────────
+
 
 def _case_workspace_context_enriches_task() -> tuple[bool, str]:
     """Workspace context must be injected into compiled task constraints when workspace has relevant evidence."""
@@ -1532,8 +1624,7 @@ def _case_workspace_context_enriches_task() -> tuple[bool, str]:
         tasks = kernel.compile("retrieve policy gates from local memory")
 
     has_context = any(
-        "workspace_context" in t.constraints and len(t.constraints["workspace_context"]) > 0
-        for t in tasks
+        "workspace_context" in t.constraints and len(t.constraints["workspace_context"]) > 0 for t in tasks
     )
     context_items = tasks[0].constraints.get("workspace_context", []) if tasks else []
     return has_context, json.dumps({"has_context": has_context, "context_count": len(context_items)})

@@ -19,6 +19,7 @@ class MCPClient:
 
     def _request(self, action: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         import urllib.request
+
         url = f"http://{self.host}:{self.port}/"
         body = json.dumps({"action": action, **(payload or {})}).encode("utf-8")
         req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")

@@ -35,4 +35,3 @@ def test_path_cli_sets_and_shows_active_path(capsys) -> None:
 
     assert show_payload["profile_id"] == "ai-engineer-proxy"
     assert show_payload["synthesis"]["role"]["id"] == "ai-engineer-proxy"
-

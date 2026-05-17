@@ -107,7 +107,17 @@ class RuleBasedTaskCompiler:
             return [spec]
 
         # ── Track 2: Gemini long-context document processing ────────────────
-        if any(tok in lower for tok in ("summarise document", "summarize document", "analyze contract", "analyse contract", "process report", "long context")):
+        if any(
+            tok in lower
+            for tok in (
+                "summarise document",
+                "summarize document",
+                "analyze contract",
+                "analyse contract",
+                "process report",
+                "long context",
+            )
+        ):
             spec = TaskSpec.create(
                 kind=TaskKind.LONG_CONTEXT_DOC,
                 objective=text,
@@ -120,7 +130,10 @@ class RuleBasedTaskCompiler:
             return [spec]
 
         # ── Track 3: Simulation ──────────────────────────────────────────────
-        if any(tok in lower for tok in ("simulate", "simulation", "digital twin", "robot", "waypoint", "kinematics", "policy test")):
+        if any(
+            tok in lower
+            for tok in ("simulate", "simulation", "digital twin", "robot", "waypoint", "kinematics", "policy test")
+        ):
             sim_mode = "kinematics"
             if "digital twin" in lower:
                 sim_mode = "digital_twin"
@@ -138,7 +151,10 @@ class RuleBasedTaskCompiler:
             return [spec]
 
         # ── Track 4: Analytics / Data Pipeline ──────────────────────────────
-        if any(tok in lower for tok in ("analytics", "data pipeline", "validate data", "detect anomal", "forecast", "knowledge graph")):
+        if any(
+            tok in lower
+            for tok in ("analytics", "data pipeline", "validate data", "detect anomal", "forecast", "knowledge graph")
+        ):
             if any(tok in lower for tok in ("pipeline", "validate data", "ingest", "knowledge graph")):
                 spec = TaskSpec.create(
                     kind=TaskKind.DATA_PIPELINE,

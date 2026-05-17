@@ -60,5 +60,3 @@ class CWRBackend:
             output=output,
             metrics={"result_count": len(results), "retrieval": "sqlite_fts"},
         )
-
-

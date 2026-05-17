@@ -333,7 +333,6 @@ class ChimeraPilotTests(unittest.TestCase):
         self.assertEqual(scheduler.select_strategy(task, historical_success_rate=0.2), "parallel")
 
 
-
 class ChimeraPilotReleaseHardeningTests(unittest.TestCase):
     def test_kernel_rejects_python_execution_by_default(self) -> None:
         kernel = ChimeraPilotKernel.default(include_deterministic_backend=True)
@@ -358,7 +357,11 @@ class ChimeraPilotReleaseHardeningTests(unittest.TestCase):
         self.assertIn("not allowed", result.error or "")
 
     def test_policy_rejects_unsafe_python_fragment(self) -> None:
-        task = TaskSpec.create(kind=TaskKind.PYTHON, objective="python", inputs={"code": "import subprocess\nsubprocess.run(['echo', 'x'])"})
+        task = TaskSpec.create(
+            kind=TaskKind.PYTHON,
+            objective="python",
+            inputs={"code": "import subprocess\nsubprocess.run(['echo', 'x'])"},
+        )
 
         with self.assertRaises(PermissionError):
             PilotPolicy(allow_python_execution=True).validate(task)

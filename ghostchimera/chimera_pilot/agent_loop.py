@@ -40,9 +40,10 @@ logger = get_logger("agent_loop")
 # Message / session primitives
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class Message:
-    role: str          # "user" | "assistant" | "system" | "tool"
+    role: str  # "user" | "assistant" | "system" | "tool"
     content: str | list[dict]
     tool_calls: list[dict] | None = None
     tool_call_id: str | None = None
@@ -103,6 +104,7 @@ class SessionState:
 @dataclass
 class ToolCall:
     """Represents a tool invocation requested by the agent."""
+
     id: str
     name: str
     arguments: dict[str, Any]
@@ -127,8 +129,12 @@ class ErrorClassifier:
     CLASSIFICATIONS: list[tuple[str, Classification]] = [
         (
             "rate_limit",
-            Classification(recoverable=True, retry=True, backoff_seconds=5.0,
-                           message="Rate limit exceeded — will retry with backoff"),
+            Classification(
+                recoverable=True,
+                retry=True,
+                backoff_seconds=5.0,
+                message="Rate limit exceeded — will retry with backoff",
+            ),
         ),
         (
             "insufficient_quota",
@@ -136,13 +142,13 @@ class ErrorClassifier:
         ),
         (
             "context_length",
-            Classification(recoverable=True, compress=True,
-                           message="Context length exceeded — compression recommended"),
+            Classification(
+                recoverable=True, compress=True, message="Context length exceeded — compression recommended"
+            ),
         ),
         (
             "model_not_found",
-            Classification(recoverable=True, switch_model=True,
-                           message="Model unavailable — switch to fallback"),
+            Classification(recoverable=True, switch_model=True, message="Model unavailable — switch to fallback"),
         ),
         (
             "authentication",
@@ -150,8 +156,9 @@ class ErrorClassifier:
         ),
         (
             "overloaded",
-            Classification(recoverable=True, retry=True, backoff_seconds=10.0,
-                           message="Provider overloaded — retry with backoff"),
+            Classification(
+                recoverable=True, retry=True, backoff_seconds=10.0, message="Provider overloaded — retry with backoff"
+            ),
         ),
         (
             "default",
@@ -173,6 +180,7 @@ class ErrorClassifier:
 # ---------------------------------------------------------------------------
 # AIAgent — the persistent session runtime
 # ---------------------------------------------------------------------------
+
 
 class AIAgent:
     """Multi-turn agent with tool-calling loop, error recovery, and model fallback.
@@ -305,12 +313,14 @@ class AIAgent:
             # Model returned text — this is our answer
             content = response.get("content", "")
             if content:
-                self._add_message(Message(
-                    role="assistant",
-                    content=content,
-                    finish_reason=response.get("finish_reason"),
-                    tokens=response.get("usage", {}).get("total_tokens"),
-                ))
+                self._add_message(
+                    Message(
+                        role="assistant",
+                        content=content,
+                        finish_reason=response.get("finish_reason"),
+                        tokens=response.get("usage", {}).get("total_tokens"),
+                    )
+                )
                 confidence_value = self._build_confidence_value(str(content))
                 self._last_envelope = ResultEnvelope(
                     kind="agent_response",
@@ -335,16 +345,16 @@ class AIAgent:
                 logger.info("Turn %d: agent returned text", turn + 1)
                 return self.format_with_confidence(str(content))
 
-            self._add_message(Message(
-                role="assistant",
-                content="",
-                finish_reason=response.get("finish_reason"),
-            ))
+            self._add_message(
+                Message(
+                    role="assistant",
+                    content="",
+                    finish_reason=response.get("finish_reason"),
+                )
+            )
 
         # Exhausted tool rounds
-        raise RuntimeError(
-            f"Reached max tool rounds ({self.max_tool_rounds}) without returning text"
-        )
+        raise RuntimeError(f"Reached max tool rounds ({self.max_tool_rounds}) without returning text")
 
     def run_async(self, user_message: str, tools: list[dict[str, Any]] | None = None) -> str:
         """Async-compatible entry point — delegates to sync run via threading."""
@@ -359,6 +369,7 @@ class AIAgent:
         if loop is not None and loop.is_running():
             # We're inside an event loop — use run_in_executor
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 future = pool.submit(self.run, user_message, tools)
                 return asyncio.get_event_loop().run_in_executor(None, lambda: future.result())
@@ -466,12 +477,14 @@ class AIAgent:
             tool_def = tool_map.get(name)
             if not tool_def:
                 missing_tool_message = f"Tool {name} not found in available tools"
-                results.append({
-                    "tool_call_id": call_id,
-                    "tool_name": name,
-                    "status": "error",
-                    "content": missing_tool_message,
-                })
+                results.append(
+                    {
+                        "tool_call_id": call_id,
+                        "tool_name": name,
+                        "status": "error",
+                        "content": missing_tool_message,
+                    }
+                )
                 self.kernel.hooks.fire(
                     HookName.AFTER_TOOL_CALL,
                     tool_name=name,
@@ -485,9 +498,8 @@ class AIAgent:
             status = "success"
             output: Any = ""
             try:
-                if (
-                    self.autonomy_profile.require_approval_for_high_impact
-                    and bool(tool_def.get("requires_approval", False))
+                if self.autonomy_profile.require_approval_for_high_impact and bool(
+                    tool_def.get("requires_approval", False)
                 ):
                     approval_result = approve(name, args, requester=self._active_session_id)
                     if not approval_result.approved:
@@ -517,12 +529,14 @@ class AIAgent:
                     content = json.dumps(transformed, ensure_ascii=False, default=str)
                 except Exception:
                     content = str(transformed)
-            results.append({
-                "tool_call_id": call_id,
-                "tool_name": name,
-                "status": status,
-                "content": content,
-            })
+            results.append(
+                {
+                    "tool_call_id": call_id,
+                    "tool_name": name,
+                    "status": status,
+                    "content": content,
+                }
+            )
             self.kernel.hooks.fire(
                 HookName.AFTER_TOOL_CALL,
                 tool_name=name,
@@ -570,7 +584,9 @@ class AIAgent:
 
         self._session.messages = [summary_msg] + tail
         self._session.compression_count += 1
-        logger.info("Compressed session: %d -> %d messages", len(middle) + len(head) + len(tail), len(self._session.messages))
+        logger.info(
+            "Compressed session: %d -> %d messages", len(middle) + len(head) + len(tail), len(self._session.messages)
+        )
 
     def _track_usage(self, response: dict[str, Any]) -> None:
         """Track token usage from API response."""
@@ -591,11 +607,13 @@ class AIAgent:
             tool_call_msg = Message(
                 role="assistant",
                 content="",
-                tool_calls=[{
-                    "id": r["tool_call_id"],
-                    "name": r["tool_name"],
-                    "arguments": {},
-                }],
+                tool_calls=[
+                    {
+                        "id": r["tool_call_id"],
+                        "name": r["tool_name"],
+                        "arguments": {},
+                    }
+                ],
             )
             self._add_message(tool_call_msg)
 

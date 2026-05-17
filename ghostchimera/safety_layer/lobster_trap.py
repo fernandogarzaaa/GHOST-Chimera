@@ -198,7 +198,10 @@ _INJECTION_PATTERNS: list[tuple[str, str]] = [
     (r"jailbreak", "jailbreak"),
     (r"DAN\s*(mode|prompt|\b)", "dan_jailbreak"),
     (r"developer\s+mode\s*(enabled|on|activated)", "developer_mode"),
-    (r"(print|reveal|show|tell\s+me|output)\s+(your\s+)?(system\s+prompt|instructions?|directives?|rules?)", "system_prompt_leak"),
+    (
+        r"(print|reveal|show|tell\s+me|output)\s+(your\s+)?(system\s+prompt|instructions?|directives?|rules?)",
+        "system_prompt_leak",
+    ),
     (r"</?(system|assistant|user|human|ai)>", "role_tag_injection"),
     (r"\[INST\]|\[/INST\]", "llama_instruction_injection"),
     (r"<\|im_start\|>|<\|im_end\|>", "chatml_injection"),
@@ -500,9 +503,7 @@ class LobsterTrapInspector:
     def __init__(self, config: LobsterTrapConfig | None = None) -> None:
         self.config = config or LobsterTrapConfig()
         self._engine = BuiltinDPIEngine()
-        self._proxy: LobsterTrapClient | None = (
-            LobsterTrapClient(self.config) if self.config.proxy_url else None
-        )
+        self._proxy: LobsterTrapClient | None = LobsterTrapClient(self.config) if self.config.proxy_url else None
 
     @classmethod
     def from_env(cls) -> LobsterTrapInspector:
@@ -540,9 +541,7 @@ class LobsterTrapInspector:
             return DPIResult(allowed=True, engine="builtin", action="ALLOW")
 
         # Always run the built-in engine as a fast pre-flight
-        builtin_result = self._engine.inspect(
-            text, declared_intent=declared_intent, session_id=session_id
-        )
+        builtin_result = self._engine.inspect(text, declared_intent=declared_intent, session_id=session_id)
 
         # If the builtin engine already blocks, skip the proxy round-trip
         if not builtin_result.allowed:

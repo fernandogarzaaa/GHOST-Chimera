@@ -40,9 +40,7 @@ class LLM:
         provider_name = provider or os.environ.get("GHOSTCHIMERA_MODEL_PROVIDER", "openai")
         logger.info("LLM initialized with provider: %s", provider_name)
         if provider_name not in PROVIDERS:
-            raise ValueError(
-                f"Unknown provider '{provider_name}'. Available providers: {', '.join(PROVIDERS.keys())}"
-            )
+            raise ValueError(f"Unknown provider '{provider_name}'. Available providers: {', '.join(PROVIDERS.keys())}")
         self.provider_name = provider_name
         self.provider: BaseProvider = get_provider(provider_name, profile)
         self.available: bool = self.provider.available

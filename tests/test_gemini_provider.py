@@ -109,6 +109,7 @@ class TestGeminiProviderChat(unittest.TestCase):
             p = GeminiProvider()
 
         captured = []
+
         def mock_gen(contents, **kwargs):
             captured.append(contents)
             return "ok"
@@ -127,6 +128,7 @@ class TestGeminiProviderChat(unittest.TestCase):
             p = GeminiProvider()
 
         captured = []
+
         def mock_gen(contents, **kwargs):
             captured.append(contents)
             return "ok"
@@ -145,6 +147,7 @@ class TestGeminiProviderLongContext(unittest.TestCase):
             p = GeminiProvider()
 
         captured = []
+
         def mock_gen(contents, **kwargs):
             captured.append(contents)
             return "Summary"
@@ -173,12 +176,16 @@ class TestGeminiProviderLongContext(unittest.TestCase):
             p = GeminiProvider()
 
         captured = []
+
         def mock_gen(contents, **kwargs):
             captured.append(contents)
             return "ok"
 
         p._generate = mock_gen
-        history = [{"role": "user", "parts": [{"text": "prior question"}]}, {"role": "model", "parts": [{"text": "prior answer"}]}]
+        history = [
+            {"role": "user", "parts": [{"text": "prior question"}]},
+            {"role": "model", "parts": [{"text": "prior answer"}]},
+        ]
         p.chat_long_context("New question.", documents=[], history=history)
         # history (2 turns) + new user turn = 3
         self.assertEqual(len(captured[0]), 3)
@@ -303,7 +310,9 @@ class TestGeminiBackend(unittest.TestCase):
 
         with patch.dict(os.environ, {"GOOGLE_API_KEY": "k"}):
             backend = self._backend_with_key()
-        task = TaskSpec.create(kind=TaskKind.REASONING, objective="test", inputs={"prompt": "hi"}, requires_network=True)
+        task = TaskSpec.create(
+            kind=TaskKind.REASONING, objective="test", inputs={"prompt": "hi"}, requires_network=True
+        )
         self.assertTrue(backend.can_run(task))
 
     def test_can_run_long_context_doc(self):

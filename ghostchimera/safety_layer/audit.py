@@ -63,6 +63,7 @@ class AuditLog:
     def _hmac(self, data: str) -> str:
         import hashlib as _hashlib
         import hmac as _hmac
+
         return _hmac.new(self.key, data.encode("utf-8"), _hashlib.sha256).hexdigest()
 
     def record(self, action: str, details: dict[str, Any]) -> dict[str, Any]:
@@ -101,6 +102,7 @@ class AuditLog:
         """Verify a single chain link."""
         import hashlib as _hashlib
         import hmac as _hmac
+
         key = os.environ.get("GHOSTCHIMERA_AUDIT_KEY", "ghostchimera-test-key").encode("utf-8")
         prev_hash = prev_entry["chain_hash"] if prev_entry else "genesis"
         data = f"{prev_hash}{entry['action']}{json.dumps(entry['details'], sort_keys=True)}"

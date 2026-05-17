@@ -16,6 +16,7 @@ from ..safety_layer.material_policy import MaterialRegistry
 @dataclass
 class Claim:
     """A single extracted claim."""
+
     text: str
     claim_type: str  # factual, temporal, numeric, opinion
     confidence: float = 0.0
@@ -33,25 +34,33 @@ class ClaimExtractor:
     def extract(self, text: str) -> list[Claim]:
         """Extract claims from text."""
         claims: list[Claim] = []
-        sentences = [s.strip() for s in re.split(r'[.!?]+', text) if len(s.strip()) > 10]
+        sentences = [s.strip() for s in re.split(r"[.!?]+", text) if len(s.strip()) > 10]
 
         for sentence in sentences:
             # Skip if sentence is clearly uncertain
-            if any(marker in sentence.lower() for marker in (
-                "i don't know", "i do not know", "unclear",
-                "not enough information", "unknown",
-            )):
+            if any(
+                marker in sentence.lower()
+                for marker in (
+                    "i don't know",
+                    "i do not know",
+                    "unclear",
+                    "not enough information",
+                    "unknown",
+                )
+            ):
                 continue
 
             claim_type = self._registry.classify_claim(sentence)
             risk_score = self._compute_risk(sentence)
 
-            claims.append(Claim(
-                text=sentence.strip(),
-                claim_type=claim_type,
-                confidence=1.0 - risk_score,
-                risk_score=risk_score,
-            ))
+            claims.append(
+                Claim(
+                    text=sentence.strip(),
+                    claim_type=claim_type,
+                    confidence=1.0 - risk_score,
+                    risk_score=risk_score,
+                )
+            )
 
         return claims
 

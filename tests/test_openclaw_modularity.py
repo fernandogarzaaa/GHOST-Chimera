@@ -120,6 +120,7 @@ class ProviderAuthInjectionTests(unittest.TestCase):
 # Phase 2 — AnthropicProvider
 # ---------------------------------------------------------------------------
 
+
 class AnthropicProviderTests(unittest.TestCase):
     def test_registered_in_providers(self) -> None:
         self.assertIn("anthropic", PROVIDERS)
@@ -152,6 +153,7 @@ class AnthropicProviderTests(unittest.TestCase):
 # Phase 3 — validate_config
 # ---------------------------------------------------------------------------
 
+
 class ValidateConfigTests(unittest.TestCase):
     def test_openai_missing_key(self) -> None:
         provider = OpenAIProvider()
@@ -180,6 +182,7 @@ class ValidateConfigTests(unittest.TestCase):
 
     def test_llm_logs_validate_config_warnings(self) -> None:
         from ghostchimera.model_layer.llm import LLM
+
         with (
             patch.dict(os.environ, {"GHOSTCHIMERA_MODEL_PROVIDER": "openai", "OPENAI_API_KEY": ""}),
             self.assertLogs("ghostchimera.llm", level="WARNING") as log,
@@ -308,7 +311,9 @@ class HookRegistryTests(unittest.TestCase):
 
         self.hooks.register_hook(HookName.BACKEND_FALLBACK, bad_handler)
         # Should not raise
-        self.hooks.fire(HookName.BACKEND_FALLBACK, task=None, failed_backend_id="x", fallback_backend_id="y", error="err")
+        self.hooks.fire(
+            HookName.BACKEND_FALLBACK, task=None, failed_backend_id="x", fallback_backend_id="y", error="err"
+        )
 
     def test_fire_no_handlers_is_noop(self) -> None:
         self.hooks.fire(HookName.TASK_EXECUTE_PRE, task=None)  # no exception
@@ -347,15 +352,16 @@ class HookKernelIntegrationTests(unittest.TestCase):
         fired: dict[str, list] = {n.value: [] for n in HookName}
 
         for hook_name in HookName:
+
             def make_handler(name):
                 def handler(**kw):
                     fired[name.value].append(kw)
+
                 return handler
+
             hooks.register_hook(hook_name, make_handler(hook_name))
 
-        kernel = ChimeraPilotKernel.default(
-            include_deterministic_backend=True, hooks=hooks
-        )
+        kernel = ChimeraPilotKernel.default(include_deterministic_backend=True, hooks=hooks)
         return kernel, fired
 
     def test_hooks_fire_on_run(self) -> None:

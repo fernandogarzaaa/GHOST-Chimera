@@ -133,6 +133,7 @@ class InMemoryTelemetryStore:
     def export_json(self, path: str) -> str:
         """Export events as JSON to *path*. Returns the written content."""
         import json as _json
+
         data = {
             "events": [event.to_dict() for event in self._events],
             "replay_bundles": list(self._replay_bundles),
@@ -145,6 +146,7 @@ class InMemoryTelemetryStore:
     def export_replay_bundles(self, path: str) -> str:
         """Export replay bundles as JSON to *path*. Returns written content."""
         import json as _json
+
         content = _json.dumps({"replay_bundles": self._replay_bundles}, indent=2)
         Path(path).write_text(content, encoding="utf-8")
         return content
@@ -153,15 +155,22 @@ class InMemoryTelemetryStore:
         """Export events as CSV to *path*. Returns the written content."""
         import csv as _csv
         from io import StringIO as _StringIO
+
         buf = _StringIO()
         writer = _csv.writer(buf)
         writer.writerow(["task_id", "backend_id", "ok", "started_at", "finished_at", "duration_ms", "error"])
         for event in self._events:
-            writer.writerow([
-                event.task_id, event.backend_id, event.ok,
-                event.started_at, event.finished_at, event.duration_ms,
-                event.error or "",
-            ])
+            writer.writerow(
+                [
+                    event.task_id,
+                    event.backend_id,
+                    event.ok,
+                    event.started_at,
+                    event.finished_at,
+                    event.duration_ms,
+                    event.error or "",
+                ]
+            )
         content = buf.getvalue()
         buf.close()
         Path(path).write_text(content, encoding="utf-8")
@@ -170,6 +179,7 @@ class InMemoryTelemetryStore:
     def export_dashboard(self) -> dict[str, Any]:
         """Return data suitable for a web dashboard."""
         from collections import defaultdict
+
         hourly: dict[str, list] = defaultdict(list)
         for event in self._events:
             hour = f"{int(event.started_at // 3600):04d}:{int((event.started_at % 3600) // 60):02d}"

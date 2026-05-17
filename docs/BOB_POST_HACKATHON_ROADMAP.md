@@ -2,7 +2,7 @@
 
 **Status:** Hackathon submission complete | Bob roadmap complete | Release hardening active
 
-**Last Updated:** 2026-05-16
+**Last Updated:** 2026-05-17
 
 ---
 
@@ -13,6 +13,8 @@ IBM Bob successfully completed the **IBM Bob Hackathon** with 5 working develope
 **Key Point:** Completed items below are backed by real files, tests, and verification commands. Runtime product hardening can continue separately from this Bob developer-tooling roadmap.
 
 This post-hackathon work is not incomplete hackathon work; it is follow-on developer infrastructure built after the submission.
+
+**Runtime Boundary:** Bob tooling is optional and isolated from the Ghost Chimera runtime. `docs/BOB_OPTIONAL_TOOLING.md` documents the opt-out model, and `tests/test_bob_optional_boundary.py` verifies that `ghostchimera/` does not import or reference Bob tooling.
 
 ---
 
@@ -572,6 +574,7 @@ This roadmap delivered a structured path from hackathon submission to release-gr
 - Verification commands demonstrate success
 - No fake completion or shallow implementations
 - Honest assessment of scope and effort
+- Bob remains optional developer tooling, not a Ghost Chimera runtime dependency
 
 **Next Steps:**
 1. Continue runtime/product hardening separately from Bob tooling
@@ -582,6 +585,7 @@ This roadmap delivered a structured path from hackathon submission to release-gr
 **Current Status:**
 - Hackathon submission: Complete and judge-ready
 - Post-hackathon Bob roadmap: Implemented and verified
+- Bob runtime boundary: Documented and regression-tested
 - Next implementation: Runtime/product hardening outside this Bob tooling roadmap
 
 ---

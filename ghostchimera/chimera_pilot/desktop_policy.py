@@ -106,10 +106,7 @@ def normalize_allowed_desktop_action_classes(values: tuple[str, ...] | list[str]
 def destructive_desktop_confirmation_error(token: Any) -> str | None:
     if str(token or "").strip() == DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN:
         return None
-    return (
-        "Destructive live desktop actions require confirmation token "
-        f"'{DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN}'"
-    )
+    return f"Destructive live desktop actions require confirmation token '{DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN}'"
 
 
 def resolve_desktop_kill_switch_path(path: str | None = None) -> Path:

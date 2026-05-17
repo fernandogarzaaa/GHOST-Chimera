@@ -35,9 +35,7 @@ class CodeSearchSkill(Skill):
         self._doc_tokens: list[set[str]] = []
         self.code_root = os.environ.get("GHOSTCHIMERA_CODE_ROOT", os.getcwd())
         exts = os.environ.get("GHOSTCHIMERA_CODE_EXTENSIONS", "py,js,ts,tsx,jsx,md")
-        self.extensions: tuple[str, ...] = tuple(
-            ext.strip().lstrip(".") for ext in exts.split(",") if ext.strip()
-        )
+        self.extensions: tuple[str, ...] = tuple(ext.strip().lstrip(".") for ext in exts.split(",") if ext.strip())
 
     def _build_index(self) -> None:
         paths: list[str] = []

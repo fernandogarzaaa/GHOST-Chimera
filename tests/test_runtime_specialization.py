@@ -24,7 +24,9 @@ class RuntimeSpecializationTests(unittest.TestCase):
         plan = plan_runtime_specialization(
             profile=profile,
             workload=WorkloadShape(input_tokens=64, output_tokens=2, dtype="bf16"),
-            environment=RuntimeEnvironment(n_gpu_layers=20, architecture="sm100", sm_count=160, cute_dsl_available=True),
+            environment=RuntimeEnvironment(
+                n_gpu_layers=20, architecture="sm100", sm_count=160, cute_dsl_available=True
+            ),
         )
 
         self.assertEqual(plan.phase, WorkloadPhase.DECODE)

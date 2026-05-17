@@ -1,4 +1,4 @@
-﻿"""Performance regression tests for IBM Bob developer toolchain.
+"""Performance regression tests for IBM Bob developer toolchain.
 
 These tests establish baseline performance metrics for Bob's developer tools
 to catch obvious slowdowns without being flaky on Windows or slower machines.
@@ -7,11 +7,8 @@ to catch obvious slowdowns without being flaky on Windows or slower machines.
 from __future__ import annotations
 
 import sys
-import tempfile
 import time
 from pathlib import Path
-
-import pytest
 
 # Add project root and scripts to path
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,10 +16,10 @@ SCRIPTS_DIR = ROOT / "scripts"
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from bob_accelerator import generate_report
-from bob_delivery_package import generate_delivery_package
-from coverage_report import analyze_coverage
-from generate_test_scaffold import analyze_source_file, generate_test_scaffold
+from bob_accelerator import generate_report  # noqa: E402
+from bob_delivery_package import generate_delivery_package  # noqa: E402
+from coverage_report import analyze_coverage  # noqa: E402
+from generate_test_scaffold import analyze_source_file, generate_test_scaffold  # noqa: E402
 
 
 class TestCoverageReportPerformance:
@@ -46,10 +43,7 @@ class TestCoverageReportPerformance:
         assert "coverage_ratio" in result, "Should include coverage_ratio"
 
         # Verify performance
-        assert duration < max_duration, (
-            f"Coverage report analysis took {duration:.2f}s, "
-            f"expected under {max_duration}s"
-        )
+        assert duration < max_duration, f"Coverage report analysis took {duration:.2f}s, expected under {max_duration}s"
 
         # Print timing for visibility
         print(f"\n[PASS] Coverage report analysis: {duration:.2f}s (threshold: {max_duration}s)")
@@ -76,8 +70,7 @@ class TestBobAcceleratorPerformance:
 
         # Verify performance
         assert duration < max_duration, (
-            f"Bob accelerator JSON report took {duration:.2f}s, "
-            f"expected under {max_duration}s"
+            f"Bob accelerator JSON report took {duration:.2f}s, expected under {max_duration}s"
         )
 
         # Print timing for visibility
@@ -106,8 +99,7 @@ class TestDeliveryPackagePerformance:
 
         # Verify performance
         assert duration < max_duration, (
-            f"Delivery package markdown generation took {duration:.2f}s, "
-            f"expected under {max_duration}s"
+            f"Delivery package markdown generation took {duration:.2f}s, expected under {max_duration}s"
         )
 
         # Print timing for visibility
@@ -204,10 +196,7 @@ class _PrivateClass:
         assert "import pytest" in scaffold, "Should include pytest import"
 
         # Verify performance
-        assert duration < max_duration, (
-            f"Test scaffold generation took {duration:.2f}s, "
-            f"expected under {max_duration}s"
-        )
+        assert duration < max_duration, f"Test scaffold generation took {duration:.2f}s, expected under {max_duration}s"
 
         # Print timing for visibility
         print(f"\n[PASS] Test scaffold generation: {duration:.2f}s (threshold: {max_duration}s)")
@@ -278,5 +267,6 @@ class TestClass:
         print(f"  - Bob accelerator: {timings['bob_accelerator']:.2f}s")
         print(f"  - Delivery package: {timings['delivery_package']:.2f}s")
         print(f"  - Test scaffold: {timings['test_scaffold']:.2f}s")
+
 
 # Made with Bob

@@ -17,11 +17,29 @@ from ..memory_layer.store import MemoryStore
 
 _MAX_CHUNK_CHARS: int = 1_500
 
-SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({
-    ".txt", ".md", ".rst", ".py", ".js", ".ts", ".go", ".rs",
-    ".json", ".yaml", ".yml", ".toml", ".csv", ".html", ".xml",
-    ".sh", ".bash", ".zsh", ".fish",
-})
+SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".txt",
+        ".md",
+        ".rst",
+        ".py",
+        ".js",
+        ".ts",
+        ".go",
+        ".rs",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".csv",
+        ".html",
+        ".xml",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".fish",
+    }
+)
 
 
 @dataclass
@@ -43,6 +61,7 @@ class DocumentIngestResult:
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
+
 
 def _chunk_text(text: str, max_chars: int = _MAX_CHUNK_CHARS) -> list[str]:
     """Split *text* into chunks of at most *max_chars* characters.
@@ -92,6 +111,7 @@ def _chunk_text(text: str, max_chars: int = _MAX_CHUNK_CHARS) -> list[str]:
 
 
 # ── Public class ─────────────────────────────────────────────────────────────
+
 
 class DocumentIngester:
     """Ingest text documents into a MemoryStore.

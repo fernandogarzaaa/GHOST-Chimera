@@ -246,13 +246,15 @@ class SecurityMonitor:
         timeline = []
         for bucket_key in sorted(buckets):
             scores = buckets[bucket_key]
-            timeline.append({
-                "timestamp": datetime.fromtimestamp(bucket_key, tz=UTC).isoformat().replace("+00:00", "Z"),
-                "event_count": len(scores),
-                "blocked_count": blocked_buckets.get(bucket_key, 0),
-                "average_risk_score": round(sum(scores) / len(scores), 4),
-                "max_risk_score": round(max(scores), 4),
-            })
+            timeline.append(
+                {
+                    "timestamp": datetime.fromtimestamp(bucket_key, tz=UTC).isoformat().replace("+00:00", "Z"),
+                    "event_count": len(scores),
+                    "blocked_count": blocked_buckets.get(bucket_key, 0),
+                    "average_risk_score": round(sum(scores) / len(scores), 4),
+                    "max_risk_score": round(max(scores), 4),
+                }
+            )
         return timeline
 
     def clear(self) -> None:

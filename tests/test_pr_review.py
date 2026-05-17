@@ -77,7 +77,9 @@ class PRReviewTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["errors"], "replace")
 
     def _git(self, repo: Path, *args: str) -> None:
-        completed = subprocess.run(["git", *args], cwd=str(repo), text=True, capture_output=True, check=False, timeout=30)
+        completed = subprocess.run(
+            ["git", *args], cwd=str(repo), text=True, capture_output=True, check=False, timeout=30
+        )
         self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
 
 

@@ -207,7 +207,13 @@ class DocumentIngester:
                 item_text = json.dumps(item, indent=2) if isinstance(item, dict) else str(item)
                 meta = {"item_index": i}
                 if isinstance(item, dict):
-                    meta.update({k: v for k, v in item.items() if isinstance(v, str) and k in ("title", "id", "name", "source", "url")})
+                    meta.update(
+                        {
+                            k: v
+                            for k, v in item.items()
+                            if isinstance(v, str) and k in ("title", "id", "name", "source", "url")
+                        }
+                    )
                 chunks.extend(self._split_text(item_text, source.chunk_size, extra_meta=meta))
             return chunks
 
@@ -243,7 +249,9 @@ class DocumentIngester:
         return chunks
 
     @staticmethod
-    def _split_text(text: str, chunk_size: int, extra_meta: dict[str, Any] | None = None) -> list[tuple[str, dict[str, Any]]]:
+    def _split_text(
+        text: str, chunk_size: int, extra_meta: dict[str, Any] | None = None
+    ) -> list[tuple[str, dict[str, Any]]]:
         """Split *text* into chunks of at most *chunk_size* characters.
 
         Prefers splitting at paragraph boundaries (double newline).

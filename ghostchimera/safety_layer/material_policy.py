@@ -231,22 +231,48 @@ _HALLUCINATION_EVAL: list[dict[str, Any]] = [
 
 _LEXICONS: dict[str, list[str]] = {
     "hedge_markers": [
-        "maybe", "might", "could", "perhaps", "possibly",
-        "likely", "unlikely", "appears to", "seems to", "suggests",
+        "maybe",
+        "might",
+        "could",
+        "perhaps",
+        "possibly",
+        "likely",
+        "unlikely",
+        "appears to",
+        "seems to",
+        "suggests",
     ],
     "abstention_markers": [
-        "i don't know", "i do not know", "insufficient evidence",
-        "cannot verify", "can't verify", "unclear",
-        "not enough information", "unknown",
+        "i don't know",
+        "i do not know",
+        "insufficient evidence",
+        "cannot verify",
+        "can't verify",
+        "unclear",
+        "not enough information",
+        "unknown",
     ],
     "citation_markers": [
-        "according to", "cited by", "source:", "doi:",
-        "http://", "https://", "[1]", "(202",
+        "according to",
+        "cited by",
+        "source:",
+        "doi:",
+        "http://",
+        "https://",
+        "[1]",
+        "(202",
     ],
     "security_terms": [
-        "system prompt", "tool schema", "tool description",
-        "api key", "access token", "secret", "credentials",
-        "mcp server", "shadow server", "duplicate tool",
+        "system prompt",
+        "tool schema",
+        "tool description",
+        "api key",
+        "access token",
+        "secret",
+        "credentials",
+        "mcp server",
+        "shadow server",
+        "duplicate tool",
     ],
 }
 
@@ -254,13 +280,12 @@ _LEXICONS: dict[str, list[str]] = {
 class MaterialRegistry:
     """Registry of policy patterns, attack patterns, and material data."""
 
-    def __init__(self, patterns: list[dict[str, Any]] | None = None,
-                 attacks: list[dict[str, Any]] | None = None) -> None:
+    def __init__(
+        self, patterns: list[dict[str, Any]] | None = None, attacks: list[dict[str, Any]] | None = None
+    ) -> None:
         self._patterns = patterns or _POLICY_PATTERNS
         self._attacks = attacks or _ATTACK_PATTERNS
-        self._by_id: dict[str, dict[str, Any]] = {
-            p["id"]: p for p in self._patterns
-        }
+        self._by_id: dict[str, dict[str, Any]] = {p["id"]: p for p in self._patterns}
 
     @property
     def patterns(self) -> list[dict[str, Any]]:
@@ -294,12 +319,14 @@ class MaterialRegistry:
         for attack in self._attacks:
             for term in attack.get("match_terms", []):
                 if term.lower() in lower:
-                    matches.append({
-                        "attack_id": attack["id"],
-                        "category": attack["category"],
-                        "severity": attack["severity"],
-                        "matched_term": term,
-                    })
+                    matches.append(
+                        {
+                            "attack_id": attack["id"],
+                            "category": attack["category"],
+                            "severity": attack["severity"],
+                            "matched_term": term,
+                        }
+                    )
                     break
         return matches
 
@@ -325,6 +352,7 @@ class MaterialRegistry:
             "abstention_count": abstention_count,
             "security_term_count": security_term_count,
             "overall_risk": max(
-                (a["severity"] for a in attacks), default=0.0,
+                (a["severity"] for a in attacks),
+                default=0.0,
             ),
         }

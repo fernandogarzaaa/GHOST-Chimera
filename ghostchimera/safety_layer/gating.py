@@ -44,9 +44,7 @@ class ExecutionPolicy:
         allow_file_read = _truthy(os.environ.get("GHOSTCHIMERA_ALLOW_FILE_READ"))
         allow_file_write = _truthy(os.environ.get("GHOSTCHIMERA_ALLOW_FILE_WRITE"))
         roots = tuple(
-            item.strip()
-            for item in os.environ.get("GHOSTCHIMERA_ALLOWED_ROOTS", "").split(os.pathsep)
-            if item.strip()
+            item.strip() for item in os.environ.get("GHOSTCHIMERA_ALLOWED_ROOTS", "").split(os.pathsep) if item.strip()
         )
         if not roots and (allow_shell or allow_file_read or allow_file_write):
             raise ValueError(

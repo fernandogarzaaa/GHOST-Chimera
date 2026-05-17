@@ -352,7 +352,8 @@ class MiniMindPersonalAgent:
                     dirnames[:] = []
                     continue
                 dirnames[:] = [
-                    name for name in dirnames
+                    name
+                    for name in dirnames
                     if name.lower() not in _DEFAULT_EXCLUDED_NAMES
                     and not self._is_excluded((current / name).resolve(strict=False), effective_excluded)
                 ]
@@ -377,7 +378,9 @@ class MiniMindPersonalAgent:
             "errors": errors[:100],
         }
 
-    def build_handoff(self, objective: str, *, limit: int = 8, role_path: dict[str, Any] | None = None) -> dict[str, Any]:
+    def build_handoff(
+        self, objective: str, *, limit: int = 8, role_path: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         consent = self.load_consent()
         if not consent.enabled:
             return {
@@ -485,7 +488,9 @@ class MiniMindPersonalAgent:
         except (OSError, UnicodeDecodeError):
             return -1
 
-    def _readiness(self, consent: PersonalMiniMindConsent, dataset_count: int, runtime: dict[str, Any]) -> dict[str, Any]:
+    def _readiness(
+        self, consent: PersonalMiniMindConsent, dataset_count: int, runtime: dict[str, Any]
+    ) -> dict[str, Any]:
         return {
             "consent_ready": consent.enabled,
             "memory_ready": MemoryStore(self.memory_db).count() > 0,

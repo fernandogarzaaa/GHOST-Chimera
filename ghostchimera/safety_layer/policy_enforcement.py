@@ -20,6 +20,7 @@ from .material_policy import MaterialRegistry
 @dataclass
 class EnforcementResult:
     """Combined result from the PolicyEnforcer."""
+
     allowed: bool
     policy_id: str
     material_check: dict[str, Any] | None = None
@@ -67,13 +68,13 @@ class PolicyEnforcer:
         text = f"{task.objective} {task.inputs}"
         material = self._registry.check_security(text, self._default_policy)
         result.material_check = material
-        result.add_trace("material_check", {"policy_id": self._default_policy, "matches": len(material["attack_matches"])})
+        result.add_trace(
+            "material_check", {"policy_id": self._default_policy, "matches": len(material["attack_matches"])}
+        )
 
         # Warn on high-risk attack matches
         for match in material["attack_matches"]:
-            result.add_warning(
-                f"Attack pattern '{match['attack_id']}' matched (severity={match['severity']})"
-            )
+            result.add_warning(f"Attack pattern '{match['attack_id']}' matched (severity={match['severity']})")
             result.allowed = False
 
         # PilotPolicy validation (binary allow/deny)
@@ -108,10 +109,12 @@ class PolicyEnforcer:
                 parts = [s.strip() for s in text.split(kw) if s.strip()]
                 for part in parts:
                     if len(part) > 10:
-                        claims.append({
-                            "claim": part,
-                            "type": self._registry.classify_claim(part),
-                        })
+                        claims.append(
+                            {
+                                "claim": part,
+                                "type": self._registry.classify_claim(part),
+                            }
+                        )
                 break
 
         return {

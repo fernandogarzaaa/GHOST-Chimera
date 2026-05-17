@@ -133,8 +133,7 @@ class ApprovalPolicy:
 
     @staticmethod
     def _default_trusted() -> list[str]:
-        return ["read_file", "code_search", "rag_query", "safety_check",
-                "hallucination_detect", "memory_search"]
+        return ["read_file", "code_search", "rag_query", "safety_check", "hallucination_detect", "memory_search"]
 
     @staticmethod
     def _default_blocked() -> list[str]:
@@ -340,6 +339,7 @@ def get_default_handler() -> ApprovalHandler:
         with _singleton_lock:
             if _default_handler is None:
                 import sys
+
                 policy = get_default_policy()
                 if sys.stdin.isatty() and not _truthy(os.environ.get("GHOSTCHIMERA_AUTO_APPROVE")):
                     _default_handler = ConsoleApprovalHandler(policy)
@@ -357,13 +357,10 @@ def set_default_handler(handler: ApprovalHandler) -> None:
         _default_handler = handler
 
 
-def approve(tool_name: str, arguments: dict[str, Any] | None = None,
-            requester: str = "") -> ApprovalResult:
+def approve(tool_name: str, arguments: dict[str, Any] | None = None, requester: str = "") -> ApprovalResult:
     """Convenience wrapper: run the default handler for a single tool call."""
     handler = get_default_handler()
-    req = ApprovalRequest(tool_name=tool_name,
-                          arguments=arguments or {},
-                          requester=requester)
+    req = ApprovalRequest(tool_name=tool_name, arguments=arguments or {}, requester=requester)
     return handler.handle(req)
 
 

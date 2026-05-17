@@ -31,6 +31,7 @@ def _freshness_score(created_at: str, *, half_life_days: float = _DEFAULT_FRESHN
     if half_life_days <= 0:
         return 1.0
     import math
+
     return round(math.exp(-math.log(2) * age_days / half_life_days), 6)
 
 

@@ -13,6 +13,8 @@ IBM Bob analyzed the Ghost Chimera repository and identified 19 high-impact impr
 
 **Post-hackathon roadmap:** [BOB_POST_HACKATHON_ROADMAP.md](BOB_POST_HACKATHON_ROADMAP.md)
 
+**Runtime boundary:** [BOB_OPTIONAL_TOOLING.md](BOB_OPTIONAL_TOOLING.md)
+
 This document describes the Bob-to-Ghost workflow and the tools Bob created to accelerate development.
 
 ## Quick Start

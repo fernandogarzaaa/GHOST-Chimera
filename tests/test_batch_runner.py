@@ -32,8 +32,9 @@ class BatchJobTests(unittest.TestCase):
         self.assertEqual(job.inputs, {})
 
     def test_batch_job_with_inputs(self) -> None:
-        job = BatchJob(objective="test", task_kind=TaskKind.PYTHON, timeout=300,
-                       inputs={"code": "print(1)"}, metadata={"tag": "x"})
+        job = BatchJob(
+            objective="test", task_kind=TaskKind.PYTHON, timeout=300, inputs={"code": "print(1)"}, metadata={"tag": "x"}
+        )
         self.assertEqual(job.task_kind.value, "python")
         self.assertEqual(job.timeout, 300)
         self.assertEqual(job.inputs["code"], "print(1)")
@@ -41,8 +42,9 @@ class BatchJobTests(unittest.TestCase):
 
 class BatchJobResultTests(unittest.TestCase):
     def test_to_dict(self) -> None:
-        result = BatchJobResult(job_index=0, objective="test", result="done",
-                                success=True, duration_seconds=1.5, task_count=2)
+        result = BatchJobResult(
+            job_index=0, objective="test", result="done", success=True, duration_seconds=1.5, task_count=2
+        )
         d = result.to_dict()
         self.assertEqual(d["job_index"], 0)
         self.assertEqual(d["success"], True)
@@ -52,9 +54,15 @@ class BatchJobResultTests(unittest.TestCase):
 class BatchSummaryTests(unittest.TestCase):
     def test_to_dict(self) -> None:
         jobs = [BatchJobResult(job_index=0, objective="test", result="done", success=True)]
-        summary = BatchSummary(total_jobs=1, successful_jobs=1, failed_jobs=0,
-                               success_rate=1.0, total_duration_seconds=1.0,
-                               avg_duration_seconds=1.0, jobs=jobs)
+        summary = BatchSummary(
+            total_jobs=1,
+            successful_jobs=1,
+            failed_jobs=0,
+            success_rate=1.0,
+            total_duration_seconds=1.0,
+            avg_duration_seconds=1.0,
+            jobs=jobs,
+        )
         d = summary.to_dict()
         self.assertEqual(d["total_jobs"], 1)
         self.assertEqual(d["successful_jobs"], 1)
@@ -86,8 +94,10 @@ class BatchRunnerTests(unittest.TestCase):
             "metadata": {},
         }
 
-        with patch('ghostchimera.chimera_pilot.batch_runner.ProcessPoolExecutor') as mock_pool_cls, \
-             patch.object(runner, '_save_summary'):
+        with (
+            patch("ghostchimera.chimera_pilot.batch_runner.ProcessPoolExecutor") as mock_pool_cls,
+            patch.object(runner, "_save_summary"),
+        ):
             mock_pool = MagicMock()
             mock_pool_cls.return_value.__enter__ = MagicMock(return_value=mock_pool)
             mock_pool_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -120,8 +130,10 @@ class BatchRunnerTests(unittest.TestCase):
             "metadata": {},
         }
 
-        with patch('ghostchimera.chimera_pilot.batch_runner.ProcessPoolExecutor') as mock_pool_cls, \
-             patch.object(runner, '_save_summary'):
+        with (
+            patch("ghostchimera.chimera_pilot.batch_runner.ProcessPoolExecutor") as mock_pool_cls,
+            patch.object(runner, "_save_summary"),
+        ):
             mock_pool = MagicMock()
             mock_pool_cls.return_value.__enter__ = MagicMock(return_value=mock_pool)
             mock_pool_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -181,8 +193,10 @@ class BatchRunnerTests(unittest.TestCase):
             "metadata": {},
         }
 
-        with patch('ghostchimera.chimera_pilot.batch_runner.ProcessPoolExecutor') as mock_pool_cls, \
-             patch.object(runner, '_save_summary'):
+        with (
+            patch("ghostchimera.chimera_pilot.batch_runner.ProcessPoolExecutor") as mock_pool_cls,
+            patch.object(runner, "_save_summary"),
+        ):
             mock_pool = MagicMock()
             mock_pool_cls.return_value.__enter__ = MagicMock(return_value=mock_pool)
             mock_pool_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -210,8 +224,14 @@ class CronJobTests(unittest.TestCase):
         self.assertEqual(d["cron_expression"], "0 9 * * 1")
 
     def test_cron_job_from_dict(self) -> None:
-        data = {"id": "1", "name": "test", "cron_expression": "0 9 * * 1",
-                "objective": "obj", "task_kind": "reasoning", "enabled": True}
+        data = {
+            "id": "1",
+            "name": "test",
+            "cron_expression": "0 9 * * 1",
+            "objective": "obj",
+            "task_kind": "reasoning",
+            "enabled": True,
+        }
         job = CronJob.from_dict(data)
         self.assertEqual(job.name, "test")
         self.assertTrue(job.enabled)
@@ -259,8 +279,12 @@ class CronSchedulerTests(unittest.TestCase):
     def test_tick_executes_due_jobs(self) -> None:
         # Create a job that's due now
         job = CronJob(
-            id="due-job", name="due", cron_expression="* * * * *",
-            objective="test", enabled=True, next_run=time.time() - 100,
+            id="due-job",
+            name="due",
+            cron_expression="* * * * *",
+            objective="test",
+            enabled=True,
+            next_run=time.time() - 100,
         )
         self.scheduler.jobs["due-job"] = job
 
@@ -268,7 +292,7 @@ class CronSchedulerTests(unittest.TestCase):
         mock_results = [MagicMock()]
         mock_results[0].to_dict.return_value = {"output": "done"}
 
-        with patch('ghostchimera.chimera_pilot.cron_scheduler.AgentCore') as mock_agent:
+        with patch("ghostchimera.chimera_pilot.cron_scheduler.AgentCore") as mock_agent:
             mock_kernel = MagicMock()
             mock_kernel.compile_and_run.return_value = mock_results
             mock_agent.default.return_value = mock_kernel
@@ -282,7 +306,9 @@ class CronSchedulerTests(unittest.TestCase):
 
         def executor(job: CronJob) -> CronJobResult:
             calls.append(job.id)
-            return CronJobResult(job_id=job.id, job_name=job.name, objective=job.objective, success=True, output="queued")
+            return CronJobResult(
+                job_id=job.id, job_name=job.name, objective=job.objective, success=True, output="queued"
+            )
 
         scheduler = CronScheduler(state_dir=self.tmpdir, job_executor=executor)
         job = CronJob(

@@ -33,7 +33,9 @@ class SubagentTaskTests(unittest.TestCase):
 
 class SubagentResultTests(unittest.TestCase):
     def test_to_dict(self) -> None:
-        result = SubagentResult(id="t1", goal="test", result="done", success=True, duration_seconds=1.5, depth=0, turns_taken=3)
+        result = SubagentResult(
+            id="t1", goal="test", result="done", success=True, duration_seconds=1.5, depth=0, turns_taken=3
+        )
         d = result.to_dict()
         self.assertEqual(d["id"], "t1")
         self.assertEqual(d["success"], True)

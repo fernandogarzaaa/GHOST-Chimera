@@ -34,9 +34,7 @@ class ModelRouter:
             provider = self._providers.get(name)
             if provider is not None and provider.available:
                 return provider
-        raise RuntimeError(
-            f"No available provider in chain: {self.provider_names}"
-        )
+        raise RuntimeError(f"No available provider in chain: {self.provider_names}")
 
     def route(self, system_message: str, user_message: str) -> str:
         """Try each provider in order; return the first successful response.
@@ -63,9 +61,7 @@ class ModelRouter:
                 errors.append(f"{name}: {exc}")
                 logger.warning("Router: provider '%s' failed – %s", name, exc)
 
-        raise RuntimeError(
-            "All providers failed:\n" + "\n".join(f"  - {e}" for e in errors)
-        )
+        raise RuntimeError("All providers failed:\n" + "\n".join(f"  - {e}" for e in errors))
 
     def get_fallback_chain(self) -> list[dict]:
         """Return the status of every provider in the fallback chain."""

@@ -18,17 +18,17 @@ SCRIPTS_DIR = ROOT / "scripts"
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from bob_accelerator import (
+from bob_accelerator import (  # noqa: E402
     detect_bob_tools,
     generate_report,
 )
-from bob_delivery_package import generate_delivery_package
-from coverage_report import analyze_coverage, format_markdown_report
-from generate_test_scaffold import (
+from bob_delivery_package import generate_delivery_package  # noqa: E402
+from coverage_report import analyze_coverage, format_markdown_report  # noqa: E402
+from generate_test_scaffold import (  # noqa: E402
     analyze_source_file,
     generate_test_scaffold,
 )
-from validate_config import format_json_output, format_text, parse_env_file, validate_config
+from validate_config import format_json_output, format_text, parse_env_file, validate_config  # noqa: E402
 
 
 class TestBobAcceleratorToDeliveryPackage:
@@ -37,12 +37,12 @@ class TestBobAcceleratorToDeliveryPackage:
     def test_accelerator_detects_all_bob_tools(self):
         """Test that bob_accelerator detects all current Bob tools."""
         tools_data = detect_bob_tools()
-        
+
         assert tools_data["installed_count"] >= 12, "Should detect at least 12 Bob tools"
-        
+
         # Verify specific tools are detected
         tool_names = [tool["name"] for tool in tools_data["installed_tools"]]
-        
+
         expected_tools = [
             "bob_accelerator.py",
             "coverage_report.py",
@@ -57,20 +57,20 @@ class TestBobAcceleratorToDeliveryPackage:
             "analyze_logs.py",
             "dev_env.py",
         ]
-        
+
         for expected in expected_tools:
             assert expected in tool_names, f"Should detect {expected}"
 
     def test_delivery_package_includes_all_tools(self):
         """Test that delivery package includes all Bob tools."""
         package = generate_delivery_package(format_type="json")
-        
+
         assert isinstance(package, dict), "JSON format should return dict"
         assert "bob_tools" in package, "Should include bob_tools section"
-        
+
         tools = package["bob_tools"]["tools"]
         tool_names = [tool["name"] for tool in tools]
-        
+
         # Verify all key tools are included (using friendly names from bob_delivery_package.py)
         expected_tools = [
             "Bob Accelerator",
@@ -86,16 +86,16 @@ class TestBobAcceleratorToDeliveryPackage:
             "Debug Logging Analyzer",
             "Dev Environment Manager",
         ]
-        
+
         for expected in expected_tools:
             assert expected in tool_names, f"Delivery package should include {expected}"
 
     def test_delivery_package_includes_verification_commands(self):
         """Test that delivery package includes verification commands."""
         package_md = generate_delivery_package(format_type="markdown")
-        
+
         assert isinstance(package_md, str), "Markdown format should return string"
-        
+
         # Verify key verification commands are present
         assert "python scripts/bob_accelerator.py" in package_md
         assert "python scripts/coverage_report.py" in package_md
@@ -104,7 +104,7 @@ class TestBobAcceleratorToDeliveryPackage:
         assert "python scripts/audit_dependencies.py" in package_md
         assert "python scripts/generate_test_scaffold.py" in package_md
         assert "python scripts/bob_delivery_package.py" in package_md
-        
+
         # Verify test commands are present
         assert "pytest" in package_md
         assert "test_bob_accelerator.py" in package_md
@@ -113,18 +113,18 @@ class TestBobAcceleratorToDeliveryPackage:
     def test_full_accelerator_report_generation(self):
         """Test full bob_accelerator report generation."""
         report_str = generate_report(format_type="json")
-        
+
         # JSON format returns a string, not a dict
         assert isinstance(report_str, str), "JSON format should return string"
         assert len(report_str) > 100, "Report should have substantial content"
-        
+
         # Parse the JSON to verify it's valid
         report = json.loads(report_str)
-        
+
         # Verify report is a dict with content
         assert isinstance(report, dict)
         assert len(report) >= 3, "Report should have multiple sections"
-        
+
         # Verify key metadata fields exist
         assert "generated_at" in report
         assert "generated_by" in report
@@ -137,7 +137,7 @@ class TestCoverageReportWorkflow:
         """Test coverage report markdown generation."""
         coverage_data = analyze_coverage()
         markdown = format_markdown_report(coverage_data)
-        
+
         # Verify structure (actual keys from coverage_report.py)
         assert "total_modules" in coverage_data
         assert "tested_count" in coverage_data
@@ -145,19 +145,19 @@ class TestCoverageReportWorkflow:
         assert "tested" in coverage_data
         assert "untested" in coverage_data
         assert "coverage_ratio" in coverage_data
-        
+
         # Verify counts are reasonable
         assert coverage_data["total_modules"] > 0
         assert coverage_data["tested_count"] >= 0
         assert 0 <= coverage_data["coverage_ratio"] <= 1.0
-        
+
         # Verify tested/untested lists have expected structure
         if coverage_data["tested"]:
             first_tested = coverage_data["tested"][0]
             assert "module" in first_tested
             assert "source" in first_tested
             assert "test" in first_tested
-        
+
         if coverage_data["untested"]:
             first_untested = coverage_data["untested"][0]
             assert "module" in first_untested
@@ -172,11 +172,11 @@ class TestCoverageReportWorkflow:
     def test_coverage_report_includes_source_and_test_counts(self):
         """Test that coverage report includes accurate counts."""
         coverage_data = analyze_coverage()
-        
+
         # Verify counts add up
         tested_count = coverage_data["tested_count"]
         untested_count = coverage_data["untested_count"]
-        
+
         # Total modules should equal tested + untested
         assert coverage_data["total_modules"] == tested_count + untested_count
 
@@ -199,10 +199,10 @@ VULTR_INFERENCE_BASE_URL=https://api.vultrinference.com/v1
 """
         config_path = tmp_path / "safe_config.env"
         config_path.write_text(config_content)
-        
+
         env_vars = parse_env_file(config_path)
         result = validate_config(env_vars, production_mode=True)
-        
+
         assert isinstance(result, dict)
         assert "valid" in result
         assert "errors" in result
@@ -222,10 +222,10 @@ GHOSTCHIMERA_CONSOLE_AUTH_TOKEN=replace-with-token
 """
         config_path = tmp_path / "unsafe_config.env"
         config_path.write_text(config_content)
-        
+
         env_vars = parse_env_file(config_path)
         result = validate_config(env_vars, production_mode=True)
-        
+
         assert isinstance(result, dict)
         assert result["valid"] is False
         assert len(result["errors"]) > 0
@@ -246,20 +246,20 @@ VULTR_INFERENCE_BASE_URL=https://api.vultrinference.com/v1
 """
         config_path = tmp_path / "config_with_secrets.env"
         config_path.write_text(config_content)
-        
+
         env_vars = parse_env_file(config_path)
         result = validate_config(env_vars, production_mode=False)
-        
+
         # Convert result to JSON/text to check for secrets
         result_json_str = format_json_output(result)
         result_text = format_text(result)
-        
+
         # Verify secrets are not in the output
         assert "console-secret-key-should-not-appear" not in result_json_str
         assert "vultr-secret-key-should-not-appear" not in result_json_str
         assert "console-secret-key-should-not-appear" not in result_text
         assert "vultr-secret-key-should-not-appear" not in result_text
-        
+
         # Verify redaction markers are present
         assert "REDACTED" in result_json_str or "[NOT SET]" in result_json_str
         assert "REDACTED" in result_text
@@ -287,15 +287,15 @@ async def async_public_function(data):
 
 class PublicClass:
     """A public class."""
-    
+
     def __init__(self, value):
         """Initialize the class."""
         self.value = value
-    
+
     def public_method(self):
         """A public method."""
         return self.value
-    
+
     def _private_method(self):
         """A private method that should be skipped."""
         pass
@@ -306,23 +306,23 @@ class _PrivateClass:
 '''
         source_path = tmp_path / "test_source.py"
         source_path.write_text(source_content)
-        
+
         # Analyze the source file
         analysis = analyze_source_file(source_path)
-        
+
         # Verify analysis results
         assert len(analysis["functions"]) == 2  # public_function, async_public_function
         assert len(analysis["classes"]) == 1  # PublicClass
-        
+
         func_names = [f["name"] for f in analysis["functions"]]
         assert "public_function" in func_names
         assert "async_public_function" in func_names
         assert "_private_function" not in func_names
-        
+
         class_names = [c["name"] for c in analysis["classes"]]
         assert "PublicClass" in class_names
         assert "_PrivateClass" not in class_names
-        
+
         # Verify PublicClass methods
         public_class = analysis["classes"][0]
         method_names = [m["name"] for m in public_class["methods"]]
@@ -340,24 +340,24 @@ def test_function(x):
 
 class TestClass:
     """A test class."""
-    
+
     def test_method(self):
         """A test method."""
         return 42
 '''
         source_path = tmp_path / "simple_source.py"
         source_path.write_text(source_content)
-        
+
         # Generate scaffold
         analysis = analyze_source_file(source_path)
         scaffold = generate_test_scaffold(analysis, source_path)
-        
+
         # Verify scaffold is valid Python
         try:
             ast.parse(scaffold)
         except SyntaxError as e:
             pytest.fail(f"Generated scaffold is not valid Python: {e}")
-        
+
         # Verify scaffold contains expected elements
         assert "import pytest" in scaffold
         assert "def test_test_function():" in scaffold
@@ -379,10 +379,10 @@ class ClassA:
 '''
         source_path = tmp_path / "symbols_source.py"
         source_path.write_text(source_content)
-        
+
         analysis = analyze_source_file(source_path)
         scaffold = generate_test_scaffold(analysis, source_path)
-        
+
         # Verify imports section includes the public symbols
         assert "func_a" in scaffold
         assert "func_b" in scaffold
@@ -401,7 +401,7 @@ def _private_func():
 class PublicClass:
     def public_method(self):
         pass
-    
+
     def _private_method(self):
         pass
 
@@ -410,15 +410,15 @@ class _PrivateClass:
 '''
         source_path = tmp_path / "private_source.py"
         source_path.write_text(source_content)
-        
+
         analysis = analyze_source_file(source_path)
         scaffold = generate_test_scaffold(analysis, source_path)
-        
+
         # Verify private symbols are not in the scaffold
         assert "_private_func" not in scaffold
         assert "_PrivateClass" not in scaffold
         assert "_private_method" not in scaffold
-        
+
         # Verify public symbols are present
         assert "public_func" in scaffold
         assert "PublicClass" in scaffold
@@ -432,10 +432,10 @@ class TestBobToolchainIntegration:
         """Test that coverage report can identify targets for test scaffold generation."""
         # Get coverage data
         coverage_data = analyze_coverage()
-        
+
         # Verify we have untested modules
         assert len(coverage_data["untested"]) > 0, "Should have untested modules"
-        
+
         analyzable_target_found = False
         for untested_module in coverage_data["untested"]:
             source_path = Path(ROOT) / untested_module["source"]
@@ -459,14 +459,15 @@ class TestBobToolchainIntegration:
         """Test that Bob tools appear in their own reports."""
         # Generate delivery package
         package = generate_delivery_package(format_type="json")
-        
+
         # Verify Bob tools are documented
         tools = package["bob_tools"]["tools"]
         tool_names = [tool["name"] for tool in tools]
-        
+
         # Bob tools should document themselves (using friendly names)
         assert "Bob Accelerator" in tool_names
         assert "Coverage Reporter" in tool_names
         assert "Delivery Package Generator" in tool_names
+
 
 # Made with Bob

@@ -74,7 +74,9 @@ class HarnessRunner:
 
         @hooks.on(HookName.TASK_EXECUTE_POST)
         def _on_execute_post(*, task: Any, execution: Any, **_kwargs: Any) -> None:
-            payload = execution.to_dict() if hasattr(execution, "to_dict") else {"ok": bool(getattr(execution, "ok", False))}
+            payload = (
+                execution.to_dict() if hasattr(execution, "to_dict") else {"ok": bool(getattr(execution, "ok", False))}
+            )
             self.artifacts.write_event(
                 {
                     "type": "task_execute_post",
@@ -86,7 +88,9 @@ class HarnessRunner:
             )
 
         @hooks.on(HookName.BACKEND_FALLBACK)
-        def _on_fallback(*, task: Any, failed_backend_id: str, fallback_backend_id: str, error: str, **_kwargs: Any) -> None:
+        def _on_fallback(
+            *, task: Any, failed_backend_id: str, fallback_backend_id: str, error: str, **_kwargs: Any
+        ) -> None:
             self.artifacts.write_event(
                 {
                     "type": "backend_fallback",
@@ -161,4 +165,3 @@ class HarnessRunner:
         }
         self.artifacts.write_event({"type": "summary", "at": time.time(), **summary})
         return results
-

@@ -26,7 +26,7 @@ class TestBobAccelerator(unittest.TestCase):
             cwd=ROOT,
         )
         self.assertEqual(result.returncode, 0, f"Bob accelerator failed: {result.stderr}")
-        
+
         # Verify JSON output is valid
         data = json.loads(result.stdout)
         self.assertIn("generated_by", data)

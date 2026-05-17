@@ -24,5 +24,9 @@ def filter_allowed_sources(candidates: list[SourceCandidate], *, intended_use: s
     """Return sources allowed for the requested use under beta policy."""
 
     if intended_use in {"fine_tuning", "dataset_generation"}:
-        return [candidate for candidate in candidates if candidate.license in _TRAINING_COMPATIBLE_LICENSES and bool(candidate.commit)]
+        return [
+            candidate
+            for candidate in candidates
+            if candidate.license in _TRAINING_COMPATIBLE_LICENSES and bool(candidate.commit)
+        ]
     return candidates

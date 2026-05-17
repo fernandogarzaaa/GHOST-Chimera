@@ -26,8 +26,9 @@ class ToolsetDefinitionTests(unittest.TestCase):
     def test_tool_count(self) -> None:
         ts = ToolsetDefinition(name="test", description="test", tools=[])
         self.assertEqual(ts.tool_count, 0)
-        ts = ToolsetDefinition(name="test", description="test",
-                               tools=[ToolDefinition(name="x", description="x", schema={})])
+        ts = ToolsetDefinition(
+            name="test", description="test", tools=[ToolDefinition(name="x", description="x", schema={})]
+        )
         self.assertEqual(ts.tool_count, 1)
 
 
@@ -52,10 +53,8 @@ class ToolsetRegistryTests(unittest.TestCase):
         self.assertFalse(self.registry.unregister("nonexistent"))
 
     def test_combine_toolsets(self) -> None:
-        ts1 = ToolsetDefinition(name="a", description="a",
-                                tools=[ToolDefinition(name="x", description="x", schema={})])
-        ts2 = ToolsetDefinition(name="b", description="b",
-                                tools=[ToolDefinition(name="y", description="y", schema={})])
+        ts1 = ToolsetDefinition(name="a", description="a", tools=[ToolDefinition(name="x", description="x", schema={})])
+        ts2 = ToolsetDefinition(name="b", description="b", tools=[ToolDefinition(name="y", description="y", schema={})])
         self.registry.register(ts1)
         self.registry.register(ts2)
         combined = self.registry.combine("a", "b")
@@ -64,10 +63,10 @@ class ToolsetRegistryTests(unittest.TestCase):
         self.assertIn("y", names)
 
     def test_combine_removes_duplicates(self) -> None:
-        ts1 = ToolsetDefinition(name="a", description="a",
-                                tools=[ToolDefinition(name="x", description="x", schema={})])
-        ts2 = ToolsetDefinition(name="b", description="b",
-                                tools=[ToolDefinition(name="x", description="x dup", schema={})])
+        ts1 = ToolsetDefinition(name="a", description="a", tools=[ToolDefinition(name="x", description="x", schema={})])
+        ts2 = ToolsetDefinition(
+            name="b", description="b", tools=[ToolDefinition(name="x", description="x dup", schema={})]
+        )
         self.registry.register(ts1)
         self.registry.register(ts2)
         combined = self.registry.combine("a", "b")
@@ -92,12 +91,22 @@ class ToolsetManagerTests(unittest.TestCase):
         self.registry = ToolsetRegistry()
         # Register a coding toolset manually
         coding_tools = [
-            ToolDefinition(name="write_file", description="write", schema={"type": "object", "properties": {}}, requires_approval=True),
+            ToolDefinition(
+                name="write_file",
+                description="write",
+                schema={"type": "object", "properties": {}},
+                requires_approval=True,
+            ),
             ToolDefinition(name="read_file", description="read", schema={"type": "object", "properties": {}}),
         ]
         self.registry.register(ToolsetDefinition(name="coding", description="coding", tools=coding_tools))
-        self.registry.register(ToolsetDefinition(name="research", description="research",
-                                                  tools=[ToolDefinition(name="web_search", description="search", schema={})]))
+        self.registry.register(
+            ToolsetDefinition(
+                name="research",
+                description="research",
+                tools=[ToolDefinition(name="web_search", description="search", schema={})],
+            )
+        )
         self.manager = ToolsetManager(registry=self.registry)
 
     def test_default_active_toolsets(self) -> None:

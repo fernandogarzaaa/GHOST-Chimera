@@ -103,17 +103,23 @@ _KIND_SCHEMAS: dict[TaskKind, _KindSchema] = {
         optional_fields=["target", "x", "y", "text", "keys", "action_class", "plan", "target_descriptor", "trace_id"],
         field_types={"action": str},
         value_constraints={
-            "action": lambda v: isinstance(v, str) and v.strip().lower() in {
-                "click",
-                "double_click",
-                "right_click",
-                "type",
-                "hotkey",
-                "move",
-                "plan",
-            },
+            "action": lambda v: (
+                isinstance(v, str)
+                and v.strip().lower()
+                in {
+                    "click",
+                    "double_click",
+                    "right_click",
+                    "type",
+                    "hotkey",
+                    "move",
+                    "plan",
+                }
+            ),
             "keys": lambda v: isinstance(v, list) and all(isinstance(item, str) for item in v),
-            "action_class": lambda v: isinstance(v, str) and v.strip().lower().replace("-", "_") in DESKTOP_ACTION_CLASSES,
+            "action_class": lambda v: (
+                isinstance(v, str) and v.strip().lower().replace("-", "_") in DESKTOP_ACTION_CLASSES
+            ),
             "plan": _is_desktop_plan,
             "target_descriptor": _is_target_descriptor,
         },
@@ -130,10 +136,22 @@ _KIND_SCHEMAS: dict[TaskKind, _KindSchema] = {
     # ── Track 3: Simulation ──────────────────────────────────────────────────
     TaskKind.SIMULATION: _KindSchema(
         required_fields=["sim_mode"],
-        optional_fields=["robot", "environment", "waypoints", "states", "sensors", "policy", "episodes", "dt", "tick_rate_hz"],
+        optional_fields=[
+            "robot",
+            "environment",
+            "waypoints",
+            "states",
+            "sensors",
+            "policy",
+            "episodes",
+            "dt",
+            "tick_rate_hz",
+        ],
         field_types={"sim_mode": str},
         value_constraints={
-            "sim_mode": lambda v: isinstance(v, str) and v.strip().lower() in {"kinematics", "digital_twin", "policy_test"},
+            "sim_mode": lambda v: (
+                isinstance(v, str) and v.strip().lower() in {"kinematics", "digital_twin", "policy_test"}
+            ),
         },
     ),
     # ── Track 4: Analytics ──────────────────────────────────────────────────

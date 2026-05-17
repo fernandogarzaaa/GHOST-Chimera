@@ -232,6 +232,7 @@ class PluginManifest:
             return []
         try:
             import jsonschema  # type: ignore
+
             try:
                 jsonschema.validate(config, self.config_schema)
                 return []
@@ -249,8 +250,7 @@ class PluginManifest:
             for env_var in provider_spec.get("envVars", []):
                 if not os.environ.get(env_var):
                     missing.append(
-                        f"Plugin '{self.id}' requires env var '{env_var}' "
-                        f"(provider '{provider_spec.get('id', '?')}')"
+                        f"Plugin '{self.id}' requires env var '{env_var}' (provider '{provider_spec.get('id', '?')}')"
                     )
         return missing
 

@@ -79,5 +79,3 @@ class PersonalContextTests(unittest.TestCase):
             # No personal_context should be present
             for task in tasks:
                 self.assertNotIn("personal_context", task.constraints)
-
-

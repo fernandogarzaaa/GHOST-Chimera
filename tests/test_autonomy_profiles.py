@@ -246,7 +246,17 @@ class AutonomyProfileTests(unittest.TestCase):
                 allow_files=False,
                 allow_email=False,
             )
-            expected_keys = {"ok", "memory_db", "allow_files", "allow_email", "files", "emails", "dataset_path", "dataset_records", "memory_documents"}
+            expected_keys = {
+                "ok",
+                "memory_db",
+                "allow_files",
+                "allow_email",
+                "files",
+                "emails",
+                "dataset_path",
+                "dataset_records",
+                "memory_documents",
+            }
             self.assertEqual(set(summary.keys()), expected_keys)
 
     def test_minimind_bootstrap_memory_db_path_in_summary(self) -> None:
@@ -338,9 +348,13 @@ class AutonomyProfileTests(unittest.TestCase):
             base = Path(tmp)
             result = subprocess.run(
                 [
-                    sys.executable, "-m", "ghostchimera.control_plane.cli",
-                    "minimind", "bootstrap-personal",
-                    "--memory-db", str(base / "mem.sqlite3"),
+                    sys.executable,
+                    "-m",
+                    "ghostchimera.control_plane.cli",
+                    "minimind",
+                    "bootstrap-personal",
+                    "--memory-db",
+                    str(base / "mem.sqlite3"),
                 ],
                 text=True,
                 capture_output=True,
@@ -360,11 +374,16 @@ class AutonomyProfileTests(unittest.TestCase):
             note.write_text("action: update the docs.", encoding="utf-8")
             result = subprocess.run(
                 [
-                    sys.executable, "-m", "ghostchimera.control_plane.cli",
-                    "minimind", "bootstrap-personal",
-                    "--memory-db", str(base / "mem.sqlite3"),
+                    sys.executable,
+                    "-m",
+                    "ghostchimera.control_plane.cli",
+                    "minimind",
+                    "bootstrap-personal",
+                    "--memory-db",
+                    str(base / "mem.sqlite3"),
                     "--allow-files",
-                    "--file-path", str(note),
+                    "--file-path",
+                    str(note),
                 ],
                 text=True,
                 capture_output=True,
@@ -387,11 +406,16 @@ class AutonomyProfileTests(unittest.TestCase):
             )
             result = subprocess.run(
                 [
-                    sys.executable, "-m", "ghostchimera.control_plane.cli",
-                    "minimind", "bootstrap-personal",
-                    "--memory-db", str(base / "mem.sqlite3"),
+                    sys.executable,
+                    "-m",
+                    "ghostchimera.control_plane.cli",
+                    "minimind",
+                    "bootstrap-personal",
+                    "--memory-db",
+                    str(base / "mem.sqlite3"),
                     "--allow-email",
-                    "--email-path", str(eml),
+                    "--email-path",
+                    str(eml),
                 ],
                 text=True,
                 capture_output=True,
@@ -423,9 +447,13 @@ class AutonomyProfileTests(unittest.TestCase):
             )
             result = subprocess.run(
                 [
-                    sys.executable, "-m", "ghostchimera.control_plane.cli",
-                    "minimind", "beta-vision",
-                    "--config", str(config_path),
+                    sys.executable,
+                    "-m",
+                    "ghostchimera.control_plane.cli",
+                    "minimind",
+                    "beta-vision",
+                    "--config",
+                    str(config_path),
                 ],
                 text=True,
                 capture_output=True,
@@ -447,10 +475,15 @@ class AutonomyProfileTests(unittest.TestCase):
             note.write_text("Action: deploy hotfix to production.", encoding="utf-8")
             result = subprocess.run(
                 [
-                    sys.executable, "-m", "ghostchimera.control_plane.cli",
-                    "minimind", "beta-vision",
-                    "--memory-db", str(base / "mem.sqlite3"),
-                    "--file-path", str(note),
+                    sys.executable,
+                    "-m",
+                    "ghostchimera.control_plane.cli",
+                    "minimind",
+                    "beta-vision",
+                    "--memory-db",
+                    str(base / "mem.sqlite3"),
+                    "--file-path",
+                    str(note),
                 ],
                 text=True,
                 capture_output=True,
@@ -468,9 +501,13 @@ class AutonomyProfileTests(unittest.TestCase):
             base = Path(tmp)
             result = subprocess.run(
                 [
-                    sys.executable, "-m", "ghostchimera.control_plane.cli",
-                    "minimind", "beta-vision",
-                    "--memory-db", str(base / "mem.sqlite3"),
+                    sys.executable,
+                    "-m",
+                    "ghostchimera.control_plane.cli",
+                    "minimind",
+                    "beta-vision",
+                    "--memory-db",
+                    str(base / "mem.sqlite3"),
                     "--run-autonomy-jobs",
                 ],
                 text=True,

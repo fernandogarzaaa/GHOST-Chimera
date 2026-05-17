@@ -51,6 +51,7 @@ class OpenAIProviderTests(unittest.TestCase):
     def test_creation_without_key_is_unavailable(self):
         orig_key = None
         import os
+
         orig_key = os.environ.get("OPENAI_API_KEY")
         os.environ.pop("OPENAI_API_KEY", None)
         try:
@@ -63,6 +64,7 @@ class OpenAIProviderTests(unittest.TestCase):
 
     def test_valid_key_makes_available(self):
         import os
+
         os.environ["OPENAI_API_KEY"] = "sk-test1234"
         try:
             p = OpenAIProvider()

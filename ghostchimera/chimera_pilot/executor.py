@@ -136,6 +136,7 @@ class PilotExecution:
 
     def to_replay_bundle(self) -> dict[str, Any]:
         """Return a deterministic replay bundle for postmortem/debug workflows."""
+
         def _sha256_text(value: Any) -> str:
             text = "" if value is None else str(value)
             return hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -319,9 +320,7 @@ class ChimeraPilotExecutor:
             StateTransition(PilotRunState.PLANNED, now(), f"task accepted strategy={selected_strategy}")
         ]
         if resumed_from_checkpoint:
-            transitions.append(
-                StateTransition(PilotRunState.PLANNED, now(), f"resumed_from={resumed_from_checkpoint}")
-            )
+            transitions.append(StateTransition(PilotRunState.PLANNED, now(), f"resumed_from={resumed_from_checkpoint}"))
         attempts: list[ExecutionResult] = []
         last_verification_error: str | None = None
         last_decision = ranked[0]
@@ -347,7 +346,12 @@ class ChimeraPilotExecutor:
                 provenance=[],
                 claims=[{"claim": "task_completed", "passed": False}],
                 warnings=["run_cancelled"],
-                metadata={"task_id": task.id, "run_id": run_id, "attempt_id": attempt_id, "checkpoint_id": checkpoint_id},
+                metadata={
+                    "task_id": task.id,
+                    "run_id": run_id,
+                    "attempt_id": attempt_id,
+                    "checkpoint_id": checkpoint_id,
+                },
             )
             execution = PilotExecution(
                 task=task,
@@ -380,7 +384,7 @@ class ChimeraPilotExecutor:
                 # Mask any leaked API keys before storing
                 for secret_prefix in ("Bearer sk-", "Bearer pk-", "Bearer ak"):
                     if secret_prefix in raw_error:
-                        raw_error = raw_error[:raw_error.index(secret_prefix)] + secret_prefix + "*MASKED*"
+                        raw_error = raw_error[: raw_error.index(secret_prefix)] + secret_prefix + "*MASKED*"
                 result = ExecutionResult(
                     backend_id=decision.backend.id,
                     task_id=task.id,
@@ -423,7 +427,9 @@ class ChimeraPilotExecutor:
             last_verification_error = verification_error
             if result.ok and verified:
                 # Run semantic verification alongside structural
-                semantic_ok, semantic_err, semantic_warnings = self.semantic_verifier.verify(task, result, envelope=None)
+                semantic_ok, semantic_err, semantic_warnings = self.semantic_verifier.verify(
+                    task, result, envelope=None
+                )
                 envelope = ResultEnvelope(
                     kind=task.kind.value,
                     value=result.output,
@@ -492,7 +498,12 @@ class ChimeraPilotExecutor:
                 provenance=[],
                 claims=[{"claim": "task_completed", "passed": False}],
                 warnings=["run_cancelled"],
-                metadata={"task_id": task.id, "run_id": run_id, "attempt_id": attempt_id, "checkpoint_id": checkpoint_id},
+                metadata={
+                    "task_id": task.id,
+                    "run_id": run_id,
+                    "attempt_id": attempt_id,
+                    "checkpoint_id": checkpoint_id,
+                },
             )
             execution = PilotExecution(
                 task=task,

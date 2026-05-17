@@ -23,13 +23,15 @@ def _add_parallel_args(parser: argparse.ArgumentParser) -> None:
     run_parser = subparsers.add_parser("run", help="Run one or more objectives with optional parallelism")
     run_parser.add_argument("objectives", nargs="+", help="One or more objectives to execute")
     run_parser.add_argument(
-        "--parallel", "-p",
+        "--parallel",
+        "-p",
         type=int,
         default=1,
         help="Number of parallel workers (default: 1)",
     )
     run_parser.add_argument(
-        "--output-dir", "-o",
+        "--output-dir",
+        "-o",
         default="./parallel_output",
         help="Output directory (default: ./parallel_output)",
     )
@@ -38,13 +40,15 @@ def _add_parallel_args(parser: argparse.ArgumentParser) -> None:
     batch_parser = subparsers.add_parser("batch", help="Run objectives from a JSONL file in parallel")
     batch_parser.add_argument("dataset_file", help="Path to JSONL file with objective/prompt field")
     batch_parser.add_argument(
-        "--workers", "-w",
+        "--workers",
+        "-w",
         type=int,
         default=4,
         help="Number of parallel workers (default: 4)",
     )
     batch_parser.add_argument(
-        "--output-dir", "-o",
+        "--output-dir",
+        "-o",
         default="./batch_output",
         help="Output directory (default: ./batch_output)",
     )
@@ -131,6 +135,7 @@ def _main(argv: list[str] | None = None) -> int:
     # Handle existing commands
     if args.config_show:
         from ..config import GhostChimeraConfig
+
         print(json.dumps(GhostChimeraConfig.from_env().to_dict(), indent=2, sort_keys=True))
         return 0
 
@@ -150,7 +155,11 @@ def _main(argv: list[str] | None = None) -> int:
         try:
             executions = kernel.run(args.pilot_run)
         except PermissionError as exc:
-            print(json.dumps({"ok": False, "error": str(exc), "policy": kernel.policy.to_dict()}, indent=2, sort_keys=True))
+            print(
+                json.dumps(
+                    {"ok": False, "error": str(exc), "policy": kernel.policy.to_dict()}, indent=2, sort_keys=True
+                )
+            )
             return 1
         payload = [execution.to_dict() for execution in executions]
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -158,6 +167,7 @@ def _main(argv: list[str] | None = None) -> int:
 
     # Fall through to original interactive CLI
     from .cli import run_cli
+
     run_cli()
     return 0
 

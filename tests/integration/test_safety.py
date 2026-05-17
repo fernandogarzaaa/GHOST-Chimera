@@ -10,6 +10,7 @@ def test_path_containment():
     from pathlib import Path
 
     from ghostchimera.safety_layer.gating import _path_is_under_root
+
     root = Path("/tmp").resolve()
     child = Path("/tmp/test.txt").resolve()
     assert _path_is_under_root(root, child)

@@ -15,6 +15,7 @@ from typing import Any
 @dataclass
 class ResultEnvelope:
     """Structured result carrying confidence, provenance, and metadata."""
+
     envelope_version: str = "1.0"
     envelope_id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
     kind: str = "generic"

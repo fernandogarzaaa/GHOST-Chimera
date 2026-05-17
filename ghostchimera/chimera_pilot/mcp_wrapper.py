@@ -24,6 +24,7 @@ logger = get_logger("mcp_wrapper")
 # MCP server connection
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class MCPClient:
     """Connection to a single MCP server (stdio transport)."""
@@ -42,10 +43,17 @@ class MCPClient:
     @contextmanager
     def connect(self):
         """Start MCP server subprocess and discover tools."""
-        env = {**self.env, **{k: v for k, v in {
-            "PATH": "/usr/bin:/bin:/usr/local/bin",
-            "PYTHONPATH": str(Path(__file__).resolve().parent.parent.parent),
-        }.items() if v}}
+        env = {
+            **self.env,
+            **{
+                k: v
+                for k, v in {
+                    "PATH": "/usr/bin:/bin:/usr/local/bin",
+                    "PYTHONPATH": str(Path(__file__).resolve().parent.parent.parent),
+                }.items()
+                if v
+            },
+        }
         try:
             self._process = subprocess.Popen(
                 [self.command, *self.args],
@@ -67,16 +75,18 @@ class MCPClient:
         if not self._process or not self._process.stdin:
             return
         try:
-            request = json.dumps({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {},
-                    "clientInfo": {"name": "ghost-chimera", "version": "0.2.0"},
-                },
-            })
+            request = json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "ghost-chimera", "version": "0.2.0"},
+                    },
+                }
+            )
             self._process.stdin.write(request + "\n")
             self._process.stdin.flush()
             response = self._process.stdout.readline()
@@ -85,12 +95,14 @@ class MCPClient:
                 # Check for initialized response
                 if resp.get("method") == "notifications/initialized":
                     # Now request tools
-                    tools_req = json.dumps({
-                        "jsonrpc": "2.0",
-                        "id": 2,
-                        "method": "tools/list",
-                        "params": {},
-                    })
+                    tools_req = json.dumps(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": 2,
+                            "method": "tools/list",
+                            "params": {},
+                        }
+                    )
                     self._process.stdin.write(tools_req + "\n")
                     self._process.stdin.flush()
                     tools_resp = self._process.stdout.readline()
@@ -98,11 +110,13 @@ class MCPClient:
                         tools_data = json.loads(tools_resp.strip())
                         if "result" in tools_data:
                             for tool in tools_data["result"].get("tools", []):
-                                self.tools.append({
-                                    "name": tool["name"],
-                                    "description": tool.get("description", ""),
-                                    "inputSchema": tool.get("inputSchema", {}),
-                                })
+                                self.tools.append(
+                                    {
+                                        "name": tool["name"],
+                                        "description": tool.get("description", ""),
+                                        "inputSchema": tool.get("inputSchema", {}),
+                                    }
+                                )
                 logger.info("Discovered %d tools from MCP server %s", len(self.tools), self.name)
         except Exception as exc:
             logger.warning("Failed to discover tools from %s: %s", self.name, exc)
@@ -123,15 +137,17 @@ class MCPClient:
             return {"status": "error", "content": f"Server {self.name} not connected"}
 
         request_id = int(time.time() * 1000)
-        request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": "tools/call",
-            "params": {
-                "name": name,
-                "arguments": arguments,
-            },
-        })
+        request = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": "tools/call",
+                "params": {
+                    "name": name,
+                    "arguments": arguments,
+                },
+            }
+        )
         try:
             self._process.stdin.write(request + "\n")
             self._process.stdin.flush()
@@ -154,9 +170,11 @@ class MCPClient:
 
         return {"status": "error", "content": "No response from server"}
 
+
 # ---------------------------------------------------------------------------
 # MCP server registry
 # ---------------------------------------------------------------------------
+
 
 class MCPRegistry:
     """Manage multiple MCP server connections and their tools."""

@@ -98,6 +98,7 @@ class PilotPolicy:
             url = task.inputs.get("url") or task.inputs.get("query", "")
             if url and url.startswith(("http://", "https://")):
                 from ..safety_layer.ssrf import SSRFPolicy
+
                 ssrf = SSRFPolicy()
                 for host in self.allowed_hosts:
                     ssrf.allow_host(host)
@@ -137,9 +138,7 @@ class PilotPolicy:
                 )
             live_flag = str(task.constraints.get("live_desktop", "")).strip().lower()
             if action_class == DesktopActionClass.DESTRUCTIVE.value and live_flag in {"1", "true", "yes"}:
-                confirmation_error = destructive_desktop_confirmation_error(
-                    task.constraints.get("confirmation_token")
-                )
+                confirmation_error = destructive_desktop_confirmation_error(task.constraints.get("confirmation_token"))
                 if confirmation_error:
                     raise PermissionError(confirmation_error)
             self._validate_desktop_scope_allowlists(task)
@@ -161,7 +160,9 @@ class PilotPolicy:
             "default_max_cost_usd": self.default_max_cost_usd,
             "max_python_timeout_seconds": self.max_python_timeout_seconds,
             "allowed_hosts": list(self.allowed_hosts),
-            "allowed_desktop_action_classes": list(normalize_allowed_desktop_action_classes(list(self.allowed_desktop_action_classes))),
+            "allowed_desktop_action_classes": list(
+                normalize_allowed_desktop_action_classes(list(self.allowed_desktop_action_classes))
+            ),
             "allowed_desktop_apps": list(self.allowed_desktop_apps),
             "denied_desktop_apps": list(self.denied_desktop_apps),
             "allowed_desktop_windows": list(self.allowed_desktop_windows),
@@ -277,6 +278,4 @@ class PilotPolicy:
                     if node.args and isinstance(node.args[0], ast.Constant):
                         mod = str(node.args[0])
                         if mod in dangerous_modules:
-                            raise PermissionError(
-                                f"Task {task_id} contains denied AST pattern: __import__('{mod}')"
-                            )
+                            raise PermissionError(f"Task {task_id} contains denied AST pattern: __import__('{mod}')")

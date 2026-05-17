@@ -243,7 +243,9 @@ def _forecast(values: list[float], horizon: int = 3) -> dict[str, Any]:
     }
 
 
-def _detect_anomalies_zscore(values: list[float], column: str = "value", threshold: float = 2.5) -> list[dict[str, Any]]:
+def _detect_anomalies_zscore(
+    values: list[float], column: str = "value", threshold: float = 2.5
+) -> list[dict[str, Any]]:
     """Detect statistical anomalies in *values* using the z-score method.
 
     A value is flagged as anomalous when its z-score (distance from the mean in
@@ -303,7 +305,12 @@ def _run_analytics_query(data: list[dict[str, Any]], query: str) -> dict[str, An
                 values.append(v)
             except (TypeError, ValueError):
                 pass
-        return {"query": query, "operation": "forecast", "column": col, **_forecast(values, horizon=int(op.get("horizon", 3)))}
+        return {
+            "query": query,
+            "operation": "forecast",
+            "column": col,
+            **_forecast(values, horizon=int(op.get("horizon", 3))),
+        }
 
     if operation == "anomaly_detection":
         col = op.get("column") or (columns[-1] if columns else None)
@@ -327,7 +334,13 @@ def _run_analytics_query(data: list[dict[str, Any]], query: str) -> dict[str, An
         }
 
     result = _apply_aggregation(data, operation, op.get("column"), op.get("group_by"), op.get("filter"))
-    return {"query": query, "operation": operation, "column": op.get("column"), "group_by": op.get("group_by"), "result": result}
+    return {
+        "query": query,
+        "operation": operation,
+        "column": op.get("column"),
+        "group_by": op.get("group_by"),
+        "result": result,
+    }
 
 
 def _infer_schema(data: list[dict[str, Any]]) -> dict[str, str]:
@@ -362,7 +375,9 @@ def _validate_schema(data: list[dict[str, Any]], declared_schema: dict[str, str]
                 continue
             expected = type_map.get(expected_type)
             if expected and not isinstance(val, expected):
-                violations.append({"row": i, "column": col, "expected": expected_type, "got": type(val).__name__, "value": repr(val)})
+                violations.append(
+                    {"row": i, "column": col, "expected": expected_type, "got": type(val).__name__, "value": repr(val)}
+                )
     return violations
 
 
@@ -546,7 +561,14 @@ class AnalyticsBackend:
             supports_network=False,
             max_context_tokens=None,
             metadata={
-                "pipeline_steps": ["validate_schema", "profile", "detect_anomalies", "deduplicate", "drop_nulls", "knowledge_graph"],
+                "pipeline_steps": [
+                    "validate_schema",
+                    "profile",
+                    "detect_anomalies",
+                    "deduplicate",
+                    "drop_nulls",
+                    "knowledge_graph",
+                ],
                 "analytics_operations": ["count", "mean", "sum", "max", "min", "forecast", "anomaly_detection"],
             },
         )

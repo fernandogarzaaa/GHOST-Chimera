@@ -25,14 +25,28 @@ logger = get_logger("checkpoint")
 # Constants
 # ---------------------------------------------------------------------------
 
-CHECKPOINT_BASE = Path(os.environ.get("GHOSTCHIMERA_CHECKPOINT_DIR", str(Path.home() / ".ghostchimera" / "checkpoints")))
+CHECKPOINT_BASE = Path(
+    os.environ.get("GHOSTCHIMERA_CHECKPOINT_DIR", str(Path.home() / ".ghostchimera" / "checkpoints"))
+)
 CHECKPOINT_INTERVAL = int(os.environ.get("GHOSTCHIMERA_CHECKPOINT_INTERVAL", "10"))  # turns
 DEFAULT_EXCLUDES = [
-    ".git/", "node_modules/", "__pycache__/", "*.pyc", "*.pyo",
-    "*.egg-info/", ".eggs/", "*.so", "*.dylib",
-    ".venv/", "venv/", "env/",
-    "*.log", "*.sqlite", "*.sqlite3",
-    ".DS_Store", "Thumbs.db",
+    ".git/",
+    "node_modules/",
+    "__pycache__/",
+    "*.pyc",
+    "*.pyo",
+    "*.egg-info/",
+    ".eggs/",
+    "*.so",
+    "*.dylib",
+    ".venv/",
+    "venv/",
+    "env/",
+    "*.log",
+    "*.sqlite",
+    "*.sqlite3",
+    ".DS_Store",
+    "Thumbs.db",
 ]
 CHECKPOINT_EXPIRY_DAYS = int(os.environ.get("GHOSTCHIMERA_CHECKPOINT_EXPIRY_DAYS", "30"))
 
@@ -40,9 +54,11 @@ CHECKPOINT_EXPIRY_DAYS = int(os.environ.get("GHOSTCHIMERA_CHECKPOINT_EXPIRY_DAYS
 # Data types
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class Checkpoint:
     """A named filesystem state snapshot."""
+
     name: str
     git_hash: str
     created_at: float
@@ -74,9 +90,11 @@ class Checkpoint:
             description=data.get("description", ""),
         )
 
+
 @dataclass(frozen=True)
 class CheckpointDelta:
     """Diff between two checkpoints."""
+
     from_hash: str
     to_hash: str
     added: list[str]
@@ -87,29 +105,44 @@ class CheckpointDelta:
     def from_git_diff(cls, from_hash: str, to_hash: str) -> CheckpointDelta:
         """Compute diff between two git hashes in a shadow repo."""
         try:
-            added = subprocess.check_output(
-                ["git", "diff", "--name-only", "--diff-filter=A", f"{from_hash}..{to_hash}"],
-                cwd=CHECKPOINT_BASE / f".ghost-{from_hash[:8]}",
-                stderr=subprocess.DEVNULL,
-            ).decode().strip().split("\n")
+            added = (
+                subprocess.check_output(
+                    ["git", "diff", "--name-only", "--diff-filter=A", f"{from_hash}..{to_hash}"],
+                    cwd=CHECKPOINT_BASE / f".ghost-{from_hash[:8]}",
+                    stderr=subprocess.DEVNULL,
+                )
+                .decode()
+                .strip()
+                .split("\n")
+            )
         except (subprocess.CalledProcessError, FileNotFoundError, NotADirectoryError):
             added = []
 
         try:
-            modified = subprocess.check_output(
-                ["git", "diff", "--name-only", "--diff-filter=M", f"{from_hash}..{to_hash}"],
-                cwd=CHECKPOINT_BASE / f".ghost-{from_hash[:8]}",
-                stderr=subprocess.DEVNULL,
-            ).decode().strip().split("\n")
+            modified = (
+                subprocess.check_output(
+                    ["git", "diff", "--name-only", "--diff-filter=M", f"{from_hash}..{to_hash}"],
+                    cwd=CHECKPOINT_BASE / f".ghost-{from_hash[:8]}",
+                    stderr=subprocess.DEVNULL,
+                )
+                .decode()
+                .strip()
+                .split("\n")
+            )
         except (subprocess.CalledProcessError, FileNotFoundError, NotADirectoryError):
             modified = []
 
         try:
-            deleted = subprocess.check_output(
-                ["git", "diff", "--name-only", "--diff-filter=D", f"{from_hash}..{to_hash}"],
-                cwd=CHECKPOINT_BASE / f".ghost-{from_hash[:8]}",
-                stderr=subprocess.DEVNULL,
-            ).decode().strip().split("\n")
+            deleted = (
+                subprocess.check_output(
+                    ["git", "diff", "--name-only", "--diff-filter=D", f"{from_hash}..{to_hash}"],
+                    cwd=CHECKPOINT_BASE / f".ghost-{from_hash[:8]}",
+                    stderr=subprocess.DEVNULL,
+                )
+                .decode()
+                .strip()
+                .split("\n")
+            )
         except (subprocess.CalledProcessError, FileNotFoundError, NotADirectoryError):
             deleted = []
 
@@ -120,9 +153,11 @@ class CheckpointDelta:
 
         return cls(from_hash=from_hash, to_hash=to_hash, added=added, modified=modified, deleted=deleted)
 
+
 # ---------------------------------------------------------------------------
 # Checkpoint manager
 # ---------------------------------------------------------------------------
+
 
 class CheckpointManager:
     """Manages shadow git repo snapshots for filesystem state preservation."""
@@ -175,8 +210,12 @@ class CheckpointManager:
 
             # Initialize git repo in shadow dir
             subprocess.run(["git", "init"], cwd=shadow_dir, check=True, capture_output=True)
-            subprocess.run(["git", "config", "user.name", "ghost-chimera"], cwd=shadow_dir, check=True, capture_output=True)
-            subprocess.run(["git", "config", "user.email", "ghost@chimera.dev"], cwd=shadow_dir, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "config", "user.name", "ghost-chimera"], cwd=shadow_dir, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "ghost@chimera.dev"], cwd=shadow_dir, check=True, capture_output=True
+            )
 
             # Use GIT_DIR + GIT_WORK_TREE to shadow the real state_dir
             # This creates a separate repo whose working tree points to our state dir
@@ -186,8 +225,7 @@ class CheckpointManager:
             # Clone as bare repo to track state
             bare_dir = shadow_dir / "bare"
             bare_dir.mkdir(exist_ok=True)
-            subprocess.run(["git", "clone", "--bare", str(shadow_dir), str(bare_dir)],
-                         check=True, capture_output=True)
+            subprocess.run(["git", "clone", "--bare", str(shadow_dir), str(bare_dir)], check=True, capture_output=True)
 
             # Create a commit of current state_dir contents
             subprocess.run(["git", "add", "."], cwd=state_dir, check=False, capture_output=True)
@@ -199,8 +237,7 @@ class CheckpointManager:
             )
 
             # Get the git hash
-            hash_result = subprocess.run(["git", "rev-parse", "HEAD"],
-                                       cwd=state_dir, capture_output=True, text=True)
+            hash_result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=state_dir, capture_output=True, text=True)
             git_hash = hash_result.stdout.strip() or "init"
 
             # Count files and size
@@ -311,7 +348,9 @@ class CheckpointManager:
             "last_checkpoint": self._last_checkpoint,
             "interval": self.interval,
             "turn_count": self._turn_count,
-            "checkpoints": [c.to_dict() for c in sorted(self._checkpoints.values(), key=lambda c: c.created_at, reverse=True)],
+            "checkpoints": [
+                c.to_dict() for c in sorted(self._checkpoints.values(), key=lambda c: c.created_at, reverse=True)
+            ],
         }
 
 

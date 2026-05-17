@@ -58,10 +58,7 @@ class HarnessCase:
         if not objective:
             raise ValueError(f"HarnessCase '{case_id}' is missing required field 'objective'")
         kernel = dict(payload.get("kernel") or {})
-        memory_documents = tuple(
-            MemoryDocument.from_dict(d)
-            for d in (payload.get("memory_documents") or ())
-        )
+        memory_documents = tuple(MemoryDocument.from_dict(d) for d in (payload.get("memory_documents") or ()))
         expect = HarnessExpectation.from_dict(payload.get("expect"))
         return cls(
             id=case_id,
@@ -86,4 +83,3 @@ class HarnessCaseResult:
             "checks": dict(self.checks),
             "executions": list(self.executions),
         }
-

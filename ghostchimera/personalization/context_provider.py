@@ -132,4 +132,3 @@ class PersonalContextProvider:
             sources=tuple(sources),
             detail="minimind summary",
         )
-

@@ -312,8 +312,7 @@ class StdlibWebFetchProvider(WebFetchProvider):
                     provider=self.name,
                 )
         except Exception as exc:
-            return WebFetchResult(url=url, content="", status_code=0, provider=self.name,
-                                  metadata={"error": str(exc)})
+            return WebFetchResult(url=url, content="", status_code=0, provider=self.name, metadata={"error": str(exc)})
 
 
 class OpenAIImageProvider(ImageGenerationProvider):
@@ -335,8 +334,9 @@ class OpenAIImageProvider(ImageGenerationProvider):
             return ["OPENAI_API_KEY is not set"]
         return []
 
-    def generate(self, prompt: str, *, width: int = 1024, height: int = 1024,
-                 n: int = 1, style: str = "natural") -> list[ImageResult]:
+    def generate(
+        self, prompt: str, *, width: int = 1024, height: int = 1024, n: int = 1, style: str = "natural"
+    ) -> list[ImageResult]:
         import json
         import ssl
         import urllib.request
@@ -345,14 +345,16 @@ class OpenAIImageProvider(ImageGenerationProvider):
             raise RuntimeError("OpenAIImageProvider is not available; set OPENAI_API_KEY")
 
         size = f"{width}x{height}"
-        body = json.dumps({
-            "model": self.model,
-            "prompt": prompt,
-            "n": n,
-            "size": size,
-            "style": style,
-            "response_format": "url",
-        }).encode()
+        body = json.dumps(
+            {
+                "model": self.model,
+                "prompt": prompt,
+                "n": n,
+                "size": size,
+                "style": style,
+                "response_format": "url",
+            }
+        ).encode()
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
@@ -363,8 +365,7 @@ class OpenAIImageProvider(ImageGenerationProvider):
         with urllib.request.urlopen(req, context=ctx) as resp:
             data = json.loads(resp.read().decode())
             return [
-                ImageResult(url=item.get("url", ""), provider=self.name,
-                            width=width, height=height)
+                ImageResult(url=item.get("url", ""), provider=self.name, width=width, height=height)
                 for item in data.get("data", [])
             ]
 
@@ -388,8 +389,7 @@ class OpenAISpeechProvider(SpeechProvider):
             return ["OPENAI_API_KEY is not set"]
         return []
 
-    def synthesize(self, text: str, *, voice: str = "alloy",
-                   speed: float = 1.0, format: str = "mp3") -> SpeechResult:
+    def synthesize(self, text: str, *, voice: str = "alloy", speed: float = 1.0, format: str = "mp3") -> SpeechResult:
         import json
         import ssl
         import urllib.request
@@ -397,13 +397,15 @@ class OpenAISpeechProvider(SpeechProvider):
         if not self.available:
             raise RuntimeError("OpenAISpeechProvider is not available; set OPENAI_API_KEY")
 
-        body = json.dumps({
-            "model": self.model,
-            "input": text,
-            "voice": voice,
-            "speed": speed,
-            "response_format": format,
-        }).encode()
+        body = json.dumps(
+            {
+                "model": self.model,
+                "input": text,
+                "voice": voice,
+                "speed": speed,
+                "response_format": format,
+            }
+        ).encode()
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
@@ -413,9 +415,7 @@ class OpenAISpeechProvider(SpeechProvider):
         ctx = ssl.create_default_context()
         with urllib.request.urlopen(req, context=ctx) as resp:
             audio = resp.read()
-            return SpeechResult(audio_data=audio,
-                                mime_type=f"audio/{format}",
-                                provider=self.name)
+            return SpeechResult(audio_data=audio, mime_type=f"audio/{format}", provider=self.name)
 
 
 class OpenAIVisionProvider(MediaUnderstandingProvider):
@@ -437,8 +437,9 @@ class OpenAIVisionProvider(MediaUnderstandingProvider):
             return ["OPENAI_API_KEY is not set"]
         return []
 
-    def describe(self, image_data: bytes | str, *, mime_type: str = "image/jpeg",
-                 detail: str = "auto") -> MediaUnderstandingResult:
+    def describe(
+        self, image_data: bytes | str, *, mime_type: str = "image/jpeg", detail: str = "auto"
+    ) -> MediaUnderstandingResult:
         import base64
         import json
         import ssl
@@ -449,18 +450,24 @@ class OpenAIVisionProvider(MediaUnderstandingProvider):
 
         b64 = base64.b64encode(image_data).decode() if isinstance(image_data, bytes) else image_data
 
-        body = json.dumps({
-            "model": self.model,
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "image_url",
-                     "image_url": {"url": f"data:{mime_type};base64,{b64}", "detail": detail}},
-                    {"type": "text", "text": "Describe this image in detail."},
+        body = json.dumps(
+            {
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{mime_type};base64,{b64}", "detail": detail},
+                            },
+                            {"type": "text", "text": "Describe this image in detail."},
+                        ],
+                    }
                 ],
-            }],
-            "max_tokens": 512,
-        }).encode()
+                "max_tokens": 512,
+            }
+        ).encode()
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",

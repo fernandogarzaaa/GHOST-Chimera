@@ -83,6 +83,7 @@ class EmailIngestResult:
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
 
+
 def _decode_header_value(value: str | None) -> str:
     """Decode an email header value, handling RFC 2047 encoded words."""
     if not value:
@@ -151,6 +152,7 @@ def _msg_to_record(msg: email.message.Message, source_path: str) -> EmailRecord:
 
 
 # ── Public class ─────────────────────────────────────────────────────────────
+
 
 class EmailIngester:
     """Ingest emails from files or raw text into a MemoryStore.

@@ -211,9 +211,8 @@ class MinimindProvider(BaseProvider):
     name = "minimind"
 
     def __init__(self, profile: AuthProfile | None = None) -> None:
-        profile_name = (
-            (profile.model if profile and profile.model else None)
-            or os.environ.get("MINIMIND_MODEL_PROFILE", "tiny")
+        profile_name = (profile.model if profile and profile.model else None) or os.environ.get(
+            "MINIMIND_MODEL_PROFILE", "tiny"
         )
         self.profile = get_local_model_profile(profile_name)
         model_path = profile.base_url if profile and profile.base_url else None
@@ -273,8 +272,12 @@ class LlamaCppProvider(BaseProvider):
     name = "llamacpp"
 
     def __init__(self, profile: AuthProfile | None = None) -> None:
-        model_path = (profile.base_url if profile and profile.base_url else None) or os.environ.get("LLAMACPP_MODEL_PATH", "")
-        profile_name = (profile.model if profile and profile.model else None) or os.environ.get("LLAMACPP_MODEL_PROFILE", "tiny")
+        model_path = (profile.base_url if profile and profile.base_url else None) or os.environ.get(
+            "LLAMACPP_MODEL_PATH", ""
+        )
+        profile_name = (profile.model if profile and profile.model else None) or os.environ.get(
+            "LLAMACPP_MODEL_PROFILE", "tiny"
+        )
         self.runtime = LlamaCppRuntime(
             model_path=model_path,
             profile_name=profile_name,

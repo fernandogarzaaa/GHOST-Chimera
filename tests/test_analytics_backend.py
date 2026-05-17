@@ -224,8 +224,9 @@ class TestKnowledgeGraphExtraction(unittest.TestCase):
 
 
 class TestAnalyticsBackend(unittest.TestCase):
-    _DATA = [{"region": "EU", "revenue": float(v)} for v in [1200, 1500, 1100, 1300, 1450]] + \
-            [{"region": "US", "revenue": float(v)} for v in [3400, 2100, 3200, 2800, 3000]]
+    _DATA = [{"region": "EU", "revenue": float(v)} for v in [1200, 1500, 1100, 1300, 1450]] + [
+        {"region": "US", "revenue": float(v)} for v in [3400, 2100, 3200, 2800, 3000]
+    ]
 
     def test_probe_available(self):
         from ghostchimera.chimera_pilot.backends.analytics import AnalyticsBackend
@@ -304,7 +305,11 @@ class TestAnalyticsBackend(unittest.TestCase):
         task = TaskSpec.create(
             kind=TaskKind.DATA_PIPELINE,
             objective="full pipeline",
-            inputs={"data": data, "schema": {"val": "float", "cat": "str"}, "pipeline": ["validate_schema", "profile", "detect_anomalies"]},
+            inputs={
+                "data": data,
+                "schema": {"val": "float", "cat": "str"},
+                "pipeline": ["validate_schema", "profile", "detect_anomalies"],
+            },
         )
         result = backend.execute(task)
         self.assertTrue(result.ok)
@@ -410,12 +415,14 @@ class TestDocumentIngester(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = MemoryStore(f"{tmp}/mem.sqlite3")
             ingester = DocumentIngester(store)
-            result = ingester.ingest(IngestionSource(
-                source_type="text",
-                content="Hello world. This is a test document. " * 5,
-                metadata={"namespace": "test"},
-                source_id="doc-001",
-            ))
+            result = ingester.ingest(
+                IngestionSource(
+                    source_type="text",
+                    content="Hello world. This is a test document. " * 5,
+                    metadata={"namespace": "test"},
+                    source_id="doc-001",
+                )
+            )
         self.assertGreater(result.ingested_count, 0)
         self.assertEqual(len(result.errors), 0)
 
@@ -515,7 +522,9 @@ class TestDocumentIngester(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = MemoryStore(f"{tmp}/mem.sqlite3")
             ingester = DocumentIngester(store)
-            result = ingester.ingest(IngestionSource(source_type="json", content="not valid json", source_id="bad-json"))
+            result = ingester.ingest(
+                IngestionSource(source_type="json", content="not valid json", source_id="bad-json")
+            )
         self.assertEqual(result.ingested_count, 0)
         self.assertGreater(len(result.errors), 0)
 
@@ -527,12 +536,14 @@ class TestDocumentIngester(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = MemoryStore(f"{tmp}/mem.sqlite3")
             ingester = DocumentIngester(store)
-            result = ingester.ingest(IngestionSource(
-                source_type="text",
-                content=large_text,
-                chunk_size=2000,
-                source_id="large-text",
-            ))
+            result = ingester.ingest(
+                IngestionSource(
+                    source_type="text",
+                    content=large_text,
+                    chunk_size=2000,
+                    source_id="large-text",
+                )
+            )
         # Should be split into multiple chunks
         self.assertGreater(result.ingested_count, 1)
 

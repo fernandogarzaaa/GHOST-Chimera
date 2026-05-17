@@ -10,9 +10,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 
-_SECRET_RE = re.compile(
-    r"(sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9_]{20,}|Bearer\s+[A-Za-z0-9_.-]{20,}|AKIA[0-9A-Z]{16})"
-)
+_SECRET_RE = re.compile(r"(sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9_]{20,}|Bearer\s+[A-Za-z0-9_.-]{20,}|AKIA[0-9A-Z]{16})")
 _DESTRUCTIVE_RE = re.compile(r"\b(git\s+reset\s+--hard|rm\s+-rf|Remove-Item\b.*-Recurse|del\s+/[sq])\b", re.IGNORECASE)
 _PLACEHOLDER_RE = re.compile(r"\b(TODO|FIXME|NotImplementedError|pass\s*#\s*stub)\b", re.IGNORECASE)
 _CODE_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx", ".sh", ".ps1", ".bat", ".cmd"}
@@ -278,7 +276,7 @@ def _review_diff(diff_text: str) -> list[ReviewFinding]:
             if (
                 is_code
                 and "shell=True" in text
-                and "\"shell=True\"" not in text
+                and '"shell=True"' not in text
                 and "'shell=True'" not in text
                 and "Using shell=True" not in text
                 and " in text" not in text
@@ -331,7 +329,9 @@ def _review_change_shape(files: list[str]) -> list[ReviewFinding]:
                 recommendation="Add focused tests or document why existing coverage is sufficient.",
             )
         )
-    cli_or_console = any(path in {"ghostchimera/control_plane/cli.py", "ghostchimera/control_plane/console.py"} for path in files)
+    cli_or_console = any(
+        path in {"ghostchimera/control_plane/cli.py", "ghostchimera/control_plane/console.py"} for path in files
+    )
     if cli_or_console and "README.md" not in file_set:
         findings.append(
             ReviewFinding(
@@ -341,7 +341,9 @@ def _review_change_shape(files: list[str]) -> list[ReviewFinding]:
                 recommendation="Document the new command, API route, or dashboard surface.",
             )
         )
-    release_surface = any(path.startswith("ghostchimera/evals/") or path == "scripts/validate_release.py" for path in files)
+    release_surface = any(
+        path.startswith("ghostchimera/evals/") or path == "scripts/validate_release.py" for path in files
+    )
     if release_surface and "docs/RELEASE_CHECKLIST.md" not in file_set:
         findings.append(
             ReviewFinding(

@@ -81,9 +81,7 @@ class HallucinationDetector:
         self._div_threshold = divergence_threshold
         self._spike_threshold = confidence_spike_threshold
 
-    def scan_gate_log(
-        self, gate_log: dict[str, Any], report: DetectionReport
-    ) -> None:
+    def scan_gate_log(self, gate_log: dict[str, Any], report: DetectionReport) -> None:
         """Analyze a single gate execution log.
 
         Expects a dict with keys like 'gate', 'branch_confidences',
@@ -99,40 +97,44 @@ class HallucinationDetector:
         min_c = min(confidences)
         spread = max_c - min_c
         if spread > self._div_threshold:
-            report.add(HallucinationFlag(
-                kind=HallucinationKind.BRANCH_DIVERGENCE,
-                severity=min(spread, 1.0),
-                description=(
-                    f"Gate '{gate_log.get('gate', '?')}' branches diverged: "
-                    f"spread={spread:.3f} (threshold={self._div_threshold})"
-                ),
-                evidence={
-                    "gate": gate_log.get("gate"),
-                    "confidences": confidences,
-                    "spread": spread,
-                },
-            ))
+            report.add(
+                HallucinationFlag(
+                    kind=HallucinationKind.BRANCH_DIVERGENCE,
+                    severity=min(spread, 1.0),
+                    description=(
+                        f"Gate '{gate_log.get('gate', '?')}' branches diverged: "
+                        f"spread={spread:.3f} (threshold={self._div_threshold})"
+                    ),
+                    evidence={
+                        "gate": gate_log.get("gate"),
+                        "confidences": confidences,
+                        "spread": spread,
+                    },
+                )
+            )
 
         # Confidence anomaly: result confidence much higher than average branch
         avg_branch = sum(confidences) / len(confidences)
         result_conf: float = gate_log.get("result_confidence", 0.0)
         spike = result_conf - avg_branch
         if spike > self._spike_threshold:
-            report.add(HallucinationFlag(
-                kind=HallucinationKind.CONFIDENCE_ANOMALY,
-                severity=min(spike, 1.0),
-                description=(
-                    f"Gate '{gate_log.get('gate', '?')}' result confidence "
-                    f"({result_conf:.3f}) is suspiciously higher than branch "
-                    f"average ({avg_branch:.3f})"
-                ),
-                evidence={
-                    "gate": gate_log.get("gate"),
-                    "result_confidence": result_conf,
-                    "avg_branch_confidence": avg_branch,
-                    "spike": spike,
-                },
-            ))
+            report.add(
+                HallucinationFlag(
+                    kind=HallucinationKind.CONFIDENCE_ANOMALY,
+                    severity=min(spike, 1.0),
+                    description=(
+                        f"Gate '{gate_log.get('gate', '?')}' result confidence "
+                        f"({result_conf:.3f}) is suspiciously higher than branch "
+                        f"average ({avg_branch:.3f})"
+                    ),
+                    evidence={
+                        "gate": gate_log.get("gate"),
+                        "result_confidence": result_conf,
+                        "avg_branch_confidence": avg_branch,
+                        "spike": spike,
+                    },
+                )
+            )
 
     def scan_value(self, value: ChimeraValue, report: DetectionReport) -> None:
         """Analyze a single Ghost Chimera confidence value for hallucination indicators."""
@@ -140,36 +142,42 @@ class HallucinationDetector:
 
         # Source gap: no trace at all
         if not value.trace:
-            report.add(HallucinationFlag(
-                kind=HallucinationKind.SOURCE_GAP,
-                severity=0.5,
-                description=f"Value '{value.raw}' has no provenance trace",
-                evidence={"raw": value.raw, "confidence": value.confidence.value},
-            ))
+            report.add(
+                HallucinationFlag(
+                    kind=HallucinationKind.SOURCE_GAP,
+                    severity=0.5,
+                    description=f"Value '{value.raw}' has no provenance trace",
+                    evidence={"raw": value.raw, "confidence": value.confidence.value},
+                )
+            )
 
         # Promotion violation: ConfidentValue with low source confidence
         if isinstance(value, ConfidentValue) and value.confidence.source == "Explore_constructor":
-            report.add(HallucinationFlag(
-                kind=HallucinationKind.PROMOTION_VIOLATION,
-                severity=0.9,
-                description="Confident value was created from Explore source",
-                evidence={"raw": value.raw, "source": value.confidence.source},
-            ))
+            report.add(
+                HallucinationFlag(
+                    kind=HallucinationKind.PROMOTION_VIOLATION,
+                    severity=0.9,
+                    description="Confident value was created from Explore source",
+                    evidence={"raw": value.raw, "source": value.confidence.source},
+                )
+            )
 
         # Fingerprint integrity
         data = f"{type(value.raw).__name__}:{value.raw}:{value.confidence.value}"
         expected_fp = hashlib.sha256(data.encode()).hexdigest()[:16]
         computed_fp = value.fingerprint if isinstance(value, ChimeraValue) else ""
         if isinstance(value, ChimeraValue) and computed_fp != expected_fp:
-            report.add(HallucinationFlag(
-                kind=HallucinationKind.FINGERPRINT_MISMATCH,
-                severity=0.8,
-                description=f"Value fingerprint mismatch (computed: {expected_fp})",
-                evidence={
-                    "computed": expected_fp,
-                    "actual": computed_fp,
-                },
-            ))
+            report.add(
+                HallucinationFlag(
+                    kind=HallucinationKind.FINGERPRINT_MISMATCH,
+                    severity=0.8,
+                    description=f"Value fingerprint mismatch (computed: {expected_fp})",
+                    evidence={
+                        "computed": expected_fp,
+                        "actual": computed_fp,
+                    },
+                )
+            )
 
     def full_scan(
         self,

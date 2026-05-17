@@ -30,7 +30,11 @@ class TestLobsterTrapConfig(unittest.TestCase):
             self.assertIn("proxy.test", config.proxy_url)
             self.assertFalse(config.fail_open)
         finally:
-            for k in ("GHOSTCHIMERA_LOBSTERTRAP_ENABLED", "GHOSTCHIMERA_LOBSTERTRAP_URL", "GHOSTCHIMERA_LOBSTERTRAP_FAIL_OPEN"):
+            for k in (
+                "GHOSTCHIMERA_LOBSTERTRAP_ENABLED",
+                "GHOSTCHIMERA_LOBSTERTRAP_URL",
+                "GHOSTCHIMERA_LOBSTERTRAP_FAIL_OPEN",
+            ):
                 os.environ.pop(k, None)
 
     def test_from_env_disabled_by_default(self):

@@ -36,9 +36,11 @@ DEFAULT_OUTPUT_DIR = "batch_output"
 # Data types
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class BatchJob:
     """A single job in a batch run."""
+
     objective: str
     task_kind: TaskKind = TaskKind.REASONING
     timeout: int = DEFAULT_TIMEOUT
@@ -50,6 +52,7 @@ class BatchJob:
 @dataclass(frozen=True)
 class BatchJobResult:
     """Result from a single batch job."""
+
     job_index: int
     objective: str
     result: str
@@ -77,6 +80,7 @@ class BatchJobResult:
 @dataclass(frozen=True)
 class BatchSummary:
     """Summary of a batch run."""
+
     total_jobs: int
     successful_jobs: int
     failed_jobs: int
@@ -98,9 +102,11 @@ class BatchSummary:
             "jobs": [j.to_dict() for j in self.jobs],
         }
 
+
 # ---------------------------------------------------------------------------
 # Worker function (runs in separate process)
 # ---------------------------------------------------------------------------
+
 
 def _run_job_worker(job: BatchJob, output_dir: str, checkpoint_interval: int) -> dict[str, Any]:
     """Worker function that runs a single objective via AgentCore."""
@@ -146,9 +152,11 @@ def _run_job_worker(job: BatchJob, output_dir: str, checkpoint_interval: int) ->
             "metadata": job.inputs,
         }
 
+
 # ---------------------------------------------------------------------------
 # Batch runner
 # ---------------------------------------------------------------------------
+
 
 class BatchRunner:
     """Multiprocessing-based batch execution of objectives."""
@@ -175,9 +183,15 @@ class BatchRunner:
     def run(self) -> BatchSummary:
         """Execute all jobs in parallel via multiprocessing."""
         if not self.jobs:
-            return BatchSummary(total_jobs=0, successful_jobs=0, failed_jobs=0,
-                              success_rate=0.0, total_duration_seconds=0.0,
-                              avg_duration_seconds=0.0, jobs=[])
+            return BatchSummary(
+                total_jobs=0,
+                successful_jobs=0,
+                failed_jobs=0,
+                success_rate=0.0,
+                total_duration_seconds=0.0,
+                avg_duration_seconds=0.0,
+                jobs=[],
+            )
 
         start = time.time()
         results = []
@@ -194,16 +208,18 @@ class BatchRunner:
                     result_data = future.result(timeout=self.timeout)
                     results.append(BatchJobResult(**result_data))
                 except FuturesTimeout:
-                    results.append(BatchJobResult(
-                        job_index=job.job_index,
-                        objective=job.objective,
-                        result="",
-                        success=False,
-                        error="Batch job timed out",
-                        error_category="timeout",
-                        duration_seconds=self.timeout,
-                        metadata=job.inputs,
-                    ))
+                    results.append(
+                        BatchJobResult(
+                            job_index=job.job_index,
+                            objective=job.objective,
+                            result="",
+                            success=False,
+                            error="Batch job timed out",
+                            error_category="timeout",
+                            duration_seconds=self.timeout,
+                            metadata=job.inputs,
+                        )
+                    )
 
                 # Periodic checkpoint
                 if self.checkpoint_interval and (i + 1) % self.checkpoint_interval == 0:
@@ -274,7 +290,7 @@ class BatchRunner:
 
     def _run_single_with_checkpoint(self, job: BatchJob, checkpoint_dir: str) -> BatchJobResult:
         """Run a single job with checkpoint support."""
-        self._run_start = getattr(self, '_run_start', time.time())
+        self._run_start = getattr(self, "_run_start", time.time())
         return _run_job_worker(job, checkpoint_dir, self.checkpoint_interval)
 
     def _save_checkpoint(self, results: list[BatchJobResult]) -> None:
@@ -321,6 +337,7 @@ class BatchRunner:
 # ---------------------------------------------------------------------------
 # Module-level convenience
 # ---------------------------------------------------------------------------
+
 
 def run_batch(
     objectives: list[str],

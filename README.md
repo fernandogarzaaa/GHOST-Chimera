@@ -16,7 +16,7 @@ Key capabilities:
 
 - **Competitive capability intelligence** - CLI, console, docs, and eval gates compare Ghost Chimera against Codex, Claude Code, LangGraph, CrewAI, Hermes-style tool gateways, and OpenClaw-style local autonomy patterns.
 - **Automated PR review** - deterministic `ghostchimera review-pr` checks for secrets, destructive commands, missing tests, release-checklist drift, generated artifacts, and unfinished beta code.
-- **IBM Bob Developer Accelerator** - repo-aware productivity tools that analyze codebase health, test coverage, documentation completeness, and provide personalized onboarding guidance. **[Hackathon Submission](docs/IBM_BOB_SUBMISSION.md)** | [Workflow Guide](docs/IBM_BOB_WORKFLOW.md)
+- **Optional IBM Bob Developer Accelerator** - repo-aware hackathon/developer tools that analyze codebase health, test coverage, documentation completeness, and onboarding guidance without being required by the Ghost Chimera runtime. **[Boundary](docs/BOB_OPTIONAL_TOOLING.md)** | **[Hackathon Submission](docs/IBM_BOB_SUBMISSION.md)** | [Workflow Guide](docs/IBM_BOB_WORKFLOW.md)
 
 This is beta-stage software for real, user-supervised work in local-first environments. It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
 
@@ -729,9 +729,9 @@ python -m compileall ghostchimera tests  # compile check
 python scripts/validate_release.py   # release gate
 ```
 
-### IBM Bob Developer Tools
+### Optional IBM Bob Developer Tools
 
-Check repository health and get personalized onboarding guidance:
+The IBM Bob materials are optional hackathon and developer-experience tooling. They are not required to run Ghost Chimera, import the package, deploy Ghost Console, or use the production CLIs. Check repository health and get personalized onboarding guidance with the explicit Bob scripts:
 
 ```bash
 python scripts/bob_accelerator.py              # comprehensive report
@@ -739,7 +739,7 @@ python scripts/bob_accelerator.py --format json  # machine-readable
 python scripts/coverage_report.py              # test coverage analysis
 ```
 
-See [`docs/IBM_BOB_WORKFLOW.md`](docs/IBM_BOB_WORKFLOW.md) for the complete Bob workflow.
+See [`docs/BOB_OPTIONAL_TOOLING.md`](docs/BOB_OPTIONAL_TOOLING.md) for the runtime boundary and [`docs/IBM_BOB_WORKFLOW.md`](docs/IBM_BOB_WORKFLOW.md) for the complete Bob workflow.
 
 The CI workflow runs the release gate and package build across Ubuntu, Windows, and macOS for Python 3.11, 3.12, and 3.13.
 
@@ -767,7 +767,8 @@ The full test suite requires `.[gateway]` (croniter) and `.[mcp]` (mcp) to be in
 - `docs/SUBAGENT_DELEGATION.md` â€” subagent pool and depth-limited tree spawning.
 - `docs/CREDENTIAL_POOL.md` â€” credential pool and external auth provider contracts.
 - `docs/DESKTOP_CONTROL_HANDOFF.md` â€” desktop control policy and handoff notes.
-- `docs/IBM_BOB_WORKFLOW.md` â€” IBM Bob developer accelerator workflow and tools.
+- `docs/BOB_OPTIONAL_TOOLING.md` â€” IBM Bob optional tooling boundary and opt-out guidance.
+- `docs/IBM_BOB_WORKFLOW.md` â€” optional IBM Bob developer accelerator workflow and tools.
 - `docs/adr/` â€” Architecture Decision Records documenting key design choices.
 - `docs/PRODUCTION_ISOLATION.md` â€” production guardrail requirements.
 - `docs/MISSING_IMPLEMENTATIONS.md` â€” beta wiring audit.

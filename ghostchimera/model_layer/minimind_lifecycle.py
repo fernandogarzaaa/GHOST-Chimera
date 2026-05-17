@@ -76,7 +76,11 @@ class MiniMindLifecycle:
     ) -> None:
         self.profile = get_local_model_profile(profile_name or os.environ.get("MINIMIND_MODEL_PROFILE", "tiny"))
         self.state_dir = Path(state_dir or os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera")).expanduser()
-        self.root = Path(root or os.environ.get("MINIMIND_ROOT", "")).expanduser() if (root or os.environ.get("MINIMIND_ROOT")) else None
+        self.root = (
+            Path(root or os.environ.get("MINIMIND_ROOT", "")).expanduser()
+            if (root or os.environ.get("MINIMIND_ROOT"))
+            else None
+        )
 
     def status(self) -> MiniMindRuntimeStatus:
         inspection = inspect_minimind_runtime(profile_name=self.profile.name, state_dir=self.state_dir, root=self.root)

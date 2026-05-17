@@ -28,7 +28,22 @@ class PythonRuntimeBackend:
     name = "Local Python Runtime"
 
     _description = "Sandboxed local Python execution backend"
-    _DEFAULT_SAFE_IMPORTS = frozenset({"collections", "datetime", "decimal", "fractions", "functools", "itertools", "json", "math", "re", "statistics", "string", "typing"})
+    _DEFAULT_SAFE_IMPORTS = frozenset(
+        {
+            "collections",
+            "datetime",
+            "decimal",
+            "fractions",
+            "functools",
+            "itertools",
+            "json",
+            "math",
+            "re",
+            "statistics",
+            "string",
+            "typing",
+        }
+    )
 
     def __init__(
         self,
@@ -200,5 +215,3 @@ class PythonRuntimeBackend:
         if len(command) >= 4 and command[-2] == "-c":
             return [*command[:-1], "<python-code>"]
         return list(command)
-
-

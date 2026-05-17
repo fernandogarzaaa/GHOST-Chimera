@@ -147,8 +147,7 @@ class SSRFPolicy:
                             addr = ipaddress.ip_address(addr_str)
                             if addr.is_private or addr.is_loopback or addr.is_link_local:
                                 return False, (
-                                    f"Hostname '{hostname}' resolves to private/loopback/link-local"
-                                    f" address: {addr_str}"
+                                    f"Hostname '{hostname}' resolves to private/loopback/link-local address: {addr_str}"
                                 )
                         except ValueError:
                             logger.debug("Skipping non-IP DNS result for '%s': %s", hostname, addr_str)

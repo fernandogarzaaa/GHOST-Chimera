@@ -19,10 +19,7 @@ class LocalModelProfile:
     provider_hint: str = "minimind"
 
     def fits_budget(self, *, system_ram_gb: float, gpu_vram_gb: float = 0.0) -> bool:
-        return (
-            system_ram_gb >= self.estimated_system_ram_gb
-            and gpu_vram_gb >= self.estimated_gpu_vram_gb
-        )
+        return system_ram_gb >= self.estimated_system_ram_gb and gpu_vram_gb >= self.estimated_gpu_vram_gb
 
     def to_dict(self) -> dict[str, str | int | float]:
         return asdict(self)

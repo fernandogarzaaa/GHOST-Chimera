@@ -35,10 +35,7 @@ def read_file(path: str, policy: dict[str, Any] | None = None) -> str:
 
 def _authorized_path(path: str, policy: dict[str, Any]) -> Path:
     candidate = Path(path).expanduser().resolve()
-    allowed_roots = [
-        Path(str(root)).expanduser().resolve()
-        for root in policy.get("allowed_roots", [])
-    ]
+    allowed_roots = [Path(str(root)).expanduser().resolve() for root in policy.get("allowed_roots", [])]
     if not allowed_roots:
         raise PolicyViolation("No allowed filesystem roots are configured")
     if not any(_path_is_under_root(root, candidate) for root in allowed_roots):

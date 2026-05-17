@@ -243,16 +243,18 @@ class ErrorClassifierTests(unittest.TestCase):
 
     def test_custom_regex_rule(self) -> None:
         classifier = ErrorClassifier()
-        classifier.register_rule(r'custom_regex', ErrorCategory.CONNECTION, {"retry": True})
+        classifier.register_rule(r"custom_regex", ErrorCategory.CONNECTION, {"retry": True})
         plan = classifier.classify("contains custom_regex pattern")
         self.assertEqual(plan.categories[0], ErrorCategory.CONNECTION)
 
     def test_classify_multi(self) -> None:
         classifier = ErrorClassifier()
-        plans = classifier.classify_multi([
-            ("429 rate limit", None),
-            ("auth failed", "authentication"),
-        ])
+        plans = classifier.classify_multi(
+            [
+                ("429 rate limit", None),
+                ("auth failed", "authentication"),
+            ]
+        )
         self.assertEqual(len(plans), 2)
         self.assertEqual(plans[0].categories[0], ErrorCategory.RATE_LIMIT)
         self.assertEqual(plans[1].categories[0], ErrorCategory.AUTHENTICATION)

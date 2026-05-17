@@ -29,42 +29,82 @@ def main(argv: list[str] | None = None) -> int:
 
     status_parser = subparsers.add_parser("status", help="Show backend health and telemetry summary.")
     status_parser.add_argument("--include-deterministic-backend", action="store_true")
-    status_parser.add_argument("--include-quantum-backend", action="store_true", help="Probe and register optional pyqpanda3 backend if installed.")
+    status_parser.add_argument(
+        "--include-quantum-backend",
+        action="store_true",
+        help="Probe and register optional pyqpanda3 backend if installed.",
+    )
     status_parser.add_argument("--memory-db", default="", help="SQLite memory database for CWR retrieval.")
-    status_parser.add_argument("--local-model-path", default="", help="Optional GGUF model path for llama.cpp local reasoning.")
+    status_parser.add_argument(
+        "--local-model-path", default="", help="Optional GGUF model path for llama.cpp local reasoning."
+    )
     status_parser.add_argument("--local-model-profile", default="tiny", help="Local model profile name.")
-    status_parser.add_argument("--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist.")
+    status_parser.add_argument(
+        "--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist."
+    )
     status_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
-    status_parser.add_argument("--disable-runtime-specialization", action="store_true", help="Disable local runtime specialization planning.")
-    status_parser.add_argument("--runtime-specialization-cache-dir", default="", help="Write local runtime specialization manifests here.")
-    status_parser.add_argument("--allow-desktop-control", action="store_true", help="Allow desktop cursor/keyboard control.")
+    status_parser.add_argument(
+        "--disable-runtime-specialization", action="store_true", help="Disable local runtime specialization planning."
+    )
+    status_parser.add_argument(
+        "--runtime-specialization-cache-dir", default="", help="Write local runtime specialization manifests here."
+    )
+    status_parser.add_argument(
+        "--allow-desktop-control", action="store_true", help="Allow desktop cursor/keyboard control."
+    )
     status_parser.add_argument(
         "--desktop-action-class",
         action="append",
         choices=["read_only", "mutating", "destructive"],
         help="Desktop action class to allow. Repeat to allow multiple classes.",
     )
-    status_parser.add_argument("--desktop-allow-app", action="append", default=[], help="Allowlisted desktop app target.")
+    status_parser.add_argument(
+        "--desktop-allow-app", action="append", default=[], help="Allowlisted desktop app target."
+    )
     status_parser.add_argument("--desktop-deny-app", action="append", default=[], help="Denied desktop app target.")
-    status_parser.add_argument("--desktop-allow-window", action="append", default=[], help="Allowlisted desktop window target.")
-    status_parser.add_argument("--desktop-deny-window", action="append", default=[], help="Denied desktop window target.")
+    status_parser.add_argument(
+        "--desktop-allow-window", action="append", default=[], help="Allowlisted desktop window target."
+    )
+    status_parser.add_argument(
+        "--desktop-deny-window", action="append", default=[], help="Denied desktop window target."
+    )
     status_parser.add_argument("--enable-desktop-backend", action="store_true", help="Register desktop backend.")
     status_parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
-    status_parser.add_argument("--desktop-kill-switch-path", default="", help="If this file exists, desktop actions are blocked.")
+    status_parser.add_argument(
+        "--desktop-kill-switch-path", default="", help="If this file exists, desktop actions are blocked."
+    )
     status_parser.add_argument("--desktop-action-log-path", default="", help="JSONL log file for desktop actions.")
-    status_parser.add_argument("--desktop-screenshot-dir", default="", help="Directory for live desktop before/after screenshots.")
-    status_parser.add_argument("--desktop-max-actions", type=int, default=25, help="Maximum live desktop actions per backend session.")
-    status_parser.add_argument("--desktop-max-duration-seconds", type=float, default=300.0, help="Maximum live desktop session duration.")
-    status_parser.add_argument("--ghost-mode", default="whisper", choices=["whisper", "haunt", "possess"], help="Ghost mode for policy gating.")
+    status_parser.add_argument(
+        "--desktop-screenshot-dir", default="", help="Directory for live desktop before/after screenshots."
+    )
+    status_parser.add_argument(
+        "--desktop-max-actions", type=int, default=25, help="Maximum live desktop actions per backend session."
+    )
+    status_parser.add_argument(
+        "--desktop-max-duration-seconds", type=float, default=300.0, help="Maximum live desktop session duration."
+    )
+    status_parser.add_argument(
+        "--ghost-mode", default="whisper", choices=["whisper", "haunt", "possess"], help="Ghost mode for policy gating."
+    )
 
     run_parser = subparsers.add_parser("run", help="Compile and execute one objective.")
     run_parser.add_argument("objective", help="Objective to compile and execute.")
     run_parser.add_argument("--cwd", default="", help="Allowed working directory for local Python/test execution.")
     run_parser.add_argument("--include-deterministic-backend", action="store_true")
-    run_parser.add_argument("--include-quantum-backend", action="store_true", help="Probe and register optional pyqpanda3 backend if installed.")
-    run_parser.add_argument("--allow-python", action="store_true", help="Allow local Python/test execution for this command.")
-    run_parser.add_argument("--allow-network", action="store_true", help="Allow network-requiring tasks for this command.")
-    run_parser.add_argument("--allow-desktop-control", action="store_true", help="Allow desktop cursor/keyboard control.")
+    run_parser.add_argument(
+        "--include-quantum-backend",
+        action="store_true",
+        help="Probe and register optional pyqpanda3 backend if installed.",
+    )
+    run_parser.add_argument(
+        "--allow-python", action="store_true", help="Allow local Python/test execution for this command."
+    )
+    run_parser.add_argument(
+        "--allow-network", action="store_true", help="Allow network-requiring tasks for this command."
+    )
+    run_parser.add_argument(
+        "--allow-desktop-control", action="store_true", help="Allow desktop cursor/keyboard control."
+    )
     run_parser.add_argument(
         "--desktop-action-class",
         action="append",
@@ -73,55 +113,114 @@ def main(argv: list[str] | None = None) -> int:
     )
     run_parser.add_argument("--desktop-allow-app", action="append", default=[], help="Allowlisted desktop app target.")
     run_parser.add_argument("--desktop-deny-app", action="append", default=[], help="Denied desktop app target.")
-    run_parser.add_argument("--desktop-allow-window", action="append", default=[], help="Allowlisted desktop window target.")
+    run_parser.add_argument(
+        "--desktop-allow-window", action="append", default=[], help="Allowlisted desktop window target."
+    )
     run_parser.add_argument("--desktop-deny-window", action="append", default=[], help="Denied desktop window target.")
     run_parser.add_argument("--enable-desktop-backend", action="store_true", help="Register desktop backend (dry-run).")
     run_parser.add_argument("--enable-live-desktop", action="store_true", help="Enable live desktop backend mode.")
-    run_parser.add_argument("--desktop-kill-switch-path", default="", help="If this file exists, desktop actions are blocked.")
-    run_parser.add_argument("--desktop-confirm-token", default="", help="Required token for destructive live desktop actions.")
+    run_parser.add_argument(
+        "--desktop-kill-switch-path", default="", help="If this file exists, desktop actions are blocked."
+    )
+    run_parser.add_argument(
+        "--desktop-confirm-token", default="", help="Required token for destructive live desktop actions."
+    )
     run_parser.add_argument("--desktop-action-log-path", default="", help="JSONL log file for desktop actions.")
-    run_parser.add_argument("--desktop-screenshot-dir", default="", help="Directory for live desktop before/after screenshots.")
-    run_parser.add_argument("--desktop-max-actions", type=int, default=25, help="Maximum live desktop actions per backend session.")
-    run_parser.add_argument("--desktop-max-duration-seconds", type=float, default=300.0, help="Maximum live desktop session duration.")
-    run_parser.add_argument("--ghost-mode", default="whisper", choices=["whisper", "haunt", "possess"], help="Ghost mode for policy gating.")
+    run_parser.add_argument(
+        "--desktop-screenshot-dir", default="", help="Directory for live desktop before/after screenshots."
+    )
+    run_parser.add_argument(
+        "--desktop-max-actions", type=int, default=25, help="Maximum live desktop actions per backend session."
+    )
+    run_parser.add_argument(
+        "--desktop-max-duration-seconds", type=float, default=300.0, help="Maximum live desktop session duration."
+    )
+    run_parser.add_argument(
+        "--ghost-mode", default="whisper", choices=["whisper", "haunt", "possess"], help="Ghost mode for policy gating."
+    )
     run_parser.add_argument("--memory-db", default="", help="SQLite memory database for CWR retrieval.")
-    run_parser.add_argument("--local-model-path", default="", help="Optional GGUF model path for llama.cpp local reasoning.")
+    run_parser.add_argument(
+        "--local-model-path", default="", help="Optional GGUF model path for llama.cpp local reasoning."
+    )
     run_parser.add_argument("--local-model-profile", default="tiny", help="Local model profile name.")
-    run_parser.add_argument("--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist.")
+    run_parser.add_argument(
+        "--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist."
+    )
     run_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
-    run_parser.add_argument("--disable-runtime-specialization", action="store_true", help="Disable local runtime specialization planning.")
-    run_parser.add_argument("--runtime-specialization-cache-dir", default="", help="Write local runtime specialization manifests here.")
+    run_parser.add_argument(
+        "--disable-runtime-specialization", action="store_true", help="Disable local runtime specialization planning."
+    )
+    run_parser.add_argument(
+        "--runtime-specialization-cache-dir", default="", help="Write local runtime specialization manifests here."
+    )
 
     compile_parser = subparsers.add_parser("compile", help="Compile one objective without executing it.")
     compile_parser.add_argument("objective", help="Objective to compile.")
 
     calibrate_parser = subparsers.add_parser("calibrate", help="Probe all registered backends once.")
     calibrate_parser.add_argument("--include-deterministic-backend", action="store_true")
-    calibrate_parser.add_argument("--include-quantum-backend", action="store_true", help="Probe and register optional pyqpanda3 backend if installed.")
+    calibrate_parser.add_argument(
+        "--include-quantum-backend",
+        action="store_true",
+        help="Probe and register optional pyqpanda3 backend if installed.",
+    )
     calibrate_parser.add_argument("--memory-db", default="", help="SQLite memory database for CWR retrieval.")
-    calibrate_parser.add_argument("--local-model-path", default="", help="Optional GGUF model path for llama.cpp local reasoning.")
+    calibrate_parser.add_argument(
+        "--local-model-path", default="", help="Optional GGUF model path for llama.cpp local reasoning."
+    )
     calibrate_parser.add_argument("--local-model-profile", default="tiny", help="Local model profile name.")
-    calibrate_parser.add_argument("--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist.")
-    calibrate_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
-    calibrate_parser.add_argument("--disable-runtime-specialization", action="store_true", help="Disable local runtime specialization planning.")
-    calibrate_parser.add_argument("--runtime-specialization-cache-dir", default="", help="Write local runtime specialization manifests here.")
+    calibrate_parser.add_argument(
+        "--autonomy-level", default="", help="Autonomy profile: assist, supervised, autonomous, or generalist."
+    )
+    calibrate_parser.add_argument(
+        "--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload."
+    )
+    calibrate_parser.add_argument(
+        "--disable-runtime-specialization", action="store_true", help="Disable local runtime specialization planning."
+    )
+    calibrate_parser.add_argument(
+        "--runtime-specialization-cache-dir", default="", help="Write local runtime specialization manifests here."
+    )
 
     subparsers.add_parser("model-profiles", help="List built-in local model profiles.")
-    runtime_parser = subparsers.add_parser("runtime-specialization", help="Plan local runtime specialization for a prompt.")
+    runtime_parser = subparsers.add_parser(
+        "runtime-specialization", help="Plan local runtime specialization for a prompt."
+    )
     runtime_parser.add_argument("prompt", nargs="?", default="hello", help="Prompt used to estimate workload shape.")
     runtime_parser.add_argument("--local-model-profile", default="tiny", help="Local model profile name.")
-    runtime_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
-    runtime_parser.add_argument("--estimated-output-tokens", type=int, default=128, help="Expected output token budget.")
+    runtime_parser.add_argument(
+        "--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload."
+    )
+    runtime_parser.add_argument(
+        "--estimated-output-tokens", type=int, default=128, help="Expected output token budget."
+    )
     runtime_parser.add_argument("--batch-size", type=int, default=1, help="Estimated request batch size.")
-    runtime_parser.add_argument("--dtype", default="", help="Activation/data type hint, defaults to profile quantization.")
-    runtime_parser.add_argument("--gpu-architecture", default="", help="Optional GPU architecture hint, for example sm100.")
+    runtime_parser.add_argument(
+        "--dtype", default="", help="Activation/data type hint, defaults to profile quantization."
+    )
+    runtime_parser.add_argument(
+        "--gpu-architecture", default="", help="Optional GPU architecture hint, for example sm100."
+    )
     runtime_parser.add_argument("--gpu-sm-count", type=int, default=0, help="Optional GPU SM count hint.")
-    runtime_parser.add_argument("--runtime-specialization-cache-dir", default="", help="Write specialization manifest here.")
+    runtime_parser.add_argument(
+        "--runtime-specialization-cache-dir", default="", help="Write specialization manifest here."
+    )
     warmup_parser = subparsers.add_parser("runtime-warmup", help="Precompute local runtime specialization manifests.")
-    warmup_parser.add_argument("--runtime-specialization-cache-dir", default=".ghost/runtime-specialization", help="Directory for warmup manifests.")
-    warmup_parser.add_argument("--local-model-profile", action="append", default=[], help="Profile to warm. Repeat for multiple; omit for all profiles.")
+    warmup_parser.add_argument(
+        "--runtime-specialization-cache-dir",
+        default=".ghost/runtime-specialization",
+        help="Directory for warmup manifests.",
+    )
+    warmup_parser.add_argument(
+        "--local-model-profile",
+        action="append",
+        default=[],
+        help="Profile to warm. Repeat for multiple; omit for all profiles.",
+    )
     warmup_parser.add_argument("--local-model-gpu-layers", type=int, default=0, help="llama.cpp GPU layers to offload.")
-    warmup_parser.add_argument("--gpu-architecture", default="", help="Optional GPU architecture hint, for example sm100.")
+    warmup_parser.add_argument(
+        "--gpu-architecture", default="", help="Optional GPU architecture hint, for example sm100."
+    )
     warmup_parser.add_argument("--gpu-sm-count", type=int, default=0, help="Optional GPU SM count hint.")
     subparsers.add_parser("autonomy-profiles", help="List built-in autonomy profiles.")
     desktop_stop_parser = subparsers.add_parser("desktop-stop", help="Create the desktop kill-switch file immediately.")
@@ -143,18 +242,20 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "compile":
         kernel = ChimeraPilotKernel.default(include_deterministic_backend=True)
-        _print_json([
-            {
-                "id": task.id,
-                "kind": task.kind.value,
-                "objective": task.objective,
-                "inputs": task.inputs,
-                "constraints": task.constraints,
-                "privacy_level": task.privacy_level,
-                "requires_network": task.requires_network,
-            }
-            for task in kernel.compile(args.objective)
-        ])
+        _print_json(
+            [
+                {
+                    "id": task.id,
+                    "kind": task.kind.value,
+                    "objective": task.objective,
+                    "inputs": task.inputs,
+                    "constraints": task.constraints,
+                    "privacy_level": task.privacy_level,
+                    "requires_network": task.requires_network,
+                }
+                for task in kernel.compile(args.objective)
+            ]
+        )
         return 0
 
     if args.command == "model-profiles":

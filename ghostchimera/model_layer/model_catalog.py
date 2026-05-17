@@ -55,10 +55,9 @@ class ModelCatalogEntry:
 
     def estimate_cost_usd(self, input_tokens: int, output_tokens: int = 0) -> float:
         """Estimate total request cost in USD for the given token counts."""
-        return (
-            (input_tokens / 1000.0) * self.input_cost_usd_per_1k
-            + (output_tokens / 1000.0) * self.output_cost_usd_per_1k
-        )
+        return (input_tokens / 1000.0) * self.input_cost_usd_per_1k + (
+            output_tokens / 1000.0
+        ) * self.output_cost_usd_per_1k
 
 
 # ---------------------------------------------------------------------------
@@ -653,9 +652,7 @@ _CATALOG: list[ModelCatalogEntry] = [
 ]
 
 # Build a quick lookup index: (provider, model_id) -> entry
-_INDEX: dict[tuple[str, str], ModelCatalogEntry] = {
-    (e.provider, e.model_id): e for e in _CATALOG
-}
+_INDEX: dict[tuple[str, str], ModelCatalogEntry] = {(e.provider, e.model_id): e for e in _CATALOG}
 
 
 def get_catalog_entry(provider: str, model_id: str) -> ModelCatalogEntry | None:

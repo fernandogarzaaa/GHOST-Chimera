@@ -94,7 +94,10 @@ class ConsciousWorkspaceTests(unittest.TestCase):
 
         self.assertEqual(snapshot["working_memory"]["evidence"][0]["source"], "release-audit")
         self.assertEqual(snapshot["working_memory"]["reflections"][0]["action"], "exposed workspace state")
-        self.assertEqual(snapshot["self_model"]["goals"]["workspace_visibility"], "show current evidence and uncertainty to local operators")
+        self.assertEqual(
+            snapshot["self_model"]["goals"]["workspace_visibility"],
+            "show current evidence and uncertainty to local operators",
+        )
         self.assertGreater(snapshot["attention"][0]["attention_score"], 0)
         self.assertLess(snapshot["uncertainty"]["score"], 1.0)
 
@@ -166,7 +169,9 @@ class ConsciousWorkspaceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ghostchimera-workspace-memory-") as tmp:
             memory_db = f"{tmp}/memory.sqlite3"
             store = OperatorWorkspaceStore(state_dir=tmp)
-            store.add_evidence("operator-note", "workspace evidence should become CWR retrieval memory", confidence=0.94)
+            store.add_evidence(
+                "operator-note", "workspace evidence should become CWR retrieval memory", confidence=0.94
+            )
             store.add_reflection(action="sync workspace", outcome="reflection feeds retrieval", confidence=0.91)
 
             first = store.sync_to_memory(memory_db=memory_db, min_confidence=0.9)
@@ -203,8 +208,12 @@ class ConsciousWorkspaceTests(unittest.TestCase):
         self.assertIn("low_confidence", sync["filtered_documents"][0]["quality_flags"])
         flags_by_content = {item["content"]: set(item["metadata"]["workspace_quality_flags"]) for item in results}
         self.assertIn("stale", flags_by_content["Workspace evidence from operator-note: release gate passed yesterday"])
-        self.assertIn("conflicting", flags_by_content["Workspace evidence from operator-note: release gate passed yesterday"])
-        self.assertEqual(flags_by_content["Workspace evidence from operator-note: release gate failed yesterday"], {"conflicting"})
+        self.assertIn(
+            "conflicting", flags_by_content["Workspace evidence from operator-note: release gate passed yesterday"]
+        )
+        self.assertEqual(
+            flags_by_content["Workspace evidence from operator-note: release gate failed yesterday"], {"conflicting"}
+        )
 
     def test_workspace_cli_syncs_to_memory_db(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-workspace-cli-memory-") as tmp:

@@ -107,9 +107,7 @@ def _run_async(coro: Coroutine) -> Any:
                     for t in pending:
                         t.cancel()
                     if pending:
-                        worker_loop.run_until_complete(
-                            asyncio.gather(*pending, return_exceptions=True)
-                        )
+                        worker_loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
                 except Exception:
                     logger.debug("Worker event-loop cleanup failed", exc_info=True)
                 worker_loop.close()

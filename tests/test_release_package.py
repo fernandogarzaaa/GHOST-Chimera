@@ -41,6 +41,7 @@ class ReleasePackageTests(unittest.TestCase):
             "CHIMERA_PILOT.md",
             "docs/ARCHITECTURE.md",
             "docs/CLEAN_ROOM.md",
+            "docs/BOB_OPTIONAL_TOOLING.md",
             "docs/COMPETITIVE_CAPABILITY_MATRIX.md",
             "docs/RELEASE_CHECKLIST.md",
         ]
@@ -66,6 +67,22 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertIn("python scripts/smoke_installed_wheel.py", checklist)
         self.assertIn("python scripts/smoke_installed_wheel.py --extras gateway", checklist)
         self.assertIn("gateway extras", checklist)
+        self.assertIn("docs/BOB_OPTIONAL_TOOLING.md", checklist)
+
+    def test_release_validator_enforces_optional_tooling_boundary(self) -> None:
+        from scripts.validate_release import check_optional_tooling_boundary
+
+        result = check_optional_tooling_boundary()
+
+        self.assertTrue(result["ok"], result["errors"])
+
+    def test_release_validator_enforces_bob_tooling_artifacts(self) -> None:
+        from scripts.validate_release import check_bob_tooling_artifacts
+
+        result = check_bob_tooling_artifacts()
+
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertGreaterEqual(result["artifact_count"], 30)
 
     def test_installed_wheel_smoke_covers_personal_minimind_cli(self) -> None:
         smoke = (ROOT / "scripts" / "smoke_installed_wheel.py").read_text(encoding="utf-8")

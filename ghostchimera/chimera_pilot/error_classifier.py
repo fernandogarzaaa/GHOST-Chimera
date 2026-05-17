@@ -21,6 +21,7 @@ logger = get_logger("error_classifier")
 # Error categories
 # ---------------------------------------------------------------------------
 
+
 class ErrorCategory(StrEnum):
     RATE_LIMIT = "rate_limit"
     INSUFFICIENT_QUOTA = "insufficient_quota"
@@ -48,9 +49,11 @@ class Severity(StrEnum):
 # Classification result
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class RecoveryAction:
     """A single recovery action."""
+
     action: str
     detail: str = ""
     priority: int = 0  # lower = higher priority
@@ -59,6 +62,7 @@ class RecoveryAction:
 @dataclass(frozen=True)
 class AutoRecoveryPlan:
     """Recommended recovery actions for an error."""
+
     categories: list[ErrorCategory]
     severity: Severity
     message: str
@@ -81,6 +85,7 @@ class AutoRecoveryPlan:
 # Error classifier
 # ---------------------------------------------------------------------------
 
+
 class ErrorClassifier:
     """Classify LLM/provider errors and recommend recovery strategies.
 
@@ -91,62 +96,62 @@ class ErrorClassifier:
     # Built-in rule: (regex_or_text, ErrorCategory, RecoveryAction defaults)
     DEFAULT_RULES: list[tuple[str, ErrorCategory, dict[str, Any]]] = [
         (
-            r'(rate[_\s-]?limit|too many requests|429)',
+            r"(rate[_\s-]?limit|too many requests|429)",
             ErrorCategory.RATE_LIMIT,
             {"retry": True, "backoff_seconds": 5.0, "severity": Severity.MEDIUM},
         ),
         (
-            r'(insufficient[_\s-]?quota|billing[_\s-]?limit|account limit|quota exceeded)',
+            r"(insufficient[_\s-]?quota|billing[_\s-]?limit|account limit|quota exceeded)",
             ErrorCategory.INSUFFICIENT_QUOTA,
             {"retry": False, "severity": Severity.CRITICAL, "requires_user_action": True},
         ),
         (
-            r'(context[_\s-]?length|token[_\s-]?limit|max[_\s-]?tokens|context[_\s-]?window|length[_\s-]?exceeded)',
+            r"(context[_\s-]?length|token[_\s-]?limit|max[_\s-]?tokens|context[_\s-]?window|length[_\s-]?exceeded)",
             ErrorCategory.CONTEXT_LENGTH,
             {"retry": False, "compress": True, "severity": Severity.HIGH},
         ),
         (
-            r'(model[_\s-]?not[_\s-]?found|model[_\s-]?unavailable|does[_\s-]?not[_\s-]?exist|404)',
+            r"(model[_\s-]?not[_\s-]?found|model[_\s-]?unavailable|does[_\s-]?not[_\s-]?exist|404)",
             ErrorCategory.MODEL_NOT_FOUND,
             {"retry": False, "switch_model": True, "severity": Severity.MEDIUM},
         ),
         (
-            r'(auth|unauthorized|401|invalid[_\s-]?api[_\s-]?key|authentication[_\s-]?failed)',
+            r"(auth|unauthorized|401|invalid[_\s-]?api[_\s-]?key|authentication[_\s-]?failed)",
             ErrorCategory.AUTHENTICATION,
             {"retry": False, "severity": Severity.CRITICAL, "requires_user_action": True},
         ),
         (
-            r'(overloaded|server[_\s-]?error|50[0-3]|service[_\s-]?unavailable)',
+            r"(overloaded|server[_\s-]?error|50[0-3]|service[_\s-]?unavailable)",
             ErrorCategory.OVERLOADED,
             {"retry": True, "backoff_seconds": 10.0, "severity": Severity.MEDIUM},
         ),
         (
-            r'(timeout|timed[_\s-]?out|deadline[_\s-]?exceeded|ETIMEDOUT|110)',
+            r"(timeout|timed[_\s-]?out|deadline[_\s-]?exceeded|ETIMEDOUT|110)",
             ErrorCategory.TIMEOUT,
             {"retry": True, "backoff_seconds": 15.0, "severity": Severity.HIGH},
         ),
         (
-            r'(invalid[_\s-]?request|invalid[_\s-]?body|schema[_\s-]?violation|400)',
+            r"(invalid[_\s-]?request|invalid[_\s-]?body|schema[_\s-]?violation|400)",
             ErrorCategory.INVALID_REQUEST,
             {"retry": False, "severity": Severity.HIGH, "requires_user_action": True},
         ),
         (
-            r'(50[4-9]|5[2-9][0-9]|5[6-9][0-9]|gateway[_\s-]?timeout)',
+            r"(50[4-9]|5[2-9][0-9]|5[6-9][0-9]|gateway[_\s-]?timeout)",
             ErrorCategory.SERVER_ERROR,
             {"retry": True, "backoff_seconds": 30.0, "severity": Severity.HIGH},
         ),
         (
-            r'(malformed|parse[_\s-]?error|unexpected[_\s-]?token|json[_\s-]?decode)',
+            r"(malformed|parse[_\s-]?error|unexpected[_\s-]?token|json[_\s-]?decode)",
             ErrorCategory.MALFORMED_RESPONSE,
             {"retry": True, "backoff_seconds": 2.0, "severity": Severity.MEDIUM},
         ),
         (
-            r'(connection[_\s-]?(?:refused|reset|abort|closed|timed)?|ECONNREFUSED|ECONNRESET|ENOTFOUND)',
+            r"(connection[_\s-]?(?:refused|reset|abort|closed|timed)?|ECONNREFUSED|ECONNRESET|ENOTFOUND)",
             ErrorCategory.CONNECTION,
             {"retry": True, "backoff_seconds": 10.0, "severity": Severity.HIGH},
         ),
         (
-            r'(injection|poisoning|sandbox|forbidden|blocked|sanitized)',
+            r"(injection|poisoning|sandbox|forbidden|blocked|sanitized)",
             ErrorCategory.SECURITY,
             {"retry": False, "severity": Severity.CRITICAL, "requires_user_action": True},
         ),
@@ -205,12 +210,14 @@ class ErrorClassifier:
 
     def taxonomy(self) -> dict[str, dict]:
         """Return the full taxonomy."""
-        return {cat.value: {
-            "patterns": [r for r, c, _ in self._rules if c == cat],
-            "is_recoverable": any(
-                True for _, c, a in self._rules if c == cat
-            ),
-        } for cat in ErrorCategory if cat != ErrorCategory.DEFAULT}
+        return {
+            cat.value: {
+                "patterns": [r for r, c, _ in self._rules if c == cat],
+                "is_recoverable": any(True for _, c, a in self._rules if c == cat),
+            }
+            for cat in ErrorCategory
+            if cat != ErrorCategory.DEFAULT
+        }
 
     def _build_plan(
         self,
@@ -223,46 +230,58 @@ class ErrorClassifier:
 
         if actions.get("retry"):
             backoff = actions.get("backoff_seconds", 5.0)
-            action_list.append(RecoveryAction(
-                action="retry_with_backoff",
-                detail=f"Wait {backoff}s before retrying",
-                priority=1,
-            ))
+            action_list.append(
+                RecoveryAction(
+                    action="retry_with_backoff",
+                    detail=f"Wait {backoff}s before retrying",
+                    priority=1,
+                )
+            )
 
         if actions.get("switch_model"):
-            action_list.append(RecoveryAction(
-                action="switch_model",
-                detail="Switch to fallback model provider",
-                priority=2,
-            ))
+            action_list.append(
+                RecoveryAction(
+                    action="switch_model",
+                    detail="Switch to fallback model provider",
+                    priority=2,
+                )
+            )
 
         if actions.get("compress"):
-            action_list.append(RecoveryAction(
-                action="compress_context",
-                detail="Compress conversation context to free tokens",
-                priority=3,
-            ))
+            action_list.append(
+                RecoveryAction(
+                    action="compress_context",
+                    detail="Compress conversation context to free tokens",
+                    priority=3,
+                )
+            )
 
         if actions.get("requires_user_action"):
-            action_list.append(RecoveryAction(
-                action="require_user_action",
-                detail="User must resolve the issue manually",
-                priority=0,
-            ))
+            action_list.append(
+                RecoveryAction(
+                    action="require_user_action",
+                    detail="User must resolve the issue manually",
+                    priority=0,
+                )
+            )
 
         if not action_list:
-            action_list.append(RecoveryAction(
-                action="investigate",
-                detail="Manual investigation required",
-                priority=5,
-            ))
+            action_list.append(
+                RecoveryAction(
+                    action="investigate",
+                    detail="Manual investigation required",
+                    priority=5,
+                )
+            )
 
         return AutoRecoveryPlan(
             categories=[category],
             severity=severity,
             message=f"{category.value}: {full_text[:200]}",
             actions=action_list,
-            is_recoverable=actions.get("retry", False) or actions.get("switch_model", False) or actions.get("compress", False),
+            is_recoverable=actions.get("retry", False)
+            or actions.get("switch_model", False)
+            or actions.get("compress", False),
             retry=actions.get("retry", False),
             backoff_seconds=actions.get("backoff_seconds", 0.0),
             switch_model=actions.get("switch_model", False),

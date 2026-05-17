@@ -26,7 +26,9 @@ class GitHubTaskTests(unittest.TestCase):
         self.assertIn("Acceptance", objective)
 
     def test_repo_scan_reports_release_commands(self) -> None:
-        scan = GitHubRepoScan(repo="owner/repo", default_branch="main", languages=["Python"], release_commands=["python -m pytest -q"])
+        scan = GitHubRepoScan(
+            repo="owner/repo", default_branch="main", languages=["Python"], release_commands=["python -m pytest -q"]
+        )
 
         payload = scan.to_dict()
 

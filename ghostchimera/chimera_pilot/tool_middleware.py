@@ -136,7 +136,9 @@ class ToolMiddlewareChain:
             except Exception as exc:
                 logger.warning(
                     "Middleware '%s' failed on tool '%s': %s",
-                    mw.name, tool_name, exc,
+                    mw.name,
+                    tool_name,
+                    exc,
                 )
         return current
 
@@ -171,7 +173,9 @@ class TruncateMiddleware(ToolResultMiddleware):
         if isinstance(result, str) and len(result) > self.max_chars:
             logger.debug(
                 "Truncating tool '%s' result from %d to %d chars",
-                tool_name, len(result), self.max_chars,
+                tool_name,
+                len(result),
+                self.max_chars,
             )
             return result[: self.max_chars] + f"\n... [truncated at {self.max_chars} chars]"
         return result
@@ -189,6 +193,7 @@ class JsonNormalizerMiddleware(ToolResultMiddleware):
     def transform(self, tool_name: str, result: Any, context: dict[str, Any]) -> Any:
         if isinstance(result, (dict, list)):
             import json
+
             try:
                 return json.dumps(result, ensure_ascii=False, default=str)
             except Exception:

@@ -66,8 +66,8 @@ def print_noninteractive_guidance() -> None:
     print('  export ANTHROPIC_MODEL="claude-sonnet-4-6"')
     print()
     print("  # Local (runs entirely offline):")
-    print('  export GHOSTCHIMERA_MODEL_PROVIDER=minimind')
-    print('  export MINIMIND_MODEL_PROFILE=tiny')
+    print("  export GHOSTCHIMERA_MODEL_PROVIDER=minimind")
+    print("  export MINIMIND_MODEL_PROFILE=tiny")
     print()
     print("  # Or run 'ghostchimera setup' in an interactive terminal.")
     print()
@@ -125,11 +125,7 @@ def prompt_yes_no(question: str, default: bool = True) -> bool:
     default_str = "Y/n" if default else "y/N"
     while True:
         try:
-            value = (
-                input(color(f"{question} [{default_str}]: ", Colors.YELLOW))
-                .strip()
-                .lower()
-            )
+            value = input(color(f"{question} [{default_str}]: ", Colors.YELLOW)).strip().lower()
         except (KeyboardInterrupt, EOFError):
             print()
             print_warning("Setup cancelled.")
@@ -260,6 +256,7 @@ def _setup_provider(config: dict) -> None:
 # Section 2: Gateway Server
 # ──────────────────────────────────────────────────────────────────────
 
+
 def _setup_gateway(config: dict) -> None:
     """Interactive gateway server configuration."""
     print_header("Gateway Server (optional)")
@@ -297,6 +294,7 @@ def _setup_gateway(config: dict) -> None:
 # Section 3: Safety Policy
 # ──────────────────────────────────────────────────────────────────────
 
+
 def _setup_safety(config: dict) -> None:
     """Interactive safety policy configuration."""
     print_header("Safety Policy")
@@ -330,6 +328,7 @@ def _setup_safety(config: dict) -> None:
 # Section 4: Summary
 # ──────────────────────────────────────────────────────────────────────
 
+
 def _show_summary(config: dict) -> None:
     """Display setup summary and persist config."""
     print_header("Setup Summary")
@@ -350,7 +349,11 @@ def _show_summary(config: dict) -> None:
             print(f"  Model:         {Colors.GREEN}{model_name}{Colors.RESET}")
         if base_url:
             print(f"  Base URL:      {Colors.GREEN}{base_url}{Colors.RESET}")
-        print(f"  API Key:       {Colors.GREEN}configured{Colors.RESET}" if has_key else "  API Key:       {Colors.DIM}not set{Colors.RESET}")
+        print(
+            f"  API Key:       {Colors.GREEN}configured{Colors.RESET}"
+            if has_key
+            else "  API Key:       {Colors.DIM}not set{Colors.RESET}"
+        )
 
     gateway = config.get("gateway", {})
     gw_port = gateway.get("port", 8080)

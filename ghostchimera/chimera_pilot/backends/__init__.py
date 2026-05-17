@@ -21,6 +21,7 @@ def discover_builtin_backends():
     then imports them to trigger registration.
     """
     from ghostchimera.chimera_pilot.backend_registry import discover_builtin_backends as _discover
+
     return _discover()
 
 

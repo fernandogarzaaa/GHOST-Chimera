@@ -223,6 +223,7 @@ class DefaultPolicyAndHandlerTests(unittest.TestCase):
         Sets ghostchimera.safety_layer.approval._default_handler to an AutoDenyHandler(ApprovalPolicy()) to avoid blocking behavior (for example, sys.stdin.isatty()) when tests call get_default_handler().
         """
         import ghostchimera.safety_layer.approval as approval_mod
+
         approval_mod._default_handler = AutoDenyHandler(ApprovalPolicy())
 
     def test_get_default_policy_returns_policy(self):
@@ -249,10 +250,12 @@ class ApproveFunctionTests(unittest.TestCase):
         Sets ghostchimera.safety_layer.approval._default_handler to an AutoDenyHandler backed by a fresh ApprovalPolicy so tests do not block on interactive checks (e.g., sys.stdin.isatty()).
         """
         import ghostchimera.safety_layer.approval as approval_mod
+
         approval_mod._default_handler = AutoDenyHandler(ApprovalPolicy())
 
     def test_approve_uses_default_handler(self):
         import ghostchimera.safety_layer.approval as approval_mod
+
         original_handler = approval_mod._default_handler
         try:
             set_default_handler(AutoDenyHandler(ApprovalPolicy()))

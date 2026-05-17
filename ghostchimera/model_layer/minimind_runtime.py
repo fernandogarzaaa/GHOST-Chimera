@@ -375,7 +375,9 @@ def load_minimind_chat_runtime(
     architecture = get_minimind_architecture(profile_name or os.environ.get("MINIMIND_ARCHITECTURE", "minimind-3"))
     if inspection.package_compatible:
         module = importlib.import_module("minimind")
-        return _load_package_runtime(module, profile_name=profile_name, architecture=architecture, local_profile=local_profile), inspection
+        return _load_package_runtime(
+            module, profile_name=profile_name, architecture=architecture, local_profile=local_profile
+        ), inspection
     if inspection.model_files_found and all(inspection.optional_dependencies.values()):
         try:
             return MiniMindTransformersRuntime(inspection.model_path), inspection
@@ -477,9 +479,7 @@ def _has_model_files(path: Path) -> bool:
     if not path.is_dir():
         return False
     weight_files = [
-        child
-        for child in path.iterdir()
-        if child.is_file() and child.suffix.lower() in _MODEL_FILE_SUFFIXES
+        child for child in path.iterdir() if child.is_file() and child.suffix.lower() in _MODEL_FILE_SUFFIXES
     ]
     if not weight_files:
         return False

@@ -52,8 +52,7 @@ def discover_builtin_backends(backend_dir: Path | None = None) -> list[str]:
     candidates = [
         path.stem
         for path in sorted(backend_path.glob("*.py"))
-        if path.name not in {"__init__.py", "base.py"}
-        and _module_has_registration_attrs(path)
+        if path.name not in {"__init__.py", "base.py"} and _module_has_registration_attrs(path)
     ]
 
     # Import the registry singleton
@@ -86,6 +85,7 @@ def discover_builtin_backends(backend_dir: Path | None = None) -> list[str]:
 @dataclass(frozen=True)
 class BackendEntry:
     """Metadata for a single registered backend."""
+
     backend_class: type
     check_fn: Callable | None = None
     description: str = ""

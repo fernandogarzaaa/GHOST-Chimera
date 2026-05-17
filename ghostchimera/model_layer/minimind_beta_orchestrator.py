@@ -81,7 +81,9 @@ def run_beta_vision(
         queue = AutonomyJobQueue(state_dir=state_dir)
         for name in config.autonomy_jobs:
             queued.append(
-                queue.enqueue(name, profile=config.autonomy_profile, execute=False, run_now=False, source="minimind-beta")
+                queue.enqueue(
+                    name, profile=config.autonomy_profile, execute=False, run_now=False, source="minimind-beta"
+                )
             )
 
     return {

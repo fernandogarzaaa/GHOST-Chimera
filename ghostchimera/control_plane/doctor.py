@@ -134,6 +134,7 @@ def run_doctor(*, production: bool = False) -> int:
     # Skill requirement checks (Gap 4 — OpenClaw-style check_requirements())
     try:
         from ghostchimera.skill_layer.registry import get_registry as get_skill_registry
+
         registry = get_skill_registry()
         skill_problems: list[str] = []
         for _skill_name, skill in registry.list_skills().items():

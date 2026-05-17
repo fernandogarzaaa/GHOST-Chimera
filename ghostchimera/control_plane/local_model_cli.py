@@ -169,7 +169,11 @@ def run_local_model_cli(action: str, profile: str = "") -> int:
         guidance = _INSTALL_GUIDANCE.get(profile_name)
         if guidance is None:
             available = ", ".join(sorted(_INSTALL_GUIDANCE))
-            print(json.dumps({"ok": False, "error": f"No guide for profile '{profile_name}'. Available: {available}"}, indent=2))
+            print(
+                json.dumps(
+                    {"ok": False, "error": f"No guide for profile '{profile_name}'. Available: {available}"}, indent=2
+                )
+            )
             return 1
         print(json.dumps({"ok": True, "profile": profile_name, "steps": guidance}, indent=2, sort_keys=True))
         return 0

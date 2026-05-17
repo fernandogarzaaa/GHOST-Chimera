@@ -112,12 +112,8 @@ class GhostClient:
         enable_minimind_summary: bool = True,
         include_deterministic_backend: bool = True,
     ) -> None:
-        _state = Path(
-            state_dir or os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera")
-        ).expanduser()
-        _db = Path(
-            memory_db or os.environ.get("GHOSTCHIMERA_MEMORY_DB", str(_state / "memory.sqlite3"))
-        ).expanduser()
+        _state = Path(state_dir or os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera")).expanduser()
+        _db = Path(memory_db or os.environ.get("GHOSTCHIMERA_MEMORY_DB", str(_state / "memory.sqlite3"))).expanduser()
 
         self._state_dir = _state
         self._autonomy_level = autonomy_level
@@ -186,9 +182,7 @@ class GhostClient:
         """
         return self._doc_ingester.ingest_file(path)
 
-    def ingest_directory(
-        self, path: str | Path, *, max_files: int = 500
-    ) -> DocumentIngestResult:
+    def ingest_directory(self, path: str | Path, *, max_files: int = 500) -> DocumentIngestResult:
         """Recursively ingest all supported files in *path*."""
         return self._doc_ingester.ingest_directory(path, max_files=max_files)
 
@@ -265,10 +259,7 @@ class GhostClient:
         dataset_count = 0
         if dataset_path.exists():
             try:
-                dataset_count = sum(
-                    1 for line in dataset_path.read_text(encoding="utf-8").splitlines()
-                    if line.strip()
-                )
+                dataset_count = sum(1 for line in dataset_path.read_text(encoding="utf-8").splitlines() if line.strip())
             except (OSError, UnicodeDecodeError):
                 dataset_count = -1
         status["dataset_path"] = str(dataset_path)
@@ -346,9 +337,7 @@ class GhostClient:
 
     # ── Context preview (debugging) ───────────────────────────────────────
 
-    def preview_context(
-        self, objective: str, *, limit: int = 5
-    ) -> dict[str, Any]:
+    def preview_context(self, objective: str, *, limit: int = 5) -> dict[str, Any]:
         """Preview the personal context Ghost would inject for *objective*.
 
         Useful for debugging: see exactly which memory snippets will be

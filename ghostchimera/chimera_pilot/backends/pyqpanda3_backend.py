@@ -120,5 +120,3 @@ class PyQPanda3Backend:
             output={"counts": dict(counts), "qubits": qubits, "shots": shots},
             metrics={"qubits": qubits, "shots": shots},
         )
-
-
