@@ -1,25 +1,55 @@
 # Quick Start
 
-Install the project in editable mode:
+This is the fastest way to get Ghost Chimera running locally.
+
+## Option 1: Docker
+
+If you want the browser UI without setting up a Python environment:
 
 ```bash
-python -m pip install -e .[dev,gateway]
+docker compose up --build
 ```
 
-Run the test suite:
+Then open `http://localhost:8766/`.
+
+## Option 2: Local Python install
+
+Use Python 3.11, 3.12, or 3.13.
 
 ```bash
-python -m pytest tests/ -q
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[gateway]"
 ```
 
-Run Bob's developer report:
+On Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[gateway]"
+```
+
+Start the console:
 
 ```bash
-python scripts/bob_accelerator.py
+ghostchimera console
 ```
 
-Generate the delivery package:
+Then open `http://localhost:8766/`.
 
-```bash
-python scripts/bob_delivery_package.py --output docs/bob_delivery_package.md
-```
+## First successful run
+
+1. Open the **Path** tab and choose a role.
+2. Click **Synthesize** and then **Save Path**.
+3. Open the **Run** tab.
+4. Enter an objective such as `Summarize my current workspace and identify the next safe action.`
+5. Click **Run**.
+
+## Optional next steps
+
+- Personal memory and training setup: [USER_TUTORIAL.md](USER_TUTORIAL.md)
+- GitHub-connected workflow: [GITHUB_CONNECTED_AUTONOMOUS_ENGINEER.md](GITHUB_CONNECTED_AUTONOMOUS_ENGINEER.md)
+- Personal MiniMind privacy and consent: [PERSONAL_MINIMIND_PRIVACY.md](PERSONAL_MINIMIND_PRIVACY.md)

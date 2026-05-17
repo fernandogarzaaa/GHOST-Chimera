@@ -20,10 +20,19 @@ Key capabilities:
 
 This is beta-stage software for real, user-supervised work in local-first environments. It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
 
+## Start Here
+
+If you are new to Ghost Chimera, use the tutorial first:
+
+- [User Tutorial](docs/USER_TUTORIAL.md) - first-run walkthrough for Ghost Console, Ghost Paths, MiniMind, and your first objective
+- [Quick Start](docs/quick-start.md) - fastest install and launch path
+- [GitHub-Connected Workflow](docs/GITHUB_CONNECTED_AUTONOMOUS_ENGINEER.md) - optional GitHub planning and issue-to-objective flow
+
 ---
 
 ## Table of Contents
 
+- [User Tutorial](#start-here)
 - [Architecture](#architecture)
 - [Quick Start â€” Docker](#quick-start--docker)
 - [Developer Install](#developer-install)
@@ -755,6 +764,8 @@ The full test suite requires `.[gateway]` (croniter) and `.[mcp]` (mcp) to be in
 
 ## Documentation
 
+- `docs/USER_TUTORIAL.md` â€” first-run product tutorial for new users.
+- `docs/quick-start.md` â€” fastest install and launch path.
 - `CHIMERA_PILOT.md` â€” focused Chimera Pilot usage and backend notes.
 - `SECURITY.md` â€” supported status, high-risk capabilities, and hardening guidance.
 - `CHANGELOG.md` â€” detailed per-version change log.
