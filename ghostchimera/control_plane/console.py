@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import time
 import webbrowser
 from collections.abc import Callable
@@ -22,11 +23,14 @@ from ..chimera_pilot.pr_review import run_pr_review
 from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 from ..config import GhostChimeraConfig
 from ..memory_layer.store import MemoryStore
+from ..model_layer.auth_profiles import AuthProfile
 from ..model_layer.minimind_lifecycle import MiniMindLifecycle
 from ..model_layer.minimind_personal_agent import MiniMindPersonalAgent
+from ..model_layer.model_discovery import get_model_discovery, refresh_model_discovery, select_discovered_model
+from ..model_layer.providers import get_provider
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
-from .config import get_autonomy_config, load_config, save_config
+from .config import CONFIG_FILE, config_to_env_vars, get_autonomy_config, get_default_config, load_config, save_config
 
 RunObjective = Callable[[str], dict[str, Any]]
 FetchUrl = Callable[[str], str]
@@ -133,6 +137,203 @@ RELEASE_CHECKS: list[dict[str, str]] = [
 
 CONSOLE_HTML = "<!-- Ghost Console -- served by static/index.html -->"
 
+PROVIDER_OPTIONS: list[dict[str, Any]] = [
+    {
+        "id": "openai",
+        "name": "OpenAI",
+        "description": "Hosted OpenAI models.",
+        "models": ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"],
+        "requires_api_key": True,
+        "base_url_required": False,
+        "api_key_label": "OpenAI API key",
+    },
+    {
+        "id": "anthropic",
+        "name": "Anthropic",
+        "description": "Claude models through Anthropic.",
+        "models": ["claude-3-5-haiku-20241022", "claude-sonnet-4-6", "claude-opus-4-6"],
+        "requires_api_key": True,
+        "base_url_required": False,
+        "api_key_label": "Anthropic API key",
+    },
+    {
+        "id": "openrouter",
+        "name": "OpenRouter",
+        "description": "Many hosted models behind one OpenRouter API key.",
+        "models": ["openai/gpt-4o-mini", "anthropic/claude-3-5-haiku", "google/gemini-flash-1.5"],
+        "requires_api_key": True,
+        "base_url_required": False,
+        "api_key_label": "OpenRouter API key",
+    },
+    {
+        "id": "vultr",
+        "name": "Vultr Serverless Inference",
+        "description": "OpenAI-compatible Vultr serverless inference.",
+        "models": ["", "llama-3.1-70b", "mixtral-8x7b"],
+        "requires_api_key": True,
+        "base_url_required": True,
+        "api_key_label": "Vultr inference API key",
+        "default_base_url": "https://api.vultrinference.com/v1/chat/completions",
+    },
+    {
+        "id": "huggingface",
+        "name": "Hugging Face",
+        "description": "Hugging Face Inference API for compatible hosted open models.",
+        "models": ["meta-llama/Llama-3.3-70B-Instruct", "mistralai/Mistral-7B-Instruct-v0.3"],
+        "requires_api_key": True,
+        "base_url_required": False,
+        "api_key_label": "Hugging Face token",
+        "default_base_url": "https://api-inference.huggingface.co/v1/chat/completions",
+    },
+    {
+        "id": "ollama",
+        "name": "Ollama",
+        "description": "Local Ollama models running on this machine.",
+        "models": ["llama3.2", "mistral", "qwen2.5:7b"],
+        "requires_api_key": False,
+        "base_url_required": False,
+        "api_key_label": "",
+        "default_base_url": "http://localhost:11434",
+    },
+    {
+        "id": "lmstudio",
+        "name": "LM Studio",
+        "description": "Local LM Studio OpenAI-compatible server.",
+        "models": ["lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF", "any"],
+        "requires_api_key": False,
+        "base_url_required": False,
+        "api_key_label": "",
+        "default_base_url": "http://localhost:1234",
+    },
+    {
+        "id": "minimind",
+        "name": "Local MiniMind",
+        "description": "Local-first profile without a hosted API key.",
+        "models": ["tiny", "balanced", "stronger"],
+        "requires_api_key": False,
+        "base_url_required": False,
+        "api_key_label": "",
+    },
+]
+
+_MODEL_ENV_KEYS = {
+    "GHOSTCHIMERA_MODEL_PROVIDER",
+    "OPENAI_API_KEY",
+    "OPENAI_MODEL",
+    "OPENAI_BASE_URL",
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_MODEL",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_MODEL",
+    "VULTR_INFERENCE_API_KEY",
+    "VULTR_INFERENCE_MODEL",
+    "VULTR_INFERENCE_BASE_URL",
+    "HF_TOKEN",
+    "HUGGINGFACE_MODEL",
+    "HUGGINGFACE_BASE_URL",
+    "OLLAMA_MODEL",
+    "OLLAMA_BASE_URL",
+    "LMSTUDIO_MODEL",
+    "LMSTUDIO_BASE_URL",
+    "MINIMIND_MODEL_PROFILE",
+    "CUSTOM_MODEL",
+}
+
+
+def _redact_secret(value: str) -> str:
+    if not value:
+        return ""
+    if len(value) <= 6:
+        return "[configured]"
+    return f"{value[:2]}...{value[-2:]}"
+
+
+def _option_ids() -> set[str]:
+    return {str(option["id"]) for option in PROVIDER_OPTIONS}
+
+
+def _config_file_for_console(config_path: str | Path | None = None) -> Path:
+    return Path(config_path).expanduser() if config_path else CONFIG_FILE
+
+
+def _load_console_config(config_file: Path) -> dict[str, Any]:
+    config = load_config(config_file)
+    if not config:
+        config = get_default_config()
+    config.setdefault("model", {})
+    config.setdefault("gateway", get_default_config()["gateway"])
+    config.setdefault("safety", get_default_config()["safety"])
+    config.setdefault("autonomy", get_default_config()["autonomy"])
+    return config
+
+
+def _write_env_file(config_file: Path, env_vars: dict[str, str]) -> Path:
+    env_file = config_file.parent / ".env"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f"{key}={value}" for key, value in sorted(env_vars.items()) if value]
+    env_file.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    return env_file
+
+
+def _apply_model_env(env_vars: dict[str, str], *, overwrite: bool) -> None:
+    if overwrite:
+        for key in _MODEL_ENV_KEYS:
+            os.environ.pop(key, None)
+    for key, value in env_vars.items():
+        if value and (overwrite or not os.environ.get(key)):
+            os.environ[key] = value
+
+
+def _apply_saved_config_env(config_path: str | Path | None = None, *, overwrite: bool = False) -> None:
+    config_file = _config_file_for_console(config_path)
+    config = load_config(config_file)
+    if not config:
+        return
+    _apply_model_env(config_to_env_vars(config), overwrite=overwrite)
+
+
+def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str, Any]:
+    model = config.get("model", {}) if isinstance(config.get("model"), dict) else {}
+    env_vars = config_to_env_vars(config)
+    provider = str(model.get("provider") or os.environ.get("GHOSTCHIMERA_MODEL_PROVIDER") or "").strip()
+    runtime = GhostChimeraConfig.from_env().to_dict()
+    return {
+        "ok": True,
+        "config_path": str(config_file),
+        "env_file": str(config_file.parent / ".env"),
+        "provider_options": PROVIDER_OPTIONS,
+        "model": {
+            "provider": provider,
+            "model": str(model.get("model") or ""),
+            "base_url": str(model.get("base_url") or ""),
+            "api_key_configured": bool(model.get("api_key")),
+            "api_key_preview": _redact_secret(str(model.get("api_key") or "")),
+        },
+        "env_preview": {
+            key: (_redact_secret(value) if key.endswith("_API_KEY") else value)
+            for key, value in sorted(env_vars.items())
+            if value
+        },
+        "runtime": runtime,
+        "modules": [
+            {"id": "path", "label": "Ghost Paths", "tab": "path", "enabled": True},
+            {"id": "github", "label": "GitHub", "tab": "github", "enabled": True},
+            {"id": "thinking", "label": "Thinking", "tab": "thinking", "enabled": True},
+            {"id": "memory", "label": "Memory", "tab": "memory", "enabled": True},
+            {"id": "minimind", "label": "MiniMind", "tab": "minimind", "enabled": True},
+            {"id": "jobs", "label": "Autonomy Jobs", "tab": "jobs", "enabled": True},
+            {"id": "schedules", "label": "Schedules", "tab": "schedules", "enabled": True},
+            {"id": "security", "label": "Security", "tab": "security", "enabled": True},
+            {"id": "browser", "label": "Browser", "tab": "browser", "enabled": True},
+        ],
+        "restart_required": False,
+        "security": {
+            "secrets_are_write_only": True,
+            "raw_secret_values_returned": False,
+            "storage": "local Ghost Chimera config directory",
+        },
+    }
+
 
 def _json_body(ctx: dict[str, Any]) -> dict[str, Any]:
     """
@@ -163,6 +364,14 @@ def _as_bool(value: Any, *, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _as_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [part.strip() for part in str(value).split(",") if part.strip()]
 
 
 def _suffix(ctx: dict[str, Any], prefix: str) -> str:
@@ -351,6 +560,7 @@ def register_console_routes(
     workspace_store = operator_workspace or OperatorWorkspaceStore(state_dir=state_dir or server.config.state_dir)
     console_state_dir = Path(state_dir or server.config.state_dir)
     path_config_file = Path(config_path).expanduser() if config_path else None
+    console_config_file = _config_file_for_console(config_path)
     scheduler = cron_scheduler
     scheduler_error = ""
     if scheduler is None:
@@ -403,6 +613,163 @@ def register_console_routes(
         payload = _status_payload(server)
         payload["browser_workspace"] = workspace.status()
         return payload
+
+    def dashboard_config(ctx: dict[str, Any]) -> dict[str, Any]:
+        config = _load_console_config(console_config_file)
+        if ctx.get("method") == "GET":
+            return _safe_config_payload(config, console_config_file)
+
+        body = _json_body(ctx)
+        model = config.setdefault("model", {})
+        provider = str(body.get("provider") or model.get("provider") or "").strip().lower()
+        if provider not in _option_ids():
+            return {"ok": False, "error": "Choose a supported provider."}
+        model_name = str(body.get("model") or "").strip()
+        base_url = str(body.get("base_url") or "").strip()
+        api_key = str(body.get("api_key") or "").strip()
+        clear_api_key = _as_bool(body.get("clear_api_key"), default=False)
+
+        if base_url and not (base_url.startswith("https://") or base_url.startswith("http://")):
+            return {"ok": False, "error": "Base URL must start with http:// or https://."}
+        if len(model_name) > 200:
+            return {"ok": False, "error": "Model name is too long."}
+        if len(base_url) > 500:
+            return {"ok": False, "error": "Base URL is too long."}
+        if len(api_key) > 2000:
+            return {"ok": False, "error": "API key is too long."}
+
+        option = next(item for item in PROVIDER_OPTIONS if item["id"] == provider)
+        model["provider"] = provider
+        if model_name:
+            model["model"] = model_name
+        elif option.get("models") and option["models"][0]:
+            model["model"] = option["models"][0]
+        else:
+            model["model"] = ""
+        if base_url:
+            model["base_url"] = base_url
+        elif option.get("default_base_url"):
+            model["base_url"] = str(option["default_base_url"])
+        else:
+            model.pop("base_url", None)
+        if clear_api_key:
+            model.pop("api_key", None)
+        elif api_key:
+            model["api_key"] = api_key
+
+        config["model"] = model
+        save_config(config, console_config_file)
+        env_vars = config_to_env_vars(config)
+        env_file = _write_env_file(console_config_file, env_vars)
+        _apply_model_env(env_vars, overwrite=True)
+        payload = _safe_config_payload(config, console_config_file)
+        payload.update({"saved": True, "env_file": str(env_file)})
+        return payload
+
+    def model_discovery(ctx: dict[str, Any]) -> dict[str, Any]:
+        query = ctx.get("query") or {}
+        config = _load_console_config(console_config_file)
+        try:
+            return get_model_discovery(
+                config=config,
+                state_dir=console_config_file.parent,
+                sources=_as_list(query.get("source") or query.get("sources")),
+                capabilities=_as_list(query.get("capability") or query.get("capabilities")),
+                compatibility=_as_list(query.get("compatibility")),
+                query=str(query.get("query") or ""),
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def model_discovery_refresh(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        config = _load_console_config(console_config_file)
+        try:
+            refreshed = refresh_model_discovery(
+                config=config,
+                state_dir=console_config_file.parent,
+                sources=_as_list(body.get("sources")),
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {
+            "ok": refreshed.get("ok", False),
+            "cache_path": refreshed.get("cache_path", ""),
+            "sources": refreshed.get("sources", {}),
+            "alerts": refreshed.get("alerts", []),
+            "model_count": refreshed.get("model_count", 0),
+            "policy": refreshed.get("policy", {}),
+        }
+
+    def model_discovery_select(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "").strip().lower()
+        model_id = str(body.get("model_id") or "").strip()
+        source = str(body.get("source") or "").strip().lower()
+        if not provider or not model_id:
+            return {"ok": False, "error": "Select a provider and model."}
+        config = _load_console_config(console_config_file)
+        selected = select_discovered_model(
+            config=config,
+            state_dir=console_config_file.parent,
+            provider=provider,
+            model_id=model_id,
+            source=source,
+        )
+        if not selected.get("ok"):
+            return selected
+        next_config = selected["config"]
+        save_config(next_config, console_config_file)
+        env_vars = config_to_env_vars(next_config)
+        env_file = _write_env_file(console_config_file, env_vars)
+        _apply_model_env(env_vars, overwrite=True)
+        payload = _safe_config_payload(next_config, console_config_file)
+        payload.update(
+            {
+                "saved": True,
+                "env_file": str(env_file),
+                "selected_model": selected.get("selected_model"),
+                "requires_api_key": selected.get("requires_api_key", False),
+            }
+        )
+        return payload
+
+    def model_discovery_ping(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider_name = str(body.get("provider") or "").strip().lower()
+        model_id = str(body.get("model_id") or "").strip()
+        base_url = str(body.get("base_url") or "").strip()
+        if not provider_name or not model_id:
+            return {"ok": False, "error": "Select a provider and model to ping."}
+        if len(provider_name) > 80 or len(model_id) > 300 or len(base_url) > 500:
+            return {"ok": False, "error": "Ping request is too long."}
+        if base_url and not (base_url.startswith("http://") or base_url.startswith("https://")):
+            return {"ok": False, "error": "Base URL must start with http:// or https://."}
+
+        config = _load_console_config(console_config_file)
+        active_model = config.get("model", {}) if isinstance(config.get("model"), dict) else {}
+        api_key = str(active_model.get("api_key") or "") if active_model.get("provider") == provider_name else ""
+        profile = AuthProfile(provider=provider_name, api_key=api_key, base_url=base_url, model=model_id)
+        provider = get_provider(provider_name, profile=profile)
+        if provider is None:
+            return {"ok": False, "error": "Ghost Chimera does not have a provider for this model yet."}
+        errors = provider.validate_config()
+        if errors:
+            return {"ok": False, "error": "Provider is not ready.", "details": errors[:3]}
+        try:
+            reply = provider.chat(
+                "You are Ghost Chimera's model compatibility checker. Reply with a short OK sentence.",
+                "Confirm this model can answer a Ghost Chimera console compatibility ping.",
+            )
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)[:500]}
+        return {
+            "ok": True,
+            "provider": provider_name,
+            "model_id": model_id,
+            "reply_preview": str(reply).strip()[:500],
+            "raw_secret_values_returned": False,
+        }
 
     def autonomy(ctx: dict[str, Any]) -> dict[str, Any]:
         if ctx.get("method") == "GET":
@@ -1218,6 +1585,32 @@ def register_console_routes(
         description="Console auth capability advertisement",
     )
     _api_register("/api/console/status", status, method="GET", description="Ghost Console status")
+    _api_register("/api/console/config", dashboard_config, method="GET", description="Inspect dashboard configuration")
+    _api_register("/api/console/config", dashboard_config, method="POST", description="Update dashboard configuration")
+    _api_register(
+        "/api/console/models/discovery",
+        model_discovery,
+        method="GET",
+        description="Inspect cached compatible model discovery",
+    )
+    _api_register(
+        "/api/console/models/discovery/refresh",
+        model_discovery_refresh,
+        method="POST",
+        description="Refresh compatible model discovery sources",
+    )
+    _api_register(
+        "/api/console/models/discovery/select",
+        model_discovery_select,
+        method="POST",
+        description="Select a discovered model for the dashboard config",
+    )
+    _api_register(
+        "/api/console/models/discovery/ping",
+        model_discovery_ping,
+        method="POST",
+        description="Run an optional model compatibility ping",
+    )
     _api_register("/api/console/autonomy", autonomy, method="GET", description="Ghost Console autonomy")
     _api_register("/api/console/autonomy", autonomy, method="POST", description="Ghost Console autonomy")
     _api_register(
@@ -1488,6 +1881,7 @@ def run_console(
         GatewayServer: The started gateway server instance.
     """
 
+    _apply_saved_config_env(overwrite=False)
     config = GhostChimeraConfig.from_env()
     if state_dir:
         resolved = Path(state_dir).expanduser()

@@ -9,6 +9,8 @@
     githubDevice: null,
     lastRun: null,
     thinking: null,
+    config: null,
+    modelDiscovery: null,
   };
 
   function $(sel) { return document.querySelector(sel); }
@@ -155,6 +157,290 @@
   }
 
   function badge(el, text, cls) { el.textContent = text; el.className = "badge " + (cls || ""); }
+
+  function openTab(name) {
+    var tab = $(".tab[data-tab='" + name + "']");
+    if (tab) tab.click();
+  }
+
+  function selectedProviderOption() {
+    if (!state.config || !Array.isArray(state.config.provider_options)) return null;
+    var id = $("#configProvider") ? $("#configProvider").value : "";
+    return state.config.provider_options.find(function(option) { return option.id === id; }) || null;
+  }
+
+  function renderConfig(data) {
+    state.config = data;
+    var providerOptions = data.provider_options || [];
+    var provider = (data.model && data.model.provider) || "";
+    var select = $("#configProvider");
+    var modelInput = $("#configModel");
+    var baseUrl = $("#configBaseUrl");
+    var models = $("#configModelOptions");
+    if (!select || !modelInput || !baseUrl || !models) return;
+
+    select.innerHTML = "";
+    providerOptions.forEach(function(option) {
+      var opt = el("option", { value: option.id }, option.name);
+      if (option.id === provider) opt.selected = true;
+      select.appendChild(opt);
+    });
+    if (!select.value && providerOptions.length) select.value = providerOptions[0].id;
+    modelInput.value = (data.model && data.model.model) || "";
+    baseUrl.value = (data.model && data.model.base_url) || "";
+    $("#configApiKey").value = "";
+    renderConfigModelOptions();
+
+    var summary = $("#configSummary");
+    summary.innerHTML = "";
+    [
+      ["Provider", provider || "not set"],
+      ["Model", (data.model && data.model.model) || "not set"],
+      ["API Key", data.model && data.model.api_key_configured ? "configured" : "not set"],
+      ["Config File", data.config_path || "local state"],
+    ].forEach(function(m) {
+      var card = el("div", { class: "card" });
+      card.appendChild(el("h3", null, m[0]));
+      card.appendChild(el("div", { class: "value" }, m[1]));
+      summary.appendChild(card);
+    });
+
+    var guardrails = $("#configGuardrails");
+    guardrails.innerHTML = "";
+    var production = data.runtime && data.runtime.policy && data.runtime.policy.production || {};
+    [
+      ["Mode", production.deployment_mode || "development", production.is_production || production.deployment_mode === "production"],
+      ["Isolation", production.external_isolation || "not set", !!production.external_isolation],
+      ["Security Reviewed", production.security_reviewed ? "yes" : "no", production.security_reviewed],
+      ["Human Approval", production.human_approval_required ? "required" : "not required", production.human_approval_required],
+      ["Trusted Inputs", production.trusted_inputs_only ? "only" : "untrusted allowed", production.trusted_inputs_only],
+    ].forEach(function(row) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "name" }, row[0]));
+      item.appendChild(el("span", { class: "badge " + (row[2] ? "ok" : "warn") }, row[1]));
+      guardrails.appendChild(item);
+    });
+
+    var modules = $("#configModules");
+    modules.innerHTML = "";
+    (data.modules || []).forEach(function(mod) {
+      var btn = el("button", { class: "module-btn", type: "button" });
+      btn.appendChild(el("span", null, mod.label));
+      btn.appendChild(el("span", { class: "meta" }, mod.enabled ? "available" : "disabled"));
+      btn.addEventListener("click", function() { openTab(mod.tab); });
+      modules.appendChild(btn);
+    });
+
+    $("#configOutput").textContent = JSON.stringify({
+      env_file: data.env_file,
+      env_preview: data.env_preview || {},
+      security: data.security || {},
+    }, null, 2);
+  }
+
+  function renderConfigModelOptions() {
+    var option = selectedProviderOption();
+    var models = $("#configModelOptions");
+    if (!models) return;
+    models.innerHTML = "";
+    ((option && option.models) || []).forEach(function(model) {
+      if (model) models.appendChild(el("option", { value: model }));
+    });
+    if (option && option.default_base_url && !$("#configBaseUrl").value) {
+      $("#configBaseUrl").value = option.default_base_url;
+    }
+    $("#configKeyHint").textContent = option && option.requires_api_key
+      ? (option.api_key_label + " is write-only; leave blank to keep the saved key.")
+      : "This provider does not require a hosted API key.";
+  }
+
+  function selectedModelDiscoverySources() {
+    return Array.from(document.querySelectorAll(".model-source"))
+      .filter(function(input) { return input.checked; })
+      .map(function(input) { return input.value; });
+  }
+
+  function modelCompatibilityBadge(status) {
+    if (status === "ready") return { text: "Ready", cls: "ok" };
+    if (status === "needs_key") return { text: "Needs API key", cls: "warn" };
+    if (status === "candidate_only") return { text: "Candidate only", cls: "warn" };
+    return { text: "Unsupported", cls: "error" };
+  }
+
+  function providerDefaultBaseUrl(provider) {
+    var option = (state.config && state.config.provider_options || []).find(function(item) {
+      return item.id === provider;
+    });
+    return option && option.default_base_url ? option.default_base_url : "";
+  }
+
+  function previewDiscoveredModel(model) {
+    $("#configProvider").value = model.provider;
+    $("#configModel").value = model.model_id;
+    var base = providerDefaultBaseUrl(model.provider);
+    if (base) $("#configBaseUrl").value = base;
+    renderConfigModelOptions();
+    openTab("config");
+    toast("Model loaded into Config. Click Save Config to activate.", "ok");
+  }
+
+  async function selectDiscoveredModel(model) {
+    try {
+      var data = await api("/api/console/models/discovery/select", {
+        method: "POST",
+        body: { source: model.source, provider: model.provider, model_id: model.model_id },
+      });
+      if (!data.ok) {
+        toast(data.error || "Model selection failed.", "error");
+        return;
+      }
+      renderConfig(data);
+      await refreshModelDiscovery(false);
+      await refreshStatus();
+      toast(data.requires_api_key ? "Model selected. Add an API key in Config before running." : "Model selected.", data.requires_api_key ? "warn" : "ok");
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  async function pingDiscoveredModel(model) {
+    try {
+      var data = await api("/api/console/models/discovery/ping", {
+        method: "POST",
+        body: {
+          provider: model.provider,
+          model_id: model.model_id,
+          base_url: providerDefaultBaseUrl(model.provider),
+        },
+      });
+      toast(data.ok ? "Compatibility ping passed." : (data.error || "Compatibility ping failed."), data.ok ? "ok" : "error");
+      $("#configOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+      toast(e.message, "error");
+      $("#configOutput").textContent = e.message;
+    }
+  }
+
+  function renderModelDiscovery(data) {
+    state.modelDiscovery = data;
+    var grid = $("#modelDiscoveryGrid");
+    var status = $("#modelDiscoveryStatus");
+    if (!grid || !status) return;
+    grid.innerHTML = "";
+    var models = data.models || [];
+    var sourceStates = data.sources || {};
+    var sourceNotes = Object.keys(sourceStates).map(function(source) {
+      var state = sourceStates[source] || {};
+      return source + ": " + (state.ok ? (state.count || 0) + " models" : (state.error || "unavailable"));
+    });
+    status.textContent = models.length
+      ? models.length + " discovered models. " + sourceNotes.join(" | ")
+      : "No cached models yet. Refresh OpenRouter first, then add Vultr/Hugging Face/local sources as needed.";
+    if (data.alerts && data.alerts.length) {
+      status.textContent += " Alerts: " + data.alerts.slice(0, 3).map(function(alert) {
+        return alert.kind + " " + alert.model_id;
+      }).join(", ");
+    }
+    models.slice(0, 80).forEach(function(model) {
+      var compat = modelCompatibilityBadge(model.compatibility_status);
+      var card = el("div", { class: "model-card " + (model.compatibility_status === "ready" ? "ready" : "candidate") });
+      var title = el("div", { class: "model-title" }, model.display_name || model.model_id);
+      card.appendChild(title);
+      card.appendChild(el("div", { class: "model-id" }, model.provider + " / " + model.model_id));
+      var badges = el("div", { class: "model-badges" });
+      badges.appendChild(el("span", { class: "badge " + compat.cls }, compat.text));
+      badges.appendChild(el("span", { class: "badge" }, model.source));
+      if (model.cost_class) badges.appendChild(el("span", { class: "badge" }, "cost: " + model.cost_class));
+      if (model.context_length) badges.appendChild(el("span", { class: "badge" }, String(model.context_length) + " ctx"));
+      (model.capability_badges || []).slice(0, 6).forEach(function(badgeText) {
+        badges.appendChild(el("span", { class: "badge" }, badgeText));
+      });
+      card.appendChild(badges);
+      card.appendChild(el("div", { class: "model-desc" }, (model.description || "Compatible model candidate.").slice(0, 240)));
+      var useCases = (model.recommended_use_cases || []).slice(0, 4).join(", ");
+      if (useCases) card.appendChild(el("div", { class: "hint" }, "Best for: " + useCases));
+      var actions = el("div", { class: "model-actions" });
+      var preview = el("button", { type: "button" }, "Preview");
+      preview.addEventListener("click", function() { previewDiscoveredModel(model); });
+      var ping = el("button", { type: "button" }, "Ping");
+      ping.addEventListener("click", function() { pingDiscoveredModel(model); });
+      var select = el("button", { type: "button", class: "primary" }, "Select Model");
+      if (["ready", "needs_key"].indexOf(model.compatibility_status) === -1) {
+        select.disabled = true;
+      }
+      select.addEventListener("click", function() { selectDiscoveredModel(model); });
+      actions.appendChild(preview);
+      actions.appendChild(ping);
+      actions.appendChild(select);
+      card.appendChild(actions);
+      grid.appendChild(card);
+    });
+  }
+
+  async function refreshModelDiscovery(useNetwork) {
+    try {
+      var sources = selectedModelDiscoverySources();
+      if (!sources.length) sources = ["openrouter"];
+      if (useNetwork) {
+        $("#modelDiscoveryStatus").textContent = "Refreshing model catalogs...";
+        await api("/api/console/models/discovery/refresh", {
+          method: "POST",
+          body: { sources: sources },
+        });
+      }
+      var capability = $("#modelCapabilityFilter").value || "";
+      var query = ($("#modelDiscoveryQuery").value || "").trim();
+      var params = new URLSearchParams();
+      params.set("sources", sources.join(","));
+      if (capability) params.set("capabilities", capability);
+      if (query) params.set("query", query);
+      var data = await api("/api/console/models/discovery?" + params.toString());
+      renderModelDiscovery(data);
+    } catch (e) {
+      $("#modelDiscoveryStatus").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function refreshConfig() {
+    try {
+      var data = await api("/api/console/config");
+      renderConfig(data);
+    } catch (e) {
+      $("#configOutput").textContent = e.message;
+    }
+  }
+
+  async function saveConfig(clearKey) {
+    try {
+      var data = await api("/api/console/config", {
+        method: "POST",
+        body: {
+          provider: $("#configProvider").value,
+          model: $("#configModel").value,
+          base_url: $("#configBaseUrl").value,
+          api_key: $("#configApiKey").value,
+          clear_api_key: !!clearKey,
+        },
+      });
+      renderConfig(data);
+      toast(data.ok ? "Config saved." : (data.error || "Config save failed."), data.ok ? "ok" : "error");
+      await refreshStatus();
+    } catch (e) {
+      $("#configOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+  $("#configProvider").addEventListener("change", renderConfigModelOptions);
+  $("#configSave").addEventListener("click", function() { saveConfig(false); });
+  $("#configClearKey").addEventListener("click", function() { saveConfig(true); });
+  $("#configRefresh").addEventListener("click", refreshConfig);
+  $("#modelDiscoveryRefresh").addEventListener("click", function() { refreshModelDiscovery(true); });
+  $("#modelDiscoveryQuery").addEventListener("input", function() { refreshModelDiscovery(false); });
+  $("#modelCapabilityFilter").addEventListener("change", function() { refreshModelDiscovery(false); });
+  document.querySelectorAll(".model-source").forEach(function(input) {
+    input.addEventListener("change", function() { refreshModelDiscovery(false); });
+  });
 
   async function refreshPathProfiles() {
     try {
@@ -553,7 +839,7 @@
     item.appendChild(el("span", { class: "badge ok" }, provider));
     item.appendChild(el("span", { class: "meta" }, "model profile: " + model));
     container.appendChild(item);
-    var hint = el("p", { class: "hint" }, "Set a different provider by configuring the GHOSTCHIMERA_MODEL_PROVIDER environment variable before starting the server.");
+    var hint = el("p", { class: "hint" }, "Use the Config tab to switch providers without editing code or environment files.");
     hint.style.marginTop = "6px";
     container.appendChild(hint);
   }
@@ -1267,6 +1553,8 @@
   renderHistory();
   initAuth().then(function() {
     refreshStatus();
+    refreshConfig();
+    refreshModelDiscovery(false);
     refreshBrowserStatus();
     refreshSecurity();
     refreshSkills();

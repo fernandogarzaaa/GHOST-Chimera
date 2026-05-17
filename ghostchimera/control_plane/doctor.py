@@ -7,11 +7,13 @@ skill requirements (Gap 4 — OpenClaw-style ``check_requirements()``).
 from __future__ import annotations
 
 import importlib
+import os
 import sys
 
+from ..model_layer.providers import get_provider
 from ..safety_layer.production import ProductionGuardrails
 from .colors import Colors, color, print_error, print_header, print_info, print_success, print_warning
-from .config import CONFIG_FILE, ensure_state_dir, load_config
+from .config import CONFIG_FILE, config_to_env_vars, ensure_state_dir, load_config
 
 
 def _check(label: str, ok: bool, hint: str = "") -> None:
@@ -21,6 +23,38 @@ def _check(label: str, ok: bool, hint: str = "") -> None:
         print_warning(f"  [WARN] {label} - {hint}")
     else:
         print_error(f"  [ERR]  {label}")
+
+
+def _provider_status(config: dict[str, object], env: dict[str, str] | None = None) -> tuple[str, bool, str]:
+    """Resolve provider status from env-first deployment config, then setup config."""
+
+    active_env = env or dict(os.environ)
+    env_provider = str(active_env.get("GHOSTCHIMERA_MODEL_PROVIDER", "")).strip().lower()
+    if env_provider:
+        provider = get_provider(env_provider)
+        if provider is None:
+            return (f"Provider: {env_provider}", False, "Unknown provider configured in GHOSTCHIMERA_MODEL_PROVIDER")
+        errors = provider.validate_config()
+        hint = "; ".join(errors[:2]) if errors else ""
+        return (f"Provider: {provider.name} (env)", provider.available and not errors, hint)
+
+    model = config.get("model", {}) if isinstance(config, dict) else {}
+    if not isinstance(model, dict):
+        model = {}
+    provider_name = str(model.get("provider", "")).strip().lower()
+    if provider_name == "skip":
+        return ("Provider: Deterministic backend", True, "")
+    if provider_name:
+        env_overlay = {**active_env, **config_to_env_vars(config)}
+        resolved_name = str(env_overlay.get("GHOSTCHIMERA_MODEL_PROVIDER", provider_name)).strip().lower()
+        provider = get_provider(resolved_name)
+        if provider is not None:
+            errors = provider.validate_config()
+            hint = "; ".join(errors[:2]) if errors else ""
+            return (f"Provider: {provider.name} (config)", provider.available and not errors, hint)
+        has_key = "api_key" in model
+        return (f"Provider: {provider_name.title()} (model: {model.get('model', '?')})", has_key, "API key not set")
+    return ("Provider", False, "No provider configured - run 'ghostchimera setup' or set GHOSTCHIMERA_MODEL_PROVIDER")
 
 
 def run_doctor(*, production: bool = False) -> int:
@@ -51,21 +85,11 @@ def run_doctor(*, production: bool = False) -> int:
         warned += 1
 
     # Provider status
-    model = config.get("model", {})
-    provider = model.get("provider", "")
-
-    if provider == "skip":
-        _check("Provider: Deterministic backend", True)
+    provider_label, provider_ok, provider_hint = _provider_status(config)
+    _check(provider_label, provider_ok, provider_hint)
+    if provider_ok:
         passed += 1
-    elif provider:
-        has_key = "api_key" in model
-        _check(f"Provider: {provider.title()} (model: {model.get('model', '?')})", has_key, "API key not set")
-        if has_key:
-            passed += 1
-        else:
-            warned += 1
     else:
-        _check("Provider", False, "No provider configured — run 'ghostchimera setup'")
         warned += 1
 
     # Gateway

@@ -128,10 +128,12 @@ class TestConfigValidation:
         assert result["valid"] is True  # No errors in non-production mode
         assert len(result["warnings"]) > 0
         assert len(result["checks"]) > 0
+        assert any(check["name"] == "GHOSTCHIMERA_MODEL_PROVIDER" for check in result["checks"])
 
     def test_validate_config_production_safe(self):
         """Test validation with safe production config."""
         env_vars = {
+            "GHOSTCHIMERA_MODEL_PROVIDER": "vultr",
             "GHOSTCHIMERA_DEPLOYMENT_MODE": "production",
             "GHOSTCHIMERA_EXTERNAL_ISOLATION": "container",
             "GHOSTCHIMERA_SECURITY_REVIEWED": "1",
@@ -186,6 +188,7 @@ class TestConfigValidation:
     def test_validate_config_missing_token_in_production(self):
         """Test that missing console token fails in production."""
         env_vars = {
+            "GHOSTCHIMERA_MODEL_PROVIDER": "vultr",
             "GHOSTCHIMERA_EXTERNAL_ISOLATION": "container",
             "GHOSTCHIMERA_SECURITY_REVIEWED": "1",
             "GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED": "1",
@@ -201,6 +204,7 @@ class TestConfigValidation:
     def test_validate_config_placeholder_token_fails_in_production(self):
         """Test that example tokens fail production validation."""
         env_vars = {
+            "GHOSTCHIMERA_MODEL_PROVIDER": "vultr",
             "GHOSTCHIMERA_EXTERNAL_ISOLATION": "container",
             "GHOSTCHIMERA_SECURITY_REVIEWED": "1",
             "GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED": "1",
@@ -212,6 +216,40 @@ class TestConfigValidation:
 
         assert result["valid"] is False
         assert any("placeholder" in error for error in result["errors"])
+
+    def test_validate_config_missing_provider_fails_in_production(self):
+        """Test that production config requires an explicit provider selection."""
+        env_vars = {
+            "GHOSTCHIMERA_DEPLOYMENT_MODE": "production",
+            "GHOSTCHIMERA_EXTERNAL_ISOLATION": "container",
+            "GHOSTCHIMERA_SECURITY_REVIEWED": "1",
+            "GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED": "1",
+            "GHOSTCHIMERA_ALLOW_UNTRUSTED_INPUTS": "0",
+            "GHOSTCHIMERA_CONSOLE_AUTH_TOKEN": "secret_token_here",
+        }
+
+        result = validate_config(env_vars, production_mode=True)
+
+        assert result["valid"] is False
+        assert any("MODEL_PROVIDER" in error for error in result["errors"])
+
+    def test_validate_config_openai_requires_api_key_and_model(self):
+        """Test provider-specific validation for OpenAI production config."""
+        env_vars = {
+            "GHOSTCHIMERA_MODEL_PROVIDER": "openai",
+            "GHOSTCHIMERA_DEPLOYMENT_MODE": "production",
+            "GHOSTCHIMERA_EXTERNAL_ISOLATION": "container",
+            "GHOSTCHIMERA_SECURITY_REVIEWED": "1",
+            "GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED": "1",
+            "GHOSTCHIMERA_ALLOW_UNTRUSTED_INPUTS": "0",
+            "GHOSTCHIMERA_CONSOLE_AUTH_TOKEN": "secret_token_here",
+            "OPENAI_MODEL": "gpt-4o-mini",
+        }
+
+        result = validate_config(env_vars, production_mode=True)
+
+        assert result["valid"] is False
+        assert any(error == "OpenAI API key not set" for error in result["errors"])
 
 
 class TestConfigFormatting:
@@ -271,6 +309,7 @@ class TestConfigValidatorIntegration:
         """Test validator with a complete fixture env file."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
             f.write("# Ghost Chimera Production Config\n")
+            f.write("GHOSTCHIMERA_MODEL_PROVIDER=vultr\n")
             f.write("GHOSTCHIMERA_DEPLOYMENT_MODE=production\n")
             f.write("GHOSTCHIMERA_EXTERNAL_ISOLATION=container\n")
             f.write("GHOSTCHIMERA_SECURITY_REVIEWED=1\n")

@@ -4,15 +4,55 @@ services:
       context: .
       dockerfile: Dockerfile
     image: ghost-chimera:latest
-    container_name: ghost-chimera-console
+    env_file:
+      - path: .env.production
+        required: false
+    command:
+      - ghostchimera
+      - console
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8765"
+      - --http-port
+      - "8766"
+      - --state-dir
+      - /data/state
+      - --no-open
+      - --auth-token
+      - ${GHOSTCHIMERA_CONSOLE_AUTH_TOKEN:?set GHOSTCHIMERA_CONSOLE_AUTH_TOKEN in .env.production}
     ports:
       - "8765:8765"
       - "8766:8766"
     environment:
-      GHOSTCHIMERA_DEPLOYMENT_MODE: production
-      GHOSTCHIMERA_EXTERNAL_ISOLATION: container
-      GHOSTCHIMERA_SECURITY_REVIEWED: "1"
-      GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED: "1"
+      GHOSTCHIMERA_DEPLOYMENT_MODE: ${GHOSTCHIMERA_DEPLOYMENT_MODE:-production}
+      GHOSTCHIMERA_EXTERNAL_ISOLATION: ${GHOSTCHIMERA_EXTERNAL_ISOLATION:-container}
+      GHOSTCHIMERA_SECURITY_REVIEWED: ${GHOSTCHIMERA_SECURITY_REVIEWED:-1}
+      GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED: ${GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED:-1}
+      GHOSTCHIMERA_ALLOW_UNTRUSTED_INPUTS: ${GHOSTCHIMERA_ALLOW_UNTRUSTED_INPUTS:-0}
+      GHOSTCHIMERA_STATE_DIR: /data/state
+      GHOSTCHIMERA_MODEL_PROVIDER: ${GHOSTCHIMERA_MODEL_PROVIDER:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      VULTR_INFERENCE_API_KEY: ${VULTR_INFERENCE_API_KEY:-}
+      VULTR_INFERENCE_MODEL: ${VULTR_INFERENCE_MODEL:-}
+      VULTR_INFERENCE_BASE_URL: ${VULTR_INFERENCE_BASE_URL:-}
     volumes:
       - ./data:/data
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8766/api/console/token', timeout=3).read()"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped

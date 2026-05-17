@@ -65,6 +65,7 @@ class GhostChimeraConfig:
                 "profile": self.local_model_profile,
                 "gpu_layers": self.local_model_gpu_layers,
             },
+            "model_provider": os.environ.get("GHOSTCHIMERA_MODEL_PROVIDER", ""),
             "autonomy_level": self.autonomy_level,
         }
 

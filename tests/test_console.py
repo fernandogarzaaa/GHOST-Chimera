@@ -14,6 +14,7 @@ from ghostchimera.config import GhostChimeraConfig
 from ghostchimera.control_plane.cli import _main
 from ghostchimera.control_plane.console import _default_run_objective, register_console_routes, run_console
 from ghostchimera.memory_layer.store import MemoryStore
+from ghostchimera.model_layer.model_discovery import save_model_discovery_cache
 from ghostchimera.tool_layer.browser_workspace import AgentBrowserWorkspace
 
 
@@ -31,6 +32,14 @@ class FakeBrowserWorkspace:
     def snapshot(self, *, url: str = "", session: str = "default", interactive: bool = True) -> dict[str, object]:
         self.calls.append(("snapshot", {"url": url, "session": session}))
         return {"ok": True, "action": "snapshot", "output": "@e1 [heading] Example", "session": session}
+
+
+class FakeModelProvider:
+    def validate_config(self) -> list[str]:
+        return []
+
+    def chat(self, system_message: str, user_message: str) -> str:
+        return "OK compatible"
 
 
 class ConsoleRouteTests(unittest.TestCase):
@@ -268,6 +277,177 @@ class ConsoleRouteTests(unittest.TestCase):
         )
         self.assertFalse(policy["allowed"])
 
+    def test_console_config_route_persists_provider_without_echoing_secret(self) -> None:
+        server = GatewayServer()
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-console-config-ui-") as tmp:
+            config_path = Path(tmp) / "config.json"
+            register_console_routes(server, config_path=config_path)
+            config_route = server.routes.find("GET", "/api/console/config")
+            save_route = server.routes.find("POST", "/api/console/config")
+
+            self.assertIsNotNone(config_route)
+            self.assertIsNotNone(save_route)
+
+            saved = save_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/config",
+                    "headers": {},
+                    "body": json.dumps(
+                        {
+                            "provider": "vultr",
+                            "model": "llama-3.1-70b",
+                            "base_url": "https://api.vultrinference.com/v1/chat/completions",
+                            "api_key": "vultr_secret_key_12345",
+                        }
+                    ),
+                    "query": {},
+                }
+            )
+            self.assertTrue(saved["ok"])
+            self.assertTrue(saved["model"]["api_key_configured"])
+            self.assertNotIn("vultr_secret_key_12345", json.dumps(saved))
+            self.assertEqual(saved["env_preview"]["VULTR_INFERENCE_API_KEY"], "vu...45")
+            self.assertTrue((Path(tmp) / ".env").exists())
+
+            loaded = config_route.handler(
+                {"method": "GET", "path": "/api/console/config", "headers": {}, "body": "", "query": {}}
+            )
+            self.assertEqual(loaded["model"]["provider"], "vultr")
+            self.assertTrue(loaded["security"]["secrets_are_write_only"])
+
+            rejected = save_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/config",
+                    "headers": {},
+                    "body": json.dumps({"provider": "not-a-provider", "model": "x"}),
+                    "query": {},
+                }
+            )
+            self.assertFalse(rejected["ok"])
+
+            invalid_url = save_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/config",
+                    "headers": {},
+                    "body": json.dumps({"provider": "vultr", "base_url": "file:///tmp/secret"}),
+                    "query": {},
+                }
+            )
+            self.assertFalse(invalid_url["ok"])
+
+            cleared = save_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/config",
+                    "headers": {},
+                    "body": json.dumps({"provider": "vultr", "clear_api_key": True}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(cleared["ok"])
+            self.assertFalse(cleared["model"]["api_key_configured"])
+
+    def test_console_model_discovery_routes_cache_and_select_models(self) -> None:
+        server = GatewayServer()
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-console-model-discovery-") as tmp:
+            config_path = Path(tmp) / "config.json"
+            register_console_routes(server, config_path=config_path)
+            list_route = server.routes.find("GET", "/api/console/models/discovery")
+            refresh_route = server.routes.find("POST", "/api/console/models/discovery/refresh")
+            select_route = server.routes.find("POST", "/api/console/models/discovery/select")
+            ping_route = server.routes.find("POST", "/api/console/models/discovery/ping")
+
+            self.assertIsNotNone(list_route)
+            self.assertIsNotNone(refresh_route)
+            self.assertIsNotNone(select_route)
+            self.assertIsNotNone(ping_route)
+
+            with patch("ghostchimera.control_plane.console.refresh_model_discovery") as refresh:
+                refresh.return_value = {"ok": True, "models": [], "sources": {"openrouter": {"ok": True}}}
+                refreshed = refresh_route.handler(
+                    {
+                        "method": "POST",
+                        "path": "/api/console/models/discovery/refresh",
+                        "headers": {},
+                        "body": json.dumps({"sources": ["openrouter"]}),
+                        "query": {},
+                    }
+                )
+            self.assertTrue(refreshed["ok"])
+            refresh.assert_called_once()
+
+            save_model_discovery_cache(
+                tmp,
+                {
+                    "version": 1,
+                    "sources": {"openrouter": {"ok": True, "source": "openrouter", "count": 1}},
+                    "models": {
+                        "openrouter": [
+                            {
+                                "source": "openrouter",
+                                "provider": "openrouter",
+                                "model_id": "openai/gpt-4o-mini",
+                                "display_name": "GPT-4o mini",
+                                "description": "Fast compatible model.",
+                                "compatibility_status": "needs_key",
+                                "capability_badges": ["text", "low-cost"],
+                                "modalities": ["text"],
+                                "raw_metadata": {},
+                            }
+                        ]
+                    },
+                },
+            )
+            listed = list_route.handler(
+                {
+                    "method": "GET",
+                    "path": "/api/console/models/discovery",
+                    "headers": {},
+                    "body": "",
+                    "query": {"capabilities": "low-cost"},
+                }
+            )
+            self.assertTrue(listed["ok"])
+            self.assertEqual(listed["model_count"], 1)
+
+            selected = select_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/models/discovery/select",
+                    "headers": {},
+                    "body": json.dumps(
+                        {
+                            "source": "openrouter",
+                            "provider": "openrouter",
+                            "model_id": "openai/gpt-4o-mini",
+                        }
+                    ),
+                    "query": {},
+                }
+            )
+            self.assertTrue(selected["ok"])
+            self.assertEqual(selected["model"]["provider"], "openrouter")
+            self.assertEqual(selected["model"]["model"], "openai/gpt-4o-mini")
+            self.assertFalse(selected["model"]["api_key_configured"])
+            self.assertTrue(selected["security"]["secrets_are_write_only"])
+
+            with patch("ghostchimera.control_plane.console.get_provider", return_value=FakeModelProvider()):
+                pinged = ping_route.handler(
+                    {
+                        "method": "POST",
+                        "path": "/api/console/models/discovery/ping",
+                        "headers": {},
+                        "body": json.dumps({"provider": "openrouter", "model_id": "openai/gpt-4o-mini"}),
+                        "query": {},
+                    }
+                )
+            self.assertTrue(pinged["ok"])
+            self.assertEqual(pinged["reply_preview"], "OK compatible")
+            self.assertFalse(pinged["raw_secret_values_returned"])
+
     def test_console_static_ui_exposes_path_synthesizer(self) -> None:
         root = Path(__file__).resolve().parents[1]
         html = (root / "ghostchimera" / "control_plane" / "static" / "index.html").read_text(encoding="utf-8")
@@ -276,7 +456,12 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIn('data-tab="path"', html)
         self.assertIn('data-tab="github"', html)
         self.assertIn('data-tab="thinking"', html)
+        self.assertIn('data-tab="config"', html)
         self.assertIn("pathProfile", html)
+        self.assertIn("configProvider", html)
+        self.assertIn("configApiKey", html)
+        self.assertIn("modelDiscoveryGrid", html)
+        self.assertIn("modelDiscoveryRefresh", html)
         self.assertIn("pathSave", html)
         self.assertIn("githubRepo", html)
         self.assertIn("githubDeviceStart", html)
@@ -292,6 +477,12 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIn("/api/console/github/self-evolution/preview", app)
         self.assertIn("/api/console/github/plan", app)
         self.assertIn("/api/console/thinking", app)
+        self.assertIn("/api/console/config", app)
+        self.assertIn("/api/console/models/discovery", app)
+        self.assertIn("/api/console/models/discovery/refresh", app)
+        self.assertIn("/api/console/models/discovery/select", app)
+        self.assertIn("/api/console/models/discovery/ping", app)
+        self.assertIn("Use the Config tab", app)
 
     def test_console_registers_thinking_trace_route(self) -> None:
         server = GatewayServer()

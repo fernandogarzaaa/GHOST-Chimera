@@ -38,9 +38,36 @@ def test_vultr_compose_override_runs_token_protected_console():
     assert "ghost-chimera-state:" in content
 
 
+def test_generic_production_env_and_compose_require_guardrails():
+    env_example = ROOT / ".env.production.example"
+    compose = ROOT / "docker-compose.yml"
+
+    env_content = env_example.read_text(encoding="utf-8")
+    compose_content = compose.read_text(encoding="utf-8")
+
+    for required in [
+        "GHOSTCHIMERA_CONSOLE_AUTH_TOKEN=",
+        "GHOSTCHIMERA_DEPLOYMENT_MODE=production",
+        "GHOSTCHIMERA_EXTERNAL_ISOLATION=container",
+        "GHOSTCHIMERA_SECURITY_REVIEWED=1",
+        "GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED=1",
+        "GHOSTCHIMERA_ALLOW_UNTRUSTED_INPUTS=0",
+        "GHOSTCHIMERA_MODEL_PROVIDER=",
+    ]:
+        assert required in env_content
+
+    assert ".env.production" in compose_content
+    assert "--auth-token" in compose_content
+    assert "GHOSTCHIMERA_CONSOLE_AUTH_TOKEN" in compose_content
+    assert "no-new-privileges:true" in compose_content
+    assert "cap_drop:" in compose_content
+    assert "healthcheck:" in compose_content
+
+
 def test_vultr_hackathon_docs_frame_track_and_demo_acceptance():
     deployment = (ROOT / "docs" / "VULTR_HACKATHON_DEPLOYMENT.md").read_text(encoding="utf-8")
     submission = (ROOT / "docs" / "HACKATHON_SUBMISSION_GUIDE.md").read_text(encoding="utf-8")
+    production = (ROOT / "docs" / "PRODUCTION_DEPLOYMENT.md").read_text(encoding="utf-8")
 
     assert "Agentic Workflows" in submission
     assert "Enterprise Utility" in submission
@@ -50,6 +77,8 @@ def test_vultr_hackathon_docs_frame_track_and_demo_acceptance():
     assert "No private local files" in deployment
     assert "Manager Operator" in deployment
     assert "Virtual Assistant" in deployment
+    assert "validate_config.py --env-file .env.production --production" in production
+    assert "docker compose --env-file .env.production -f docker-compose.yml config" in production
 
 
 def test_optional_streamlit_landing_page_is_repo_deployable():
