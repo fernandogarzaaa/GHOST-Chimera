@@ -1,6 +1,15 @@
 (function () {
   "use strict";
-  var state = { profiles: [], pathProfiles: [], activePath: null, workspace: null, token: "" };
+  var state = {
+    profiles: [],
+    pathProfiles: [],
+    activePath: null,
+    workspace: null,
+    token: "",
+    githubDevice: null,
+    lastRun: null,
+    thinking: null,
+  };
 
   function $(sel) { return document.querySelector(sel); }
   function $$$(sel) { return document.querySelectorAll(sel); }
@@ -255,6 +264,9 @@
         ["Status", data.ok ? "ready" : "unavailable"],
         ["Auth", data.auth_mode || "unknown"],
         ["Token", data.has_token ? "configured" : "not set"],
+        ["User", data.user && data.user.login ? data.user.login : "not signed in"],
+        ["Device Flow", data.device_flow_configured ? "configured" : "needs client id"],
+        ["Self-Evolution", data.self_evolution_policy ? data.self_evolution_policy.mode : "guarded"],
       ].forEach(function(m) {
         var card = el("div", { class: "card" });
         card.appendChild(el("h3", null, m[0]));
@@ -263,6 +275,88 @@
       });
     } catch (e) {
       empty("#githubSummary", "GitHub integration unavailable.");
+    }
+  }
+
+  async function startGithubDeviceSignIn() {
+    try {
+      var data = await api("/api/console/github/device/start", {
+        method: "POST",
+        body: { scope: ($("#githubDeviceScopes").value || "read:user repo").trim() },
+      });
+      if (!data.ok) {
+        $("#githubAuthOutput").textContent = JSON.stringify(data, null, 2);
+        toast(data.error || "GitHub sign-in unavailable.", "warn");
+        return;
+      }
+      state.githubDevice = data;
+      $("#githubAuthOutput").textContent = [
+        "Open: " + data.verification_uri,
+        "Code: " + data.user_code,
+        "Then approve the app in GitHub and click 'I Approved It'.",
+        "",
+        JSON.stringify({ scope: data.scope, expires_in: data.expires_in, interval: data.interval }, null, 2),
+      ].join("\n");
+      if (data.verification_uri) window.open(data.verification_uri, "_blank", "noopener");
+    } catch (e) {
+      $("#githubAuthOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function pollGithubDeviceSignIn() {
+    try {
+      if (!state.githubDevice || !state.githubDevice.device_code) {
+        toast("Start GitHub sign-in first.", "warn");
+        return;
+      }
+      var data = await api("/api/console/github/device/poll", {
+        method: "POST",
+        body: { device_code: state.githubDevice.device_code },
+      });
+      $("#githubAuthOutput").textContent = JSON.stringify(data, null, 2);
+      if (data.ok) {
+        state.githubDevice = null;
+        await refreshGithubStatus();
+        toast("GitHub signed in.", "ok");
+      } else {
+        toast(data.pending ? "Still waiting for GitHub approval." : (data.error || "Sign-in failed."), data.pending ? "warn" : "error");
+      }
+    } catch (e) {
+      $("#githubAuthOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function logoutGithub() {
+    try {
+      var data = await api("/api/console/github/logout", { method: "POST", body: {} });
+      state.githubDevice = null;
+      $("#githubAuthOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshGithubStatus();
+      toast("GitHub console token cleared.", "ok");
+    } catch (e) {
+      $("#githubAuthOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function previewSelfEvolution() {
+    try {
+      var materials = [];
+      if ($("#selfEvolveSkills").checked) materials.push("verified_skills");
+      if ($("#selfEvolveMcp").checked) materials.push("mcp_servers");
+      if ($("#selfEvolveOpenSource").checked) materials.push("open_source_reference_materials");
+      var repos = ($("#selfEvolveRepos").value || "").split(",").map(function(item) { return item.trim(); }).filter(Boolean);
+      var data = await api("/api/console/github/self-evolution/preview", {
+        method: "POST",
+        body: { materials: materials, repos: repos },
+      });
+      $("#githubSelfEvolutionOutput").textContent = JSON.stringify(data, null, 2);
+      toast("Self-evolution preview generated.", data.ok ? "ok" : "warn");
+    } catch (e) {
+      $("#githubSelfEvolutionOutput").textContent = e.message;
+      toast(e.message, "error");
     }
   }
 
@@ -302,10 +396,89 @@
       toast(e.message, "error");
     }
   }
+  $("#githubDeviceStart").addEventListener("click", startGithubDeviceSignIn);
+  $("#githubDevicePoll").addEventListener("click", pollGithubDeviceSignIn);
+  $("#githubLogout").addEventListener("click", logoutGithub);
+  $("#githubSelfEvolutionPreview").addEventListener("click", previewSelfEvolution);
   $("#githubPlan").addEventListener("click", planGithubIssue);
   $("#githubPolicyPreview").addEventListener("click", previewGithubPolicy);
 
   // ── Status ───────────────────────────────────────────────────────────────
+  function renderThinking(data) {
+    state.thinking = data;
+    var summary = $("#thinkingSummary");
+    if (!summary) return;
+    summary.innerHTML = "";
+    [
+      ["Path", data.active_path && data.active_path.profile_id ? data.active_path.profile_id : "default"],
+      ["MiniMind", data.minimind && data.minimind.ready ? "ready" : "guarded"],
+      ["Workspace", (data.workspace ? data.workspace.evidence_count : 0) + " evidence"],
+      ["Capabilities", data.capabilities ? (data.capabilities.covered + "/" + data.capabilities.total) : "unknown"],
+    ].forEach(function(m) {
+      var card = el("div", { class: "card" });
+      card.appendChild(el("h3", null, m[0]));
+      card.appendChild(el("div", { class: "value" }, m[1]));
+      summary.appendChild(card);
+    });
+
+    var nodes = data.nodes || [];
+    var positions = {
+      objective: [90, 70], policy: [280, 70], path: [470, 70], memory: [660, 70], planner: [850, 70],
+      scheduler: [185, 245], tools: [400, 245], verification: [615, 245], audit: [830, 245],
+    };
+    var edgeSvg = (data.edges || []).map(function(edge) {
+      var a = positions[edge.from] || [0, 0];
+      var b = positions[edge.to] || [0, 0];
+      return '<line x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '" class="think-edge" />';
+    }).join("");
+    var nodeSvg = nodes.map(function(n) {
+      var p = positions[n.id] || [120, 120];
+      var cls = "think-node-svg " + esc(n.status || "ready");
+      return [
+        '<g class="' + cls + '" transform="translate(' + p[0] + ' ' + p[1] + ')">',
+        '<rect x="-72" y="-31" width="144" height="62" rx="8"></rect>',
+        '<text y="-4" text-anchor="middle" class="think-label">' + esc(n.label) + '</text>',
+        '<text y="17" text-anchor="middle" class="think-layer">' + esc(n.layer || "") + '</text>',
+        '</g>',
+      ].join("");
+    }).join("");
+    $("#thinkingGraph").innerHTML = [
+      '<svg class="thinking-svg" viewBox="0 0 1000 330" role="img" aria-label="Ghost Chimera thinking trace">',
+      edgeSvg,
+      nodeSvg,
+      '</svg>',
+      '<div class="thinking-note">' + esc(data.note || "Explainability trace") + '</div>',
+    ].join("");
+
+    var trace = $("#thinkingTrace");
+    trace.innerHTML = "";
+    nodes.forEach(function(n) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "badge " + (n.status === "active" ? "ok" : n.status === "guarded" ? "warn" : "") }, n.status || "ready"));
+      item.appendChild(el("span", { class: "name" }, n.label));
+      item.appendChild(el("span", { class: "meta" }, n.detail || ""));
+      trace.appendChild(item);
+    });
+    if (state.lastRun) {
+      var last = el("div", { class: "list-item" });
+      last.appendChild(el("span", { class: "badge " + (state.lastRun.ok ? "ok" : "error") }, "last run"));
+      last.appendChild(el("span", { class: "name" }, state.lastRun.ok ? "completed" : "failed"));
+      last.appendChild(el("span", { class: "meta" }, JSON.stringify(state.lastRun).slice(0, 240)));
+      trace.appendChild(last);
+    }
+  }
+
+  async function refreshThinking() {
+    try {
+      var data = await api("/api/console/thinking");
+      renderThinking(data);
+    } catch (e) {
+      empty("#thinkingTrace", "Thinking trace unavailable: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+  $("#refreshThinking").addEventListener("click", refreshThinking);
+
   async function refreshStatus() {
     try {
       var data = await api("/api/console/status");
@@ -459,9 +632,11 @@
     $("#runObjective").disabled = true;
     try {
       var r = await api("/api/console/run", { method: "POST", body: { objective: obj } });
+      state.lastRun = r;
       renderRunSummary(r);
       writeOutput(JSON.stringify(r, null, 2));
       pushHistory(obj, r.ok);
+      refreshThinking();
       toast(r.ok ? "Run completed." : "Run failed: " + (r.error || "unknown"), r.ok ? "ok" : "error");
     } catch (e) {
       writeOutput("Error: " + e.message);
@@ -1098,6 +1273,7 @@
     refreshCapabilities();
     refreshPathProfiles();
     refreshGithubStatus();
+    refreshThinking();
   });
   setInterval(refreshStatus, 30000);
 })();

@@ -197,18 +197,53 @@ class ConsoleRouteTests(unittest.TestCase):
         register_console_routes(server)
 
         status_route = server.routes.find("GET", "/api/console/github/status")
+        device_start_route = server.routes.find("POST", "/api/console/github/device/start")
+        device_poll_route = server.routes.find("POST", "/api/console/github/device/poll")
+        logout_route = server.routes.find("POST", "/api/console/github/logout")
+        self_evolution_route = server.routes.find("POST", "/api/console/github/self-evolution/preview")
         plan_route = server.routes.find("POST", "/api/console/github/plan")
         policy_route = server.routes.find("POST", "/api/console/github/policy-simulate")
 
         self.assertIsNotNone(status_route)
+        self.assertIsNotNone(device_start_route)
+        self.assertIsNotNone(device_poll_route)
+        self.assertIsNotNone(logout_route)
+        self.assertIsNotNone(self_evolution_route)
         self.assertIsNotNone(plan_route)
         self.assertIsNotNone(policy_route)
 
-        status = status_route.handler(
-            {"method": "GET", "path": "/api/console/github/status", "headers": {}, "body": "", "query": {}}
-        )
+        with patch.dict("os.environ", {"GHOSTCHIMERA_GITHUB_CLIENT_ID": "", "GITHUB_CLIENT_ID": ""}, clear=False):
+            status = status_route.handler(
+                {"method": "GET", "path": "/api/console/github/status", "headers": {}, "body": "", "query": {}}
+            )
+            start = device_start_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/github/device/start",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
         self.assertTrue(status["ok"])
         self.assertIn(status["auth_mode"], {"token", "gh-cli"})
+        self.assertIn("self_evolution_policy", status)
+
+        self.assertFalse(start["ok"])
+        self.assertIn("GHOSTCHIMERA_GITHUB_CLIENT_ID", start["setup"])
+
+        preview = self_evolution_route.handler(
+            {
+                "method": "POST",
+                "path": "/api/console/github/self-evolution/preview",
+                "headers": {},
+                "body": json.dumps({"materials": ["mcp_servers"], "repos": ["owner/repo"]}),
+                "query": {},
+            }
+        )
+        self.assertTrue(preview["ok"])
+        self.assertTrue(preview["requires_user_approval"])
+        self.assertIn("training on unknown-license material", preview["blocked_actions"])
 
         planned = plan_route.handler(
             {
@@ -240,16 +275,40 @@ class ConsoleRouteTests(unittest.TestCase):
 
         self.assertIn('data-tab="path"', html)
         self.assertIn('data-tab="github"', html)
+        self.assertIn('data-tab="thinking"', html)
         self.assertIn("pathProfile", html)
         self.assertIn("pathSave", html)
         self.assertIn("githubRepo", html)
+        self.assertIn("githubDeviceStart", html)
+        self.assertIn("githubSelfEvolutionPreview", html)
+        self.assertIn("thinkingGraph", html)
         self.assertIn("/api/console/paths", app)
         self.assertIn("/api/console/paths/synthesize", app)
         self.assertIn("/api/console/paths/active", app)
         self.assertIn("Learns from:", app)
         self.assertIn("Operates:", app)
         self.assertIn("/api/console/github/status", app)
+        self.assertIn("/api/console/github/device/start", app)
+        self.assertIn("/api/console/github/self-evolution/preview", app)
         self.assertIn("/api/console/github/plan", app)
+        self.assertIn("/api/console/thinking", app)
+
+    def test_console_registers_thinking_trace_route(self) -> None:
+        server = GatewayServer()
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-thinking-") as tmp:
+            register_console_routes(server, state_dir=tmp)
+            route = server.routes.find("GET", "/api/console/thinking")
+
+            self.assertIsNotNone(route)
+            payload = route.handler(
+                {"method": "GET", "path": "/api/console/thinking", "headers": {}, "body": "", "query": {}}
+            )
+
+        self.assertTrue(payload["ok"])
+        self.assertIn("explainability trace", payload["note"])
+        self.assertGreaterEqual(len(payload["nodes"]), 8)
+        self.assertGreaterEqual(len(payload["edges"]), 7)
+        self.assertIn("active_path", payload)
 
     def test_console_registers_capabilities_route(self) -> None:
         server = GatewayServer()

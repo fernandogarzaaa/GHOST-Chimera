@@ -34,6 +34,7 @@
     <button class="tab active" data-tab="status">Status</button>
     <button class="tab" data-tab="path">Path</button>
     <button class="tab" data-tab="github">GitHub</button>
+    <button class="tab" data-tab="thinking">Thinking</button>
     <button class="tab" data-tab="run">▶ Run</button>
     <button class="tab" data-tab="jobs">Jobs</button>
     <button class="tab" data-tab="workspace">Workspace</button>
@@ -75,6 +76,24 @@
   <div class="tab-content" id="tab-github">
     <div class="section-hdr" style="margin-top:0;">GitHub Autopilot</div>
     <div class="grid" id="githubSummary"></div>
+    <div class="section-hdr">Sign In</div>
+    <div class="row" style="margin-bottom:12px;">
+      <input id="githubDeviceScopes" value="read:user repo" placeholder="OAuth scopes" style="flex:2;min-width:220px;">
+      <button id="githubDeviceStart" class="primary">Start GitHub Sign-In</button>
+      <button id="githubDevicePoll">I Approved It</button>
+      <button id="githubLogout" class="danger">Logout</button>
+    </div>
+    <pre class="output compact-output" id="githubAuthOutput">GitHub sign-in is optional. Existing GHOSTCHIMERA_GITHUB_TOKEN, GITHUB_TOKEN, or gh CLI auth still works.</pre>
+    <div class="section-hdr">Self-Evolution Preview</div>
+    <div class="row" style="margin-bottom:12px;">
+      <label class="inline-check"><input id="selfEvolveSkills" type="checkbox" checked> verified skills</label>
+      <label class="inline-check"><input id="selfEvolveMcp" type="checkbox" checked> MCP servers</label>
+      <label class="inline-check"><input id="selfEvolveOpenSource" type="checkbox" checked> open-source references</label>
+      <input id="selfEvolveRepos" placeholder="optional repos: owner/repo, owner/another" style="flex:2;min-width:240px;">
+      <button id="githubSelfEvolutionPreview" class="primary">Preview Intake</button>
+    </div>
+    <pre class="output compact-output" id="githubSelfEvolutionOutput">Preview mode only: Ghost will not ingest, install, train, or activate material without approval.</pre>
+    <div class="section-hdr">Issue Planning</div>
     <div class="row" style="margin-bottom:12px;">
       <input id="githubRepo" placeholder="owner/repo" style="flex:2;min-width:220px;">
       <input id="githubIssue" placeholder="issue number" style="flex:1;min-width:120px;">
@@ -93,6 +112,19 @@
       <button id="githubPolicyPreview">Preview Policy</button>
     </div>
     <pre class="output" id="githubOutput">Connect GitHub to plan issue-to-PR work.</pre>
+  </div>
+
+  <div class="tab-content" id="tab-thinking">
+    <div class="section-hdr" style="margin-top:0;">Thinking Trace</div>
+    <div class="grid" id="thinkingSummary"></div>
+    <div class="thinking-panel">
+      <div id="thinkingGraph" class="thinking-graph"></div>
+    </div>
+    <div class="section-hdr">Runtime Signals</div>
+    <div id="thinkingTrace" class="list"></div>
+    <div class="row">
+      <button id="refreshThinking" class="primary">Refresh Thinking Trace</button>
+    </div>
   </div>
 
   <div class="tab-content active" id="tab-status">

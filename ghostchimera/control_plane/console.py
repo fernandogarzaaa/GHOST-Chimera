@@ -349,6 +349,7 @@ def register_console_routes(
     workspace = browser_workspace or AgentBrowserWorkspace()
     queue = autonomy_queue or AutonomyJobQueue(state_dir=state_dir or server.config.state_dir)
     workspace_store = operator_workspace or OperatorWorkspaceStore(state_dir=state_dir or server.config.state_dir)
+    console_state_dir = Path(state_dir or server.config.state_dir)
     path_config_file = Path(config_path).expanduser() if config_path else None
     scheduler = cron_scheduler
     scheduler_error = ""
@@ -373,6 +374,27 @@ def register_console_routes(
         server.routes.register(
             path, handler, method=method, auth=_api_auth, token=_api_token, prefix=prefix, description=description
         )
+
+    def _github_console_auth_path() -> Path:
+        return console_state_dir / "github_console_auth.json"
+
+    def _read_github_console_auth() -> dict[str, Any]:
+        path = _github_console_auth_path()
+        if not path.exists():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _write_github_console_auth(payload: dict[str, Any]) -> None:
+        console_state_dir.mkdir(parents=True, exist_ok=True)
+        _github_console_auth_path().write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    def _delete_github_console_auth() -> None:
+        with contextlib.suppress(FileNotFoundError):
+            _github_console_auth_path().unlink()
 
     def console_page(ctx: dict[str, Any]) -> HttpResponse:
         return HttpResponse(body=CONSOLE_HTML, content_type="text/html; charset=utf-8")
@@ -745,11 +767,256 @@ def register_console_routes(
             return {"ok": False, "error": str(exc)}
         return {"ok": True, "path": path}
 
+    def thinking_trace(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..personalization.path_state import get_active_ghost_path
+
+        status_payload = _status_payload(server)
+        active_path = get_active_ghost_path(config_path=path_config_file)
+        workspace_snapshot = workspace_store.snapshot()
+        minimind = personal_minimind().status()
+        capability_payload = inspect_capabilities()
+        resolved_profile = status_payload.get("autonomy", {}).get("resolved_profile", {})
+        capability_count = len(capability_payload.get("capabilities") or [])
+        covered_count = sum(1 for item in capability_payload.get("capabilities") or [] if item.get("status") == "covered")
+        nodes = [
+            {
+                "id": "objective",
+                "label": "Objective Intake",
+                "layer": "operator",
+                "status": "ready",
+                "detail": "Receives the user's current goal and selected Ghost Path.",
+            },
+            {
+                "id": "policy",
+                "label": "Policy Gate",
+                "layer": "safety",
+                "status": "active",
+                "detail": "Checks autonomy level, approval rules, and high-impact controls.",
+            },
+            {
+                "id": "path",
+                "label": "Ghost Path",
+                "layer": "personalization",
+                "status": "active" if active_path.get("profile_id") else "ready",
+                "detail": f"Active profile: {active_path.get('profile_id') or 'default'}",
+            },
+            {
+                "id": "memory",
+                "label": "Memory / RAG",
+                "layer": "context",
+                "status": "active" if minimind.get("readiness", {}).get("ready") else "guarded",
+                "detail": "Uses consented MiniMind and workspace context when available.",
+            },
+            {
+                "id": "planner",
+                "label": "Planner",
+                "layer": "reasoning",
+                "status": "ready",
+                "detail": "Decomposes work into ordered, auditable steps.",
+            },
+            {
+                "id": "scheduler",
+                "label": "Scheduler",
+                "layer": "orchestration",
+                "status": "ready",
+                "detail": f"Autonomy profile: {resolved_profile.get('name') or 'unknown'}",
+            },
+            {
+                "id": "tools",
+                "label": "Tool Router",
+                "layer": "execution",
+                "status": "ready",
+                "detail": "Chooses allowed backends, skills, GitHub actions, browser, or local tools.",
+            },
+            {
+                "id": "verification",
+                "label": "Verification",
+                "layer": "quality",
+                "status": "ready",
+                "detail": f"Capability matrix: {covered_count}/{capability_count} covered.",
+            },
+            {
+                "id": "audit",
+                "label": "Audit Handoff",
+                "layer": "governance",
+                "status": "ready",
+                "detail": "Returns evidence, decisions, approvals, and next safe action.",
+            },
+        ]
+        edges = [
+            ("objective", "policy"),
+            ("policy", "path"),
+            ("path", "memory"),
+            ("memory", "planner"),
+            ("planner", "scheduler"),
+            ("scheduler", "tools"),
+            ("tools", "verification"),
+            ("verification", "audit"),
+        ]
+        return {
+            "ok": True,
+            "note": "This is an explainability trace of Ghost Chimera runtime signals, not a claim of literal consciousness.",
+            "active_path": active_path,
+            "workspace": {
+                "evidence_count": len(workspace_snapshot.get("evidence") or []),
+                "reflection_count": len(workspace_snapshot.get("reflections") or []),
+                "goal_count": len(workspace_snapshot.get("goals") or []),
+            },
+            "minimind": {
+                "ready": bool(minimind.get("readiness", {}).get("ready")),
+                "reasons": list(minimind.get("readiness", {}).get("reasons") or []),
+            },
+            "autonomy": resolved_profile,
+            "capabilities": {"covered": covered_count, "total": capability_count},
+            "nodes": nodes,
+            "edges": [{"from": left, "to": right} for left, right in edges],
+        }
+
     def github_status(ctx: dict[str, Any]) -> dict[str, Any]:
-        from ..integrations.github_client import GitHubAuth
+        from ..integrations.github_client import GitHubAuth, github_oauth_client_id
 
         auth = GitHubAuth.discover()
-        return {"ok": True, "auth_mode": auth.mode, "has_token": bool(auth.token)}
+        stored = _read_github_console_auth()
+        has_stored_token = bool(stored.get("token"))
+        user = stored.get("user") if isinstance(stored.get("user"), dict) else {}
+        return {
+            "ok": True,
+            "auth_mode": "console-device-token" if has_stored_token else auth.mode,
+            "has_token": has_stored_token or bool(auth.token),
+            "token_source": "console_state" if has_stored_token else ("environment" if auth.token else "gh-cli"),
+            "user": {
+                "login": user.get("login", ""),
+                "name": user.get("name", ""),
+                "html_url": user.get("html_url", ""),
+            },
+            "device_flow_configured": bool(github_oauth_client_id()),
+            "device_flow_required_env": "GHOSTCHIMERA_GITHUB_CLIENT_ID",
+            "self_evolution_policy": {
+                "mode": "preview_only",
+                "requires_user_approval": True,
+                "requires_license": True,
+                "requires_commit": True,
+                "allowed_training_licenses": ["Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "CC0-1.0", "MIT"],
+                "blocked": [
+                    "unknown-license training",
+                    "private repo ingestion without explicit user approval",
+                    "automatic dependency installation",
+                    "unreviewed MCP or skill activation",
+                ],
+            },
+        }
+
+    def github_device_start(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..integrations.github_client import github_oauth_client_id, start_device_flow
+
+        client_id = github_oauth_client_id()
+        if not client_id:
+            return {
+                "ok": False,
+                "error": "GitHub device sign-in is disabled until GHOSTCHIMERA_GITHUB_CLIENT_ID is configured.",
+                "setup": "Create a GitHub OAuth app with device flow enabled, then set GHOSTCHIMERA_GITHUB_CLIENT_ID.",
+            }
+        body = _json_body(ctx)
+        scope = str(body.get("scope") or "read:user repo").strip() or "read:user repo"
+        try:
+            code = start_device_flow(client_id=client_id, scope=scope)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        payload = code.to_dict()
+        payload.update({"ok": True, "scope": scope})
+        return payload
+
+    def github_device_poll(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..integrations.github_client import fetch_authenticated_user, github_oauth_client_id, poll_device_flow
+
+        client_id = github_oauth_client_id()
+        if not client_id:
+            return {"ok": False, "error": "GitHub device sign-in is disabled."}
+        body = _json_body(ctx)
+        device_code = str(body.get("device_code") or "").strip()
+        if not device_code:
+            return {"ok": False, "error": "device_code is required"}
+        try:
+            result = poll_device_flow(client_id=client_id, device_code=device_code)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        if result.get("error"):
+            return {
+                "ok": False,
+                "pending": result.get("error") == "authorization_pending",
+                "error": str(result.get("error_description") or result.get("error")),
+            }
+        token = str(result.get("access_token") or "")
+        if not token:
+            return {"ok": False, "pending": True, "error": "No token returned yet."}
+        try:
+            user = fetch_authenticated_user(token)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        _write_github_console_auth(
+            {
+                "token": token,
+                "scope": str(result.get("scope") or ""),
+                "token_type": str(result.get("token_type") or "bearer"),
+                "user": {
+                    "login": user.get("login", ""),
+                    "name": user.get("name", ""),
+                    "html_url": user.get("html_url", ""),
+                },
+                "created_at": int(time.time()),
+            }
+        )
+        return {
+            "ok": True,
+            "auth_mode": "console-device-token",
+            "has_token": True,
+            "user": {"login": user.get("login", ""), "name": user.get("name", ""), "html_url": user.get("html_url", "")},
+        }
+
+    def github_logout(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..integrations.github_client import GitHubAuth
+
+        _delete_github_console_auth()
+        return {"ok": True, "auth_mode": GitHubAuth.discover().mode}
+
+    def github_self_evolution_preview(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..integrations.source_discovery import SourceCandidate, filter_allowed_sources
+
+        body = _json_body(ctx)
+        requested = [str(item).strip() for item in body.get("materials") or [] if str(item).strip()]
+        repos = [str(item).strip() for item in body.get("repos") or [] if str(item).strip()]
+        candidates = [
+            SourceCandidate(url=f"https://github.com/{repo}", kind="repository", license="", commit="") for repo in repos
+        ]
+        candidates.extend(
+            [
+                SourceCandidate(url="https://github.com/modelcontextprotocol/servers", kind="mcp_catalog", license="MIT"),
+                SourceCandidate(url="https://github.com/github/docs", kind="open_source_docs", license="CC0-1.0"),
+            ]
+        )
+        allowed_for_training = filter_allowed_sources(candidates, intended_use="dataset_generation")
+        return {
+            "ok": True,
+            "mode": "preview_only",
+            "requested_materials": requested or ["verified_skills", "mcp_servers", "open_source_reference_materials"],
+            "requires_user_approval": True,
+            "actions": [
+                "discover GitHub repositories selected by the signed-in user",
+                "read license metadata before any dataset or fine-tuning use",
+                "record immutable commit SHA for every source",
+                "stage candidate skills/MCP servers in review mode",
+                "run safety, license, and capability checks before activation",
+            ],
+            "blocked_actions": [
+                "silent scraping of private repositories",
+                "training on unknown-license material",
+                "auto-installing MCP servers without review",
+                "changing Ghost behavior without an audit record",
+            ],
+            "candidate_count": len(candidates),
+            "allowed_for_training": [candidate.to_dict() for candidate in allowed_for_training],
+            "review_required": [candidate.to_dict() for candidate in candidates if candidate not in allowed_for_training],
+        }
 
     def github_plan(ctx: dict[str, Any]) -> dict[str, Any]:
         from ..integrations.github_tasks import GitHubIssue, issue_to_objective
@@ -1065,7 +1332,37 @@ def register_console_routes(
         "/api/console/paths/active", active_role_path, method="POST", description="Persist the active Ghost path"
     )
     _api_register(
+        "/api/console/thinking",
+        thinking_trace,
+        method="GET",
+        description="Visualize explainable Ghost Chimera reasoning/runtime signals",
+    )
+    _api_register(
         "/api/console/github/status", github_status, method="GET", description="Inspect GitHub integration status"
+    )
+    _api_register(
+        "/api/console/github/device/start",
+        github_device_start,
+        method="POST",
+        description="Start optional GitHub OAuth device sign-in for the console",
+    )
+    _api_register(
+        "/api/console/github/device/poll",
+        github_device_poll,
+        method="POST",
+        description="Poll optional GitHub OAuth device sign-in without returning raw tokens",
+    )
+    _api_register(
+        "/api/console/github/logout",
+        github_logout,
+        method="POST",
+        description="Remove the locally stored console GitHub token",
+    )
+    _api_register(
+        "/api/console/github/self-evolution/preview",
+        github_self_evolution_preview,
+        method="POST",
+        description="Preview guarded GitHub source intake for self-evolution",
     )
     _api_register(
         "/api/console/github/plan",

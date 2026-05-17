@@ -6,9 +6,13 @@ import json
 import os
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
+
+GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code"
+GITHUB_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
 
 
 @dataclass(frozen=True)
@@ -24,6 +28,100 @@ class GitHubAuth:
         if token:
             return cls(mode="token", token=token)
         return cls(mode="gh-cli")
+
+
+@dataclass(frozen=True)
+class GitHubDeviceCode:
+    """Device-flow code bundle returned by GitHub without exposing a token."""
+
+    device_code: str
+    user_code: str
+    verification_uri: str
+    expires_in: int
+    interval: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "device_code": self.device_code,
+            "user_code": self.user_code,
+            "verification_uri": self.verification_uri,
+            "expires_in": self.expires_in,
+            "interval": self.interval,
+        }
+
+
+def github_oauth_client_id() -> str:
+    """Return the optional GitHub OAuth client id for console sign-in."""
+
+    return os.environ.get("GHOSTCHIMERA_GITHUB_CLIENT_ID") or os.environ.get("GITHUB_CLIENT_ID") or ""
+
+
+def _post_form_json(url: str, payload: dict[str, str]) -> dict[str, Any]:
+    body = urllib.parse.urlencode(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "ghostchimera-github-console",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        raw = response.read().decode("utf-8")
+    data = json.loads(raw or "{}")
+    if not isinstance(data, dict):
+        raise RuntimeError("GitHub returned a non-object response")
+    return data
+
+
+def start_device_flow(*, client_id: str, scope: str = "read:user repo") -> GitHubDeviceCode:
+    """Start GitHub OAuth device flow for the local console."""
+
+    data = _post_form_json(GITHUB_DEVICE_CODE_URL, {"client_id": client_id, "scope": scope})
+    if "error" in data:
+        raise RuntimeError(str(data.get("error_description") or data.get("error")))
+    return GitHubDeviceCode(
+        device_code=str(data["device_code"]),
+        user_code=str(data["user_code"]),
+        verification_uri=str(data.get("verification_uri") or "https://github.com/login/device"),
+        expires_in=int(data.get("expires_in") or 900),
+        interval=int(data.get("interval") or 5),
+    )
+
+
+def poll_device_flow(*, client_id: str, device_code: str) -> dict[str, Any]:
+    """Poll GitHub OAuth device flow and return GitHub's token-state response."""
+
+    return _post_form_json(
+        GITHUB_ACCESS_TOKEN_URL,
+        {
+            "client_id": client_id,
+            "device_code": device_code,
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+        },
+    )
+
+
+def fetch_authenticated_user(token: str) -> dict[str, Any]:
+    """Return the authenticated GitHub user for a token."""
+
+    request = urllib.request.Request(
+        "https://api.github.com/user",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "ghostchimera-github-console",
+        },
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        data = json.loads(response.read().decode("utf-8") or "{}")
+    if not isinstance(data, dict):
+        raise RuntimeError("GitHub returned a non-object user response")
+    return data
 
 
 class GitHubClient:

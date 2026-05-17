@@ -20,12 +20,17 @@ class RoleProfileTests(unittest.TestCase):
     def test_list_role_profiles_includes_multi_purpose_paths(self) -> None:
         ids = {profile.id for profile in list_role_profiles()}
 
+        self.assertGreaterEqual(len(ids), 59)
         self.assertIn("autonomous-engineer", ids)
         self.assertIn("ai-engineer-proxy", ids)
         self.assertIn("manager-operator", ids)
         self.assertIn("marketing-specialist", ids)
         self.assertIn("virtual-assistant", ids)
         self.assertIn("enterprise-operator", ids)
+        self.assertIn("security-analyst", ids)
+        self.assertIn("mcp-toolsmith", ids)
+        self.assertIn("data-privacy-officer", ids)
+        self.assertIn("crm-operator", ids)
 
     def test_role_profiles_expose_personalization_and_work_domains(self) -> None:
         manager = get_role_profile("manager-operator")
@@ -38,6 +43,18 @@ class RoleProfileTests(unittest.TestCase):
         self.assertIn("content_operations", marketer.tool_domains)
         self.assertIn("schedule_exports", assistant.personalization_sources)
         self.assertIn("personal_admin", assistant.tool_domains)
+
+    def test_expanded_role_profiles_are_actionable(self) -> None:
+        security = get_role_profile("security-analyst")
+        product = get_role_profile("product-manager")
+        privacy = get_role_profile("data-privacy-officer")
+
+        self.assertIn("incident_review", security.tool_domains)
+        self.assertIn("redteam", security.eval_suites)
+        self.assertIn("product specs", product.operator_outcomes)
+        self.assertIn("product_management", product.tool_domains)
+        self.assertIn("privacy", privacy.tool_domains)
+        self.assertIn("policy_docs", privacy.personalization_sources)
 
 
 if __name__ == "__main__":

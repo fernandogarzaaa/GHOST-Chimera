@@ -71,6 +71,28 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px; white-space: pre-wrap; word-break: break-word;
 }
+.compact-output { min-height: 72px; max-height: 220px; }
+.thinking-panel {
+  border: 1px solid var(--line); border-radius: 8px; background: #0a0c0e;
+  padding: 12px; overflow: auto; margin-bottom: 12px;
+}
+.thinking-graph { min-width: 720px; }
+.thinking-svg { width: 100%; min-height: 300px; display: block; }
+.think-edge {
+  stroke: #3b4651; stroke-width: 3; stroke-linecap: round;
+}
+.think-node-svg rect {
+  fill: #151b20; stroke: #3b4651; stroke-width: 2;
+}
+.think-node-svg.active rect { fill: #0f2a1e; stroke: #29c582; }
+.think-node-svg.guarded rect { fill: #261e0b; stroke: #d69d2f; }
+.think-node-svg.error rect { fill: #251010; stroke: #ff5c6c; }
+.think-label { fill: var(--text); font-size: 13px; font-weight: 650; }
+.think-layer { fill: var(--muted); font-size: 11px; }
+.thinking-note {
+  color: var(--muted); font-size: 12px; border-top: 1px solid var(--line);
+  padding-top: 10px; margin-top: 8px;
+}
 .badge {
   display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px;
   border: 1px solid var(--line); color: var(--muted);
