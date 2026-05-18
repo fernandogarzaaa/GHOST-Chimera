@@ -20,7 +20,7 @@ class RoleProfileTests(unittest.TestCase):
     def test_list_role_profiles_includes_multi_purpose_paths(self) -> None:
         ids = {profile.id for profile in list_role_profiles()}
 
-        self.assertGreaterEqual(len(ids), 59)
+        self.assertGreaterEqual(len(ids), 61)
         self.assertIn("autonomous-engineer", ids)
         self.assertIn("ai-engineer-proxy", ids)
         self.assertIn("manager-operator", ids)
@@ -31,6 +31,8 @@ class RoleProfileTests(unittest.TestCase):
         self.assertIn("mcp-toolsmith", ids)
         self.assertIn("data-privacy-officer", ids)
         self.assertIn("crm-operator", ids)
+        self.assertIn("trader-path", ids)
+        self.assertIn("crypto-trader-path", ids)
 
     def test_role_profiles_expose_personalization_and_work_domains(self) -> None:
         manager = get_role_profile("manager-operator")

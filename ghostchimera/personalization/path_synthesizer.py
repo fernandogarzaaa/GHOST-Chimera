@@ -15,6 +15,12 @@ _SENSITIVE_SOURCE_SCOPES = {
     "campaign_assets",
 }
 
+_OPEN_SOURCE_SCOPES = {
+    "github_public_repositories",
+    "approved_public_sources",
+    "license_allowed_external_sources",
+}
+
 
 def _training_pipeline(training_mode: str) -> list[str]:
     pipeline = ["local memory RAG", "operator preference capture"]
@@ -35,6 +41,21 @@ def synthesize_path(profile_id: str, preferences: dict[str, Any] | None = None) 
     external_training = training_mode in {"dataset_generation", "local_fine_tuning"}
     uses_public_github = "github_public_repositories" in profile.source_scopes
     uses_sensitive_sources = bool(set(profile.source_scopes) & _SENSITIVE_SOURCE_SCOPES)
+    uses_open_source_scopes = bool(set(profile.source_scopes) & _OPEN_SOURCE_SCOPES)
+    dataset_mode_selected = training_mode in {"dataset_generation", "local_fine_tuning"}
+    rag_mode_selected = training_mode == "rag-first"
+    will_scrape_open_source_materials = uses_open_source_scopes and (rag_mode_selected or dataset_mode_selected)
+    can_generate_dataset = "dataset_generation" in set(profile.learning_modes)
+    will_generate_open_source_dataset = uses_open_source_scopes and dataset_mode_selected and can_generate_dataset
+    confirmation = (
+        "Selected path can use approved open-source materials and convert them into MiniMind datasets."
+        if will_generate_open_source_dataset
+        else (
+            "Selected path can read approved open-source materials via RAG, but dataset generation mode is not enabled."
+            if uses_open_source_scopes
+            else "Selected path does not include open-source scraping scopes by default."
+        )
+    )
     return {
         "role": profile.to_dict(),
         "dashboard_tabs": list(profile.dashboard_tabs),
@@ -72,6 +93,14 @@ def synthesize_path(profile_id: str, preferences: dict[str, Any] | None = None) 
             "disclosure_required": profile.requires_disclosure,
             "allowed_claim": "authorized Ghost Chimera operator proxy",
             "blocked_claim": "undisclosed human impersonation",
+        },
+        "minimind_intake": {
+            "open_source_scopes_enabled": uses_open_source_scopes,
+            "dataset_mode_selected": dataset_mode_selected,
+            "dataset_generation_supported": can_generate_dataset,
+            "will_scrape_open_source_materials": will_scrape_open_source_materials,
+            "will_generate_open_source_dataset": will_generate_open_source_dataset,
+            "confirmation": confirmation,
         },
         "eval_suites": list(profile.eval_suites),
     }

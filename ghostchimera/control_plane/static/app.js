@@ -161,12 +161,15 @@
       var data = await api("/api/console/paths");
       state.pathProfiles = data.profiles || [];
       var select = $("#pathProfile");
+      var ragSelect = $("#ragProfile");
       var summary = $("#pathSummary");
       if (!select || !summary) return;
       select.innerHTML = "";
+      if (ragSelect) ragSelect.innerHTML = "";
       summary.innerHTML = "";
       state.pathProfiles.forEach(function(profile) {
         select.appendChild(el("option", { value: profile.id }, profile.name));
+        if (ragSelect) ragSelect.appendChild(el("option", { value: profile.id }, profile.name));
         var card = el("div", { class: "card" });
         card.appendChild(el("h3", null, profile.name));
         card.appendChild(el("div", { class: "hint" }, profile.description));
@@ -251,7 +254,23 @@
       toast(e.message, "error");
     }
   }
+  async function confirmPathMiniMind() {
+    try {
+      var profile = $("#pathProfile");
+      if (!profile || !profile.value) return;
+      var data = await api("/api/console/paths/confirm-minimind", {
+        method: "POST",
+        body: { profile_id: profile.value, preferences: selectedPathPreferences() },
+      });
+      $("#pathOutput").textContent = JSON.stringify(data, null, 2);
+      toast(data.confirmation || "MiniMind path confirmation generated.", "ok");
+    } catch (e) {
+      $("#pathOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
   $("#pathSynthesize").addEventListener("click", synthesizeSelectedPath);
+  $("#pathConfirmMiniMind").addEventListener("click", confirmPathMiniMind);
   $("#pathSave").addEventListener("click", saveSelectedPath);
 
   async function refreshGithubStatus() {
@@ -535,6 +554,7 @@
       await refreshWorkspace();
       await refreshMemory();
       await refreshPersonalMiniMind();
+      await refreshRagBuilder();
       await refreshCapabilities();
       await refreshReadiness();
     } catch (e) {
@@ -981,6 +1001,103 @@
     } catch (e) { toast(e.message, "error"); }
   });
 
+  // ── RAG Builder tab ───────────────────────────────────────────────────────
+  function ragRepoLines() {
+    return ($("#ragOpenSourceRepos").value || "").split(/\r?\n/).map(function(x) { return x.trim(); }).filter(Boolean);
+  }
+  async function refreshRagBuilder() {
+    try {
+      var data = await api("/api/console/rag/builder/status");
+      var status = data.status || {};
+      var list = $("#ragBuilderStatus");
+      if (!list) return;
+      list.innerHTML = "";
+      [
+        ["MiniMind enabled", status.enabled ? "yes" : "no", status.enabled ? "ok" : "warn"],
+        ["Dataset records", String(status.dataset_count || 0), (status.dataset_count || 0) > 0 ? "ok" : "warn"],
+        ["RAG handoff", status.readiness && status.readiness.primary_model_handoff_ready ? "ready" : "not ready", status.readiness && status.readiness.primary_model_handoff_ready ? "ok" : "warn"],
+      ].forEach(function(row) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "name" }, row[0]));
+        item.appendChild(el("span", { class: "badge " + row[2] }, row[1]));
+        list.appendChild(item);
+      });
+    } catch (_) { empty("#ragBuilderStatus", "RAG Builder status unavailable."); }
+  }
+  async function buildRagPlan(executeBootstrap) {
+    try {
+      var profile = ($("#ragProfile").value || $("#pathProfile").value || "").trim();
+      if (!profile) { toast("Select a path profile first.", "warn"); return; }
+      var data = await api("/api/console/rag/builder", {
+        method: "POST",
+        body: {
+          profile_id: profile,
+          objective: ($("#ragObjective").value || "").trim(),
+          training_mode: ($("#ragTrainingMode").value || "rag-first").trim(),
+          approval_level: ($("#pathApprovalLevel").value || "supervised").trim(),
+          open_source_repos: ragRepoLines(),
+          execute_bootstrap: !!executeBootstrap,
+        },
+      });
+      $("#ragBuilderOutput").textContent = JSON.stringify(data, null, 2);
+      toast(executeBootstrap ? "RAG builder plan executed." : "RAG builder plan generated.", "ok");
+      await refreshRagBuilder();
+      await refreshPersonalMiniMind();
+    } catch (e) {
+      $("#ragBuilderOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+  $("#ragBuildPlan").addEventListener("click", function() { buildRagPlan(false); });
+  $("#ragBuildAndBootstrap").addEventListener("click", function() { buildRagPlan(true); });
+
+  // ── MCP tab ───────────────────────────────────────────────────────────────
+  async function refreshMcpStatus() {
+    try {
+      var data = await api("/api/console/mcp/status");
+      var list = $("#mcpStatus");
+      if (!list) return;
+      list.innerHTML = "";
+      [
+        ["Registered", data.registered ? "yes" : "no", data.registered ? "ok" : "warn"],
+        ["Enabled", data.enabled ? "yes" : "no", data.enabled ? "ok" : "warn"],
+        ["Tools", String(data.tool_count || 0), (data.tool_count || 0) > 0 ? "ok" : "warn"],
+      ].forEach(function(row) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "name" }, row[0]));
+        item.appendChild(el("span", { class: "badge " + row[2] }, row[1]));
+        list.appendChild(item);
+      });
+      $("#mcpOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+      empty("#mcpStatus", "MCP unavailable.");
+      $("#mcpOutput").textContent = e.message;
+    }
+  }
+  $("#mcpRefresh").addEventListener("click", refreshMcpStatus);
+  $("#mcpEnable").addEventListener("click", async function() {
+    try {
+      var data = await api("/api/console/mcp/chimeralang/enable", { method: "POST", body: {} });
+      $("#mcpOutput").textContent = JSON.stringify(data, null, 2);
+      toast(data.ok ? "chimeralang-mcp enabled." : (data.error || "Enable failed."), data.ok ? "ok" : "error");
+      await refreshMcpStatus();
+    } catch (e) {
+      $("#mcpOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  });
+  $("#mcpDisable").addEventListener("click", async function() {
+    try {
+      var data = await api("/api/console/mcp/chimeralang/disable", { method: "POST", body: {} });
+      $("#mcpOutput").textContent = JSON.stringify(data, null, 2);
+      toast("MCP disabled.", "ok");
+      await refreshMcpStatus();
+    } catch (e) {
+      $("#mcpOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  });
+
   // ── Skills tab ────────────────────────────────────────────────────────────
   async function refreshSkills() {
     try {
@@ -1004,6 +1121,45 @@
       });
     } catch (_) { empty("#skillList", "Skills unavailable."); }
   }
+  async function discoverSkills(repos, install) {
+    try {
+      var body = {
+        query: ($("#skillDiscoveryQuery").value || "").trim(),
+        limit: 6,
+        repos: Array.isArray(repos) ? repos : [],
+        install: !!install,
+      };
+      var data = await api("/api/console/skills/discover", { method: "POST", body: body });
+      $("#skillDiscoveryOutput").textContent = JSON.stringify(data, null, 2);
+      if (data.installed_count) {
+        toast("Installed " + data.installed_count + " compatibility skill(s).", "ok");
+        await refreshSkills();
+      }
+      return data;
+    } catch (e) {
+      $("#skillDiscoveryOutput").textContent = e.message;
+      toast(e.message, "error");
+      return null;
+    }
+  }
+  $("#discoverSkills").addEventListener("click", async function() {
+    var data = await discoverSkills([], false);
+    if (!data || !Array.isArray(data.candidates)) return;
+    var list = $("#skillList");
+    data.candidates.forEach(function(candidate) {
+      if (!candidate || !candidate.full_name) return;
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "name" }, candidate.full_name));
+      item.appendChild(el("span", { class: "badge ok" }, "github"));
+      item.appendChild(el("span", { class: "meta" }, candidate.description || candidate.html_url || ""));
+      var actions = el("span", { class: "actions" });
+      var convert = el("button", { class: "primary" }, "Convert");
+      convert.addEventListener("click", function() { discoverSkills([candidate.full_name], true); });
+      actions.appendChild(convert);
+      item.appendChild(actions);
+      list.appendChild(item);
+    });
+  });
   $("#runSkill").addEventListener("click", async function() {
     var skillName = $("#skillSelect").value;
     var input = ($("#skillInput").value || "").trim();
@@ -1274,6 +1430,7 @@
     refreshPathProfiles();
     refreshGithubStatus();
     refreshThinking();
+    refreshMcpStatus();
   });
   setInterval(refreshStatus, 30000);
 })();
