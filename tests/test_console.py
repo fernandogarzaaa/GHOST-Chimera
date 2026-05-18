@@ -141,11 +141,13 @@ class ConsoleRouteTests(unittest.TestCase):
 
             profiles_route = server.routes.find("GET", "/api/console/paths")
             synthesize_route = server.routes.find("POST", "/api/console/paths/synthesize")
+            confirm_route = server.routes.find("POST", "/api/console/paths/confirm-minimind")
             active_route = server.routes.find("GET", "/api/console/paths/active")
             save_route = server.routes.find("POST", "/api/console/paths/active")
 
             self.assertIsNotNone(profiles_route)
             self.assertIsNotNone(synthesize_route)
+            self.assertIsNotNone(confirm_route)
             self.assertIsNotNone(active_route)
             self.assertIsNotNone(save_route)
 
@@ -156,6 +158,8 @@ class ConsoleRouteTests(unittest.TestCase):
             profile_ids = {profile["id"] for profile in profiles["profiles"]}
             self.assertIn("ai-engineer-proxy", profile_ids)
             self.assertIn("marketing-specialist", profile_ids)
+            self.assertIn("trader-path", profile_ids)
+            self.assertIn("crypto-trader-path", profile_ids)
             marketing = next(profile for profile in profiles["profiles"] if profile["id"] == "marketing-specialist")
             self.assertIn("campaign_assets", marketing["personalization_sources"])
 
@@ -174,6 +178,21 @@ class ConsoleRouteTests(unittest.TestCase):
             self.assertEqual(synthesized["path"]["role"]["id"], "virtual-assistant")
             self.assertEqual(synthesized["path"]["ghost_blueprint"]["concept"], "personalized AI operator proxy")
             self.assertIn("personal_admin", synthesized["path"]["ghost_blueprint"]["can_operate"])
+            self.assertIn("minimind_intake", synthesized["path"])
+
+            confirmed = confirm_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/paths/confirm-minimind",
+                    "headers": {},
+                    "body": json.dumps(
+                        {"profile_id": "ai-engineer-proxy", "preferences": {"training_mode": "dataset_generation"}}
+                    ),
+                    "query": {},
+                }
+            )
+            self.assertTrue(confirmed["ok"])
+            self.assertTrue(confirmed["minimind_intake"]["will_generate_open_source_dataset"])
 
             saved = save_route.handler(
                 {
@@ -276,17 +295,27 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIn('data-tab="path"', html)
         self.assertIn('data-tab="github"', html)
         self.assertIn('data-tab="thinking"', html)
+        self.assertIn('data-tab="rag-builder"', html)
+        self.assertIn('data-tab="mcp"', html)
         self.assertIn("pathProfile", html)
+        self.assertIn("pathConfirmMiniMind", html)
         self.assertIn("pathSave", html)
         self.assertIn("githubRepo", html)
         self.assertIn("githubDeviceStart", html)
+        self.assertIn("ragBuildPlan", html)
+        self.assertIn("mcpEnable", html)
+        self.assertIn("discoverSkills", html)
         self.assertIn("githubSelfEvolutionPreview", html)
         self.assertIn("thinkingGraph", html)
         self.assertIn("/api/console/paths", app)
         self.assertIn("/api/console/paths/synthesize", app)
+        self.assertIn("/api/console/paths/confirm-minimind", app)
         self.assertIn("/api/console/paths/active", app)
         self.assertIn("Learns from:", app)
         self.assertIn("Operates:", app)
+        self.assertIn("/api/console/rag/builder", app)
+        self.assertIn("/api/console/mcp/chimeralang/enable", app)
+        self.assertIn("/api/console/skills/discover", app)
         self.assertIn("/api/console/github/status", app)
         self.assertIn("/api/console/github/device/start", app)
         self.assertIn("/api/console/github/self-evolution/preview", app)
@@ -1001,6 +1030,64 @@ class ConsoleCliTests(unittest.TestCase):
         self.assertIn("skills", result)
         self.assertIsInstance(result["skills"], list)
 
+    def test_console_skills_discovery_can_generate_compatibility_skill(self) -> None:
+        server = GatewayServer()
+        with (
+            tempfile.TemporaryDirectory(prefix="ghostchimera-skill-discovery-") as tmp,
+            patch.dict("os.environ", {"GHOSTCHIMERA_SKILLS_DIR": str(Path(tmp) / "skills")}, clear=False),
+        ):
+            register_console_routes(server, state_dir=tmp)
+            route = server.routes.find("POST", "/api/console/skills/discover")
+            self.assertIsNotNone(route)
+            with patch(
+                "ghostchimera.integrations.github_client.GitHubClient.get_json",
+                return_value={
+                    "items": [
+                        {
+                            "full_name": "octo-org/sample-skill",
+                            "html_url": "https://github.com/octo-org/sample-skill",
+                            "description": "sample skill",
+                            "language": "Python",
+                            "stargazers_count": 42,
+                            "default_branch": "main",
+                        }
+                    ]
+                },
+            ):
+                result = route.handler(
+                    {
+                        "method": "POST",
+                        "path": "/api/console/skills/discover",
+                        "headers": {},
+                        "body": json.dumps({"query": "sample skill", "install": True, "limit": 1}),
+                        "query": {},
+                    }
+                )
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["installed_count"], 1)
+            self.assertTrue(Path(result["installed"][0]["path"]).exists())
+
+    def test_console_registers_rag_builder_and_mcp_routes(self) -> None:
+        server = GatewayServer()
+        register_console_routes(server)
+        rag_status = server.routes.find("GET", "/api/console/rag/builder/status")
+        rag_build = server.routes.find("POST", "/api/console/rag/builder")
+        mcp_status = server.routes.find("GET", "/api/console/mcp/status")
+        self.assertIsNotNone(rag_status)
+        self.assertIsNotNone(rag_build)
+        self.assertIsNotNone(mcp_status)
+        rag_status_payload = rag_status.handler(
+            {"method": "GET", "path": "/api/console/rag/builder/status", "headers": {}, "body": "", "query": {}}
+        )
+        self.assertTrue(rag_status_payload["ok"])
+        self.assertIn("status", rag_status_payload)
+        mcp_status_payload = mcp_status.handler(
+            {"method": "GET", "path": "/api/console/mcp/status", "headers": {}, "body": "", "query": {}}
+        )
+        self.assertTrue(mcp_status_payload["ok"])
+        self.assertIn("registered", mcp_status_payload)
+        self.assertIn("enabled", mcp_status_payload)
+
     def test_index_html_includes_skills_tab(self) -> None:
         from pathlib import Path
 
@@ -1010,6 +1097,8 @@ class ConsoleCliTests(unittest.TestCase):
         html = html_path.read_text(encoding="utf-8")
         self.assertIn("tab-skills", html)
         self.assertIn("Skills", html)
+        self.assertIn("tab-rag-builder", html)
+        self.assertIn("tab-mcp", html)
 
 
 if __name__ == "__main__":

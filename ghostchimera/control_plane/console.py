@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import importlib.util
 import json
+import os
+import re
+import sys
+import textwrap
 import time
+import urllib.parse
 import webbrowser
 from collections.abc import Callable
 from dataclasses import replace
@@ -396,6 +403,77 @@ def register_console_routes(
         with contextlib.suppress(FileNotFoundError):
             _github_console_auth_path().unlink()
 
+    def _github_client_with_console_token():
+        from ..integrations.github_client import GitHubAuth, GitHubClient
+
+        stored = _read_github_console_auth()
+        token = str(stored.get("token") or "").strip()
+        if token:
+            return GitHubClient(auth=GitHubAuth(mode="token", token=token))
+        return GitHubClient(auth=GitHubAuth.discover())
+
+    def _workspace_skills_dir() -> Path:
+        root = os.environ.get("GHOSTCHIMERA_SKILLS_DIR") or str(Path.home() / ".ghostchimera" / "skills")
+        return Path(root).expanduser().resolve()
+
+    def _skill_slug(name: str) -> str:
+        slug = re.sub(r"[^a-z0-9_]+", "_", name.lower())
+        slug = re.sub(r"_+", "_", slug).strip("_")
+        if slug:
+            return slug
+        return f"github_skill_{hashlib.sha1(name.encode('utf-8')).hexdigest()[:8]}"
+
+    def _skill_class_name(slug: str) -> str:
+        parts = [part for part in slug.split("_") if part]
+        label = "".join(part.capitalize() for part in parts)
+        return f"{label}Skill" if label else "GithubSkill"
+
+    def _write_compat_skill(candidate: dict[str, Any]) -> dict[str, Any]:
+        repo = str(candidate.get("full_name") or "").strip()
+        if not repo:
+            raise ValueError("Missing repository full_name")
+        slug = _skill_slug(repo.replace("/", "_"))
+        class_name = _skill_class_name(slug)
+        repo_literal = json.dumps(repo)
+        url_literal = json.dumps(str(candidate.get("html_url") or "").strip())
+        slug_literal = json.dumps(slug)
+        compat_action_literal = json.dumps(f"github_compat_{slug}")
+        description_literal = json.dumps(f"GitHub compatibility skill generated from {repo}.")
+        skill_dir = _workspace_skills_dir() / slug
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        skill_path = skill_dir / "skill.py"
+        skill_path.write_text(
+            textwrap.dedent(
+                f"""\
+                from __future__ import annotations
+
+                from typing import Any
+
+                from ghostchimera.skill_layer.base import Skill
+
+
+                class {class_name}(Skill):
+                    name = {slug_literal}
+                    description = {description_literal}
+                    actions = [{slug_literal}, {compat_action_literal}]
+                    domain = "github-compatible"
+
+                    def run(self, task: dict[str, Any]) -> Any:
+                        query = str(task.get("query") or task.get("input") or "").strip()
+                        return {{
+                            "ok": True,
+                            "skill": self.name,
+                            "source_repo": {repo_literal},
+                            "source_url": {url_literal},
+                            "message": "Compatibility skill scaffold generated from GitHub metadata.",
+                            "query": query,
+                        }}
+                """
+            ),
+            encoding="utf-8",
+        )
+        return {"repo": repo, "skill_name": slug, "path": str(skill_path)}
+
     def console_page(ctx: dict[str, Any]) -> HttpResponse:
         return HttpResponse(body=CONSOLE_HTML, content_type="text/html; charset=utf-8")
 
@@ -749,6 +827,29 @@ def register_console_routes(
             return {"ok": False, "error": "preferences must be an object"}
         return {"ok": True, "path": synthesize_path(profile_id, preferences=preferences)}
 
+    def confirm_path_minimind(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..personalization.path_synthesizer import synthesize_path
+
+        body = _json_body(ctx)
+        profile_id = str(body.get("profile_id") or "").strip()
+        if not profile_id:
+            return {"ok": False, "error": "profile_id is required"}
+        preferences = body.get("preferences") or {}
+        if not isinstance(preferences, dict):
+            return {"ok": False, "error": "preferences must be an object"}
+        path = synthesize_path(profile_id, preferences=preferences)
+        minimind_intake = path.get("minimind_intake") if isinstance(path, dict) else {}
+        if not isinstance(minimind_intake, dict):
+            minimind_intake = {}
+        return {
+            "ok": True,
+            "profile_id": profile_id,
+            "preferences": preferences,
+            "confirmation": str(minimind_intake.get("confirmation") or ""),
+            "minimind_intake": minimind_intake,
+            "path": path,
+        }
+
     def active_role_path(ctx: dict[str, Any]) -> dict[str, Any]:
         from ..personalization.path_state import get_active_ghost_path, set_active_ghost_path
 
@@ -1061,6 +1162,133 @@ def register_console_routes(
             "note": "Run these checks locally before tagging or pushing a beta release.",
         }
 
+    def rag_builder_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        status = personal_minimind().status()
+        return {
+            "ok": True,
+            "status": status,
+            "note": "Use RAG Builder to confirm open-source intake policy and produce a guided MiniMind build plan.",
+        }
+
+    def rag_builder_plan(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..integrations.source_discovery import SourceCandidate, filter_allowed_sources
+        from ..personalization.path_synthesizer import synthesize_path
+
+        body = _json_body(ctx)
+        profile_id = str(body.get("profile_id") or "").strip()
+        if not profile_id:
+            return {"ok": False, "error": "profile_id is required"}
+        objective = str(body.get("objective") or "").strip()
+        training_mode = str(body.get("training_mode") or "rag-first").strip() or "rag-first"
+        approval_level = str(body.get("approval_level") or "supervised").strip() or "supervised"
+        execute_bootstrap = _as_bool(body.get("execute_bootstrap"), default=False)
+        include_system_specs = _as_bool(body.get("include_system_specs"), default=False)
+        max_files = int(body.get("max_files") or 500)
+        max_emails = int(body.get("max_emails") or 1000)
+        repos = [str(item).strip() for item in body.get("open_source_repos") or [] if str(item).strip()]
+        path = synthesize_path(profile_id, preferences={"training_mode": training_mode, "approval_level": approval_level})
+        intake = path.get("minimind_intake") if isinstance(path, dict) else {}
+        if not isinstance(intake, dict):
+            intake = {}
+
+        github = _github_client_with_console_token()
+        candidates: list[SourceCandidate] = []
+        for repo in repos:
+            try:
+                details = github.get_json(f"repos/{repo}")
+            except Exception:
+                candidates.append(SourceCandidate(url=f"https://github.com/{repo}", kind="repository", license="", commit=""))
+                continue
+            if not isinstance(details, dict):
+                candidates.append(SourceCandidate(url=f"https://github.com/{repo}", kind="repository", license="", commit=""))
+                continue
+            license_id = ""
+            license_data = details.get("license")
+            if isinstance(license_data, dict):
+                license_id = str(license_data.get("spdx_id") or "").strip()
+            branch = str(details.get("default_branch") or "main").strip() or "main"
+            commit_sha = ""
+            with contextlib.suppress(Exception):
+                commit_payload = github.get_json(f"repos/{repo}/commits/{branch}")
+                if isinstance(commit_payload, dict):
+                    commit_sha = str(commit_payload.get("sha") or "").strip()
+            candidates.append(
+                SourceCandidate(
+                    url=str(details.get("html_url") or f"https://github.com/{repo}"),
+                    kind="repository",
+                    license=license_id,
+                    commit=commit_sha,
+                )
+            )
+
+        intended_use = "dataset_generation" if training_mode in {"dataset_generation", "local_fine_tuning"} else "rag"
+        allowed_sources = filter_allowed_sources(candidates, intended_use=intended_use)
+        blocked_sources = [candidate for candidate in candidates if candidate not in allowed_sources]
+        bootstrap = {"ok": False, "skipped": True}
+        if execute_bootstrap:
+            bootstrap = personal_minimind().bootstrap(
+                include_system_specs=include_system_specs,
+                max_files=max_files,
+                max_emails=max_emails,
+            )
+        return {
+            "ok": True,
+            "objective": objective,
+            "path": path,
+            "minimind_intake": intake,
+            "open_source_sources": {
+                "requested": [candidate.to_dict() for candidate in candidates],
+                "allowed_for_training": [candidate.to_dict() for candidate in allowed_sources],
+                "review_required": [candidate.to_dict() for candidate in blocked_sources],
+            },
+            "bootstrap": bootstrap,
+            "recommendation": intake.get("confirmation")
+            or "Review source licenses and explicit consent before dataset generation.",
+        }
+
+    def mcp_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..chimera_pilot.mcp_wrapper import get_default_registry
+
+        registry = get_default_registry()
+        client = registry.get("chimeralang")
+        tools = []
+        if client and client.available:
+            tools = [tool.get("name") for tool in client.tools if isinstance(tool, dict)]
+        return {
+            "ok": True,
+            "registered": client is not None,
+            "enabled": bool(client and client.available),
+            "tool_count": len(tools),
+            "tools": tools,
+            "module_detected": bool(importlib.util.find_spec("chimeralang_mcp")),
+        }
+
+    def mcp_enable_chimeralang(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..chimera_pilot.mcp_wrapper import connect_mcp_servers, get_default_registry, register_mcp_server
+
+        registry = get_default_registry()
+        if registry.get("chimeralang") is None:
+            register_mcp_server(
+                "chimeralang",
+                command=sys.executable or "python3",
+                args=["-m", "chimeralang_mcp.server", "--transport", "stdio"],
+                timeout=180,
+            )
+        try:
+            connect_mcp_servers()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        return mcp_status(ctx)
+
+    def mcp_disable_chimeralang(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..chimera_pilot.mcp_wrapper import disconnect_mcp_servers
+
+        try:
+            disconnect_mcp_servers()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "enabled": False, "tool_count": 0, "tools": []}
+
     def skills_list(ctx: dict[str, Any]) -> dict[str, Any]:
         """Return all registered skills (bundled + workspace) for the Skills tab."""
         try:
@@ -1078,6 +1306,77 @@ def register_console_routes(
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": str(exc), "skills": []}
         return {"ok": True, "skills": skills, "count": len(skills)}
+
+    def skills_discover(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..skill_layer.registry import get_registry
+
+        body = _json_body(ctx)
+        query = str(body.get("query") or "ghost chimera skill language:Python").strip()
+        limit = max(1, min(int(body.get("limit") or 5), 20))
+        install = _as_bool(body.get("install"), default=False)
+        repos = [str(item).strip() for item in body.get("repos") or [] if str(item).strip()]
+        candidates: list[dict[str, Any]] = []
+        github = _github_client_with_console_token()
+
+        if repos:
+            for repo in repos:
+                try:
+                    payload = github.get_json(f"repos/{repo}")
+                except Exception as exc:
+                    candidates.append(
+                        {"full_name": repo, "html_url": f"https://github.com/{repo}", "description": "", "error": str(exc)}
+                    )
+                    continue
+                if isinstance(payload, dict):
+                    candidates.append(
+                        {
+                            "full_name": str(payload.get("full_name") or repo),
+                            "html_url": str(payload.get("html_url") or f"https://github.com/{repo}"),
+                            "description": str(payload.get("description") or ""),
+                            "language": str(payload.get("language") or ""),
+                            "stars": int(payload.get("stargazers_count") or 0),
+                            "default_branch": str(payload.get("default_branch") or "main"),
+                        }
+                    )
+        else:
+            params = urllib.parse.urlencode({"q": query, "per_page": str(limit)})
+            try:
+                payload = github.get_json(f"search/repositories?{params}")
+            except Exception as exc:
+                return {"ok": False, "error": str(exc), "query": query, "candidate_count": 0, "candidates": []}
+            items = payload.get("items") if isinstance(payload, dict) else []
+            for item in items[:limit] if isinstance(items, list) else []:
+                if not isinstance(item, dict):
+                    continue
+                candidates.append(
+                    {
+                        "full_name": str(item.get("full_name") or ""),
+                        "html_url": str(item.get("html_url") or ""),
+                        "description": str(item.get("description") or ""),
+                        "language": str(item.get("language") or ""),
+                        "stars": int(item.get("stargazers_count") or 0),
+                        "default_branch": str(item.get("default_branch") or "main"),
+                    }
+                )
+
+        installed: list[dict[str, Any]] = []
+        if install:
+            for candidate in candidates:
+                if not candidate.get("full_name") or candidate.get("error"):
+                    continue
+                with contextlib.suppress(Exception):
+                    installed.append(_write_compat_skill(candidate))
+            if installed:
+                get_registry(reset=True)
+        return {
+            "ok": True,
+            "query": query,
+            "candidate_count": len(candidates),
+            "candidates": candidates,
+            "installed_count": len(installed),
+            "installed": installed,
+            "skills_dir": str(_workspace_skills_dir()),
+        }
 
     def jobs_list(ctx: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()}
@@ -1326,6 +1625,12 @@ def register_console_routes(
         description="Synthesize Ghost Chimera from a selected user path",
     )
     _api_register(
+        "/api/console/paths/confirm-minimind",
+        confirm_path_minimind,
+        method="POST",
+        description="Confirm whether the selected path enables open-source MiniMind dataset intake",
+    )
+    _api_register(
         "/api/console/paths/active", active_role_path, method="GET", description="Show the active persisted Ghost path"
     )
     _api_register(
@@ -1388,7 +1693,43 @@ def register_console_routes(
     _api_register(
         "/api/console/readiness", readiness, method="GET", description="Ghost Console release readiness runbook"
     )
+    _api_register(
+        "/api/console/rag/builder/status",
+        rag_builder_status,
+        method="GET",
+        description="RAG Builder status for MiniMind readiness and policy checks",
+    )
+    _api_register(
+        "/api/console/rag/builder",
+        rag_builder_plan,
+        method="POST",
+        description="Build a RAG plan with open-source intake and optional MiniMind bootstrap",
+    )
+    _api_register(
+        "/api/console/mcp/status",
+        mcp_status,
+        method="GET",
+        description="Inspect chimeralang-mcp registration and runtime tool availability",
+    )
+    _api_register(
+        "/api/console/mcp/chimeralang/enable",
+        mcp_enable_chimeralang,
+        method="POST",
+        description="Enable chimeralang-mcp for Ghost Console",
+    )
+    _api_register(
+        "/api/console/mcp/chimeralang/disable",
+        mcp_disable_chimeralang,
+        method="POST",
+        description="Disable connected MCP servers for Ghost Console",
+    )
     _api_register("/api/console/skills", skills_list, method="GET", description="List registered skills")
+    _api_register(
+        "/api/console/skills/discover",
+        skills_discover,
+        method="POST",
+        description="Discover GitHub skill candidates and optionally convert them to local compatibility skills",
+    )
     _api_register("/api/console/autonomy/jobs", jobs_list, method="GET", description="List autonomy jobs")
     _api_register("/api/console/autonomy/jobs", jobs_create, method="POST", description="Queue autonomy job")
     _api_register(
