@@ -14,6 +14,8 @@
     operator: null,
     evolution: null,
     latency: null,
+    capabilityPack: null,
+    localModels: null,
   };
 
   function $(sel) { return document.querySelector(sel); }
@@ -1948,6 +1950,130 @@
   }
   $("#runPrReview").addEventListener("click", runPrReview);
 
+  // -- Native absorption panels ------------------------------------------------
+  function renderLocalModels(data) {
+    state.localModels = data;
+    var cards = $("#localModelCards");
+    if (!cards) return;
+    cards.innerHTML = "";
+    var models = (data && data.models) || [];
+    [
+      ["Status", data && data.ok ? "ready" : "unknown"],
+      ["Models", String((data && data.count) || models.length || 0)],
+      ["Policy", ((data && data.policy) || {}).activation || "preview_only"],
+    ].forEach(function(row) {
+      var card = el("div", { class: "card" });
+      card.appendChild(el("h3", null, row[0]));
+      card.appendChild(el("div", { class: "value" }, row[1]));
+      cards.appendChild(card);
+    });
+  }
+
+  async function refreshLocalModels() {
+    try {
+      var data = await api("/api/console/local-models/inventory");
+      renderLocalModels(data);
+      $("#localModelOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) { $("#localModelOutput").textContent = "Error: " + e.message; }
+  }
+
+  async function resolveLocalModel() {
+    var source = ($("#localModelSource").value || "").trim();
+    if (!source) { toast("Enter a model source first.", "warn"); return; }
+    try {
+      var data = await api("/api/console/local-models/resolve", { method: "POST", body: { source: source } });
+      $("#localModelOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) { $("#localModelOutput").textContent = "Error: " + e.message; }
+  }
+
+  async function refreshCognitionTrace() {
+    try {
+      var goal = encodeURIComponent(($("#cognitionGoal").value || "operator request").trim());
+      var data = await api("/api/console/cognition/trace?goal=" + goal);
+      var list = $("#cognitionTraceList");
+      list.innerHTML = "";
+      (data.stages || []).forEach(function(stage) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "name" }, stage.stage));
+        item.appendChild(el("span", { class: "badge ok" }, stage.status));
+        item.appendChild(el("span", { class: "meta" }, typeof stage.detail === "string" ? stage.detail : JSON.stringify(stage.detail || "")));
+        list.appendChild(item);
+      });
+      $("#cognitionOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) { $("#cognitionOutput").textContent = "Error: " + e.message; }
+  }
+
+  async function runCognitionGuard() {
+    try {
+      var data = await api("/api/console/cognition/guard", {
+        method: "POST",
+        body: {
+          confidence: parseFloat($("#cognitionConfidence").value) || 0,
+          variance: parseFloat($("#cognitionVariance").value) || 0,
+        },
+      });
+      $("#cognitionOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) { $("#cognitionOutput").textContent = "Error: " + e.message; }
+  }
+
+  function renderCapabilityPack(data) {
+    state.capabilityPack = data;
+    var list = $("#capabilityPackList");
+    var select = $("#capabilityToolSelect");
+    if (!list || !select) return;
+    list.innerHTML = "";
+    select.innerHTML = "";
+    (data.tools || []).forEach(function(tool) {
+      var opt = el("option", { value: tool.id }, tool.id);
+      select.appendChild(opt);
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "name" }, tool.name));
+      item.appendChild(el("span", { class: "badge ok" }, tool.category));
+      item.appendChild(el("span", { class: "meta" }, tool.description));
+      list.appendChild(item);
+    });
+  }
+
+  async function refreshCapabilityPack() {
+    try {
+      var data = await api("/api/console/capability-pack");
+      renderCapabilityPack(data);
+    } catch (e) { empty("#capabilityPackList", "Capability pack unavailable: " + e.message); }
+  }
+
+  async function runCapabilityTool() {
+    var args = {};
+    try { args = JSON.parse($("#capabilityToolArgs").value || "{}"); } catch (e) { toast("Arguments must be valid JSON.", "error"); return; }
+    try {
+      var data = await api("/api/console/capability-pack/run", { method: "POST", body: { tool_id: $("#capabilityToolSelect").value, arguments: args } });
+      $("#capabilityPackOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) { $("#capabilityPackOutput").textContent = "Error: " + e.message; }
+  }
+
+  async function runSandboxJourney() {
+    try {
+      var data = await api("/api/console/sandbox/journey");
+      var list = $("#sandboxSteps");
+      list.innerHTML = "";
+      (data.steps || []).forEach(function(step) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "name" }, step.name));
+        item.appendChild(el("span", { class: "badge " + (step.status === "warning" ? "warn" : "ok") }, step.status));
+        item.appendChild(el("span", { class: "meta" }, step.detail || ""));
+        list.appendChild(item);
+      });
+      $("#sandboxOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) { $("#sandboxOutput").textContent = "Error: " + e.message; }
+  }
+
+  $("#refreshLocalModels").addEventListener("click", refreshLocalModels);
+  $("#resolveLocalModel").addEventListener("click", resolveLocalModel);
+  $("#refreshCognitionTrace").addEventListener("click", refreshCognitionTrace);
+  $("#runCognitionGuard").addEventListener("click", runCognitionGuard);
+  $("#refreshCapabilityPack").addEventListener("click", refreshCapabilityPack);
+  $("#runCapabilityTool").addEventListener("click", runCapabilityTool);
+  $("#runSandboxJourney").addEventListener("click", runSandboxJourney);
+
   async function refreshReadiness() {
     var data = await api("/api/console/readiness");
     var list = $("#readinessList");
@@ -2005,6 +2131,9 @@
     refreshEvolution();
     refreshTimeline();
     refreshLatency();
+    refreshLocalModels();
+    refreshCapabilityPack();
+    refreshCognitionTrace();
   });
   setInterval(refreshStatus, 30000);
 })();

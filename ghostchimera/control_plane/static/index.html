@@ -48,6 +48,10 @@
     <button class="tab" data-tab="evolution">Self-Evolution</button>
     <button class="tab" data-tab="activity">Activity</button>
     <button class="tab" data-tab="latency">Latency</button>
+    <button class="tab" data-tab="local-models">Local Models</button>
+    <button class="tab" data-tab="cognition">Cognitive Guardrails</button>
+    <button class="tab" data-tab="capability-pack">Capability Pack</button>
+    <button class="tab" data-tab="sandbox">Sandbox</button>
     <button class="tab" data-tab="browser">Browser</button>
     <button class="tab" data-tab="security">Security</button>
     <button class="tab" data-tab="schedules">Schedules</button>
@@ -566,6 +570,51 @@
     <div id="latencyRecommendations"></div>
     <div class="section-hdr">Slowest Events</div>
     <div id="latencyEvents"></div>
+  </div>
+
+  <div class="tab-content" id="tab-local-models">
+    <div class="section-hdr" style="margin-top:0;">Local Models</div>
+    <div class="row" style="margin-bottom:12px;">
+      <input id="localModelSource" placeholder="Hugging Face model, URL, or local .gguf/.safetensors path" style="flex:3;">
+      <button id="resolveLocalModel" class="primary">Resolve</button>
+      <button id="refreshLocalModels">Inventory</button>
+    </div>
+    <div id="localModelCards" class="grid"></div>
+    <pre class="output compact-output" id="localModelOutput">Preview only: Ghost will not download, convert, train, or activate a model without approval.</pre>
+  </div>
+
+  <div class="tab-content" id="tab-cognition">
+    <div class="section-hdr" style="margin-top:0;">Cognitive Guardrails</div>
+    <div class="row" style="margin-bottom:12px;">
+      <input id="cognitionConfidence" value="0.9" placeholder="confidence" style="flex:1;">
+      <input id="cognitionVariance" value="0.01" placeholder="variance" style="flex:1;">
+      <input id="cognitionGoal" placeholder="goal for operational trace" style="flex:2;">
+      <button id="runCognitionGuard" class="primary">Run Guard</button>
+      <button id="refreshCognitionTrace">Trace</button>
+    </div>
+    <div id="cognitionTraceList"></div>
+    <pre class="output compact-output" id="cognitionOutput">Operational trace only. Hidden chain-of-thought is never exposed.</pre>
+  </div>
+
+  <div class="tab-content" id="tab-capability-pack">
+    <div class="section-hdr" style="margin-top:0;">Internal Chimera Capability Pack</div>
+    <div class="row" style="margin-bottom:12px;">
+      <select id="capabilityToolSelect" style="flex:2;"></select>
+      <input id="capabilityToolArgs" value="{}" placeholder='{"confidence":0.9}' style="flex:3;">
+      <button id="runCapabilityTool" class="primary">Run Tool</button>
+      <button id="refreshCapabilityPack">Refresh</button>
+    </div>
+    <div id="capabilityPackList"></div>
+    <pre class="output compact-output" id="capabilityPackOutput">Built-in tools run locally and do not require external MCP servers.</pre>
+  </div>
+
+  <div class="tab-content" id="tab-sandbox">
+    <div class="section-hdr" style="margin-top:0;">Operator Sandbox Journey</div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="runSandboxJourney" class="primary">Run Journey</button>
+    </div>
+    <div id="sandboxSteps"></div>
+    <pre class="output compact-output" id="sandboxOutput">Runs a local preview journey and preserves findings.</pre>
   </div>
 
   <div class="tab-content" id="tab-browser">

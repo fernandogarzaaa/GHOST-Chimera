@@ -32,6 +32,7 @@ REQUIRED_FILES = [
     "docs/CLEAN_ROOM.md",
     "docs/BOB_OPTIONAL_TOOLING.md",
     "docs/COMPETITIVE_CAPABILITY_MATRIX.md",
+    "docs/NATIVE_ABSORPTION.md",
     "docs/RELEASE_CHECKLIST.md",
     "scripts/smoke_installed_wheel.py",
 ]
@@ -126,9 +127,14 @@ def check_imports() -> dict[str, Any]:
         "ghostchimera.chimera_pilot",
         "ghostchimera.chimera_pilot.cli",
         "ghostchimera.cognition_layer.workspace_state",
+        "ghostchimera.cognition_layer.trust",
+        "ghostchimera.capability_pack",
         "ghostchimera.control_plane.cli",
+        "ghostchimera.model_layer.local_model_inventory",
+        "ghostchimera.mcp.normalization",
         "ghostchimera.mcp.server",
         "ghostchimera.mcp.client",
+        "ghostchimera.sandbox.journey",
         "ghostchimera.chimera_pilot.backends.mcp",
     ]
     imported: list[str] = []
@@ -271,6 +277,12 @@ def check_release_hardening() -> dict[str, Any]:
             "stale/conflicting",
             "clean virtual environment",
             "gateway extras",
+            "ghostchimera local-model inventory",
+            "ghostchimera local-model resolve --source Qwen/Qwen2.5-7B-Instruct",
+            "ghostchimera cognition guard --confidence 0.9 --variance 0.01",
+            'ghostchimera context compress --text "latency latency matters" --focus latency',
+            "ghostchimera capability-pack list",
+            "ghostchimera sandbox journey",
         )
         if token not in release_checklist
     ]
@@ -289,6 +301,10 @@ def check_release_hardening() -> dict[str, Any]:
         "ghostchimera review-pr --base HEAD --head HEAD",
         "ghostchimera workspace show",
         "ghostchimera workspace sync-memory --memory-db .ghostchimera-memory.sqlite3 --min-confidence 0.8 --stale-after-days 30",
+        "ghostchimera capability-pack list",
+        "ghostchimera local-model inventory",
+        "ghostchimera cognition guard --confidence 0.9 --variance 0.01",
+        "ghostchimera sandbox journey",
     ):
         if command not in commands:
             errors.append(f"console readiness missing {command!r}")

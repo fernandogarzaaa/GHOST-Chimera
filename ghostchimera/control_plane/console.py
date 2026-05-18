@@ -18,22 +18,27 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from ..capability_pack import call_capability_tool, list_capability_tools
 from ..chimera_pilot import ChimeraPilotKernel
 from ..chimera_pilot.autonomy import get_autonomy_profile, list_autonomy_profiles
 from ..chimera_pilot.autonomy_jobs import JOB_SPECS
 from ..chimera_pilot.autonomy_queue import AutonomyJobQueue
 from ..chimera_pilot.capability_intelligence import inspect_capabilities
+from ..chimera_pilot.context_compressor import compress_text_query_aware
 from ..chimera_pilot.desktop_policy import DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN
 from ..chimera_pilot.gateway_server import GatewayServer, HttpResponse
 from ..chimera_pilot.pr_review import run_pr_review
+from ..cognition_layer.trust import GhostBelief, guard_belief, summarize_operational_trace
 from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 from ..config import GhostChimeraConfig
 from ..memory_layer.store import MemoryStore
 from ..model_layer.auth_profiles import AuthProfile
+from ..model_layer.local_model_inventory import discover_local_model_inventory, resolve_model_source
 from ..model_layer.minimind_lifecycle import MiniMindLifecycle
 from ..model_layer.minimind_personal_agent import MiniMindPersonalAgent
 from ..model_layer.model_discovery import get_model_discovery, refresh_model_discovery, select_discovered_model
 from ..model_layer.providers import get_provider
+from ..sandbox.journey import run_sandbox_journey
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
 from .config import CONFIG_FILE, config_to_env_vars, get_autonomy_config, get_default_config, load_config, save_config
@@ -139,6 +144,26 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "name": "competitive capability smoke",
         "command": "ghostchimera capabilities --format json",
         "purpose": "Verifies the competitive capability matrix is reachable from the CLI.",
+    },
+    {
+        "name": "native capability pack smoke",
+        "command": "ghostchimera capability-pack list",
+        "purpose": "Verifies built-in Chimera capability tools are reachable without external MCP servers.",
+    },
+    {
+        "name": "local model inventory smoke",
+        "command": "ghostchimera local-model inventory",
+        "purpose": "Verifies local model inventory remains preview-only and self-contained.",
+    },
+    {
+        "name": "cognition guard smoke",
+        "command": "ghostchimera cognition guard --confidence 0.9 --variance 0.01",
+        "purpose": "Verifies the confidence and variance guard CLI surface.",
+    },
+    {
+        "name": "sandbox journey smoke",
+        "command": "ghostchimera sandbox journey",
+        "purpose": "Verifies the operator sandbox journey report is reachable.",
     },
     {
         "name": "GitHub connection smoke",
@@ -2081,6 +2106,101 @@ def register_console_routes(
         )
         return {"ok": True, "candidate": candidate, "candidates": list_candidates(console_state_dir)}
 
+    def capability_pack_list(ctx: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "policy": {
+                "external_mcp_required": False,
+                "preview_first": True,
+                "secrets_are_write_only": True,
+            },
+            "tools": [tool.to_dict() for tool in list_capability_tools()],
+        }
+
+    def capability_pack_run(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        tool_id = str(body.get("tool_id") or "").strip()
+        arguments = body.get("arguments") if isinstance(body.get("arguments"), dict) else {}
+        payload = call_capability_tool(tool_id, arguments)
+        record_timeline_event(
+            console_state_dir,
+            "capability_pack_tool_run",
+            {"tool_id": tool_id, "ok": bool(payload.get("ok"))},
+        )
+        return payload
+
+    def local_models_inventory(ctx: dict[str, Any]) -> dict[str, Any]:
+        query = ctx.get("query") or {}
+        roots_raw = query.get("root") or []
+        roots = roots_raw if isinstance(roots_raw, list) else ([roots_raw] if roots_raw else None)
+        payload = discover_local_model_inventory(roots)
+        record_timeline_event(
+            console_state_dir,
+            "local_model_inventory_previewed",
+            {"count": payload.get("count", 0), "preview_only": True},
+        )
+        return payload
+
+    def local_models_resolve(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        source = str(body.get("source") or "").strip()
+        if not source:
+            return {"ok": False, "error": "source is required"}
+        candidate = resolve_model_source(source, license_id=str(body.get("license_id") or ""))
+        record_timeline_event(
+            console_state_dir,
+            "local_model_source_resolved",
+            {"source_type": candidate.source_type, "status": candidate.compatibility_status},
+        )
+        return {
+            "ok": True,
+            "model": candidate.to_dict(),
+            "policy": {"activation": "preview_only", "requires_user_approval": True},
+        }
+
+    def cognition_trace(ctx: dict[str, Any]) -> dict[str, Any]:
+        query = ctx.get("query") or {}
+        goal = str(query.get("goal") or "operator request")
+        return summarize_operational_trace(
+            goal=goal,
+            sources=["config", "memory", "model catalog"],
+            policy_decision="approval_required",
+            tool_candidates=["capability_pack", "mcp", "local_model"],
+        )
+
+    def cognition_guard(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        belief = GhostBelief.from_confidence(
+            str(body.get("value") or "candidate"),
+            float(body.get("confidence") or 0.0),
+            variance=float(body.get("variance") or 0.0),
+            source=str(body.get("source") or "console"),
+        )
+        result = guard_belief(
+            belief,
+            max_risk=float(body.get("max_risk") or 0.2),
+            max_variance=float(body.get("max_variance") or 0.05),
+        )
+        return {"ok": True, "belief": belief.to_dict(), "guard": result.to_dict()}
+
+    def context_efficiency(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx) if ctx.get("method") == "POST" else {}
+        result = compress_text_query_aware(
+            str(body.get("text") or ""),
+            focus=str(body.get("focus") or ""),
+            budget_tokens=int(body.get("budget_tokens") or 800),
+        )
+        return result.to_dict()
+
+    def sandbox_journey(ctx: dict[str, Any]) -> dict[str, Any]:
+        report = run_sandbox_journey(state_dir=console_state_dir)
+        record_timeline_event(
+            console_state_dir,
+            "sandbox_journey_run",
+            {"steps": len(report.steps), "findings": len(report.findings)},
+        )
+        return report.to_dict()
+
     def jobs_list(ctx: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()}
 
@@ -2262,6 +2382,54 @@ def register_console_routes(
         method="POST",
         prefix=True,
         description="Review, promote, or reject Self-Evolution candidate",
+    )
+    _api_register(
+        "/api/console/capability-pack",
+        capability_pack_list,
+        method="GET",
+        description="List built-in Ghost-native Chimera capability tools",
+    )
+    _api_register(
+        "/api/console/capability-pack/run",
+        capability_pack_run,
+        method="POST",
+        description="Run a built-in Ghost-native capability tool",
+    )
+    _api_register(
+        "/api/console/local-models/inventory",
+        local_models_inventory,
+        method="GET",
+        description="Preview local model inventory without activation",
+    )
+    _api_register(
+        "/api/console/local-models/resolve",
+        local_models_resolve,
+        method="POST",
+        description="Resolve a HF or local model source without downloading",
+    )
+    _api_register(
+        "/api/console/cognition/trace",
+        cognition_trace,
+        method="GET",
+        description="Show safe Ghost operational trace stages",
+    )
+    _api_register(
+        "/api/console/cognition/guard",
+        cognition_guard,
+        method="POST",
+        description="Run confidence and variance guard preview",
+    )
+    _api_register(
+        "/api/console/context/compress",
+        context_efficiency,
+        method="POST",
+        description="Preview query-aware deterministic compression",
+    )
+    _api_register(
+        "/api/console/sandbox/journey",
+        sandbox_journey,
+        method="GET",
+        description="Run local operator sandbox journey",
     )
     _api_register("/api/console/config", dashboard_config, method="GET", description="Inspect dashboard configuration")
     _api_register("/api/console/config", dashboard_config, method="POST", description="Update dashboard configuration")

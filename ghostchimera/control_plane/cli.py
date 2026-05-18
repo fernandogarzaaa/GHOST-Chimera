@@ -289,14 +289,35 @@ def _main(argv: list[str] | None = None) -> int:
     local_model_parser = sub.add_parser("local-model", help="Bootstrap and check local model inference readiness")
     local_model_parser.add_argument(
         "action",
-        choices=["check", "guide", "profiles"],
+        choices=["check", "guide", "profiles", "inventory", "resolve"],
         nargs="?",
         default="check",
-        help="check: report readiness; guide: print install steps; profiles: list all profiles",
+        help="check: report readiness; guide: print install steps; profiles: list all profiles; inventory/resolve: preview local model sources",
     )
     local_model_parser.add_argument(
         "--profile", default="", help="Local model profile name (tiny, balanced, stronger)."
     )
+    local_model_parser.add_argument("--source", default="", help="Model source for resolve: HF id, HF URL, or local path.")
+    cognition_parser = sub.add_parser("cognition", help="Run Ghost-native cognition trust helpers")
+    cognition_parser.add_argument("action", choices=["guard", "handoff"], nargs="?", default="guard")
+    cognition_parser.add_argument("handoff_action", choices=["verify"], nargs="?")
+    cognition_parser.add_argument("--confidence", type=float, default=0.0)
+    cognition_parser.add_argument("--variance", type=float, default=0.0)
+    cognition_parser.add_argument("--max-risk", type=float, default=0.2)
+    cognition_parser.add_argument("--handoff-json", default="", help="Ghost handoff JSON for verification.")
+    context_parser = sub.add_parser("context", help="Run context efficiency helpers")
+    context_parser.add_argument("action", choices=["compress"], nargs="?", default="compress")
+    context_parser.add_argument("--text", default="", help="Text to compress.")
+    context_parser.add_argument("--file", default="", help="Optional UTF-8 file to compress.")
+    context_parser.add_argument("--focus", default="", help="Focus query for compression.")
+    context_parser.add_argument("--budget-tokens", type=int, default=800)
+    capability_parser = sub.add_parser("capability-pack", help="Inspect and run built-in Chimera capability tools")
+    capability_parser.add_argument("action", choices=["list", "run"], nargs="?", default="list")
+    capability_parser.add_argument("--tool-id", default="", help="Tool id for run.")
+    capability_parser.add_argument("--arguments-json", default="{}", help="JSON object passed to capability tool.")
+    sandbox_parser = sub.add_parser("sandbox", help="Run local operator sandbox journeys")
+    sandbox_parser.add_argument("action", choices=["journey"], nargs="?", default="journey")
+    sandbox_parser.add_argument("--state-dir", default="", help="Optional sandbox state directory.")
     runtime_warmup_parser = sub.add_parser("runtime-warmup", help="Precompute local runtime specialization manifests")
     runtime_warmup_parser.add_argument(
         "--runtime-specialization-cache-dir",
@@ -467,7 +488,21 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "local-model":
         from .local_model_cli import run_local_model_cli
 
-        return run_local_model_cli(action=args.action, profile=getattr(args, "profile", ""))
+        return run_local_model_cli(
+            action=args.action, profile=getattr(args, "profile", ""), source=getattr(args, "source", "")
+        )
+
+    if args.command == "cognition":
+        return _run_cognition_cli(args)
+
+    if args.command == "context":
+        return _run_context_cli(args)
+
+    if args.command == "capability-pack":
+        return _run_capability_pack_cli(args)
+
+    if args.command == "sandbox":
+        return _run_sandbox_cli(args)
 
     if args.command == "runtime-warmup":
         from ..model_layer.runtime_specialization import detect_runtime_environment, warm_runtime_specialization_cache
@@ -675,6 +710,67 @@ def _run_path_cli(args: argparse.Namespace) -> int:
         payload = get_active_ghost_path(config_path=config_path)
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
+
+
+def _run_cognition_cli(args: argparse.Namespace) -> int:
+    from ..cognition_layer.trust import GhostBelief, GhostHandoff, guard_belief, verify_handoff
+
+    if args.action == "guard":
+        belief = GhostBelief.from_confidence("cli", args.confidence, variance=args.variance)
+        print(json.dumps({"ok": True, "result": guard_belief(belief, max_risk=args.max_risk).to_dict()}, indent=2))
+        return 0
+    if args.action == "handoff" and args.handoff_action == "verify":
+        if not args.handoff_json:
+            print(json.dumps({"ok": False, "error": "--handoff-json is required"}, indent=2))
+            return 2
+        result = verify_handoff(GhostHandoff.from_json(args.handoff_json))
+        print(json.dumps({"ok": result.accepted, "result": result.to_dict()}, indent=2, sort_keys=True))
+        return 0 if result.accepted else 1
+    print(json.dumps({"ok": False, "error": "Unsupported cognition action"}, indent=2))
+    return 2
+
+
+def _run_context_cli(args: argparse.Namespace) -> int:
+    from ..chimera_pilot.context_compressor import compress_text_query_aware
+
+    text = args.text or ""
+    if args.file:
+        text = Path(args.file).expanduser().read_text(encoding="utf-8")
+    result = compress_text_query_aware(text, focus=args.focus, budget_tokens=args.budget_tokens)
+    print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+    return 0 if result.ok else 1
+
+
+def _run_capability_pack_cli(args: argparse.Namespace) -> int:
+    from ..capability_pack import call_capability_tool, list_capability_tools
+
+    if args.action == "list":
+        print(
+            json.dumps(
+                {"ok": True, "tools": [tool.to_dict() for tool in list_capability_tools()]},
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+    try:
+        arguments = json.loads(args.arguments_json or "{}")
+    except json.JSONDecodeError as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, indent=2, sort_keys=True))
+        return 2
+    payload = call_capability_tool(args.tool_id, arguments)
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if payload.get("ok") else 1
+
+
+def _run_sandbox_cli(args: argparse.Namespace) -> int:
+    from ..sandbox.journey import run_sandbox_journey
+
+    if args.action == "journey":
+        report = run_sandbox_journey(state_dir=args.state_dir or None)
+        print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+        return 0 if report.ok else 1
+    return 2
 
 
 def _run_workspace_cli(args: argparse.Namespace) -> int:
