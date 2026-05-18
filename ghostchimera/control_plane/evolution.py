@@ -265,6 +265,7 @@ def readiness_summary(
     mcp_status: dict[str, Any] | None,
     sources: list[dict[str, Any]],
     candidates: list[dict[str, Any]],
+    latency: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     model = config.get("model", {}) if isinstance(config.get("model"), dict) else {}
     approved_sources = [source for source in sources if source.get("consent_status") == "approved"]
@@ -278,6 +279,8 @@ def readiness_summary(
         warnings.append("Add the provider API key in Config before live model runs.")
     if not approved_sources:
         warnings.append("Approve at least one learning source before Self-Evolution.")
+    if latency and latency.get("status") == "slow":
+        warnings.append("Console latency is over the interactive budget; review the Latency tab.")
     return {
         "ok": True,
         "cards": [
@@ -287,6 +290,7 @@ def readiness_summary(
             {"id": "mcp", "label": "MCP", "status": "enabled" if mcp_status and mcp_status.get("enabled") else "review", "action": "mcp"},
             {"id": "evolution", "label": "Self-Evolution", "status": "ready" if approved_sources else "needs_approval", "action": "evolution"},
             {"id": "skills", "label": "Skills", "status": "review" if pending_candidates else "ready", "action": "skills"},
+            {"id": "latency", "label": "Latency", "status": latency.get("status", "unknown") if latency else "unknown", "action": "latency"},
         ],
         "warnings": warnings,
         "counts": {

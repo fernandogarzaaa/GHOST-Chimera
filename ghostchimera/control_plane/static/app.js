@@ -13,6 +13,7 @@
     modelDiscovery: null,
     operator: null,
     evolution: null,
+    latency: null,
   };
 
   function $(sel) { return document.querySelector(sel); }
@@ -237,6 +238,65 @@
       renderTimeline(await api("/api/console/operator/timeline"));
     } catch (e) {
       empty("#activityTimeline", "Activity unavailable: " + e.message);
+    }
+  }
+
+  function renderLatency(data) {
+    state.latency = data;
+    var cards = $("#latencyCards");
+    var routes = $("#latencyRoutes");
+    var recs = $("#latencyRecommendations");
+    var events = $("#latencyEvents");
+    if (!cards || !routes || !recs || !events) return;
+    cards.innerHTML = "";
+    [
+      ["Status", data.status || "unknown"],
+      ["Events", String(data.event_count || 0)],
+      ["P50", String(data.p50_ms || 0) + " ms"],
+      ["P95", String(data.p95_ms || 0) + " ms"],
+      ["Max", String(data.max_ms || 0) + " ms"],
+      ["Over budget", String(data.over_budget_count || 0)],
+    ].forEach(function(row) {
+      var card = el("div", { class: "card" });
+      card.appendChild(el("h3", null, row[0]));
+      card.appendChild(el("div", { class: "value" }, row[1]));
+      cards.appendChild(card);
+    });
+
+    routes.innerHTML = "";
+    (data.routes || []).slice(0, 12).forEach(function(route) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "badge " + (route.over_budget_count ? "warn" : "ok") }, route.p95_ms + " ms p95"));
+      item.appendChild(el("span", { class: "name mono" }, route.route));
+      item.appendChild(el("span", { class: "meta" }, "count " + route.count + " | budget " + route.budget_ms + " ms | over " + route.over_budget_count));
+      routes.appendChild(item);
+    });
+    if (!(data.routes || []).length) empty("#latencyRoutes", "Latency telemetry will appear after Console API calls.");
+
+    recs.innerHTML = "";
+    (data.recommendations || []).forEach(function(text) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "badge ok" }, "tip"));
+      item.appendChild(el("span", { class: "meta" }, text));
+      recs.appendChild(item);
+    });
+
+    events.innerHTML = "";
+    (data.slow_events || []).slice(0, 10).forEach(function(event) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "badge " + (event.over_budget ? "warn" : "ok") }, String(event.duration_ms) + " ms"));
+      item.appendChild(el("span", { class: "name mono" }, event.method + " " + event.route));
+      item.appendChild(el("span", { class: "meta" }, new Date((event.timestamp || 0) * 1000).toLocaleString()));
+      events.appendChild(item);
+    });
+    if (!(data.slow_events || []).length) empty("#latencyEvents", "No latency events yet.");
+  }
+
+  async function refreshLatency() {
+    try {
+      renderLatency(await api("/api/console/operator/latency"));
+    } catch (e) {
+      empty("#latencyRoutes", "Latency unavailable: " + e.message);
     }
   }
 
@@ -1035,14 +1095,18 @@
       // Backend panel
       renderBackendPanel(data.gateway.backends || []);
 
-      await refreshJobs();
-      await refreshSchedules();
-      await refreshWorkspace();
-      await refreshMemory();
-      await refreshPersonalMiniMind();
-      await refreshRagBuilder();
-      await refreshCapabilities();
-      await refreshReadiness();
+      await Promise.allSettled([
+        refreshJobs(),
+        refreshSchedules(),
+        refreshWorkspace(),
+        refreshMemory(),
+        refreshPersonalMiniMind(),
+        refreshRagBuilder(),
+        refreshCapabilities(),
+        refreshReadiness(),
+        refreshOperatorSummary(),
+        refreshLatency(),
+      ]);
     } catch (e) {
       badge($("#health"), "offline", "error");
     }
@@ -1910,6 +1974,7 @@
   });
   $("#addEvolutionSource").addEventListener("click", addLearningSource);
   $("#refreshActivity").addEventListener("click", refreshTimeline);
+  $("#refreshLatency").addEventListener("click", refreshLatency);
   $("#operatorReadiness").addEventListener("click", async function() {
     try {
       var data = await api("/api/console/operator/readiness", { method: "POST", body: {} });
@@ -1939,6 +2004,7 @@
     refreshOperatorSummary();
     refreshEvolution();
     refreshTimeline();
+    refreshLatency();
   });
   setInterval(refreshStatus, 30000);
 })();
