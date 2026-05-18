@@ -47,6 +47,7 @@
     <button class="tab" data-tab="skills">Skills</button>
     <button class="tab" data-tab="evolution">Self-Evolution</button>
     <button class="tab" data-tab="activity">Activity</button>
+    <button class="tab" data-tab="latency">Latency</button>
     <button class="tab" data-tab="browser">Browser</button>
     <button class="tab" data-tab="security">Security</button>
     <button class="tab" data-tab="schedules">Schedules</button>
@@ -551,6 +552,20 @@
       <button id="refreshActivity">Refresh Activity</button>
     </div>
     <div id="activityTimeline" class="list" style="margin-top:12px;"></div>
+  </div>
+
+  <div class="tab-content" id="tab-latency">
+    <div class="section-hdr" style="margin-top:0;">Latency Monitor</div>
+    <div class="grid" id="latencyCards"></div>
+    <div class="row">
+      <button id="refreshLatency" class="primary">Refresh Latency</button>
+    </div>
+    <div class="section-hdr">Slow Routes</div>
+    <div id="latencyRoutes"></div>
+    <div class="section-hdr">Recommendations</div>
+    <div id="latencyRecommendations"></div>
+    <div class="section-hdr">Slowest Events</div>
+    <div id="latencyEvents"></div>
   </div>
 
   <div class="tab-content" id="tab-browser">

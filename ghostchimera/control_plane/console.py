@@ -48,6 +48,7 @@ from .evolution import (
     set_source_consent,
     upsert_candidate,
 )
+from .latency import latency_summary, record_latency_event
 
 RunObjective = Callable[[str], dict[str, Any]]
 FetchUrl = Callable[[str], str]
@@ -600,8 +601,35 @@ def register_console_routes(
         path: str, handler: Any, *, method: str = "GET", prefix: bool = False, description: str = ""
     ) -> None:
         """Register an API route with the appropriate auth mode."""
+        def timed_handler(ctx: dict[str, Any]) -> Any:
+            started = time.perf_counter()
+            ok = False
+            error = ""
+            try:
+                result = handler(ctx)
+                ok = not (isinstance(result, dict) and result.get("ok") is False)
+                return result
+            except Exception as exc:
+                error = exc.__class__.__name__
+                raise
+            finally:
+                record_latency_event(
+                    console_state_dir,
+                    route=path,
+                    method=method,
+                    duration_ms=(time.perf_counter() - started) * 1000.0,
+                    ok=ok,
+                    error=error,
+                )
+
         server.routes.register(
-            path, handler, method=method, auth=_api_auth, token=_api_token, prefix=prefix, description=description
+            path,
+            timed_handler,
+            method=method,
+            auth=_api_auth,
+            token=_api_token,
+            prefix=prefix,
+            description=description,
         )
 
     def _github_console_auth_path() -> Path:
@@ -1908,6 +1936,7 @@ def register_console_routes(
             mcp_payload = mcp_status({"method": "GET", "path": "/api/console/mcp/status", "headers": {}, "body": "", "query": {}})
         sources = list_sources(console_state_dir)
         candidates = list_candidates(console_state_dir)
+        latency_payload = latency_summary(console_state_dir, limit=200)
         summary = readiness_summary(
             config=config,
             active_path=active_path,
@@ -1915,6 +1944,7 @@ def register_console_routes(
             mcp_status=mcp_payload,
             sources=sources,
             candidates=candidates,
+            latency=latency_payload,
         )
         summary.update(
             {
@@ -1922,6 +1952,7 @@ def register_console_routes(
                 "model": _safe_config_payload(config, console_config_file)["model"],
                 "rag": rag_payload,
                 "mcp": mcp_payload,
+                "latency": latency_payload,
                 "evolution": {
                     "sources": sources,
                     "candidates": candidates,
@@ -1942,6 +1973,14 @@ def register_console_routes(
         except (TypeError, ValueError):
             limit = 50
         return {"ok": True, "events": read_timeline(console_state_dir, limit=limit)}
+
+    def operator_latency(ctx: dict[str, Any]) -> dict[str, Any]:
+        query = ctx.get("query") or {}
+        try:
+            limit = int(query.get("limit") or 200)
+        except (TypeError, ValueError):
+            limit = 200
+        return latency_summary(console_state_dir, limit=limit)
 
     def operator_readiness(ctx: dict[str, Any]) -> dict[str, Any]:
         summary = _operator_summary_payload()
@@ -2183,6 +2222,7 @@ def register_console_routes(
     _api_register("/api/console/status", status, method="GET", description="Ghost Console status")
     _api_register("/api/console/operator/summary", operator_summary, method="GET", description="Operator home summary")
     _api_register("/api/console/operator/timeline", operator_timeline, method="GET", description="Operator activity timeline")
+    _api_register("/api/console/operator/latency", operator_latency, method="GET", description="Operator latency telemetry")
     _api_register("/api/console/operator/readiness", operator_readiness, method="POST", description="Run operator readiness check")
     _api_register("/api/console/operator/setup-step", operator_setup_step, method="POST", description="Record guided setup step")
     _api_register(

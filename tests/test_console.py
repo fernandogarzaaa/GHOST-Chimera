@@ -480,12 +480,15 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIn('data-tab="mcp"', html)
         self.assertIn('data-tab="evolution"', html)
         self.assertIn('data-tab="activity"', html)
+        self.assertIn('data-tab="latency"', html)
         self.assertIn('data-tab="config"', html)
         self.assertIn("operatorCards", html)
         self.assertIn("setupSteps", html)
         self.assertIn("learningSourceList", html)
         self.assertIn("evolutionCandidateList", html)
         self.assertIn("activityTimeline", html)
+        self.assertIn("latencyCards", html)
+        self.assertIn("latencyRoutes", html)
         self.assertIn("pathProfile", html)
         self.assertIn("pathConfirmMiniMind", html)
         self.assertIn("configProvider", html)
@@ -521,10 +524,12 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIn("/api/console/models/discovery/ping", app)
         self.assertIn("/api/console/operator/summary", app)
         self.assertIn("/api/console/operator/timeline", app)
+        self.assertIn("/api/console/operator/latency", app)
         self.assertIn("/api/console/operator/readiness", app)
         self.assertIn("/api/console/evolution/sources", app)
         self.assertIn("/api/console/evolution/candidates", app)
         self.assertIn("Use the Config tab", app)
+        self.assertIn("Promise.allSettled", app)
 
     def test_console_operator_summary_and_timeline_routes(self) -> None:
         server = GatewayServer()
@@ -557,6 +562,27 @@ class ConsoleRouteTests(unittest.TestCase):
             self.assertTrue(timeline["ok"])
             self.assertGreaterEqual(len(timeline["events"]), 1)
             self.assertEqual(timeline["events"][-1]["event_type"], "readiness_check_run")
+
+    def test_console_latency_route_records_api_calls(self) -> None:
+        server = GatewayServer()
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-latency-route-") as tmp:
+            register_console_routes(server, state_dir=tmp, config_path=Path(tmp) / "config.json")
+            status_route = server.routes.find("GET", "/api/console/status")
+            latency_route = server.routes.find("GET", "/api/console/operator/latency")
+
+            self.assertIsNotNone(status_route)
+            self.assertIsNotNone(latency_route)
+            status_route.handler(
+                {"method": "GET", "path": "/api/console/status", "headers": {}, "body": "", "query": {}}
+            )
+            payload = latency_route.handler(
+                {"method": "GET", "path": "/api/console/operator/latency", "headers": {}, "body": "", "query": {}}
+            )
+
+        self.assertTrue(payload["ok"])
+        self.assertGreaterEqual(payload["event_count"], 1)
+        self.assertIn("p95_ms", payload)
+        self.assertTrue(any(route["route"] == "/api/console/status" for route in payload["routes"]))
 
     def test_console_evolution_source_lifecycle_redacts_secrets(self) -> None:
         server = GatewayServer()
