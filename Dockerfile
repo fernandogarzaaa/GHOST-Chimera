@@ -1,9 +1,20 @@
 FROM python:3.12-slim
 
+ARG PIP_TRUSTED_HOST=""
+ARG PIP_INDEX_URL="https://pypi.org/simple"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
 
 WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    update-ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 RUN adduser --disabled-password --gecos "" ghost
 

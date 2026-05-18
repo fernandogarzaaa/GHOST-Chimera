@@ -9,6 +9,10 @@
     githubDevice: null,
     lastRun: null,
     thinking: null,
+    config: null,
+    modelDiscovery: null,
+    operator: null,
+    evolution: null,
   };
 
   function $(sel) { return document.querySelector(sel); }
@@ -155,6 +159,488 @@
   }
 
   function badge(el, text, cls) { el.textContent = text; el.className = "badge " + (cls || ""); }
+
+  function openTab(name) {
+    var tab = $(".tab[data-tab='" + name + "']");
+    if (tab) tab.click();
+  }
+
+  function renderOperatorSummary(data) {
+    state.operator = data;
+    var cards = $("#operatorCards");
+    var warnings = $("#operatorWarnings");
+    if (!cards || !warnings) return;
+    cards.innerHTML = "";
+    (data.cards || []).forEach(function(cardData) {
+      var card = el("div", { class: "card operator-card", "data-target": cardData.action || "status" });
+      card.appendChild(el("h3", null, cardData.label || cardData.id));
+      card.appendChild(el("div", { class: "value" }, cardData.status || "unknown"));
+      card.appendChild(el("div", { class: "hint" }, "Open " + (cardData.action || "status")));
+      card.addEventListener("click", function() { openTab(cardData.action || "status"); });
+      cards.appendChild(card);
+    });
+    warnings.innerHTML = "";
+    var warningList = data.warnings || [];
+    if (!warningList.length) {
+      warnings.appendChild(el("div", { class: "list-item" }, "Ghost readiness has no blocking warnings."));
+    } else {
+      warningList.forEach(function(w) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "badge warn" }, "warning"));
+        item.appendChild(el("span", { class: "meta" }, w));
+        warnings.appendChild(item);
+      });
+    }
+  }
+
+  async function refreshOperatorSummary() {
+    try {
+      var data = await api("/api/console/operator/summary");
+      renderOperatorSummary(data);
+    } catch (e) {
+      empty("#operatorWarnings", "Operator summary unavailable: " + e.message);
+    }
+  }
+
+  async function recordSetupStep(step, target) {
+    try {
+      var data = await api("/api/console/operator/setup-step", { method: "POST", body: { step: step } });
+      if (data && data.summary) renderOperatorSummary(data.summary);
+      if (target) openTab(target);
+      toast("Setup step recorded.", "ok");
+      await refreshTimeline();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  function renderTimeline(data) {
+    var list = $("#activityTimeline");
+    if (!list) return;
+    list.innerHTML = "";
+    var events = (data && data.events) || [];
+    if (!events.length) {
+      list.appendChild(el("div", { class: "empty" }, "No operator events yet."));
+      return;
+    }
+    events.slice().reverse().forEach(function(event) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "badge ok" }, event.event_type || "event"));
+      item.appendChild(el("span", { class: "name" }, new Date((event.timestamp || 0) * 1000).toLocaleString()));
+      item.appendChild(el("span", { class: "meta mono" }, JSON.stringify(event.detail || {}).slice(0, 220)));
+      list.appendChild(item);
+    });
+  }
+
+  async function refreshTimeline() {
+    try {
+      renderTimeline(await api("/api/console/operator/timeline"));
+    } catch (e) {
+      empty("#activityTimeline", "Activity unavailable: " + e.message);
+    }
+  }
+
+  function sourceBadge(status) {
+    if (status === "approved") return "ok";
+    if (status === "revoked" || status === "denied") return "error";
+    return "warn";
+  }
+
+  function renderEvolutionSources(sources) {
+    var list = $("#learningSourceList");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!sources.length) {
+      list.appendChild(el("div", { class: "empty" }, "No learning sources yet."));
+      return;
+    }
+    sources.forEach(function(source) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "badge " + sourceBadge(source.consent_status) }, source.consent_status || "pending"));
+      item.appendChild(el("span", { class: "name" }, source.label || source.source_type));
+      item.appendChild(el("span", { class: "meta" }, [source.source_type, source.scope, source.risk_level, source.uri].filter(Boolean).join(" | ")));
+      var actions = el("span", { class: "actions" });
+      var approve = el("button", { class: "success" }, "Approve");
+      approve.addEventListener("click", function() { setLearningSourceConsent(source.id, "approve"); });
+      var revoke = el("button", { class: "danger" }, "Revoke");
+      revoke.addEventListener("click", function() { setLearningSourceConsent(source.id, "revoke"); });
+      actions.appendChild(approve);
+      actions.appendChild(revoke);
+      item.appendChild(actions);
+      list.appendChild(item);
+    });
+  }
+
+  function renderEvolutionCandidates(candidates) {
+    var list = $("#evolutionCandidateList");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!candidates.length) {
+      list.appendChild(el("div", { class: "empty" }, "No evolution candidates yet."));
+      return;
+    }
+    candidates.forEach(function(candidate) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "badge " + (candidate.status === "promoted" || candidate.status === "active" ? "ok" : "warn") }, candidate.status));
+      item.appendChild(el("span", { class: "name" }, candidate.title || candidate.candidate_type));
+      item.appendChild(el("span", { class: "meta" }, [candidate.candidate_type, (candidate.required_permissions || []).join(", ")].filter(Boolean).join(" | ")));
+      var actions = el("span", { class: "actions" });
+      [
+        ["review", "Review", ""],
+        ["promote", "Promote", "primary"],
+        ["reject", "Reject", "danger"],
+      ].forEach(function(action) {
+        var btn = el("button", { class: action[2] }, action[1]);
+        btn.addEventListener("click", function() { setCandidateStatus(candidate.id, action[0]); });
+        actions.appendChild(btn);
+      });
+      item.appendChild(actions);
+      list.appendChild(item);
+    });
+  }
+
+  async function refreshEvolution() {
+    try {
+      var sources = await api("/api/console/evolution/sources");
+      var candidates = await api("/api/console/evolution/candidates");
+      state.evolution = { sources: sources.sources || [], candidates: candidates.candidates || [] };
+      renderEvolutionSources(state.evolution.sources);
+      renderEvolutionCandidates(state.evolution.candidates);
+    } catch (e) {
+      empty("#learningSourceList", "Self-Evolution unavailable: " + e.message);
+    }
+  }
+
+  async function addLearningSource() {
+    try {
+      var label = ($("#evolutionSourceLabel").value || "").trim();
+      var uri = ($("#evolutionSourceUri").value || "").trim();
+      var data = await api("/api/console/evolution/sources", {
+        method: "POST",
+        body: {
+          source_type: $("#evolutionSourceType").value,
+          label: label || uri,
+          uri: uri,
+          scope: $("#evolutionSourceScope").value,
+          risk_level: $("#evolutionRisk").value,
+        },
+      });
+      if (!data.ok) { toast(data.error || "Source rejected.", "error"); return; }
+      $("#evolutionSourceLabel").value = "";
+      $("#evolutionSourceUri").value = "";
+      toast("Learning source added for review.", "ok");
+      await refreshEvolution();
+      await refreshOperatorSummary();
+      await refreshTimeline();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  async function setLearningSourceConsent(id, action) {
+    try {
+      var data = await api("/api/console/evolution/sources/" + encodeURIComponent(id) + "/" + action, { method: "POST", body: {} });
+      if (!data.ok) { toast(data.error || "Source update failed.", "error"); return; }
+      toast(action === "approve" ? "Learning source approved." : "Learning source revoked.", action === "approve" ? "ok" : "warn");
+      await refreshEvolution();
+      await refreshOperatorSummary();
+      await refreshTimeline();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  async function setCandidateStatus(id, action) {
+    try {
+      var data = await api("/api/console/evolution/candidates/" + encodeURIComponent(id) + "/" + action, { method: "POST", body: {} });
+      if (!data.ok) { toast(data.error || "Candidate update failed.", "error"); return; }
+      toast("Candidate " + action + " recorded.", "ok");
+      await refreshEvolution();
+      await refreshOperatorSummary();
+      await refreshTimeline();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  function selectedProviderOption() {
+    if (!state.config || !Array.isArray(state.config.provider_options)) return null;
+    var id = $("#configProvider") ? $("#configProvider").value : "";
+    return state.config.provider_options.find(function(option) { return option.id === id; }) || null;
+  }
+
+  function renderConfig(data) {
+    state.config = data;
+    var providerOptions = data.provider_options || [];
+    var provider = (data.model && data.model.provider) || "";
+    var select = $("#configProvider");
+    var modelInput = $("#configModel");
+    var baseUrl = $("#configBaseUrl");
+    var models = $("#configModelOptions");
+    if (!select || !modelInput || !baseUrl || !models) return;
+
+    select.innerHTML = "";
+    providerOptions.forEach(function(option) {
+      var opt = el("option", { value: option.id }, option.name);
+      if (option.id === provider) opt.selected = true;
+      select.appendChild(opt);
+    });
+    if (!select.value && providerOptions.length) select.value = providerOptions[0].id;
+    modelInput.value = (data.model && data.model.model) || "";
+    baseUrl.value = (data.model && data.model.base_url) || "";
+    $("#configApiKey").value = "";
+    renderConfigModelOptions();
+
+    var summary = $("#configSummary");
+    summary.innerHTML = "";
+    [
+      ["Provider", provider || "not set"],
+      ["Model", (data.model && data.model.model) || "not set"],
+      ["API Key", data.model && data.model.api_key_configured ? "configured" : "not set"],
+      ["Config File", data.config_path || "local state"],
+    ].forEach(function(m) {
+      var card = el("div", { class: "card" });
+      card.appendChild(el("h3", null, m[0]));
+      card.appendChild(el("div", { class: "value" }, m[1]));
+      summary.appendChild(card);
+    });
+
+    var guardrails = $("#configGuardrails");
+    guardrails.innerHTML = "";
+    var production = data.runtime && data.runtime.policy && data.runtime.policy.production || {};
+    [
+      ["Mode", production.deployment_mode || "development", production.is_production || production.deployment_mode === "production"],
+      ["Isolation", production.external_isolation || "not set", !!production.external_isolation],
+      ["Security Reviewed", production.security_reviewed ? "yes" : "no", production.security_reviewed],
+      ["Human Approval", production.human_approval_required ? "required" : "not required", production.human_approval_required],
+      ["Trusted Inputs", production.trusted_inputs_only ? "only" : "untrusted allowed", production.trusted_inputs_only],
+    ].forEach(function(row) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "name" }, row[0]));
+      item.appendChild(el("span", { class: "badge " + (row[2] ? "ok" : "warn") }, row[1]));
+      guardrails.appendChild(item);
+    });
+
+    var modules = $("#configModules");
+    modules.innerHTML = "";
+    (data.modules || []).forEach(function(mod) {
+      var btn = el("button", { class: "module-btn", type: "button" });
+      btn.appendChild(el("span", null, mod.label));
+      btn.appendChild(el("span", { class: "meta" }, mod.enabled ? "available" : "disabled"));
+      btn.addEventListener("click", function() { openTab(mod.tab); });
+      modules.appendChild(btn);
+    });
+
+    $("#configOutput").textContent = JSON.stringify({
+      env_file: data.env_file,
+      env_preview: data.env_preview || {},
+      security: data.security || {},
+    }, null, 2);
+  }
+
+  function renderConfigModelOptions() {
+    var option = selectedProviderOption();
+    var models = $("#configModelOptions");
+    if (!models) return;
+    models.innerHTML = "";
+    ((option && option.models) || []).forEach(function(model) {
+      if (model) models.appendChild(el("option", { value: model }));
+    });
+    if (option && option.default_base_url && !$("#configBaseUrl").value) {
+      $("#configBaseUrl").value = option.default_base_url;
+    }
+    $("#configKeyHint").textContent = option && option.requires_api_key
+      ? (option.api_key_label + " is write-only; leave blank to keep the saved key.")
+      : "This provider does not require a hosted API key.";
+  }
+
+  function selectedModelDiscoverySources() {
+    return Array.from(document.querySelectorAll(".model-source"))
+      .filter(function(input) { return input.checked; })
+      .map(function(input) { return input.value; });
+  }
+
+  function modelCompatibilityBadge(status) {
+    if (status === "ready") return { text: "Ready", cls: "ok" };
+    if (status === "needs_key") return { text: "Needs API key", cls: "warn" };
+    if (status === "candidate_only") return { text: "Candidate only", cls: "warn" };
+    return { text: "Unsupported", cls: "error" };
+  }
+
+  function providerDefaultBaseUrl(provider) {
+    var option = (state.config && state.config.provider_options || []).find(function(item) {
+      return item.id === provider;
+    });
+    return option && option.default_base_url ? option.default_base_url : "";
+  }
+
+  function previewDiscoveredModel(model) {
+    $("#configProvider").value = model.provider;
+    $("#configModel").value = model.model_id;
+    var base = providerDefaultBaseUrl(model.provider);
+    if (base) $("#configBaseUrl").value = base;
+    renderConfigModelOptions();
+    openTab("config");
+    toast("Model loaded into Config. Click Save Config to activate.", "ok");
+  }
+
+  async function selectDiscoveredModel(model) {
+    try {
+      var data = await api("/api/console/models/discovery/select", {
+        method: "POST",
+        body: { source: model.source, provider: model.provider, model_id: model.model_id },
+      });
+      if (!data.ok) {
+        toast(data.error || "Model selection failed.", "error");
+        return;
+      }
+      renderConfig(data);
+      await refreshModelDiscovery(false);
+      await refreshStatus();
+      toast(data.requires_api_key ? "Model selected. Add an API key in Config before running." : "Model selected.", data.requires_api_key ? "warn" : "ok");
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  async function pingDiscoveredModel(model) {
+    try {
+      var data = await api("/api/console/models/discovery/ping", {
+        method: "POST",
+        body: {
+          provider: model.provider,
+          model_id: model.model_id,
+          base_url: providerDefaultBaseUrl(model.provider),
+        },
+      });
+      toast(data.ok ? "Compatibility ping passed." : (data.error || "Compatibility ping failed."), data.ok ? "ok" : "error");
+      $("#configOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+      toast(e.message, "error");
+      $("#configOutput").textContent = e.message;
+    }
+  }
+
+  function renderModelDiscovery(data) {
+    state.modelDiscovery = data;
+    var grid = $("#modelDiscoveryGrid");
+    var status = $("#modelDiscoveryStatus");
+    if (!grid || !status) return;
+    grid.innerHTML = "";
+    var models = data.models || [];
+    var sourceStates = data.sources || {};
+    var sourceNotes = Object.keys(sourceStates).map(function(source) {
+      var state = sourceStates[source] || {};
+      return source + ": " + (state.ok ? (state.count || 0) + " models" : (state.error || "unavailable"));
+    });
+    status.textContent = models.length
+      ? models.length + " discovered models. " + sourceNotes.join(" | ")
+      : "No cached models yet. Refresh OpenRouter first, then add Vultr/Hugging Face/local sources as needed.";
+    if (data.alerts && data.alerts.length) {
+      status.textContent += " Alerts: " + data.alerts.slice(0, 3).map(function(alert) {
+        return alert.kind + " " + alert.model_id;
+      }).join(", ");
+    }
+    models.slice(0, 80).forEach(function(model) {
+      var compat = modelCompatibilityBadge(model.compatibility_status);
+      var card = el("div", { class: "model-card " + (model.compatibility_status === "ready" ? "ready" : "candidate") });
+      var title = el("div", { class: "model-title" }, model.display_name || model.model_id);
+      card.appendChild(title);
+      card.appendChild(el("div", { class: "model-id" }, model.provider + " / " + model.model_id));
+      var badges = el("div", { class: "model-badges" });
+      badges.appendChild(el("span", { class: "badge " + compat.cls }, compat.text));
+      badges.appendChild(el("span", { class: "badge" }, model.source));
+      if (model.cost_class) badges.appendChild(el("span", { class: "badge" }, "cost: " + model.cost_class));
+      if (model.context_length) badges.appendChild(el("span", { class: "badge" }, String(model.context_length) + " ctx"));
+      (model.capability_badges || []).slice(0, 6).forEach(function(badgeText) {
+        badges.appendChild(el("span", { class: "badge" }, badgeText));
+      });
+      card.appendChild(badges);
+      card.appendChild(el("div", { class: "model-desc" }, (model.description || "Compatible model candidate.").slice(0, 240)));
+      var useCases = (model.recommended_use_cases || []).slice(0, 4).join(", ");
+      if (useCases) card.appendChild(el("div", { class: "hint" }, "Best for: " + useCases));
+      var actions = el("div", { class: "model-actions" });
+      var preview = el("button", { type: "button" }, "Preview");
+      preview.addEventListener("click", function() { previewDiscoveredModel(model); });
+      var ping = el("button", { type: "button" }, "Ping");
+      ping.addEventListener("click", function() { pingDiscoveredModel(model); });
+      var select = el("button", { type: "button", class: "primary" }, "Select Model");
+      if (["ready", "needs_key"].indexOf(model.compatibility_status) === -1) {
+        select.disabled = true;
+      }
+      select.addEventListener("click", function() { selectDiscoveredModel(model); });
+      actions.appendChild(preview);
+      actions.appendChild(ping);
+      actions.appendChild(select);
+      card.appendChild(actions);
+      grid.appendChild(card);
+    });
+  }
+
+  async function refreshModelDiscovery(useNetwork) {
+    try {
+      var sources = selectedModelDiscoverySources();
+      if (!sources.length) sources = ["openrouter"];
+      if (useNetwork) {
+        $("#modelDiscoveryStatus").textContent = "Refreshing model catalogs...";
+        await api("/api/console/models/discovery/refresh", {
+          method: "POST",
+          body: { sources: sources },
+        });
+      }
+      var capability = $("#modelCapabilityFilter").value || "";
+      var query = ($("#modelDiscoveryQuery").value || "").trim();
+      var params = new URLSearchParams();
+      params.set("sources", sources.join(","));
+      if (capability) params.set("capabilities", capability);
+      if (query) params.set("query", query);
+      var data = await api("/api/console/models/discovery?" + params.toString());
+      renderModelDiscovery(data);
+    } catch (e) {
+      $("#modelDiscoveryStatus").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function refreshConfig() {
+    try {
+      var data = await api("/api/console/config");
+      renderConfig(data);
+    } catch (e) {
+      $("#configOutput").textContent = e.message;
+    }
+  }
+
+  async function saveConfig(clearKey) {
+    try {
+      var data = await api("/api/console/config", {
+        method: "POST",
+        body: {
+          provider: $("#configProvider").value,
+          model: $("#configModel").value,
+          base_url: $("#configBaseUrl").value,
+          api_key: $("#configApiKey").value,
+          clear_api_key: !!clearKey,
+        },
+      });
+      renderConfig(data);
+      toast(data.ok ? "Config saved." : (data.error || "Config save failed."), data.ok ? "ok" : "error");
+      await refreshStatus();
+    } catch (e) {
+      $("#configOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+  $("#configProvider").addEventListener("change", renderConfigModelOptions);
+  $("#configSave").addEventListener("click", function() { saveConfig(false); });
+  $("#configClearKey").addEventListener("click", function() { saveConfig(true); });
+  $("#configRefresh").addEventListener("click", refreshConfig);
+  $("#modelDiscoveryRefresh").addEventListener("click", function() { refreshModelDiscovery(true); });
+  $("#modelDiscoveryQuery").addEventListener("input", function() { refreshModelDiscovery(false); });
+  $("#modelCapabilityFilter").addEventListener("change", function() { refreshModelDiscovery(false); });
+  document.querySelectorAll(".model-source").forEach(function(input) {
+    input.addEventListener("change", function() { refreshModelDiscovery(false); });
+  });
 
   async function refreshPathProfiles() {
     try {
@@ -573,7 +1059,7 @@
     item.appendChild(el("span", { class: "badge ok" }, provider));
     item.appendChild(el("span", { class: "meta" }, "model profile: " + model));
     container.appendChild(item);
-    var hint = el("p", { class: "hint" }, "Set a different provider by configuring the GHOSTCHIMERA_MODEL_PROVIDER environment variable before starting the server.");
+    var hint = el("p", { class: "hint" }, "Use the Config tab to switch providers without editing code or environment files.");
     hint.style.marginTop = "6px";
     container.appendChild(hint);
   }
@@ -1417,12 +1903,31 @@
   // ── Output helper ─────────────────────────────────────────────────────────
   function writeOutput(text) { $("pre#output").textContent = text; }
   $("#refresh").addEventListener("click", refreshStatus);
+  document.querySelectorAll("#setupSteps button").forEach(function(btn) {
+    btn.addEventListener("click", function() {
+      recordSetupStep(btn.getAttribute("data-step"), btn.getAttribute("data-target"));
+    });
+  });
+  $("#addEvolutionSource").addEventListener("click", addLearningSource);
+  $("#refreshActivity").addEventListener("click", refreshTimeline);
+  $("#operatorReadiness").addEventListener("click", async function() {
+    try {
+      var data = await api("/api/console/operator/readiness", { method: "POST", body: {} });
+      renderOperatorSummary(data);
+      await refreshTimeline();
+      toast((data.warnings || []).length ? "Readiness check has warnings." : "Readiness check passed.", (data.warnings || []).length ? "warn" : "ok");
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  });
 
   // ── Boot ──────────────────────────────────────────────────────────────────
   renderQuickActions();
   renderHistory();
   initAuth().then(function() {
     refreshStatus();
+    refreshConfig();
+    refreshModelDiscovery(false);
     refreshBrowserStatus();
     refreshSecurity();
     refreshSkills();
@@ -1431,6 +1936,9 @@
     refreshGithubStatus();
     refreshThinking();
     refreshMcpStatus();
+    refreshOperatorSummary();
+    refreshEvolution();
+    refreshTimeline();
   });
   setInterval(refreshStatus, 30000);
 })();

@@ -16,4 +16,6 @@ Validate configuration before deployment:
 python scripts/validate_config.py --env-file .env.production --production
 ```
 
+Start from `.env.production.example`, replace the console token, and choose a real model provider before running the validator.
+
 The validator redacts supported secret values in JSON and text output.

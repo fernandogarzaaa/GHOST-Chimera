@@ -29,11 +29,25 @@ from ..chimera_pilot.pr_review import run_pr_review
 from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 from ..config import GhostChimeraConfig
 from ..memory_layer.store import MemoryStore
+from ..model_layer.auth_profiles import AuthProfile
 from ..model_layer.minimind_lifecycle import MiniMindLifecycle
 from ..model_layer.minimind_personal_agent import MiniMindPersonalAgent
+from ..model_layer.model_discovery import get_model_discovery, refresh_model_discovery, select_discovered_model
+from ..model_layer.providers import get_provider
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
-from .config import get_autonomy_config, load_config, save_config
+from .config import CONFIG_FILE, config_to_env_vars, get_autonomy_config, get_default_config, load_config, save_config
+from .evolution import (
+    create_learning_source,
+    list_candidates,
+    list_sources,
+    read_timeline,
+    readiness_summary,
+    record_timeline_event,
+    set_candidate_status,
+    set_source_consent,
+    upsert_candidate,
+)
 
 RunObjective = Callable[[str], dict[str, Any]]
 FetchUrl = Callable[[str], str]
@@ -140,6 +154,205 @@ RELEASE_CHECKS: list[dict[str, str]] = [
 
 CONSOLE_HTML = "<!-- Ghost Console -- served by static/index.html -->"
 
+PROVIDER_OPTIONS: list[dict[str, Any]] = [
+    {
+        "id": "openai",
+        "name": "OpenAI",
+        "description": "Hosted OpenAI models.",
+        "models": ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"],
+        "requires_api_key": True,
+        "base_url_required": False,
+        "api_key_label": "OpenAI API key",
+    },
+    {
+        "id": "anthropic",
+        "name": "Anthropic",
+        "description": "Claude models through Anthropic.",
+        "models": ["claude-3-5-haiku-20241022", "claude-sonnet-4-6", "claude-opus-4-6"],
+        "requires_api_key": True,
+        "base_url_required": False,
+        "api_key_label": "Anthropic API key",
+    },
+    {
+        "id": "openrouter",
+        "name": "OpenRouter",
+        "description": "Many hosted models behind one OpenRouter API key.",
+        "models": ["openai/gpt-4o-mini", "anthropic/claude-3-5-haiku", "google/gemini-flash-1.5"],
+        "requires_api_key": True,
+        "base_url_required": False,
+        "api_key_label": "OpenRouter API key",
+    },
+    {
+        "id": "vultr",
+        "name": "Vultr Serverless Inference",
+        "description": "OpenAI-compatible Vultr serverless inference.",
+        "models": ["", "llama-3.1-70b", "mixtral-8x7b"],
+        "requires_api_key": True,
+        "base_url_required": True,
+        "api_key_label": "Vultr inference API key",
+        "default_base_url": "https://api.vultrinference.com/v1/chat/completions",
+    },
+    {
+        "id": "huggingface",
+        "name": "Hugging Face",
+        "description": "Hugging Face Inference API for compatible hosted open models.",
+        "models": ["meta-llama/Llama-3.3-70B-Instruct", "mistralai/Mistral-7B-Instruct-v0.3"],
+        "requires_api_key": True,
+        "base_url_required": False,
+        "api_key_label": "Hugging Face token",
+        "default_base_url": "https://api-inference.huggingface.co/v1/chat/completions",
+    },
+    {
+        "id": "ollama",
+        "name": "Ollama",
+        "description": "Local Ollama models running on this machine.",
+        "models": ["llama3.2", "mistral", "qwen2.5:7b"],
+        "requires_api_key": False,
+        "base_url_required": False,
+        "api_key_label": "",
+        "default_base_url": "http://localhost:11434",
+    },
+    {
+        "id": "lmstudio",
+        "name": "LM Studio",
+        "description": "Local LM Studio OpenAI-compatible server.",
+        "models": ["lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF", "any"],
+        "requires_api_key": False,
+        "base_url_required": False,
+        "api_key_label": "",
+        "default_base_url": "http://localhost:1234",
+    },
+    {
+        "id": "minimind",
+        "name": "Local MiniMind",
+        "description": "Local-first profile without a hosted API key.",
+        "models": ["tiny", "balanced", "stronger"],
+        "requires_api_key": False,
+        "base_url_required": False,
+        "api_key_label": "",
+    },
+]
+
+_MODEL_ENV_KEYS = {
+    "GHOSTCHIMERA_MODEL_PROVIDER",
+    "OPENAI_API_KEY",
+    "OPENAI_MODEL",
+    "OPENAI_BASE_URL",
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_MODEL",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_MODEL",
+    "VULTR_INFERENCE_API_KEY",
+    "VULTR_INFERENCE_MODEL",
+    "VULTR_INFERENCE_BASE_URL",
+    "HF_TOKEN",
+    "HUGGINGFACE_MODEL",
+    "HUGGINGFACE_BASE_URL",
+    "OLLAMA_MODEL",
+    "OLLAMA_BASE_URL",
+    "LMSTUDIO_MODEL",
+    "LMSTUDIO_BASE_URL",
+    "MINIMIND_MODEL_PROFILE",
+    "CUSTOM_MODEL",
+}
+
+
+def _redact_secret(value: str) -> str:
+    if not value:
+        return ""
+    if len(value) <= 6:
+        return "[configured]"
+    return f"{value[:2]}...{value[-2:]}"
+
+
+def _option_ids() -> set[str]:
+    return {str(option["id"]) for option in PROVIDER_OPTIONS}
+
+
+def _config_file_for_console(config_path: str | Path | None = None) -> Path:
+    return Path(config_path).expanduser() if config_path else CONFIG_FILE
+
+
+def _load_console_config(config_file: Path) -> dict[str, Any]:
+    config = load_config(config_file)
+    if not config:
+        config = get_default_config()
+    config.setdefault("model", {})
+    config.setdefault("gateway", get_default_config()["gateway"])
+    config.setdefault("safety", get_default_config()["safety"])
+    config.setdefault("autonomy", get_default_config()["autonomy"])
+    return config
+
+
+def _write_env_file(config_file: Path, env_vars: dict[str, str]) -> Path:
+    env_file = config_file.parent / ".env"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f"{key}={value}" for key, value in sorted(env_vars.items()) if value]
+    env_file.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    return env_file
+
+
+def _apply_model_env(env_vars: dict[str, str], *, overwrite: bool) -> None:
+    if overwrite:
+        for key in _MODEL_ENV_KEYS:
+            os.environ.pop(key, None)
+    for key, value in env_vars.items():
+        if value and (overwrite or not os.environ.get(key)):
+            os.environ[key] = value
+
+
+def _apply_saved_config_env(config_path: str | Path | None = None, *, overwrite: bool = False) -> None:
+    config_file = _config_file_for_console(config_path)
+    config = load_config(config_file)
+    if not config:
+        return
+    _apply_model_env(config_to_env_vars(config), overwrite=overwrite)
+
+
+def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str, Any]:
+    model = config.get("model", {}) if isinstance(config.get("model"), dict) else {}
+    env_vars = config_to_env_vars(config)
+    provider = str(model.get("provider") or os.environ.get("GHOSTCHIMERA_MODEL_PROVIDER") or "").strip()
+    runtime = GhostChimeraConfig.from_env().to_dict()
+    return {
+        "ok": True,
+        "config_path": str(config_file),
+        "env_file": str(config_file.parent / ".env"),
+        "provider_options": PROVIDER_OPTIONS,
+        "model": {
+            "provider": provider,
+            "model": str(model.get("model") or ""),
+            "base_url": str(model.get("base_url") or ""),
+            "api_key_configured": bool(model.get("api_key")),
+            "api_key_preview": _redact_secret(str(model.get("api_key") or "")),
+        },
+        "env_preview": {
+            key: (_redact_secret(value) if key.endswith("_API_KEY") else value)
+            for key, value in sorted(env_vars.items())
+            if value
+        },
+        "runtime": runtime,
+        "modules": [
+            {"id": "path", "label": "Ghost Paths", "tab": "path", "enabled": True},
+            {"id": "github", "label": "GitHub", "tab": "github", "enabled": True},
+            {"id": "operator", "label": "Operator Home", "tab": "operator", "enabled": True},
+            {"id": "thinking", "label": "Thinking", "tab": "thinking", "enabled": True},
+            {"id": "evolution", "label": "Self-Evolution", "tab": "evolution", "enabled": True},
+            {"id": "memory", "label": "Memory", "tab": "memory", "enabled": True},
+            {"id": "minimind", "label": "MiniMind", "tab": "minimind", "enabled": True},
+            {"id": "jobs", "label": "Autonomy Jobs", "tab": "jobs", "enabled": True},
+            {"id": "schedules", "label": "Schedules", "tab": "schedules", "enabled": True},
+            {"id": "security", "label": "Security", "tab": "security", "enabled": True},
+            {"id": "browser", "label": "Browser", "tab": "browser", "enabled": True},
+        ],
+        "restart_required": False,
+        "security": {
+            "secrets_are_write_only": True,
+            "raw_secret_values_returned": False,
+            "storage": "local Ghost Chimera config directory",
+        },
+    }
+
 
 def _json_body(ctx: dict[str, Any]) -> dict[str, Any]:
     """
@@ -170,6 +383,14 @@ def _as_bool(value: Any, *, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _as_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [part.strip() for part in str(value).split(",") if part.strip()]
 
 
 def _suffix(ctx: dict[str, Any], prefix: str) -> str:
@@ -358,6 +579,7 @@ def register_console_routes(
     workspace_store = operator_workspace or OperatorWorkspaceStore(state_dir=state_dir or server.config.state_dir)
     console_state_dir = Path(state_dir or server.config.state_dir)
     path_config_file = Path(config_path).expanduser() if config_path else None
+    console_config_file = _config_file_for_console(config_path)
     scheduler = cron_scheduler
     scheduler_error = ""
     if scheduler is None:
@@ -481,6 +703,189 @@ def register_console_routes(
         payload = _status_payload(server)
         payload["browser_workspace"] = workspace.status()
         return payload
+
+    def dashboard_config(ctx: dict[str, Any]) -> dict[str, Any]:
+        config = _load_console_config(console_config_file)
+        if ctx.get("method") == "GET":
+            return _safe_config_payload(config, console_config_file)
+
+        body = _json_body(ctx)
+        model = config.setdefault("model", {})
+        provider = str(body.get("provider") or model.get("provider") or "").strip().lower()
+        if provider not in _option_ids():
+            return {"ok": False, "error": "Choose a supported provider."}
+        model_name = str(body.get("model") or "").strip()
+        base_url = str(body.get("base_url") or "").strip()
+        api_key = str(body.get("api_key") or "").strip()
+        clear_api_key = _as_bool(body.get("clear_api_key"), default=False)
+
+        if base_url and not (base_url.startswith("https://") or base_url.startswith("http://")):
+            return {"ok": False, "error": "Base URL must start with http:// or https://."}
+        if len(model_name) > 200:
+            return {"ok": False, "error": "Model name is too long."}
+        if len(base_url) > 500:
+            return {"ok": False, "error": "Base URL is too long."}
+        if len(api_key) > 2000:
+            return {"ok": False, "error": "API key is too long."}
+
+        option = next(item for item in PROVIDER_OPTIONS if item["id"] == provider)
+        model["provider"] = provider
+        if model_name:
+            model["model"] = model_name
+        elif option.get("models") and option["models"][0]:
+            model["model"] = option["models"][0]
+        else:
+            model["model"] = ""
+        if base_url:
+            model["base_url"] = base_url
+        elif option.get("default_base_url"):
+            model["base_url"] = str(option["default_base_url"])
+        else:
+            model.pop("base_url", None)
+        if clear_api_key:
+            model.pop("api_key", None)
+        elif api_key:
+            model["api_key"] = api_key
+
+        config["model"] = model
+        save_config(config, console_config_file)
+        env_vars = config_to_env_vars(config)
+        env_file = _write_env_file(console_config_file, env_vars)
+        _apply_model_env(env_vars, overwrite=True)
+        record_timeline_event(
+            console_state_dir,
+            "config_saved",
+            {"provider": provider, "model": model.get("model", ""), "api_key_configured": bool(model.get("api_key"))},
+        )
+        payload = _safe_config_payload(config, console_config_file)
+        payload.update({"saved": True, "env_file": str(env_file)})
+        return payload
+
+    def model_discovery(ctx: dict[str, Any]) -> dict[str, Any]:
+        query = ctx.get("query") or {}
+        config = _load_console_config(console_config_file)
+        try:
+            return get_model_discovery(
+                config=config,
+                state_dir=console_config_file.parent,
+                sources=_as_list(query.get("source") or query.get("sources")),
+                capabilities=_as_list(query.get("capability") or query.get("capabilities")),
+                compatibility=_as_list(query.get("compatibility")),
+                query=str(query.get("query") or ""),
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def model_discovery_refresh(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        config = _load_console_config(console_config_file)
+        try:
+            refreshed = refresh_model_discovery(
+                config=config,
+                state_dir=console_config_file.parent,
+                sources=_as_list(body.get("sources")),
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {
+            "ok": refreshed.get("ok", False),
+            "cache_path": refreshed.get("cache_path", ""),
+            "sources": refreshed.get("sources", {}),
+            "alerts": refreshed.get("alerts", []),
+            "model_count": refreshed.get("model_count", 0),
+            "policy": refreshed.get("policy", {}),
+        }
+
+    def model_discovery_select(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "").strip().lower()
+        model_id = str(body.get("model_id") or "").strip()
+        source = str(body.get("source") or "").strip().lower()
+        if not provider or not model_id:
+            return {"ok": False, "error": "Select a provider and model."}
+        config = _load_console_config(console_config_file)
+        selected = select_discovered_model(
+            config=config,
+            state_dir=console_config_file.parent,
+            provider=provider,
+            model_id=model_id,
+            source=source,
+        )
+        if not selected.get("ok"):
+            return selected
+        next_config = selected["config"]
+        save_config(next_config, console_config_file)
+        env_vars = config_to_env_vars(next_config)
+        env_file = _write_env_file(console_config_file, env_vars)
+        _apply_model_env(env_vars, overwrite=True)
+        selected_model = selected.get("selected_model") or {}
+        record_timeline_event(
+            console_state_dir,
+            "model_activated",
+            {
+                "source": source,
+                "provider": provider,
+                "model_id": model_id,
+                "requires_api_key": bool(selected.get("requires_api_key", False)),
+            },
+        )
+        upsert_candidate(
+            console_state_dir,
+            {
+                "candidate_type": "model_recommendation",
+                "title": f"{provider}/{model_id}",
+                "status": "approved",
+                "metadata": selected_model if isinstance(selected_model, dict) else {},
+                "safety_notes": ["Activated only after explicit operator selection."],
+            },
+        )
+        payload = _safe_config_payload(next_config, console_config_file)
+        payload.update(
+            {
+                "saved": True,
+                "env_file": str(env_file),
+                "selected_model": selected_model,
+                "requires_api_key": selected.get("requires_api_key", False),
+            }
+        )
+        return payload
+
+    def model_discovery_ping(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider_name = str(body.get("provider") or "").strip().lower()
+        model_id = str(body.get("model_id") or "").strip()
+        base_url = str(body.get("base_url") or "").strip()
+        if not provider_name or not model_id:
+            return {"ok": False, "error": "Select a provider and model to ping."}
+        if len(provider_name) > 80 or len(model_id) > 300 or len(base_url) > 500:
+            return {"ok": False, "error": "Ping request is too long."}
+        if base_url and not (base_url.startswith("http://") or base_url.startswith("https://")):
+            return {"ok": False, "error": "Base URL must start with http:// or https://."}
+
+        config = _load_console_config(console_config_file)
+        active_model = config.get("model", {}) if isinstance(config.get("model"), dict) else {}
+        api_key = str(active_model.get("api_key") or "") if active_model.get("provider") == provider_name else ""
+        profile = AuthProfile(provider=provider_name, api_key=api_key, base_url=base_url, model=model_id)
+        provider = get_provider(provider_name, profile=profile)
+        if provider is None:
+            return {"ok": False, "error": "Ghost Chimera does not have a provider for this model yet."}
+        errors = provider.validate_config()
+        if errors:
+            return {"ok": False, "error": "Provider is not ready.", "details": errors[:3]}
+        try:
+            reply = provider.chat(
+                "You are Ghost Chimera's model compatibility checker. Reply with a short OK sentence.",
+                "Confirm this model can answer a Ghost Chimera console compatibility ping.",
+            )
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)[:500]}
+        return {
+            "ok": True,
+            "provider": provider_name,
+            "model_id": model_id,
+            "reply_preview": str(reply).strip()[:500],
+            "raw_secret_values_returned": False,
+        }
 
     def autonomy(ctx: dict[str, Any]) -> dict[str, Any]:
         if ctx.get("method") == "GET":
@@ -841,6 +1246,11 @@ def register_console_routes(
         minimind_intake = path.get("minimind_intake") if isinstance(path, dict) else {}
         if not isinstance(minimind_intake, dict):
             minimind_intake = {}
+        record_timeline_event(
+            console_state_dir,
+            "minimind_permission_changed",
+            {"profile_id": profile_id, "confirmation": str(minimind_intake.get("confirmation") or "")},
+        )
         return {
             "ok": True,
             "profile_id": profile_id,
@@ -866,6 +1276,15 @@ def register_console_routes(
             path = set_active_ghost_path(profile_id, preferences=preferences, config_path=path_config_file)
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
+        record_timeline_event(
+            console_state_dir,
+            "path_selected",
+            {
+                "profile_id": profile_id,
+                "training_mode": preferences.get("training_mode"),
+                "approval_level": preferences.get("approval_level"),
+            },
+        )
         return {"ok": True, "path": path}
 
     def thinking_trace(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -1231,6 +1650,49 @@ def register_console_routes(
                 max_files=max_files,
                 max_emails=max_emails,
             )
+        for candidate in candidates:
+            candidate_payload = candidate.to_dict()
+            source = create_learning_source(
+                console_state_dir,
+                {
+                    "source_type": "github_repo",
+                    "label": candidate_payload.get("url", "GitHub repository"),
+                    "uri": candidate_payload.get("url", ""),
+                    "scope": "path-specific",
+                    "consent_status": "pending",
+                    "risk_level": "medium" if candidate in blocked_sources else "low",
+                    "provenance": {
+                        "profile_id": profile_id,
+                        "intended_use": intended_use,
+                        "license": candidate_payload.get("license", ""),
+                        "commit": candidate_payload.get("commit", ""),
+                    },
+                },
+            )
+            upsert_candidate(
+                console_state_dir,
+                {
+                    "candidate_type": "rag_knowledge_update",
+                    "title": f"RAG source for {profile_id}: {candidate_payload.get('url', '')}",
+                    "source_id": source["id"],
+                    "status": "reviewed" if candidate in allowed_sources else "discovered",
+                    "required_permissions": ["learning_source_approval"],
+                    "safety_notes": ["Review license and consent before indexing."],
+                    "metadata": candidate_payload,
+                },
+            )
+        record_timeline_event(
+            console_state_dir,
+            "rag_plan_generated",
+            {
+                "profile_id": profile_id,
+                "training_mode": training_mode,
+                "requested_sources": len(candidates),
+                "allowed_sources": len(allowed_sources),
+                "review_required": len(blocked_sources),
+                "bootstrap_executed": bool(execute_bootstrap),
+            },
+        )
         return {
             "ok": True,
             "objective": objective,
@@ -1278,7 +1740,24 @@ def register_console_routes(
             connect_mcp_servers()
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
-        return mcp_status(ctx)
+        result = mcp_status(ctx)
+        upsert_candidate(
+            console_state_dir,
+            {
+                "candidate_type": "mcp_capability",
+                "title": "chimeralang MCP server",
+                "status": "approved" if result.get("enabled") else "reviewed",
+                "required_permissions": ["mcp_enable"],
+                "safety_notes": ["MCP capability was enabled through the Console control."],
+                "metadata": {"tool_count": result.get("tool_count", 0), "tools": result.get("tools", [])},
+            },
+        )
+        record_timeline_event(
+            console_state_dir,
+            "mcp_enabled",
+            {"server": "chimeralang", "enabled": bool(result.get("enabled")), "tool_count": result.get("tool_count", 0)},
+        )
+        return result
 
     def mcp_disable_chimeralang(ctx: dict[str, Any]) -> dict[str, Any]:
         from ..chimera_pilot.mcp_wrapper import disconnect_mcp_servers
@@ -1287,6 +1766,7 @@ def register_console_routes(
             disconnect_mcp_servers()
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+        record_timeline_event(console_state_dir, "mcp_disabled", {"server": "chimeralang"})
         return {"ok": True, "enabled": False, "tool_count": 0, "tools": []}
 
     def skills_list(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -1368,6 +1848,43 @@ def register_console_routes(
                     installed.append(_write_compat_skill(candidate))
             if installed:
                 get_registry(reset=True)
+        for candidate in candidates:
+            repo = str(candidate.get("full_name") or "").strip()
+            if not repo:
+                continue
+            source = create_learning_source(
+                console_state_dir,
+                {
+                    "source_type": "github_repo",
+                    "label": repo,
+                    "uri": str(candidate.get("html_url") or f"https://github.com/{repo}"),
+                    "scope": "global",
+                    "consent_status": "pending",
+                    "risk_level": "medium",
+                    "provenance": {
+                        "language": candidate.get("language", ""),
+                        "stars": candidate.get("stars", 0),
+                        "default_branch": candidate.get("default_branch", ""),
+                    },
+                },
+            )
+            upsert_candidate(
+                console_state_dir,
+                {
+                    "candidate_type": "skill_scaffold",
+                    "title": repo,
+                    "source_id": source["id"],
+                    "status": "approved" if install else "reviewed",
+                    "required_permissions": ["skill_review", "local_skill_write"] if install else ["skill_review"],
+                    "safety_notes": ["Compatibility skill stays reviewable through Self-Evolution."],
+                    "metadata": candidate,
+                },
+            )
+        record_timeline_event(
+            console_state_dir,
+            "skill_candidate_reviewed",
+            {"query": query, "candidate_count": len(candidates), "installed_count": len(installed)},
+        )
         return {
             "ok": True,
             "query": query,
@@ -1377,6 +1894,153 @@ def register_console_routes(
             "installed": installed,
             "skills_dir": str(_workspace_skills_dir()),
         }
+
+    def _operator_summary_payload() -> dict[str, Any]:
+        from ..personalization.path_state import get_active_ghost_path
+
+        config = _load_console_config(console_config_file)
+        active_path = get_active_ghost_path(config_path=path_config_file)
+        rag_payload: dict[str, Any] = {"enabled": False}
+        with contextlib.suppress(Exception):
+            rag_payload = personal_minimind().status()
+        mcp_payload: dict[str, Any] = {"enabled": False}
+        with contextlib.suppress(Exception):
+            mcp_payload = mcp_status({"method": "GET", "path": "/api/console/mcp/status", "headers": {}, "body": "", "query": {}})
+        sources = list_sources(console_state_dir)
+        candidates = list_candidates(console_state_dir)
+        summary = readiness_summary(
+            config=config,
+            active_path=active_path,
+            rag_status=rag_payload,
+            mcp_status=mcp_payload,
+            sources=sources,
+            candidates=candidates,
+        )
+        summary.update(
+            {
+                "active_path": active_path,
+                "model": _safe_config_payload(config, console_config_file)["model"],
+                "rag": rag_payload,
+                "mcp": mcp_payload,
+                "evolution": {
+                    "sources": sources,
+                    "candidates": candidates,
+                    "advisory_only": True,
+                    "automatic_promotion_enabled": False,
+                },
+            }
+        )
+        return summary
+
+    def operator_summary(ctx: dict[str, Any]) -> dict[str, Any]:
+        return _operator_summary_payload()
+
+    def operator_timeline(ctx: dict[str, Any]) -> dict[str, Any]:
+        query = ctx.get("query") or {}
+        try:
+            limit = int(query.get("limit") or 50)
+        except (TypeError, ValueError):
+            limit = 50
+        return {"ok": True, "events": read_timeline(console_state_dir, limit=limit)}
+
+    def operator_readiness(ctx: dict[str, Any]) -> dict[str, Any]:
+        summary = _operator_summary_payload()
+        record_timeline_event(
+            console_state_dir,
+            "readiness_check_run",
+            {"warning_count": len(summary.get("warnings") or []), "counts": summary.get("counts", {})},
+        )
+        return summary
+
+    def operator_setup_step(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        step = str(body.get("step") or "").strip().lower()
+        allowed = {
+            "choose_path",
+            "configure_model",
+            "confirm_minimind",
+            "select_learning_sources",
+            "generate_rag_plan",
+            "review_mcp",
+            "review_skills",
+            "run_readiness",
+        }
+        if step not in allowed:
+            return {"ok": False, "error": "Unsupported setup step.", "allowed_steps": sorted(allowed)}
+        record_timeline_event(console_state_dir, "setup_step_completed", {"step": step})
+        return {"ok": True, "step": step, "summary": _operator_summary_payload()}
+
+    def evolution_sources_route(ctx: dict[str, Any]) -> dict[str, Any]:
+        if ctx.get("method") == "GET":
+            return {"ok": True, "sources": list_sources(console_state_dir)}
+        try:
+            source = create_learning_source(console_state_dir, _json_body(ctx))
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        record_timeline_event(
+            console_state_dir,
+            "learning_source_added",
+            {"source_id": source["id"], "source_type": source["source_type"], "consent_status": source["consent_status"]},
+        )
+        return {"ok": True, "source": source, "sources": list_sources(console_state_dir)}
+
+    def evolution_source_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/evolution/sources/")
+        parts = [part for part in suffix.split("/") if part]
+        if len(parts) != 2 or parts[1] not in {"approve", "revoke"}:
+            return {"ok": False, "error": "Expected /api/console/evolution/sources/{id}/approve or /revoke"}
+        source_id, action = parts
+        try:
+            source = set_source_consent(console_state_dir, source_id, "approved" if action == "approve" else "revoked")
+        except KeyError:
+            return {"ok": False, "error": "Learning source not found."}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        record_timeline_event(
+            console_state_dir,
+            "learning_source_approved" if action == "approve" else "learning_source_revoked",
+            {"source_id": source_id, "source_type": source.get("source_type")},
+        )
+        return {"ok": True, "source": source, "sources": list_sources(console_state_dir)}
+
+    def evolution_candidates_route(ctx: dict[str, Any]) -> dict[str, Any]:
+        if ctx.get("method") == "GET":
+            return {"ok": True, "candidates": list_candidates(console_state_dir)}
+        try:
+            candidate = upsert_candidate(console_state_dir, _json_body(ctx))
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        record_timeline_event(
+            console_state_dir,
+            "evolution_candidate_added",
+            {"candidate_id": candidate["id"], "candidate_type": candidate["candidate_type"], "status": candidate["status"]},
+        )
+        return {"ok": True, "candidate": candidate, "candidates": list_candidates(console_state_dir)}
+
+    def evolution_candidate_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/evolution/candidates/")
+        parts = [part for part in suffix.split("/") if part]
+        allowed = {"review": "reviewed", "promote": "promoted", "reject": "rejected"}
+        if len(parts) != 2 or parts[1] not in allowed:
+            return {"ok": False, "error": "Expected /api/console/evolution/candidates/{id}/review, /promote, or /reject"}
+        body = _json_body(ctx)
+        try:
+            candidate = set_candidate_status(
+                console_state_dir,
+                parts[0],
+                allowed[parts[1]],
+                notes=str(body.get("notes") or ""),
+            )
+        except KeyError:
+            return {"ok": False, "error": "Evolution candidate not found."}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        record_timeline_event(
+            console_state_dir,
+            f"candidate_{allowed[parts[1]]}",
+            {"candidate_id": candidate["id"], "candidate_type": candidate.get("candidate_type")},
+        )
+        return {"ok": True, "candidate": candidate, "candidates": list_candidates(console_state_dir)}
 
     def jobs_list(ctx: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()}
@@ -1517,6 +2181,74 @@ def register_console_routes(
         description="Console auth capability advertisement",
     )
     _api_register("/api/console/status", status, method="GET", description="Ghost Console status")
+    _api_register("/api/console/operator/summary", operator_summary, method="GET", description="Operator home summary")
+    _api_register("/api/console/operator/timeline", operator_timeline, method="GET", description="Operator activity timeline")
+    _api_register("/api/console/operator/readiness", operator_readiness, method="POST", description="Run operator readiness check")
+    _api_register("/api/console/operator/setup-step", operator_setup_step, method="POST", description="Record guided setup step")
+    _api_register(
+        "/api/console/evolution/sources",
+        evolution_sources_route,
+        method="GET",
+        description="List Self-Evolution learning sources",
+    )
+    _api_register(
+        "/api/console/evolution/sources",
+        evolution_sources_route,
+        method="POST",
+        description="Create Self-Evolution learning source",
+    )
+    _api_register(
+        "/api/console/evolution/sources/",
+        evolution_source_action,
+        method="POST",
+        prefix=True,
+        description="Approve or revoke Self-Evolution learning source",
+    )
+    _api_register(
+        "/api/console/evolution/candidates",
+        evolution_candidates_route,
+        method="GET",
+        description="List Self-Evolution candidates",
+    )
+    _api_register(
+        "/api/console/evolution/candidates",
+        evolution_candidates_route,
+        method="POST",
+        description="Create Self-Evolution candidate",
+    )
+    _api_register(
+        "/api/console/evolution/candidates/",
+        evolution_candidate_action,
+        method="POST",
+        prefix=True,
+        description="Review, promote, or reject Self-Evolution candidate",
+    )
+    _api_register("/api/console/config", dashboard_config, method="GET", description="Inspect dashboard configuration")
+    _api_register("/api/console/config", dashboard_config, method="POST", description="Update dashboard configuration")
+    _api_register(
+        "/api/console/models/discovery",
+        model_discovery,
+        method="GET",
+        description="Inspect cached compatible model discovery",
+    )
+    _api_register(
+        "/api/console/models/discovery/refresh",
+        model_discovery_refresh,
+        method="POST",
+        description="Refresh compatible model discovery sources",
+    )
+    _api_register(
+        "/api/console/models/discovery/select",
+        model_discovery_select,
+        method="POST",
+        description="Select a discovered model for the dashboard config",
+    )
+    _api_register(
+        "/api/console/models/discovery/ping",
+        model_discovery_ping,
+        method="POST",
+        description="Run an optional model compatibility ping",
+    )
     _api_register("/api/console/autonomy", autonomy, method="GET", description="Ghost Console autonomy")
     _api_register("/api/console/autonomy", autonomy, method="POST", description="Ghost Console autonomy")
     _api_register(
@@ -1829,6 +2561,7 @@ def run_console(
         GatewayServer: The started gateway server instance.
     """
 
+    _apply_saved_config_env(overwrite=False)
     config = GhostChimeraConfig.from_env()
     if state_dir:
         resolved = Path(state_dir).expanduser()

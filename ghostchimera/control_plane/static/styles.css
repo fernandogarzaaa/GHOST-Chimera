@@ -72,6 +72,47 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   font-size: 13px; white-space: pre-wrap; word-break: break-word;
 }
 .compact-output { min-height: 72px; max-height: 220px; }
+.config-layout {
+  display: grid; grid-template-columns: minmax(280px, 420px) minmax(280px, 1fr);
+  gap: 18px; align-items: start;
+}
+.module-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.module-btn {
+  text-align: left; min-height: 54px; border-radius: 8px; background: var(--panel);
+  display: flex; flex-direction: column; justify-content: center; gap: 3px;
+}
+.module-btn .meta { color: var(--muted); font-size: 11px; }
+.operator-card { cursor: pointer; }
+.operator-card:hover { border-color: var(--accent); }
+.setup-steps {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px; margin-bottom: 16px;
+}
+.setup-steps button {
+  text-align: left; min-height: 48px; background: var(--panel);
+  border-radius: 8px;
+}
+.setup-steps button:hover { border-color: var(--accent); }
+.discovery-toolbar {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 8px;
+}
+.discovery-toolbar input { max-width: 260px; }
+.discovery-toolbar select { max-width: 220px; }
+.model-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px; margin-top: 10px;
+}
+.model-card {
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+  padding: 12px; display: flex; flex-direction: column; gap: 8px; min-height: 190px;
+}
+.model-card .model-title { font-weight: 700; color: var(--text); }
+.model-card .model-id { color: var(--muted); font-size: 12px; word-break: break-word; }
+.model-card .model-desc { color: var(--muted); font-size: 12px; line-height: 1.35; flex: 1; }
+.model-badges { display: flex; flex-wrap: wrap; gap: 5px; }
+.model-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.model-card.candidate { border-color: #7a5e1e; }
+.model-card.ready { border-color: #1b5f45; }
 .thinking-panel {
   border: 1px solid var(--line); border-radius: 8px; background: #0a0c0e;
   padding: 12px; overflow: auto; margin-bottom: 12px;
@@ -156,6 +197,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .provider-card.active { border-color: var(--accent); }
 @media (max-width: 700px) {
   .grid { grid-template-columns: 1fr; }
+  .config-layout { grid-template-columns: 1fr; }
   .tab { padding: 10px 12px; font-size: 13px; }
   .tab-content { padding: 16px; }
   header { padding: 0 16px; }

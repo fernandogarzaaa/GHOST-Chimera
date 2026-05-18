@@ -8,6 +8,7 @@ Start with the user tutorial if you are new to the product. Use the quick start 
 
 - [User Tutorial](USER_TUTORIAL.md)
 - [Quick Start](quick-start.md)
+- [Production Deployment](PRODUCTION_DEPLOYMENT.md)
 - [IBM Bob Tools](bob-tools.md)
 - [Safety and Production](safety-production.md)
 - [Release Process](release-process.md)

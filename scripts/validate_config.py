@@ -79,6 +79,26 @@ def _placeholder(value: str) -> bool:
     return not lowered or any(marker in lowered for marker in ("replace-with", "changeme", "example", "placeholder"))
 
 
+def _provider_requirements(provider_name: str) -> list[tuple[str, str]]:
+    """Return provider-specific required keys for supported production providers."""
+    requirements = {
+        "openai": [
+            ("OPENAI_API_KEY", "OpenAI API key"),
+            ("OPENAI_MODEL", "OpenAI model"),
+        ],
+        "anthropic": [
+            ("ANTHROPIC_API_KEY", "Anthropic API key"),
+            ("ANTHROPIC_MODEL", "Anthropic model"),
+        ],
+        "vultr": [
+            ("VULTR_INFERENCE_API_KEY", "Vultr inference API key"),
+            ("VULTR_INFERENCE_MODEL", "Vultr inference model"),
+            ("VULTR_INFERENCE_BASE_URL", "Vultr inference base URL"),
+        ],
+    }
+    return requirements.get(provider_name.strip().lower(), [])
+
+
 def validate_config(env_vars: dict[str, str], production_mode: bool = False) -> dict[str, Any]:
     """
     Validate Ghost Chimera configuration.
@@ -91,6 +111,25 @@ def validate_config(env_vars: dict[str, str], production_mode: bool = False) -> 
         Validation results dictionary
     """
     results = {"valid": True, "errors": [], "warnings": [], "checks": []}
+
+    provider_name = env_vars.get("GHOSTCHIMERA_MODEL_PROVIDER", "").strip().lower()
+    if not provider_name and all(
+        env_vars.get(key, "").strip()
+        for key in ("VULTR_INFERENCE_API_KEY", "VULTR_INFERENCE_MODEL", "VULTR_INFERENCE_BASE_URL")
+    ):
+        provider_name = "vultr"
+    provider_status = "OK" if provider_name else "WARNING"
+    results["checks"].append(
+        {
+            "name": "GHOSTCHIMERA_MODEL_PROVIDER",
+            "value": provider_name or "[NOT SET]",
+            "status": provider_status,
+        }
+    )
+    if not provider_name:
+        results["warnings"].append("GHOSTCHIMERA_MODEL_PROVIDER not set")
+    elif not env_vars.get("GHOSTCHIMERA_MODEL_PROVIDER", "").strip():
+        results["warnings"].append("GHOSTCHIMERA_MODEL_PROVIDER inferred from Vultr inference settings")
 
     # Check deployment mode
     deployment_mode = env_vars.get("GHOSTCHIMERA_DEPLOYMENT_MODE", "")
@@ -181,41 +220,26 @@ def validate_config(env_vars: dict[str, str], production_mode: bool = False) -> 
         results["errors"].append("GHOSTCHIMERA_CONSOLE_AUTH_TOKEN must not use an example or placeholder value")
         results["valid"] = False
 
-    # Check Vultr API key (presence only, never value)
-    vultr_key = env_vars.get("VULTR_INFERENCE_API_KEY", "")
-    vultr_key_status = "OK" if vultr_key else "WARNING"
-    results["checks"].append(
-        {"name": "VULTR_INFERENCE_API_KEY", "value": redact_secret(vultr_key), "status": vultr_key_status}
-    )
+    provider_requirements = _provider_requirements(provider_name)
+    if production_mode and not provider_name:
+        results["errors"].append("GHOSTCHIMERA_MODEL_PROVIDER must be set in production")
+        results["valid"] = False
+    elif provider_name and not provider_requirements:
+        results["warnings"].append(f"Provider-specific validation is not implemented for {provider_name}")
 
-    if not vultr_key:
-        results["warnings"].append("VULTR_INFERENCE_API_KEY not set (required for Vultr inference)")
-
-    # Check Vultr model
-    vultr_model = env_vars.get("VULTR_INFERENCE_MODEL", "")
-    results["checks"].append(
-        {
-            "name": "VULTR_INFERENCE_MODEL",
-            "value": vultr_model or "[NOT SET]",
-            "status": "OK" if vultr_model else "WARNING",
-        }
-    )
-
-    if not vultr_model:
-        results["warnings"].append("VULTR_INFERENCE_MODEL not set")
-
-    # Check Vultr base URL
-    vultr_url = env_vars.get("VULTR_INFERENCE_BASE_URL", "")
-    results["checks"].append(
-        {
-            "name": "VULTR_INFERENCE_BASE_URL",
-            "value": vultr_url or "[NOT SET]",
-            "status": "OK" if vultr_url else "WARNING",
-        }
-    )
-
-    if not vultr_url:
-        results["warnings"].append("VULTR_INFERENCE_BASE_URL not set")
+    for env_key, label in provider_requirements:
+        value = env_vars.get(env_key, "")
+        is_secret = env_key.endswith("_API_KEY")
+        rendered = redact_secret(value) if is_secret else (value or "[NOT SET]")
+        status = "OK" if value else "WARNING"
+        results["checks"].append({"name": env_key, "value": rendered, "status": status})
+        if not value:
+            message = f"{label} not set"
+            if production_mode:
+                results["errors"].append(message)
+                results["valid"] = False
+            else:
+                results["warnings"].append(message)
 
     return results
 

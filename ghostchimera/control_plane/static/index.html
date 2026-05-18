@@ -31,7 +31,9 @@
     </div>
   </header>
   <nav class="tab-bar" id="tabBar">
-    <button class="tab active" data-tab="status">Status</button>
+    <button class="tab active" data-tab="operator">Home</button>
+    <button class="tab" data-tab="status">Status</button>
+    <button class="tab" data-tab="config">Config</button>
     <button class="tab" data-tab="path">Path</button>
     <button class="tab" data-tab="github">GitHub</button>
     <button class="tab" data-tab="thinking">Thinking</button>
@@ -43,6 +45,8 @@
     <button class="tab" data-tab="rag-builder">RAG Builder</button>
     <button class="tab" data-tab="mcp">MCP</button>
     <button class="tab" data-tab="skills">Skills</button>
+    <button class="tab" data-tab="evolution">Self-Evolution</button>
+    <button class="tab" data-tab="activity">Activity</button>
     <button class="tab" data-tab="browser">Browser</button>
     <button class="tab" data-tab="security">Security</button>
     <button class="tab" data-tab="schedules">Schedules</button>
@@ -51,7 +55,87 @@
     <button class="tab" data-tab="readiness">Readiness</button>
   </nav>
 
+  <!-- ── OPERATOR HOME ─────────────────────────────────────────────────── -->
+  <div class="tab-content active" id="tab-operator">
+    <div class="section-hdr" style="margin-top:0;">Ghost Readiness</div>
+    <div class="grid" id="operatorCards"></div>
+    <div class="section-hdr">Guided Setup</div>
+    <div class="setup-steps" id="setupSteps">
+      <button data-step="choose_path" data-target="path">1. Choose Ghost Path</button>
+      <button data-step="configure_model" data-target="config">2. Configure Model</button>
+      <button data-step="confirm_minimind" data-target="path">3. Confirm MiniMind</button>
+      <button data-step="select_learning_sources" data-target="evolution">4. Select Sources</button>
+      <button data-step="generate_rag_plan" data-target="rag-builder">5. Build RAG Plan</button>
+      <button data-step="review_mcp" data-target="mcp">6. Review MCP</button>
+      <button data-step="review_skills" data-target="skills">7. Review Skills</button>
+      <button data-step="run_readiness" data-target="activity">8. Run Readiness</button>
+    </div>
+    <div class="section-hdr">Warnings</div>
+    <div id="operatorWarnings" class="list"></div>
+  </div>
+
   <!-- ── STATUS ────────────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-config">
+    <div class="section-hdr" style="margin-top:0;">Model Provider</div>
+    <div class="grid" id="configSummary"></div>
+    <div class="config-layout">
+      <div>
+        <div class="form-group">
+          <label>Provider</label>
+          <select id="configProvider"></select>
+        </div>
+        <div class="form-group">
+          <label>Model</label>
+          <input id="configModel" list="configModelOptions" placeholder="model name">
+          <datalist id="configModelOptions"></datalist>
+        </div>
+        <div class="form-group">
+          <label>Base URL</label>
+          <input id="configBaseUrl" placeholder="https://...">
+        </div>
+        <div class="form-group">
+          <label>API Key</label>
+          <input id="configApiKey" type="password" autocomplete="off" placeholder="leave blank to keep existing key">
+          <label class="hint" id="configKeyHint">Secrets are write-only and will not be shown after saving.</label>
+        </div>
+        <div class="row">
+          <button id="configSave" class="primary">Save Config</button>
+          <button id="configClearKey" class="danger">Clear Key</button>
+          <button id="configRefresh">Refresh</button>
+        </div>
+      </div>
+      <div>
+        <div class="section-hdr" style="margin-top:0;">Production Posture</div>
+        <div id="configGuardrails"></div>
+        <div class="section-hdr">Modules</div>
+        <div id="configModules" class="module-grid"></div>
+      </div>
+    </div>
+    <div class="section-hdr">Discover Models</div>
+    <div class="discovery-toolbar">
+      <input id="modelDiscoveryQuery" placeholder="search models">
+      <label class="inline-check"><input type="checkbox" class="model-source" value="openrouter" checked> OpenRouter</label>
+      <label class="inline-check"><input type="checkbox" class="model-source" value="vultr"> Vultr</label>
+      <label class="inline-check"><input type="checkbox" class="model-source" value="huggingface"> Hugging Face</label>
+      <label class="inline-check"><input type="checkbox" class="model-source" value="local"> Local</label>
+      <select id="modelCapabilityFilter">
+        <option value="">All capabilities</option>
+        <option value="text">Text</option>
+        <option value="vision">Vision</option>
+        <option value="tool-calling">Tool calling</option>
+        <option value="reasoning">Reasoning</option>
+        <option value="low-cost">Low cost</option>
+        <option value="long-context">Long context</option>
+        <option value="local">Local/private</option>
+      </select>
+      <button id="modelDiscoveryRefresh" class="primary">Refresh</button>
+    </div>
+    <div class="hint" id="modelDiscoveryStatus">Discovery is advisory. Select a model to review it before saving.</div>
+    <div id="modelDiscoveryGrid" class="model-grid"></div>
+    <div class="section-hdr">Saved Environment</div>
+    <pre class="output compact-output" id="configOutput">Config is local to this machine. Raw secret values are never displayed here.</pre>
+  </div>
+
   <div class="tab-content" id="tab-path">
     <div class="section-hdr" style="margin-top:0;">Choose Ghost Path</div>
     <div class="grid" id="pathSummary"></div>
@@ -130,7 +214,7 @@
     </div>
   </div>
 
-  <div class="tab-content active" id="tab-status">
+  <div class="tab-content" id="tab-status">
     <div class="grid" id="statusCards"></div>
 
     <div class="section-hdr">Autonomy Profile</div>
@@ -403,6 +487,72 @@
   </div>
 
   <!-- ── BROWSER ───────────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-evolution">
+    <div class="section-hdr" style="margin-top:0;">Learning Sources</div>
+    <div class="config-layout">
+      <div>
+        <div class="form-group">
+          <label>Source Type</label>
+          <select id="evolutionSourceType">
+            <option value="github_repo">GitHub repo</option>
+            <option value="docs_url">Docs URL</option>
+            <option value="local_folder">Local folder</option>
+            <option value="uploaded_text">Uploaded text</option>
+            <option value="mcp_server">MCP server</option>
+            <option value="model_catalog">Model catalog</option>
+            <option value="manual_note">Manual note</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Label</label>
+          <input id="evolutionSourceLabel" placeholder="source label">
+        </div>
+        <div class="form-group">
+          <label>URI or Path</label>
+          <input id="evolutionSourceUri" placeholder="https://github.com/owner/repo">
+        </div>
+        <div class="row">
+          <select id="evolutionSourceScope">
+            <option value="global">Global</option>
+            <option value="path-specific">Path-specific</option>
+            <option value="role-specific">Role-specific</option>
+          </select>
+          <select id="evolutionRisk">
+            <option value="low">Low risk</option>
+            <option value="medium">Medium risk</option>
+            <option value="high">High risk</option>
+          </select>
+          <button id="addEvolutionSource" class="primary">Add Source</button>
+        </div>
+      </div>
+      <div>
+        <div class="section-hdr" style="margin-top:0;">Policy</div>
+        <div class="list-item">
+          <span class="badge warn">review-first</span>
+          <span class="name">Manual activation</span>
+          <span class="meta">Sources, models, MCP, and skills never promote themselves.</span>
+        </div>
+        <div class="list-item">
+          <span class="badge ok">write-only</span>
+          <span class="name">Secrets redacted</span>
+          <span class="meta">Dashboard responses do not expose raw tokens or API keys.</span>
+        </div>
+      </div>
+    </div>
+    <div id="learningSourceList"></div>
+    <div class="section-hdr">Evolution Candidates</div>
+    <div id="evolutionCandidateList"></div>
+  </div>
+
+  <div class="tab-content" id="tab-activity">
+    <div class="section-hdr" style="margin-top:0;">Operator Activity</div>
+    <div class="row">
+      <button id="operatorReadiness" class="primary">Run Readiness Check</button>
+      <button id="refreshActivity">Refresh Activity</button>
+    </div>
+    <div id="activityTimeline" class="list" style="margin-top:12px;"></div>
+  </div>
+
   <div class="tab-content" id="tab-browser">
     <div class="section-hdr" style="margin-top:0;">Browser Workspace</div>
     <div id="browserStatusRow" class="list-item" style="margin-bottom:14px;">
