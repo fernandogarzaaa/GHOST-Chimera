@@ -113,6 +113,11 @@ def validate_config(env_vars: dict[str, str], production_mode: bool = False) -> 
     results = {"valid": True, "errors": [], "warnings": [], "checks": []}
 
     provider_name = env_vars.get("GHOSTCHIMERA_MODEL_PROVIDER", "").strip().lower()
+    if not provider_name and all(
+        env_vars.get(key, "").strip()
+        for key in ("VULTR_INFERENCE_API_KEY", "VULTR_INFERENCE_MODEL", "VULTR_INFERENCE_BASE_URL")
+    ):
+        provider_name = "vultr"
     provider_status = "OK" if provider_name else "WARNING"
     results["checks"].append(
         {
@@ -123,6 +128,8 @@ def validate_config(env_vars: dict[str, str], production_mode: bool = False) -> 
     )
     if not provider_name:
         results["warnings"].append("GHOSTCHIMERA_MODEL_PROVIDER not set")
+    elif not env_vars.get("GHOSTCHIMERA_MODEL_PROVIDER", "").strip():
+        results["warnings"].append("GHOSTCHIMERA_MODEL_PROVIDER inferred from Vultr inference settings")
 
     # Check deployment mode
     deployment_mode = env_vars.get("GHOSTCHIMERA_DEPLOYMENT_MODE", "")

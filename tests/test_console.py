@@ -150,11 +150,13 @@ class ConsoleRouteTests(unittest.TestCase):
 
             profiles_route = server.routes.find("GET", "/api/console/paths")
             synthesize_route = server.routes.find("POST", "/api/console/paths/synthesize")
+            confirm_route = server.routes.find("POST", "/api/console/paths/confirm-minimind")
             active_route = server.routes.find("GET", "/api/console/paths/active")
             save_route = server.routes.find("POST", "/api/console/paths/active")
 
             self.assertIsNotNone(profiles_route)
             self.assertIsNotNone(synthesize_route)
+            self.assertIsNotNone(confirm_route)
             self.assertIsNotNone(active_route)
             self.assertIsNotNone(save_route)
 
@@ -165,6 +167,8 @@ class ConsoleRouteTests(unittest.TestCase):
             profile_ids = {profile["id"] for profile in profiles["profiles"]}
             self.assertIn("ai-engineer-proxy", profile_ids)
             self.assertIn("marketing-specialist", profile_ids)
+            self.assertIn("trader-path", profile_ids)
+            self.assertIn("crypto-trader-path", profile_ids)
             marketing = next(profile for profile in profiles["profiles"] if profile["id"] == "marketing-specialist")
             self.assertIn("campaign_assets", marketing["personalization_sources"])
 
@@ -183,6 +187,21 @@ class ConsoleRouteTests(unittest.TestCase):
             self.assertEqual(synthesized["path"]["role"]["id"], "virtual-assistant")
             self.assertEqual(synthesized["path"]["ghost_blueprint"]["concept"], "personalized AI operator proxy")
             self.assertIn("personal_admin", synthesized["path"]["ghost_blueprint"]["can_operate"])
+            self.assertIn("minimind_intake", synthesized["path"])
+
+            confirmed = confirm_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/paths/confirm-minimind",
+                    "headers": {},
+                    "body": json.dumps(
+                        {"profile_id": "ai-engineer-proxy", "preferences": {"training_mode": "dataset_generation"}}
+                    ),
+                    "query": {},
+                }
+            )
+            self.assertTrue(confirmed["ok"])
+            self.assertTrue(confirmed["minimind_intake"]["will_generate_open_source_dataset"])
 
             saved = save_route.handler(
                 {
@@ -453,11 +472,22 @@ class ConsoleRouteTests(unittest.TestCase):
         html = (root / "ghostchimera" / "control_plane" / "static" / "index.html").read_text(encoding="utf-8")
         app = (root / "ghostchimera" / "control_plane" / "static" / "app.js").read_text(encoding="utf-8")
 
+        self.assertIn('data-tab="operator"', html)
         self.assertIn('data-tab="path"', html)
         self.assertIn('data-tab="github"', html)
         self.assertIn('data-tab="thinking"', html)
+        self.assertIn('data-tab="rag-builder"', html)
+        self.assertIn('data-tab="mcp"', html)
+        self.assertIn('data-tab="evolution"', html)
+        self.assertIn('data-tab="activity"', html)
         self.assertIn('data-tab="config"', html)
+        self.assertIn("operatorCards", html)
+        self.assertIn("setupSteps", html)
+        self.assertIn("learningSourceList", html)
+        self.assertIn("evolutionCandidateList", html)
+        self.assertIn("activityTimeline", html)
         self.assertIn("pathProfile", html)
+        self.assertIn("pathConfirmMiniMind", html)
         self.assertIn("configProvider", html)
         self.assertIn("configApiKey", html)
         self.assertIn("modelDiscoveryGrid", html)
@@ -465,13 +495,20 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIn("pathSave", html)
         self.assertIn("githubRepo", html)
         self.assertIn("githubDeviceStart", html)
+        self.assertIn("ragBuildPlan", html)
+        self.assertIn("mcpEnable", html)
+        self.assertIn("discoverSkills", html)
         self.assertIn("githubSelfEvolutionPreview", html)
         self.assertIn("thinkingGraph", html)
         self.assertIn("/api/console/paths", app)
         self.assertIn("/api/console/paths/synthesize", app)
+        self.assertIn("/api/console/paths/confirm-minimind", app)
         self.assertIn("/api/console/paths/active", app)
         self.assertIn("Learns from:", app)
         self.assertIn("Operates:", app)
+        self.assertIn("/api/console/rag/builder", app)
+        self.assertIn("/api/console/mcp/chimeralang/enable", app)
+        self.assertIn("/api/console/skills/discover", app)
         self.assertIn("/api/console/github/status", app)
         self.assertIn("/api/console/github/device/start", app)
         self.assertIn("/api/console/github/self-evolution/preview", app)
@@ -482,7 +519,159 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIn("/api/console/models/discovery/refresh", app)
         self.assertIn("/api/console/models/discovery/select", app)
         self.assertIn("/api/console/models/discovery/ping", app)
+        self.assertIn("/api/console/operator/summary", app)
+        self.assertIn("/api/console/operator/timeline", app)
+        self.assertIn("/api/console/operator/readiness", app)
+        self.assertIn("/api/console/evolution/sources", app)
+        self.assertIn("/api/console/evolution/candidates", app)
         self.assertIn("Use the Config tab", app)
+
+    def test_console_operator_summary_and_timeline_routes(self) -> None:
+        server = GatewayServer()
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-operator-") as tmp:
+            register_console_routes(server, state_dir=tmp, config_path=Path(tmp) / "config.json")
+            summary_route = server.routes.find("GET", "/api/console/operator/summary")
+            readiness_route = server.routes.find("POST", "/api/console/operator/readiness")
+            timeline_route = server.routes.find("GET", "/api/console/operator/timeline")
+
+            self.assertIsNotNone(summary_route)
+            self.assertIsNotNone(readiness_route)
+            self.assertIsNotNone(timeline_route)
+
+            summary = summary_route.handler(
+                {"method": "GET", "path": "/api/console/operator/summary", "headers": {}, "body": "", "query": {}}
+            )
+            self.assertTrue(summary["ok"])
+            self.assertIn("cards", summary)
+            self.assertIn("evolution", summary)
+            self.assertTrue(summary["secret_policy"]["secrets_are_write_only"])
+
+            readiness = readiness_route.handler(
+                {"method": "POST", "path": "/api/console/operator/readiness", "headers": {}, "body": "{}", "query": {}}
+            )
+            self.assertTrue(readiness["ok"])
+
+            timeline = timeline_route.handler(
+                {"method": "GET", "path": "/api/console/operator/timeline", "headers": {}, "body": "", "query": {}}
+            )
+            self.assertTrue(timeline["ok"])
+            self.assertGreaterEqual(len(timeline["events"]), 1)
+            self.assertEqual(timeline["events"][-1]["event_type"], "readiness_check_run")
+
+    def test_console_evolution_source_lifecycle_redacts_secrets(self) -> None:
+        server = GatewayServer()
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-evolution-") as tmp:
+            register_console_routes(server, state_dir=tmp, config_path=Path(tmp) / "config.json")
+            create_route = server.routes.find("POST", "/api/console/evolution/sources")
+            approve_route = server.routes.find("POST", "/api/console/evolution/sources/source-id/approve")
+            revoke_route = server.routes.find("POST", "/api/console/evolution/sources/source-id/revoke")
+
+            self.assertIsNotNone(create_route)
+            created = create_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/evolution/sources",
+                    "headers": {},
+                    "body": json.dumps(
+                        {
+                            "id": "source-id",
+                            "source_type": "github_repo",
+                            "label": "owner/repo",
+                            "uri": "https://github.com/owner/repo",
+                            "provenance": {"api_key": "should-not-leak"},
+                        }
+                    ),
+                    "query": {},
+                }
+            )
+            self.assertTrue(created["ok"])
+            self.assertNotIn("should-not-leak", json.dumps(created))
+            self.assertEqual(created["source"]["provenance"]["api_key"], "[redacted]")
+
+            approved = approve_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/evolution/sources/source-id/approve",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+            self.assertTrue(approved["ok"])
+            self.assertEqual(approved["source"]["consent_status"], "approved")
+
+            revoked = revoke_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/evolution/sources/source-id/revoke",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+            self.assertTrue(revoked["ok"])
+            self.assertEqual(revoked["source"]["consent_status"], "revoked")
+
+    def test_console_evolution_candidate_requires_review_before_promotion(self) -> None:
+        server = GatewayServer()
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-candidate-") as tmp:
+            register_console_routes(server, state_dir=tmp, config_path=Path(tmp) / "config.json")
+            create_route = server.routes.find("POST", "/api/console/evolution/candidates")
+            promote_route = server.routes.find("POST", "/api/console/evolution/candidates/candidate-id/promote")
+            review_route = server.routes.find("POST", "/api/console/evolution/candidates/candidate-id/review")
+
+            created = create_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/evolution/candidates",
+                    "headers": {},
+                    "body": json.dumps(
+                        {
+                            "id": "candidate-id",
+                            "candidate_type": "skill_scaffold",
+                            "title": "owner/repo",
+                            "metadata": {"token": "hidden"},
+                        }
+                    ),
+                    "query": {},
+                }
+            )
+            self.assertTrue(created["ok"])
+            self.assertNotIn("hidden", json.dumps(created))
+
+            blocked = promote_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/evolution/candidates/candidate-id/promote",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+            self.assertFalse(blocked["ok"])
+
+            reviewed = review_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/evolution/candidates/candidate-id/review",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+            self.assertTrue(reviewed["ok"])
+
+            promoted = promote_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/evolution/candidates/candidate-id/promote",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+            self.assertTrue(promoted["ok"])
+            self.assertEqual(promoted["candidate"]["status"], "promoted")
 
     def test_console_registers_thinking_trace_route(self) -> None:
         server = GatewayServer()
@@ -1192,6 +1381,64 @@ class ConsoleCliTests(unittest.TestCase):
         self.assertIn("skills", result)
         self.assertIsInstance(result["skills"], list)
 
+    def test_console_skills_discovery_can_generate_compatibility_skill(self) -> None:
+        server = GatewayServer()
+        with (
+            tempfile.TemporaryDirectory(prefix="ghostchimera-skill-discovery-") as tmp,
+            patch.dict("os.environ", {"GHOSTCHIMERA_SKILLS_DIR": str(Path(tmp) / "skills")}, clear=False),
+        ):
+            register_console_routes(server, state_dir=tmp)
+            route = server.routes.find("POST", "/api/console/skills/discover")
+            self.assertIsNotNone(route)
+            with patch(
+                "ghostchimera.integrations.github_client.GitHubClient.get_json",
+                return_value={
+                    "items": [
+                        {
+                            "full_name": "octo-org/sample-skill",
+                            "html_url": "https://github.com/octo-org/sample-skill",
+                            "description": "sample skill",
+                            "language": "Python",
+                            "stargazers_count": 42,
+                            "default_branch": "main",
+                        }
+                    ]
+                },
+            ):
+                result = route.handler(
+                    {
+                        "method": "POST",
+                        "path": "/api/console/skills/discover",
+                        "headers": {},
+                        "body": json.dumps({"query": "sample skill", "install": True, "limit": 1}),
+                        "query": {},
+                    }
+                )
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["installed_count"], 1)
+            self.assertTrue(Path(result["installed"][0]["path"]).exists())
+
+    def test_console_registers_rag_builder_and_mcp_routes(self) -> None:
+        server = GatewayServer()
+        register_console_routes(server)
+        rag_status = server.routes.find("GET", "/api/console/rag/builder/status")
+        rag_build = server.routes.find("POST", "/api/console/rag/builder")
+        mcp_status = server.routes.find("GET", "/api/console/mcp/status")
+        self.assertIsNotNone(rag_status)
+        self.assertIsNotNone(rag_build)
+        self.assertIsNotNone(mcp_status)
+        rag_status_payload = rag_status.handler(
+            {"method": "GET", "path": "/api/console/rag/builder/status", "headers": {}, "body": "", "query": {}}
+        )
+        self.assertTrue(rag_status_payload["ok"])
+        self.assertIn("status", rag_status_payload)
+        mcp_status_payload = mcp_status.handler(
+            {"method": "GET", "path": "/api/console/mcp/status", "headers": {}, "body": "", "query": {}}
+        )
+        self.assertTrue(mcp_status_payload["ok"])
+        self.assertIn("registered", mcp_status_payload)
+        self.assertIn("enabled", mcp_status_payload)
+
     def test_index_html_includes_skills_tab(self) -> None:
         from pathlib import Path
 
@@ -1201,6 +1448,8 @@ class ConsoleCliTests(unittest.TestCase):
         html = html_path.read_text(encoding="utf-8")
         self.assertIn("tab-skills", html)
         self.assertIn("Skills", html)
+        self.assertIn("tab-rag-builder", html)
+        self.assertIn("tab-mcp", html)
 
 
 if __name__ == "__main__":

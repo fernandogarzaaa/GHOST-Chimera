@@ -31,7 +31,8 @@
     </div>
   </header>
   <nav class="tab-bar" id="tabBar">
-    <button class="tab active" data-tab="status">Status</button>
+    <button class="tab active" data-tab="operator">Home</button>
+    <button class="tab" data-tab="status">Status</button>
     <button class="tab" data-tab="config">Config</button>
     <button class="tab" data-tab="path">Path</button>
     <button class="tab" data-tab="github">GitHub</button>
@@ -41,7 +42,11 @@
     <button class="tab" data-tab="workspace">Workspace</button>
     <button class="tab" data-tab="memory">Memory</button>
     <button class="tab" data-tab="minimind">MiniMind</button>
+    <button class="tab" data-tab="rag-builder">RAG Builder</button>
+    <button class="tab" data-tab="mcp">MCP</button>
     <button class="tab" data-tab="skills">Skills</button>
+    <button class="tab" data-tab="evolution">Self-Evolution</button>
+    <button class="tab" data-tab="activity">Activity</button>
     <button class="tab" data-tab="browser">Browser</button>
     <button class="tab" data-tab="security">Security</button>
     <button class="tab" data-tab="schedules">Schedules</button>
@@ -49,6 +54,25 @@
     <button class="tab" data-tab="capabilities">Capabilities</button>
     <button class="tab" data-tab="readiness">Readiness</button>
   </nav>
+
+  <!-- ── OPERATOR HOME ─────────────────────────────────────────────────── -->
+  <div class="tab-content active" id="tab-operator">
+    <div class="section-hdr" style="margin-top:0;">Ghost Readiness</div>
+    <div class="grid" id="operatorCards"></div>
+    <div class="section-hdr">Guided Setup</div>
+    <div class="setup-steps" id="setupSteps">
+      <button data-step="choose_path" data-target="path">1. Choose Ghost Path</button>
+      <button data-step="configure_model" data-target="config">2. Configure Model</button>
+      <button data-step="confirm_minimind" data-target="path">3. Confirm MiniMind</button>
+      <button data-step="select_learning_sources" data-target="evolution">4. Select Sources</button>
+      <button data-step="generate_rag_plan" data-target="rag-builder">5. Build RAG Plan</button>
+      <button data-step="review_mcp" data-target="mcp">6. Review MCP</button>
+      <button data-step="review_skills" data-target="skills">7. Review Skills</button>
+      <button data-step="run_readiness" data-target="activity">8. Run Readiness</button>
+    </div>
+    <div class="section-hdr">Warnings</div>
+    <div id="operatorWarnings" class="list"></div>
+  </div>
 
   <!-- ── STATUS ────────────────────────────────────────────────────────── -->
   <div class="tab-content" id="tab-config">
@@ -128,6 +152,7 @@
         <option value="autonomous">Autonomous</option>
       </select>
       <button id="pathSynthesize" class="primary">Synthesize</button>
+      <button id="pathConfirmMiniMind">Confirm MiniMind Intake</button>
       <button id="pathSave">Save Path</button>
       <span id="pathActive" class="badge warn">default</span>
     </div>
@@ -189,7 +214,7 @@
     </div>
   </div>
 
-  <div class="tab-content active" id="tab-status">
+  <div class="tab-content" id="tab-status">
     <div class="grid" id="statusCards"></div>
 
     <div class="section-hdr">Autonomy Profile</div>
@@ -402,6 +427,42 @@
     <pre class="output" id="pmOutput">Ready.</pre>
   </div>
 
+  <div class="tab-content" id="tab-rag-builder">
+    <div class="section-hdr" style="margin-top:0;">RAG Builder</div>
+    <div id="ragBuilderStatus"></div>
+    <div class="section-hdr">Build Plan</div>
+    <div class="row" style="margin-bottom:10px;">
+      <select id="ragProfile" style="flex:1;min-width:200px;"></select>
+      <select id="ragTrainingMode" style="flex:1;min-width:180px;">
+        <option value="rag-first">RAG first</option>
+        <option value="dataset_generation">Dataset generation</option>
+        <option value="local_fine_tuning">Local fine-tuning</option>
+      </select>
+      <button id="ragBuildPlan" class="primary">Build Plan</button>
+      <button id="ragBuildAndBootstrap">Build + Bootstrap</button>
+    </div>
+    <div class="form-group">
+      <label>Objective</label>
+      <input id="ragObjective" placeholder="what should this RAG builder support?">
+    </div>
+    <div class="form-group">
+      <label>Open-source repositories (one owner/repo per line)</label>
+      <textarea id="ragOpenSourceRepos" placeholder="modelcontextprotocol/servers&#10;github/docs"></textarea>
+    </div>
+    <pre class="output" id="ragBuilderOutput">Ready.</pre>
+  </div>
+
+  <div class="tab-content" id="tab-mcp">
+    <div class="section-hdr" style="margin-top:0;">chimeralang-mcp</div>
+    <div id="mcpStatus"></div>
+    <div class="row" style="margin-bottom:10px;">
+      <button id="mcpRefresh" class="primary">Refresh MCP Status</button>
+      <button id="mcpEnable">Enable chimeralang-mcp</button>
+      <button id="mcpDisable" class="danger">Disable MCP</button>
+    </div>
+    <pre class="output" id="mcpOutput">Ready.</pre>
+  </div>
+
   <!-- ── SKILLS ────────────────────────────────────────────────────────── -->
   <div class="tab-content" id="tab-skills">
     <div class="section-hdr" style="margin-top:0;">Available Skills</div>
@@ -410,6 +471,12 @@
       or just mention the skill name in a Run objective.
     </p>
     <div id="skillList"></div>
+    <div class="section-hdr" style="margin-top:20px;">Interactive Skill Discovery</div>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="skillDiscoveryQuery" placeholder="search query (e.g. mcp skill language:python)" style="flex:3;">
+      <button id="discoverSkills" class="primary">Find Skills</button>
+    </div>
+    <pre class="output compact-output" id="skillDiscoveryOutput">Search GitHub for skill candidates, then click Convert on a candidate to scaffold a compatible Ghost skill.</pre>
     <div class="section-hdr" style="margin-top:20px;">Run a Skill</div>
     <div class="row" style="margin-bottom:10px;">
       <select id="skillSelect" style="flex:2;"></select>
@@ -420,6 +487,72 @@
   </div>
 
   <!-- ── BROWSER ───────────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-evolution">
+    <div class="section-hdr" style="margin-top:0;">Learning Sources</div>
+    <div class="config-layout">
+      <div>
+        <div class="form-group">
+          <label>Source Type</label>
+          <select id="evolutionSourceType">
+            <option value="github_repo">GitHub repo</option>
+            <option value="docs_url">Docs URL</option>
+            <option value="local_folder">Local folder</option>
+            <option value="uploaded_text">Uploaded text</option>
+            <option value="mcp_server">MCP server</option>
+            <option value="model_catalog">Model catalog</option>
+            <option value="manual_note">Manual note</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Label</label>
+          <input id="evolutionSourceLabel" placeholder="source label">
+        </div>
+        <div class="form-group">
+          <label>URI or Path</label>
+          <input id="evolutionSourceUri" placeholder="https://github.com/owner/repo">
+        </div>
+        <div class="row">
+          <select id="evolutionSourceScope">
+            <option value="global">Global</option>
+            <option value="path-specific">Path-specific</option>
+            <option value="role-specific">Role-specific</option>
+          </select>
+          <select id="evolutionRisk">
+            <option value="low">Low risk</option>
+            <option value="medium">Medium risk</option>
+            <option value="high">High risk</option>
+          </select>
+          <button id="addEvolutionSource" class="primary">Add Source</button>
+        </div>
+      </div>
+      <div>
+        <div class="section-hdr" style="margin-top:0;">Policy</div>
+        <div class="list-item">
+          <span class="badge warn">review-first</span>
+          <span class="name">Manual activation</span>
+          <span class="meta">Sources, models, MCP, and skills never promote themselves.</span>
+        </div>
+        <div class="list-item">
+          <span class="badge ok">write-only</span>
+          <span class="name">Secrets redacted</span>
+          <span class="meta">Dashboard responses do not expose raw tokens or API keys.</span>
+        </div>
+      </div>
+    </div>
+    <div id="learningSourceList"></div>
+    <div class="section-hdr">Evolution Candidates</div>
+    <div id="evolutionCandidateList"></div>
+  </div>
+
+  <div class="tab-content" id="tab-activity">
+    <div class="section-hdr" style="margin-top:0;">Operator Activity</div>
+    <div class="row">
+      <button id="operatorReadiness" class="primary">Run Readiness Check</button>
+      <button id="refreshActivity">Refresh Activity</button>
+    </div>
+    <div id="activityTimeline" class="list" style="margin-top:12px;"></div>
+  </div>
+
   <div class="tab-content" id="tab-browser">
     <div class="section-hdr" style="margin-top:0;">Browser Workspace</div>
     <div id="browserStatusRow" class="list-item" style="margin-bottom:14px;">

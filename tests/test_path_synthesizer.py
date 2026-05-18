@@ -19,6 +19,8 @@ class PathSynthesizerTests(unittest.TestCase):
         self.assertEqual(result["learning_strategy"]["default_mode"], "rag-first")
         self.assertIn("license_check_required", result["source_policy"])
         self.assertTrue(result["proxy_policy"]["disclosure_required"])
+        self.assertTrue(result["minimind_intake"]["open_source_scopes_enabled"])
+        self.assertFalse(result["minimind_intake"]["will_generate_open_source_dataset"])
 
     def test_virtual_assistant_synthesis_emits_personal_ghost_blueprint(self) -> None:
         result = synthesize_path(
@@ -43,6 +45,17 @@ class PathSynthesizerTests(unittest.TestCase):
         self.assertIn("campaign_assets", result["ghost_blueprint"]["learns_from"])
         self.assertIn("content_operations", result["ghost_blueprint"]["can_operate"])
         self.assertTrue(result["tool_policy"]["admin_controls_required"])
+
+    def test_trader_path_synthesis_reports_dataset_confirmation(self) -> None:
+        result = synthesize_path(
+            "trader-path",
+            preferences={"training_mode": "dataset_generation", "approval_level": "supervised"},
+        )
+
+        self.assertEqual(result["role"]["id"], "trader-path")
+        self.assertTrue(result["minimind_intake"]["dataset_generation_supported"])
+        self.assertFalse(result["minimind_intake"]["open_source_scopes_enabled"])
+        self.assertIn("does not include open-source", result["minimind_intake"]["confirmation"])
 
     def test_default_path_synthesis_uses_autonomous_engineer(self) -> None:
         from ghostchimera.personalization.path_state import get_active_ghost_path

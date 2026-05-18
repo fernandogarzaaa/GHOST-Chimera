@@ -82,6 +82,17 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   display: flex; flex-direction: column; justify-content: center; gap: 3px;
 }
 .module-btn .meta { color: var(--muted); font-size: 11px; }
+.operator-card { cursor: pointer; }
+.operator-card:hover { border-color: var(--accent); }
+.setup-steps {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px; margin-bottom: 16px;
+}
+.setup-steps button {
+  text-align: left; min-height: 48px; background: var(--panel);
+  border-radius: 8px;
+}
+.setup-steps button:hover { border-color: var(--accent); }
 .discovery-toolbar {
   display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 8px;
 }

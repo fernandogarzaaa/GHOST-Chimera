@@ -11,6 +11,8 @@
     thinking: null,
     config: null,
     modelDiscovery: null,
+    operator: null,
+    evolution: null,
   };
 
   function $(sel) { return document.querySelector(sel); }
@@ -161,6 +163,204 @@
   function openTab(name) {
     var tab = $(".tab[data-tab='" + name + "']");
     if (tab) tab.click();
+  }
+
+  function renderOperatorSummary(data) {
+    state.operator = data;
+    var cards = $("#operatorCards");
+    var warnings = $("#operatorWarnings");
+    if (!cards || !warnings) return;
+    cards.innerHTML = "";
+    (data.cards || []).forEach(function(cardData) {
+      var card = el("div", { class: "card operator-card", "data-target": cardData.action || "status" });
+      card.appendChild(el("h3", null, cardData.label || cardData.id));
+      card.appendChild(el("div", { class: "value" }, cardData.status || "unknown"));
+      card.appendChild(el("div", { class: "hint" }, "Open " + (cardData.action || "status")));
+      card.addEventListener("click", function() { openTab(cardData.action || "status"); });
+      cards.appendChild(card);
+    });
+    warnings.innerHTML = "";
+    var warningList = data.warnings || [];
+    if (!warningList.length) {
+      warnings.appendChild(el("div", { class: "list-item" }, "Ghost readiness has no blocking warnings."));
+    } else {
+      warningList.forEach(function(w) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "badge warn" }, "warning"));
+        item.appendChild(el("span", { class: "meta" }, w));
+        warnings.appendChild(item);
+      });
+    }
+  }
+
+  async function refreshOperatorSummary() {
+    try {
+      var data = await api("/api/console/operator/summary");
+      renderOperatorSummary(data);
+    } catch (e) {
+      empty("#operatorWarnings", "Operator summary unavailable: " + e.message);
+    }
+  }
+
+  async function recordSetupStep(step, target) {
+    try {
+      var data = await api("/api/console/operator/setup-step", { method: "POST", body: { step: step } });
+      if (data && data.summary) renderOperatorSummary(data.summary);
+      if (target) openTab(target);
+      toast("Setup step recorded.", "ok");
+      await refreshTimeline();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  function renderTimeline(data) {
+    var list = $("#activityTimeline");
+    if (!list) return;
+    list.innerHTML = "";
+    var events = (data && data.events) || [];
+    if (!events.length) {
+      list.appendChild(el("div", { class: "empty" }, "No operator events yet."));
+      return;
+    }
+    events.slice().reverse().forEach(function(event) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "badge ok" }, event.event_type || "event"));
+      item.appendChild(el("span", { class: "name" }, new Date((event.timestamp || 0) * 1000).toLocaleString()));
+      item.appendChild(el("span", { class: "meta mono" }, JSON.stringify(event.detail || {}).slice(0, 220)));
+      list.appendChild(item);
+    });
+  }
+
+  async function refreshTimeline() {
+    try {
+      renderTimeline(await api("/api/console/operator/timeline"));
+    } catch (e) {
+      empty("#activityTimeline", "Activity unavailable: " + e.message);
+    }
+  }
+
+  function sourceBadge(status) {
+    if (status === "approved") return "ok";
+    if (status === "revoked" || status === "denied") return "error";
+    return "warn";
+  }
+
+  function renderEvolutionSources(sources) {
+    var list = $("#learningSourceList");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!sources.length) {
+      list.appendChild(el("div", { class: "empty" }, "No learning sources yet."));
+      return;
+    }
+    sources.forEach(function(source) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "badge " + sourceBadge(source.consent_status) }, source.consent_status || "pending"));
+      item.appendChild(el("span", { class: "name" }, source.label || source.source_type));
+      item.appendChild(el("span", { class: "meta" }, [source.source_type, source.scope, source.risk_level, source.uri].filter(Boolean).join(" | ")));
+      var actions = el("span", { class: "actions" });
+      var approve = el("button", { class: "success" }, "Approve");
+      approve.addEventListener("click", function() { setLearningSourceConsent(source.id, "approve"); });
+      var revoke = el("button", { class: "danger" }, "Revoke");
+      revoke.addEventListener("click", function() { setLearningSourceConsent(source.id, "revoke"); });
+      actions.appendChild(approve);
+      actions.appendChild(revoke);
+      item.appendChild(actions);
+      list.appendChild(item);
+    });
+  }
+
+  function renderEvolutionCandidates(candidates) {
+    var list = $("#evolutionCandidateList");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!candidates.length) {
+      list.appendChild(el("div", { class: "empty" }, "No evolution candidates yet."));
+      return;
+    }
+    candidates.forEach(function(candidate) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "badge " + (candidate.status === "promoted" || candidate.status === "active" ? "ok" : "warn") }, candidate.status));
+      item.appendChild(el("span", { class: "name" }, candidate.title || candidate.candidate_type));
+      item.appendChild(el("span", { class: "meta" }, [candidate.candidate_type, (candidate.required_permissions || []).join(", ")].filter(Boolean).join(" | ")));
+      var actions = el("span", { class: "actions" });
+      [
+        ["review", "Review", ""],
+        ["promote", "Promote", "primary"],
+        ["reject", "Reject", "danger"],
+      ].forEach(function(action) {
+        var btn = el("button", { class: action[2] }, action[1]);
+        btn.addEventListener("click", function() { setCandidateStatus(candidate.id, action[0]); });
+        actions.appendChild(btn);
+      });
+      item.appendChild(actions);
+      list.appendChild(item);
+    });
+  }
+
+  async function refreshEvolution() {
+    try {
+      var sources = await api("/api/console/evolution/sources");
+      var candidates = await api("/api/console/evolution/candidates");
+      state.evolution = { sources: sources.sources || [], candidates: candidates.candidates || [] };
+      renderEvolutionSources(state.evolution.sources);
+      renderEvolutionCandidates(state.evolution.candidates);
+    } catch (e) {
+      empty("#learningSourceList", "Self-Evolution unavailable: " + e.message);
+    }
+  }
+
+  async function addLearningSource() {
+    try {
+      var label = ($("#evolutionSourceLabel").value || "").trim();
+      var uri = ($("#evolutionSourceUri").value || "").trim();
+      var data = await api("/api/console/evolution/sources", {
+        method: "POST",
+        body: {
+          source_type: $("#evolutionSourceType").value,
+          label: label || uri,
+          uri: uri,
+          scope: $("#evolutionSourceScope").value,
+          risk_level: $("#evolutionRisk").value,
+        },
+      });
+      if (!data.ok) { toast(data.error || "Source rejected.", "error"); return; }
+      $("#evolutionSourceLabel").value = "";
+      $("#evolutionSourceUri").value = "";
+      toast("Learning source added for review.", "ok");
+      await refreshEvolution();
+      await refreshOperatorSummary();
+      await refreshTimeline();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  async function setLearningSourceConsent(id, action) {
+    try {
+      var data = await api("/api/console/evolution/sources/" + encodeURIComponent(id) + "/" + action, { method: "POST", body: {} });
+      if (!data.ok) { toast(data.error || "Source update failed.", "error"); return; }
+      toast(action === "approve" ? "Learning source approved." : "Learning source revoked.", action === "approve" ? "ok" : "warn");
+      await refreshEvolution();
+      await refreshOperatorSummary();
+      await refreshTimeline();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  async function setCandidateStatus(id, action) {
+    try {
+      var data = await api("/api/console/evolution/candidates/" + encodeURIComponent(id) + "/" + action, { method: "POST", body: {} });
+      if (!data.ok) { toast(data.error || "Candidate update failed.", "error"); return; }
+      toast("Candidate " + action + " recorded.", "ok");
+      await refreshEvolution();
+      await refreshOperatorSummary();
+      await refreshTimeline();
+    } catch (e) {
+      toast(e.message, "error");
+    }
   }
 
   function selectedProviderOption() {
@@ -447,12 +647,15 @@
       var data = await api("/api/console/paths");
       state.pathProfiles = data.profiles || [];
       var select = $("#pathProfile");
+      var ragSelect = $("#ragProfile");
       var summary = $("#pathSummary");
       if (!select || !summary) return;
       select.innerHTML = "";
+      if (ragSelect) ragSelect.innerHTML = "";
       summary.innerHTML = "";
       state.pathProfiles.forEach(function(profile) {
         select.appendChild(el("option", { value: profile.id }, profile.name));
+        if (ragSelect) ragSelect.appendChild(el("option", { value: profile.id }, profile.name));
         var card = el("div", { class: "card" });
         card.appendChild(el("h3", null, profile.name));
         card.appendChild(el("div", { class: "hint" }, profile.description));
@@ -537,7 +740,23 @@
       toast(e.message, "error");
     }
   }
+  async function confirmPathMiniMind() {
+    try {
+      var profile = $("#pathProfile");
+      if (!profile || !profile.value) return;
+      var data = await api("/api/console/paths/confirm-minimind", {
+        method: "POST",
+        body: { profile_id: profile.value, preferences: selectedPathPreferences() },
+      });
+      $("#pathOutput").textContent = JSON.stringify(data, null, 2);
+      toast(data.confirmation || "MiniMind path confirmation generated.", "ok");
+    } catch (e) {
+      $("#pathOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
   $("#pathSynthesize").addEventListener("click", synthesizeSelectedPath);
+  $("#pathConfirmMiniMind").addEventListener("click", confirmPathMiniMind);
   $("#pathSave").addEventListener("click", saveSelectedPath);
 
   async function refreshGithubStatus() {
@@ -821,6 +1040,7 @@
       await refreshWorkspace();
       await refreshMemory();
       await refreshPersonalMiniMind();
+      await refreshRagBuilder();
       await refreshCapabilities();
       await refreshReadiness();
     } catch (e) {
@@ -1267,6 +1487,103 @@
     } catch (e) { toast(e.message, "error"); }
   });
 
+  // ── RAG Builder tab ───────────────────────────────────────────────────────
+  function ragRepoLines() {
+    return ($("#ragOpenSourceRepos").value || "").split(/\r?\n/).map(function(x) { return x.trim(); }).filter(Boolean);
+  }
+  async function refreshRagBuilder() {
+    try {
+      var data = await api("/api/console/rag/builder/status");
+      var status = data.status || {};
+      var list = $("#ragBuilderStatus");
+      if (!list) return;
+      list.innerHTML = "";
+      [
+        ["MiniMind enabled", status.enabled ? "yes" : "no", status.enabled ? "ok" : "warn"],
+        ["Dataset records", String(status.dataset_count || 0), (status.dataset_count || 0) > 0 ? "ok" : "warn"],
+        ["RAG handoff", status.readiness && status.readiness.primary_model_handoff_ready ? "ready" : "not ready", status.readiness && status.readiness.primary_model_handoff_ready ? "ok" : "warn"],
+      ].forEach(function(row) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "name" }, row[0]));
+        item.appendChild(el("span", { class: "badge " + row[2] }, row[1]));
+        list.appendChild(item);
+      });
+    } catch (_) { empty("#ragBuilderStatus", "RAG Builder status unavailable."); }
+  }
+  async function buildRagPlan(executeBootstrap) {
+    try {
+      var profile = ($("#ragProfile").value || $("#pathProfile").value || "").trim();
+      if (!profile) { toast("Select a path profile first.", "warn"); return; }
+      var data = await api("/api/console/rag/builder", {
+        method: "POST",
+        body: {
+          profile_id: profile,
+          objective: ($("#ragObjective").value || "").trim(),
+          training_mode: ($("#ragTrainingMode").value || "rag-first").trim(),
+          approval_level: ($("#pathApprovalLevel").value || "supervised").trim(),
+          open_source_repos: ragRepoLines(),
+          execute_bootstrap: !!executeBootstrap,
+        },
+      });
+      $("#ragBuilderOutput").textContent = JSON.stringify(data, null, 2);
+      toast(executeBootstrap ? "RAG builder plan executed." : "RAG builder plan generated.", "ok");
+      await refreshRagBuilder();
+      await refreshPersonalMiniMind();
+    } catch (e) {
+      $("#ragBuilderOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+  $("#ragBuildPlan").addEventListener("click", function() { buildRagPlan(false); });
+  $("#ragBuildAndBootstrap").addEventListener("click", function() { buildRagPlan(true); });
+
+  // ── MCP tab ───────────────────────────────────────────────────────────────
+  async function refreshMcpStatus() {
+    try {
+      var data = await api("/api/console/mcp/status");
+      var list = $("#mcpStatus");
+      if (!list) return;
+      list.innerHTML = "";
+      [
+        ["Registered", data.registered ? "yes" : "no", data.registered ? "ok" : "warn"],
+        ["Enabled", data.enabled ? "yes" : "no", data.enabled ? "ok" : "warn"],
+        ["Tools", String(data.tool_count || 0), (data.tool_count || 0) > 0 ? "ok" : "warn"],
+      ].forEach(function(row) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "name" }, row[0]));
+        item.appendChild(el("span", { class: "badge " + row[2] }, row[1]));
+        list.appendChild(item);
+      });
+      $("#mcpOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+      empty("#mcpStatus", "MCP unavailable.");
+      $("#mcpOutput").textContent = e.message;
+    }
+  }
+  $("#mcpRefresh").addEventListener("click", refreshMcpStatus);
+  $("#mcpEnable").addEventListener("click", async function() {
+    try {
+      var data = await api("/api/console/mcp/chimeralang/enable", { method: "POST", body: {} });
+      $("#mcpOutput").textContent = JSON.stringify(data, null, 2);
+      toast(data.ok ? "chimeralang-mcp enabled." : (data.error || "Enable failed."), data.ok ? "ok" : "error");
+      await refreshMcpStatus();
+    } catch (e) {
+      $("#mcpOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  });
+  $("#mcpDisable").addEventListener("click", async function() {
+    try {
+      var data = await api("/api/console/mcp/chimeralang/disable", { method: "POST", body: {} });
+      $("#mcpOutput").textContent = JSON.stringify(data, null, 2);
+      toast("MCP disabled.", "ok");
+      await refreshMcpStatus();
+    } catch (e) {
+      $("#mcpOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  });
+
   // ── Skills tab ────────────────────────────────────────────────────────────
   async function refreshSkills() {
     try {
@@ -1290,6 +1607,45 @@
       });
     } catch (_) { empty("#skillList", "Skills unavailable."); }
   }
+  async function discoverSkills(repos, install) {
+    try {
+      var body = {
+        query: ($("#skillDiscoveryQuery").value || "").trim(),
+        limit: 6,
+        repos: Array.isArray(repos) ? repos : [],
+        install: !!install,
+      };
+      var data = await api("/api/console/skills/discover", { method: "POST", body: body });
+      $("#skillDiscoveryOutput").textContent = JSON.stringify(data, null, 2);
+      if (data.installed_count) {
+        toast("Installed " + data.installed_count + " compatibility skill(s).", "ok");
+        await refreshSkills();
+      }
+      return data;
+    } catch (e) {
+      $("#skillDiscoveryOutput").textContent = e.message;
+      toast(e.message, "error");
+      return null;
+    }
+  }
+  $("#discoverSkills").addEventListener("click", async function() {
+    var data = await discoverSkills([], false);
+    if (!data || !Array.isArray(data.candidates)) return;
+    var list = $("#skillList");
+    data.candidates.forEach(function(candidate) {
+      if (!candidate || !candidate.full_name) return;
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "name" }, candidate.full_name));
+      item.appendChild(el("span", { class: "badge ok" }, "github"));
+      item.appendChild(el("span", { class: "meta" }, candidate.description || candidate.html_url || ""));
+      var actions = el("span", { class: "actions" });
+      var convert = el("button", { class: "primary" }, "Convert");
+      convert.addEventListener("click", function() { discoverSkills([candidate.full_name], true); });
+      actions.appendChild(convert);
+      item.appendChild(actions);
+      list.appendChild(item);
+    });
+  });
   $("#runSkill").addEventListener("click", async function() {
     var skillName = $("#skillSelect").value;
     var input = ($("#skillInput").value || "").trim();
@@ -1547,6 +1903,23 @@
   // ── Output helper ─────────────────────────────────────────────────────────
   function writeOutput(text) { $("pre#output").textContent = text; }
   $("#refresh").addEventListener("click", refreshStatus);
+  document.querySelectorAll("#setupSteps button").forEach(function(btn) {
+    btn.addEventListener("click", function() {
+      recordSetupStep(btn.getAttribute("data-step"), btn.getAttribute("data-target"));
+    });
+  });
+  $("#addEvolutionSource").addEventListener("click", addLearningSource);
+  $("#refreshActivity").addEventListener("click", refreshTimeline);
+  $("#operatorReadiness").addEventListener("click", async function() {
+    try {
+      var data = await api("/api/console/operator/readiness", { method: "POST", body: {} });
+      renderOperatorSummary(data);
+      await refreshTimeline();
+      toast((data.warnings || []).length ? "Readiness check has warnings." : "Readiness check passed.", (data.warnings || []).length ? "warn" : "ok");
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  });
 
   // ── Boot ──────────────────────────────────────────────────────────────────
   renderQuickActions();
@@ -1562,6 +1935,10 @@
     refreshPathProfiles();
     refreshGithubStatus();
     refreshThinking();
+    refreshMcpStatus();
+    refreshOperatorSummary();
+    refreshEvolution();
+    refreshTimeline();
   });
   setInterval(refreshStatus, 30000);
 })();
