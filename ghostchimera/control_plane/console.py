@@ -31,6 +31,7 @@ from ..chimera_pilot.pr_review import run_pr_review
 from ..cognition_layer.trust import GhostBelief, guard_belief, summarize_operational_trace
 from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 from ..config import GhostChimeraConfig
+from ..integrations.remote_control import RemoteControlStore, normalize_remote_payload
 from ..memory_layer.store import MemoryStore
 from ..model_layer.auth_profiles import AuthProfile
 from ..model_layer.local_model_inventory import discover_local_model_inventory, resolve_model_source
@@ -164,6 +165,11 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "name": "sandbox journey smoke",
         "command": "ghostchimera sandbox journey",
         "purpose": "Verifies the operator sandbox journey report is reachable.",
+    },
+    {
+        "name": "remote control smoke",
+        "command": "ghostchimera remote status",
+        "purpose": "Verifies Ghost-native mobile/messaging remote control is reachable without external gateways.",
     },
     {
         "name": "GitHub connection smoke",
@@ -361,6 +367,7 @@ def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str,
         "modules": [
             {"id": "path", "label": "Ghost Paths", "tab": "path", "enabled": True},
             {"id": "github", "label": "GitHub", "tab": "github", "enabled": True},
+            {"id": "remote", "label": "Remote Control", "tab": "remote", "enabled": True},
             {"id": "operator", "label": "Operator Home", "tab": "operator", "enabled": True},
             {"id": "thinking", "label": "Thinking", "tab": "thinking", "enabled": True},
             {"id": "evolution", "label": "Self-Evolution", "tab": "evolution", "enabled": True},
@@ -604,6 +611,7 @@ def register_console_routes(
     queue = autonomy_queue or AutonomyJobQueue(state_dir=state_dir or server.config.state_dir)
     workspace_store = operator_workspace or OperatorWorkspaceStore(state_dir=state_dir or server.config.state_dir)
     console_state_dir = Path(state_dir or server.config.state_dir)
+    remote_store = RemoteControlStore(console_state_dir)
     path_config_file = Path(config_path).expanduser() if config_path else None
     console_config_file = _config_file_for_console(config_path)
     scheduler = cron_scheduler
@@ -1971,6 +1979,16 @@ def register_console_routes(
             candidates=candidates,
             latency=latency_payload,
         )
+        remote_payload = remote_store.status()
+        if isinstance(summary.get("cards"), list):
+            summary["cards"].append(
+                {
+                    "id": "remote",
+                    "label": "Remote Control",
+                    "status": "paired" if remote_payload.get("counts", {}).get("paired_peers") else "setup",
+                    "action": "remote",
+                }
+            )
         summary.update(
             {
                 "active_path": active_path,
@@ -1983,6 +2001,10 @@ def register_console_routes(
                     "candidates": candidates,
                     "advisory_only": True,
                     "automatic_promotion_enabled": False,
+                },
+                "remote": {
+                    "counts": remote_payload.get("counts", {}),
+                    "policy": remote_payload.get("policy", {}),
                 },
             }
         )
@@ -2033,6 +2055,196 @@ def register_console_routes(
             return {"ok": False, "error": "Unsupported setup step.", "allowed_steps": sorted(allowed)}
         record_timeline_event(console_state_dir, "setup_step_completed", {"step": step})
         return {"ok": True, "step": step, "summary": _operator_summary_payload()}
+
+    def remote_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        return remote_store.status()
+
+    def remote_policy(ctx: dict[str, Any]) -> dict[str, Any]:
+        try:
+            payload = remote_store.update_policy(_json_body(ctx))
+        except (TypeError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        record_timeline_event(
+            console_state_dir,
+            "remote_policy_updated",
+            {"direct_execution_enabled": payload.get("policy", {}).get("direct_execution_enabled")},
+        )
+        return payload
+
+    def remote_pairing_create(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        try:
+            payload = remote_store.create_pairing(
+                channel=str(body.get("channel") or "webhook"),
+                peer_id=str(body.get("peer_id") or ""),
+                display_name=str(body.get("display_name") or ""),
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        record_timeline_event(
+            console_state_dir,
+            "remote_pairing_created",
+            {
+                "channel": payload.get("pairing", {}).get("channel"),
+                "peer_id": payload.get("pairing", {}).get("peer_id"),
+            },
+        )
+        return payload
+
+    def remote_pairing_approve(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        payload = remote_store.approve_pairing(
+            pairing_id=str(body.get("pairing_id") or ""),
+            channel=str(body.get("channel") or ""),
+            peer_id=str(body.get("peer_id") or ""),
+            code=str(body.get("code") or ""),
+        )
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "remote_peer_paired",
+                {
+                    "channel": payload.get("peer", {}).get("channel"),
+                    "peer_id": payload.get("peer", {}).get("peer_id"),
+                },
+            )
+        return payload
+
+    def remote_peer_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/remote/peers/")
+        parts = [part for part in suffix.split("/") if part]
+        if len(parts) != 2 or parts[1] not in {"direct", "revoke"}:
+            return {"ok": False, "error": "Expected /api/console/remote/peers/{id}/direct or /revoke"}
+        body = _json_body(ctx)
+        if parts[1] == "direct":
+            payload = remote_store.set_peer_direct_execution(parts[0], _as_bool(body.get("allow"), default=False))
+        else:
+            payload = remote_store.revoke_peer(parts[0])
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "remote_peer_updated",
+                {"peer_id": parts[0], "action": parts[1], "allow": body.get("allow")},
+            )
+        return payload
+
+    def remote_channel_config(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/remote/channels/")
+        channel = suffix.split("/", 1)[0].strip().lower()
+        if not channel:
+            return {"ok": False, "error": "Remote channel is required."}
+        try:
+            payload = remote_store.configure_channel(channel, _json_body(ctx))
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "remote_channel_configured",
+                {
+                    "channel": channel,
+                    "configured": payload.get("channel", {}).get("configured"),
+                    "send_enabled": payload.get("channel", {}).get("send_enabled"),
+                },
+            )
+        return payload
+
+    def remote_send_test(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        channel = str(body.get("channel") or "").strip().lower()
+        reply_target = str(body.get("reply_target") or body.get("peer_id") or "").strip()
+        text = str(body.get("text") or "Ghost Chimera remote test reply.").strip()
+        if not channel or not reply_target:
+            return {"ok": False, "error": "channel and reply_target are required."}
+        payload = remote_store.send_reply(channel=channel, reply_target=reply_target, text=text)
+        record_timeline_event(
+            console_state_dir,
+            "remote_test_reply_sent",
+            {"channel": channel, "reply_target": reply_target, "ok": bool(payload.get("ok"))},
+        )
+        return payload
+
+    def remote_inbound(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+
+        def paths_provider() -> dict[str, Any]:
+            from ..personalization.path_state import get_active_ghost_path
+            from ..personalization.role_profiles import list_role_profiles
+
+            return {
+                "ok": True,
+                "active_path": get_active_ghost_path(config_path=path_config_file),
+                "profiles": [profile.to_dict() for profile in list_role_profiles()],
+            }
+
+        payload = remote_store.handle_inbound(
+            channel=str(body.get("channel") or "webhook"),
+            peer_id=str(body.get("peer_id") or ""),
+            display_name=str(body.get("display_name") or ""),
+            text=str(body.get("text") or ""),
+            objective_runner=objective_runner,
+            status_provider=_operator_summary_payload,
+            paths_provider=paths_provider,
+            jobs_provider=lambda: {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()},
+        )
+        record_timeline_event(
+            console_state_dir,
+            "remote_command_received",
+            {
+                "channel": body.get("channel") or "webhook",
+                "peer_id": body.get("peer_id") or "",
+                "command": payload.get("command", ""),
+                "mode": payload.get("mode", ""),
+                "ok": bool(payload.get("ok")),
+            },
+        )
+        return payload
+
+    def remote_provider_webhook(ctx: dict[str, Any]) -> dict[str, Any]:
+        channel = _suffix(ctx, "/api/console/remote/webhook/")
+        body = _json_body(ctx)
+        try:
+            inbound = normalize_remote_payload(channel, body)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        payload = remote_store.handle_inbound(
+            channel=inbound.channel,
+            peer_id=inbound.peer_id,
+            display_name=inbound.display_name,
+            text=inbound.text,
+            objective_runner=objective_runner,
+            status_provider=_operator_summary_payload,
+            paths_provider=lambda: {"ok": True, "active_path": _operator_summary_payload().get("active_path", {})},
+            jobs_provider=lambda: {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()},
+        )
+        payload["normalized"] = inbound.to_dict()
+        record_timeline_event(
+            console_state_dir,
+            "remote_provider_webhook_received",
+            {
+                "channel": inbound.channel,
+                "peer_id": inbound.peer_id,
+                "shape": inbound.raw_shape,
+                "command": payload.get("command", ""),
+                "mode": payload.get("mode", ""),
+                "ok": bool(payload.get("ok")),
+            },
+        )
+        return payload
+
+    def remote_approval_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/remote/approvals/")
+        parts = [part for part in suffix.split("/") if part]
+        if len(parts) != 2 or parts[1] not in {"approve", "deny"}:
+            return {"ok": False, "error": "Expected /api/console/remote/approvals/{id}/approve or /deny"}
+        payload = remote_store.resolve_approval(parts[0], approved=parts[1] == "approve", objective_runner=objective_runner)
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "remote_approval_resolved",
+                {"approval_id": parts[0], "action": parts[1], "ok": bool(payload.get("ok"))},
+            )
+        return payload
 
     def evolution_sources_route(ctx: dict[str, Any]) -> dict[str, Any]:
         if ctx.get("method") == "GET":
@@ -2345,6 +2557,60 @@ def register_console_routes(
     _api_register("/api/console/operator/latency", operator_latency, method="GET", description="Operator latency telemetry")
     _api_register("/api/console/operator/readiness", operator_readiness, method="POST", description="Run operator readiness check")
     _api_register("/api/console/operator/setup-step", operator_setup_step, method="POST", description="Record guided setup step")
+    _api_register("/api/console/remote/status", remote_status, method="GET", description="Inspect remote control status")
+    _api_register("/api/console/remote/policy", remote_policy, method="POST", description="Update remote control policy")
+    _api_register(
+        "/api/console/remote/pairing/create",
+        remote_pairing_create,
+        method="POST",
+        description="Create a remote sender pairing code",
+    )
+    _api_register(
+        "/api/console/remote/pairing/approve",
+        remote_pairing_approve,
+        method="POST",
+        description="Approve a pending remote sender pairing",
+    )
+    _api_register(
+        "/api/console/remote/peers/",
+        remote_peer_action,
+        method="POST",
+        prefix=True,
+        description="Update or revoke a paired remote sender",
+    )
+    _api_register(
+        "/api/console/remote/channels/",
+        remote_channel_config,
+        method="POST",
+        prefix=True,
+        description="Configure write-only remote adapter credentials and send policy",
+    )
+    _api_register(
+        "/api/console/remote/send-test",
+        remote_send_test,
+        method="POST",
+        description="Send a gated test reply through a configured remote channel",
+    )
+    _api_register(
+        "/api/console/remote/inbound",
+        remote_inbound,
+        method="POST",
+        description="Process a paired mobile or messaging command",
+    )
+    _api_register(
+        "/api/console/remote/webhook/",
+        remote_provider_webhook,
+        method="POST",
+        prefix=True,
+        description="Normalize provider-shaped webhook payloads into remote commands",
+    )
+    _api_register(
+        "/api/console/remote/approvals/",
+        remote_approval_action,
+        method="POST",
+        prefix=True,
+        description="Approve or deny a pending remote command",
+    )
     _api_register(
         "/api/console/evolution/sources",
         evolution_sources_route,

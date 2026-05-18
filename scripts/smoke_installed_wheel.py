@@ -59,6 +59,7 @@ def _smoke_commands(python: Path, extras: str, state_dir: Path) -> list[list[str
         [str(python), "-m", "ghostchimera", "run", "--help"],
         [str(python), "-m", "ghostchimera", "batch", "--help"],
         [str(python), "-m", "ghostchimera", "--config-show"],
+        [str(python), "-m", "ghostchimera", "remote", "status", "--state-dir", str(state_dir)],
         [str(python), "-m", "ghostchimera", "workspace", "show", "--state-dir", str(state_dir)],
         [
             str(python),

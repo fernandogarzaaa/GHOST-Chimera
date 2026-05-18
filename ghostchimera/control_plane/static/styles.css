@@ -76,6 +76,10 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   display: grid; grid-template-columns: minmax(280px, 420px) minmax(280px, 1fr);
   gap: 18px; align-items: start;
 }
+.remote-layout {
+  display: grid; grid-template-columns: minmax(280px, 420px) minmax(280px, 1fr);
+  gap: 18px; align-items: start; margin-bottom: 12px;
+}
 .module-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
 .module-btn {
   text-align: left; min-height: 54px; border-radius: 8px; background: var(--panel);
@@ -198,6 +202,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width: 700px) {
   .grid { grid-template-columns: 1fr; }
   .config-layout { grid-template-columns: 1fr; }
+  .remote-layout { grid-template-columns: 1fr; }
   .tab { padding: 10px 12px; font-size: 13px; }
   .tab-content { padding: 16px; }
   header { padding: 0 16px; }

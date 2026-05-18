@@ -140,6 +140,28 @@ def _main(argv: list[str] | None = None) -> int:
     github_parser.add_argument(
         "--label", action="append", default=[], help="Issue label for local planning. Repeatable."
     )
+    remote_parser = sub.add_parser("remote", help="Manage Ghost-native mobile/messaging remote control")
+    remote_parser.add_argument(
+        "action",
+        choices=["status", "pair-code", "peers", "simulate", "policy", "channel-config", "send-test"],
+        nargs="?",
+        default="status",
+    )
+    remote_parser.add_argument("--state-dir", default="", help="Optional remote-control state directory.")
+    remote_parser.add_argument("--channel", default="webhook", help="Remote channel, for example telegram or discord.")
+    remote_parser.add_argument("--peer", default="", help="Remote peer id, chat id, sender id, phone, or username.")
+    remote_parser.add_argument("--display-name", default="", help="Friendly name for the remote peer.")
+    remote_parser.add_argument("--text", default="/status", help="Inbound message text for simulate.")
+    remote_parser.add_argument("--reply-target", default="", help="Reply target for send-test.")
+    remote_parser.add_argument("--bot-token", default="", help="Write-only bot token for channel-config.")
+    remote_parser.add_argument("--api-token", default="", help="Write-only API token for channel-config.")
+    remote_parser.add_argument("--webhook-url", default="", help="Write-only provider endpoint/webhook URL.")
+    remote_parser.add_argument("--phone-number-id", default="", help="Write-only WhatsApp phone number id.")
+    remote_parser.add_argument("--signing-secret", default="", help="Write-only provider signing secret.")
+    remote_parser.add_argument("--send-enabled", action="store_true", help="Enable outbound sending for channel-config.")
+    remote_parser.add_argument("--clear-secrets", action="store_true", help="Clear stored channel secrets.")
+    remote_parser.add_argument("--direct-execution", action="store_true", help="Enable global direct execution policy.")
+    remote_parser.add_argument("--no-direct-execution", action="store_true", help="Disable global direct execution policy.")
     path_parser = sub.add_parser("path", help="Show, list, and persist the active multi-purpose Ghost path")
     path_parser.add_argument("action", choices=["show", "set", "list"], nargs="?", default="show")
     path_parser.add_argument("--profile", default="autonomous-engineer", help="Role profile id for 'set'.")
@@ -455,6 +477,9 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "github":
         return _run_github_cli(args)
 
+    if args.command == "remote":
+        return _run_remote_cli(args)
+
     if args.command == "path":
         return _run_path_cli(args)
 
@@ -686,6 +711,102 @@ def _run_github_cli(args: argparse.Namespace) -> int:
         )
         print(json.dumps({"ok": True, "objective": issue_to_objective(issue)}, indent=2, sort_keys=True))
         return 0
+    return 2
+
+
+def _run_remote_cli(args: argparse.Namespace) -> int:
+    from ..integrations.remote_control import RemoteControlStore
+
+    state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
+    store = RemoteControlStore(state_dir)
+
+    if args.action == "status":
+        print(json.dumps(store.status(), indent=2, sort_keys=True))
+        return 0
+
+    if args.action == "peers":
+        payload = store.status()
+        print(
+            json.dumps(
+                {"ok": True, "peers": payload.get("peers", []), "pairings": payload.get("pairings", [])},
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+
+    if args.action == "policy":
+        payload: dict[str, object] = {}
+        if args.direct_execution:
+            payload["direct_execution_enabled"] = True
+        if args.no_direct_execution:
+            payload["direct_execution_enabled"] = False
+        if not payload:
+            print(json.dumps(store.status().get("policy", {}), indent=2, sort_keys=True))
+            return 0
+        print(json.dumps(store.update_policy(payload), indent=2, sort_keys=True))
+        return 0
+
+    if args.action == "pair-code":
+        if not args.peer:
+            print(json.dumps({"ok": False, "error": "--peer is required"}, indent=2, sort_keys=True))
+            return 2
+        try:
+            payload = store.create_pairing(
+                channel=args.channel,
+                peer_id=args.peer,
+                display_name=args.display_name,
+            )
+        except ValueError as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}, indent=2, sort_keys=True))
+            return 2
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+
+    if args.action == "simulate":
+        if not args.peer:
+            print(json.dumps({"ok": False, "error": "--peer is required"}, indent=2, sort_keys=True))
+            return 2
+        payload = store.handle_inbound(
+            channel=args.channel,
+            peer_id=args.peer,
+            display_name=args.display_name,
+            text=args.text,
+            status_provider=lambda: {"ok": True, "status": "Ghost Chimera remote CLI simulation online"},
+        )
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
+    if args.action == "channel-config":
+        try:
+            payload = store.configure_channel(
+                args.channel,
+                {
+                    "enabled": True,
+                    "send_enabled": args.send_enabled,
+                    "clear_secrets": args.clear_secrets,
+                    "bot_token": args.bot_token,
+                    "api_token": args.api_token,
+                    "webhook_url": args.webhook_url,
+                    "phone_number_id": args.phone_number_id,
+                    "signing_secret": args.signing_secret,
+                },
+            )
+        except ValueError as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}, indent=2, sort_keys=True))
+            return 2
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
+    if args.action == "send-test":
+        reply_target = args.reply_target or args.peer
+        if not reply_target:
+            print(json.dumps({"ok": False, "error": "--reply-target or --peer is required"}, indent=2, sort_keys=True))
+            return 2
+        payload = store.send_reply(channel=args.channel, reply_target=reply_target, text=args.text)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
     return 2
 
 

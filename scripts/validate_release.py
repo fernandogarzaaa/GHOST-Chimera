@@ -33,6 +33,7 @@ REQUIRED_FILES = [
     "docs/BOB_OPTIONAL_TOOLING.md",
     "docs/COMPETITIVE_CAPABILITY_MATRIX.md",
     "docs/NATIVE_ABSORPTION.md",
+    "docs/REMOTE_CONTROL.md",
     "docs/RELEASE_CHECKLIST.md",
     "scripts/smoke_installed_wheel.py",
 ]
@@ -130,6 +131,7 @@ def check_imports() -> dict[str, Any]:
         "ghostchimera.cognition_layer.trust",
         "ghostchimera.capability_pack",
         "ghostchimera.control_plane.cli",
+        "ghostchimera.integrations.remote_control",
         "ghostchimera.model_layer.local_model_inventory",
         "ghostchimera.mcp.normalization",
         "ghostchimera.mcp.server",
@@ -283,6 +285,7 @@ def check_release_hardening() -> dict[str, Any]:
             'ghostchimera context compress --text "latency latency matters" --focus latency',
             "ghostchimera capability-pack list",
             "ghostchimera sandbox journey",
+            "ghostchimera remote status",
         )
         if token not in release_checklist
     ]
@@ -305,6 +308,7 @@ def check_release_hardening() -> dict[str, Any]:
         "ghostchimera local-model inventory",
         "ghostchimera cognition guard --confidence 0.9 --variance 0.01",
         "ghostchimera sandbox journey",
+        "ghostchimera remote status",
     ):
         if command not in commands:
             errors.append(f"console readiness missing {command!r}")
@@ -331,6 +335,8 @@ def check_release_hardening() -> dict[str, Any]:
         errors.append("installed-wheel smoke script does not exercise workspace CLI")
     if '"sync-memory"' not in smoke_script:
         errors.append("installed-wheel smoke script does not exercise workspace memory sync")
+    if '"remote", "status", "--state-dir"' not in smoke_script:
+        errors.append("installed-wheel smoke script does not exercise remote control CLI")
 
     return {"ok": not errors, "errors": errors}
 

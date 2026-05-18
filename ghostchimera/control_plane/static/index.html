@@ -36,6 +36,7 @@
     <button class="tab" data-tab="config">Config</button>
     <button class="tab" data-tab="path">Path</button>
     <button class="tab" data-tab="github">GitHub</button>
+    <button class="tab" data-tab="remote">Remote Control</button>
     <button class="tab" data-tab="thinking">Thinking</button>
     <button class="tab" data-tab="run">▶ Run</button>
     <button class="tab" data-tab="jobs">Jobs</button>
@@ -163,6 +164,131 @@
     </div>
     <div class="section-hdr">Synthesized Configuration</div>
     <pre class="output" id="pathOutput">Choose a path to synthesize Ghost Chimera.</pre>
+  </div>
+
+  <div class="tab-content" id="tab-remote">
+    <div class="section-hdr" style="margin-top:0;">Remote Control Center</div>
+    <div class="grid" id="remoteSummary"></div>
+    <div class="remote-layout">
+      <div>
+        <div class="section-hdr" style="margin-top:0;">Policy</div>
+        <label class="inline-check"><input id="remoteEnabled" type="checkbox"> Enable remote control</label>
+        <label class="inline-check"><input id="remoteDirectExecution" type="checkbox"> Allow paired admins to enable direct execution</label>
+        <label class="inline-check"><input id="remoteDefaultDirectAdmins" type="checkbox"> New admin pairings default to direct execution</label>
+        <div class="row">
+          <button id="remoteSavePolicy" class="primary">Save Remote Policy</button>
+          <button id="remoteRefresh">Refresh</button>
+        </div>
+        <p class="hint">Direct execution is still limited to paired admin peers that are explicitly allowed below.</p>
+      </div>
+      <div>
+        <div class="section-hdr" style="margin-top:0;">Create Pairing</div>
+        <div class="form-group">
+          <label>Channel</label>
+          <select id="remotePairChannel">
+            <option value="webhook">Webhook / test</option>
+            <option value="telegram">Telegram</option>
+            <option value="discord">Discord</option>
+            <option value="slack">Slack</option>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="signal">Signal</option>
+            <option value="sms">SMS</option>
+            <option value="email">Email</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Peer ID</label>
+          <input id="remotePairPeer" placeholder="phone, username, chat id, or sender id">
+        </div>
+        <div class="form-group">
+          <label>Display Name</label>
+          <input id="remotePairName" placeholder="admin mobile">
+        </div>
+        <button id="remoteCreatePairing" class="primary">Create Pairing Code</button>
+      </div>
+    </div>
+    <div class="section-hdr">Paired Peers</div>
+    <div id="remotePeers" class="list"></div>
+    <div class="section-hdr">Adapter Configuration</div>
+    <div class="remote-layout">
+      <div>
+        <div class="form-group">
+          <label>Channel</label>
+          <select id="remoteConfigChannel">
+            <option value="telegram">Telegram</option>
+            <option value="discord">Discord</option>
+            <option value="slack">Slack</option>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="signal">Signal</option>
+            <option value="sms">SMS</option>
+            <option value="email">Email</option>
+            <option value="webhook">Webhook</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Bot/API Token</label>
+          <input id="remoteConfigToken" type="password" autocomplete="off" placeholder="write-only; leave blank to keep existing">
+        </div>
+        <div class="form-group">
+          <label>Webhook URL / Provider Endpoint</label>
+          <input id="remoteConfigWebhook" type="password" autocomplete="off" placeholder="write-only optional endpoint">
+        </div>
+      </div>
+      <div>
+        <div class="form-group">
+          <label>Phone Number ID / Sender ID</label>
+          <input id="remoteConfigPhone" type="password" autocomplete="off" placeholder="write-only optional id">
+        </div>
+        <div class="form-group">
+          <label>Signing Secret</label>
+          <input id="remoteConfigSigning" type="password" autocomplete="off" placeholder="write-only optional secret">
+        </div>
+        <label class="inline-check"><input id="remoteConfigEnabled" type="checkbox" checked> Enable inbound adapter metadata</label>
+        <label class="inline-check"><input id="remoteConfigSendEnabled" type="checkbox"> Enable outbound sending for this channel</label>
+        <div class="row">
+          <button id="remoteSaveChannel" class="primary">Save Channel Config</button>
+          <button id="remoteClearChannel" class="danger">Clear Channel Secrets</button>
+        </div>
+      </div>
+    </div>
+    <div id="remoteChannels" class="list"></div>
+    <div class="section-hdr">Send Test Reply</div>
+    <div class="row">
+      <select id="remoteSendChannel" style="max-width:180px;">
+        <option value="telegram">Telegram</option>
+        <option value="discord">Discord</option>
+        <option value="slack">Slack</option>
+        <option value="whatsapp">WhatsApp</option>
+        <option value="signal">Signal</option>
+        <option value="sms">SMS</option>
+        <option value="email">Email</option>
+        <option value="webhook">Webhook</option>
+      </select>
+      <input id="remoteSendTarget" placeholder="reply target / chat id / channel id" style="flex:1;min-width:220px;">
+      <input id="remoteSendText" value="Ghost Chimera remote test reply." style="flex:3;min-width:260px;">
+      <button id="remoteSendTest" class="primary">Send Test</button>
+    </div>
+    <div class="section-hdr">Pending Pairings</div>
+    <div id="remotePairings" class="list"></div>
+    <div class="section-hdr">Pending Remote Approvals</div>
+    <div id="remoteApprovals" class="list"></div>
+    <div class="section-hdr">Simulate Inbound Message</div>
+    <div class="row">
+      <select id="remoteSimChannel" style="max-width:180px;">
+        <option value="webhook">Webhook</option>
+        <option value="telegram">Telegram</option>
+        <option value="discord">Discord</option>
+        <option value="slack">Slack</option>
+        <option value="whatsapp">WhatsApp</option>
+        <option value="signal">Signal</option>
+      </select>
+      <input id="remoteSimPeer" placeholder="peer id" style="flex:1;min-width:160px;">
+      <input id="remoteSimText" placeholder="/status or /run summarize my readiness" style="flex:3;min-width:260px;">
+      <button id="remoteSimSend" class="primary">Send</button>
+    </div>
+    <div class="section-hdr">Provider Webhook Endpoint</div>
+    <div id="remoteWebhookExamples" class="list"></div>
+    <pre class="output compact-output" id="remoteOutput">Remote commands are paired, audited, and policy-gated. Provider adapters are optional.</pre>
   </div>
 
   <div class="tab-content" id="tab-github">

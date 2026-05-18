@@ -43,6 +43,7 @@ class ReleasePackageTests(unittest.TestCase):
             "docs/CLEAN_ROOM.md",
             "docs/BOB_OPTIONAL_TOOLING.md",
             "docs/COMPETITIVE_CAPABILITY_MATRIX.md",
+            "docs/REMOTE_CONTROL.md",
             "docs/RELEASE_CHECKLIST.md",
         ]
 
@@ -64,6 +65,7 @@ class ReleasePackageTests(unittest.TestCase):
         self.assertIn("python -m ghostchimera.evals run --suite competitive", checklist)
         self.assertIn("ghostchimera capabilities --format json", checklist)
         self.assertIn("ghostchimera review-pr --base HEAD --head HEAD", checklist)
+        self.assertIn("ghostchimera remote status", checklist)
         self.assertIn("python scripts/smoke_installed_wheel.py", checklist)
         self.assertIn("python scripts/smoke_installed_wheel.py --extras gateway", checklist)
         self.assertIn("gateway extras", checklist)
@@ -87,6 +89,7 @@ class ReleasePackageTests(unittest.TestCase):
     def test_installed_wheel_smoke_covers_personal_minimind_cli(self) -> None:
         smoke = (ROOT / "scripts" / "smoke_installed_wheel.py").read_text(encoding="utf-8")
 
+        self.assertIn('"remote", "status", "--state-dir"', smoke)
         self.assertIn('"personal-status"', smoke)
         self.assertIn('"personal-consent"', smoke)
         self.assertIn('"personal-bootstrap"', smoke)
