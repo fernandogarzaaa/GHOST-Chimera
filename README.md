@@ -14,7 +14,7 @@ Key capabilities:
 - **Conservative safety defaults** â€” Python, shell, network, and desktop execution are all off by default. Production mode adds deployment-level guardrails.
 - **Personal MiniMind** â€” consent-gated local memory bootstrap with system specs, approved files/email exports, optional whole-machine/email-artifact crawling, MiniMind JSONL dataset generation, and primary-model RAG handoff.
 - **Native Chimera capability pack** - built-in cognition guardrails, tamper-evident handoffs, query-aware context compression, local model inventory/resolution, MCP normalization, and sandbox journeys with no external project dependency. [Details](docs/NATIVE_ABSORPTION.md)
-- **Trust Runtime** - durable local run journals, resumable approval checkpoints, MCP zero-trust envelopes, eval baselines, and OTel-compatible JSON trace exports. [Details](docs/TRUST_RUNTIME.md)
+- **Trust Runtime** - durable local run journals, resumable approval checkpoints, MCP zero-trust envelopes, explicit capability admission, eval flywheels, and OTel-compatible JSON trace exports. [Details](docs/TRUST_RUNTIME.md) | [Capability Admission](docs/CAPABILITY_ADMISSION.md)
 
 - **Competitive capability intelligence** - CLI, console, docs, and eval gates compare Ghost Chimera against Codex, Claude Code, LangGraph, CrewAI, Hermes-style tool gateways, and OpenClaw-style local autonomy patterns.
 - **Automated PR review** - deterministic `ghostchimera review-pr` checks for secrets, destructive commands, missing tests, release-checklist drift, generated artifacts, and unfinished beta code.
@@ -167,6 +167,7 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 | **MiniMind** | Grant or revoke Personal MiniMind admin consent, configure approved local/email source paths, toggle whole-machine and email-artifact crawling, bootstrap personal memory and datasets, and build the RAG handoff prompt for the configured primary model. |
 | **Skills** | Browse all registered skills (bundled + workspace) with domain and description, select a skill and optional input, run it directly from the browser. Backed by `GET /api/console/skills`. |
 | **Remote Control** | Pair mobile or messaging senders, review safe slash commands, toggle global direct-execution policy, enable direct execution per paired admin, and approve or deny remote `/run` requests. |
+| **Trust Runtime** | Inspect durable run journals, pending approvals, MCP trust, promoted eval cases, capability admission records, and redacted local trace exports. |
 | **Browser** | Fetch a URL (content scraping), open a URL in the agent browser workspace, take a DOM snapshot. |
 | **Security** | Security metric cards, HMAC audit chain status, recent LobsterTrap/DPI threat events. |
 | **Schedules** | Create cron schedules (start disabled for review), enable/disable/delete existing schedules, see next-run times. |

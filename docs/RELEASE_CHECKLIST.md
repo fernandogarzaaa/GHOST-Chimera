@@ -29,8 +29,11 @@ ghostchimera sandbox journey
 ghostchimera remote status
 ghostchimera trust status
 ghostchimera trust eval baseline
+ghostchimera trust eval-cases list
 ghostchimera trust trace export latest
 ghostchimera mcp trust list
+ghostchimera capability-admission list
+ghostchimera capability-admission inspect --kind model --name release-review-demo --source local --risk low
 ghostchimera github status
 ghostchimera path list
 ghostchimera path set --profile ai-engineer-proxy --training-mode rag-first --approval-level supervised
@@ -100,8 +103,11 @@ environment.
 - [ ] `ghostchimera remote status` reports disabled-by-default remote control state, no paired peers unless intentionally configured, and no raw channel secrets.
 - [ ] `ghostchimera trust status` reports durable journal readiness, pending approvals, MCP trust posture, trace health, and eval baseline status without raw secrets.
 - [ ] `ghostchimera trust eval baseline` creates a fresh local trust baseline before production deployment.
+- [ ] `ghostchimera trust eval-cases list` lists promoted regression cases or returns an empty local-first case list without failing.
 - [ ] `ghostchimera trust trace export latest` exports redacted local JSON when a run exists, or fails closed when no runs exist.
 - [ ] `ghostchimera mcp trust list` shows approved/revoked/reviewed MCP servers and no unreviewed high-risk server is enabled for production.
+- [ ] `ghostchimera capability-admission list` reports reviewed capability records and does not expose raw secrets.
+- [ ] Console Trust Runtime tab can add a capability record, approve it, activate it, revoke it, and quarantine it through `/api/console/capability-admission`.
 - [ ] `ghostchimera local-model guide --profile balanced` prints install steps.
 - [ ] Optional hackathon/developer tooling, including IBM Bob files, remains outside the `ghostchimera/` runtime package and is documented in `docs/BOB_OPTIONAL_TOOLING.md`.
 - [ ] README quickstart works from a clean virtual environment.

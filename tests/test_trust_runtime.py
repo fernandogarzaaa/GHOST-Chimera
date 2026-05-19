@@ -133,6 +133,46 @@ class TrustRuntimeStoreTests(unittest.TestCase):
             self.assertTrue(compare["ok"])
             self.assertGreaterEqual(compare["p0_failures"], 1)
 
+    def test_promote_run_to_eval_case_and_list_cases(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-trust-cases-") as tmp:
+            store = TrustRuntimeStore(tmp)
+            run = store.create_run(agent_name="ghost", objective="review secret sk-testsecret123456", source="console")
+            store.record_step(run["run_id"], step_type="policy_check", status="completed", outputs={"ok": True})
+
+            promoted = store.promote_run_to_eval_case(run["run_id"], label="safe review", severity="P1")
+            cases = store.list_eval_cases()
+            baseline = store.eval_baseline()
+
+            self.assertTrue(promoted["ok"])
+            self.assertEqual(promoted["case"]["label"], "safe review")
+            self.assertEqual(promoted["case"]["severity"], "P1")
+            self.assertEqual(cases["count"], 1)
+            self.assertEqual(cases["cases"][0]["case_id"], promoted["case"]["case_id"])
+            self.assertIn("trust_eval_case", {case["source"] for case in baseline["cases"]})
+            self.assertNotIn("sk-testsecret123456", json.dumps(cases))
+
+    def test_journal_hash_chain_detects_tampering(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-trust-integrity-") as tmp:
+            store = TrustRuntimeStore(tmp)
+            run = store.create_run(agent_name="ghost", objective="hash chain", source="console")
+            store.record_step(run["run_id"], step_type="policy_check", status="completed", outputs={"ok": True})
+
+            detail = store.get_run(run["run_id"])
+            self.assertTrue(all(step.get("record_hash") for step in detail["steps"]))
+            self.assertTrue(all("previous_hash" in step for step in detail["steps"]))
+            self.assertTrue(store.verify_run_integrity(run["run_id"])["verified"])
+
+            journal_path = store._run_journal_path(run["run_id"])
+            lines = journal_path.read_text(encoding="utf-8").splitlines()
+            tampered = json.loads(lines[-1])
+            tampered["status"] = "tampered"
+            lines[-1] = json.dumps(tampered, sort_keys=True)
+            journal_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+            verified = store.verify_run_integrity(run["run_id"])
+            self.assertFalse(verified["ok"])
+            self.assertFalse(verified["verified"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -135,6 +135,21 @@ class RunResumeToken:
         return data
 
 
+@dataclass(frozen=True)
+class TrustEvalCase:
+    case_id: str
+    source: str
+    label: str
+    severity: str
+    run_id: str = ""
+    expected_status: str = "ok"
+    created_at: float = field(default_factory=time.time)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return _redact_value(asdict(self))
+
+
 def _now() -> float:
     return time.time()
 
@@ -142,6 +157,14 @@ def _now() -> float:
 def _stable_id(*parts: object, length: int = 16) -> str:
     raw = "|".join(str(part) for part in parts if part is not None)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:length]
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _hash_payload(value: Any) -> str:
+    return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
 
 
 def _redact_text(text: str) -> str:
@@ -260,6 +283,7 @@ class TrustRuntimeStore:
         self.approvals_path = self.trust_dir / "approvals.json"
         self.mcp_trust_path = self.trust_dir / "mcp_trust.json"
         self.eval_baseline_path = self.trust_dir / "trust_eval_baseline.json"
+        self.eval_cases_path = self.trust_dir / "eval_cases.jsonl"
         self.trust_dir.mkdir(parents=True, exist_ok=True)
         self.runs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -333,6 +357,7 @@ class TrustRuntimeStore:
             duration_ms=duration_ms,
             error=_redact_text(error)[:500],
         ).to_dict()
+        record = self._with_record_hash(self._run_journal_path(run_id), record)
         self._append_jsonl(self._run_journal_path(run_id), record)
         self._touch_run(run_id, status=status, increment_step=True)
         return record
@@ -505,6 +530,68 @@ class TrustRuntimeStore:
         items.sort(key=lambda item: float(item.get("requested_at") or 0), reverse=True)
         return {"ok": True, "approvals": items, "count": len(items)}
 
+    def promote_run_to_eval_case(self, run_id: str, *, label: str = "", severity: str = "P2") -> dict[str, Any]:
+        detail = self.get_run(run_id)
+        if not detail.get("ok"):
+            return detail
+        run = detail["run"]
+        steps = detail.get("steps", [])
+        blocked = [step for step in steps if step.get("status") in {"blocked", "denied"}]
+        severity = severity.upper() if severity.upper() in {"P0", "P1", "P2", "P3"} else "P2"
+        label = label.strip() or str(run.get("objective") or run_id)[:80]
+        case = TrustEvalCase(
+            case_id=_stable_id("trust_eval", run_id, label, severity, length=20),
+            source="trust_eval_case",
+            label=label,
+            severity=severity,
+            run_id=run_id,
+            expected_status="blocked" if blocked else "ok",
+            metadata={
+                "objective_ref": _safe_snippet(run.get("objective", "")),
+                "source": run.get("source", ""),
+                "step_count": len(steps),
+                "blocked_step_count": len(blocked),
+                "run_status": run.get("status", ""),
+            },
+        ).to_dict()
+        existing = {item.get("case_id"): item for item in self._read_jsonl(self.eval_cases_path)}
+        existing[case["case_id"]] = case
+        self._write_jsonl(self.eval_cases_path, sorted(existing.values(), key=lambda item: str(item.get("case_id"))))
+        return {"ok": True, "case": case}
+
+    def list_eval_cases(self, *, limit: int = 100) -> dict[str, Any]:
+        cases = self._read_jsonl(self.eval_cases_path)
+        cases.sort(key=lambda item: float(item.get("created_at") or 0), reverse=True)
+        limit = max(1, min(int(limit), 500))
+        return {"ok": True, "cases": _redact_value(cases[:limit]), "count": len(cases)}
+
+    def verify_run_integrity(self, run_id: str) -> dict[str, Any]:
+        previous_hash = ""
+        steps = self._read_jsonl(self._run_journal_path(run_id))
+        for index, step in enumerate(steps):
+            expected_previous = str(step.get("previous_hash") or "")
+            if expected_previous != previous_hash:
+                return {
+                    "ok": False,
+                    "verified": False,
+                    "error": "previous_hash mismatch",
+                    "index": index,
+                    "step_id": step.get("step_id", ""),
+                }
+            recorded_hash = str(step.get("record_hash") or "")
+            payload = {key: value for key, value in step.items() if key != "record_hash"}
+            actual_hash = _hash_payload(payload)
+            if recorded_hash != actual_hash:
+                return {
+                    "ok": False,
+                    "verified": False,
+                    "error": "record_hash mismatch",
+                    "index": index,
+                    "step_id": step.get("step_id", ""),
+                }
+            previous_hash = recorded_hash
+        return {"ok": True, "verified": True, "run_id": run_id, "step_count": len(steps), "latest_hash": previous_hash}
+
     def export_trace(self, run_id: str) -> dict[str, Any]:
         if run_id == "latest":
             runs = self.list_runs(limit=1)["runs"]
@@ -636,7 +723,20 @@ class TrustRuntimeStore:
         runs = self.list_runs(limit=200)["runs"]
         approvals = self.pending_approvals(include_resolved=True)["approvals"]
         mcp = self.mcp_trust_list()["servers"]
+        promoted_cases = self.list_eval_cases(limit=500)["cases"]
         cases: list[dict[str, Any]] = []
+        for promoted in promoted_cases:
+            cases.append(
+                {
+                    "case_id": promoted.get("case_id"),
+                    "source": "trust_eval_case",
+                    "ok": promoted.get("expected_status") != "blocked",
+                    "status": promoted.get("expected_status"),
+                    "severity": promoted.get("severity"),
+                    "label": promoted.get("label"),
+                    "run_id": promoted.get("run_id"),
+                }
+            )
         for run in runs[:25]:
             detail = self.get_run(str(run.get("run_id")))
             steps = detail.get("steps", [])
@@ -748,10 +848,28 @@ class TrustRuntimeStore:
                 return step
         return None
 
+    def _with_record_hash(self, path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+        previous_hash = ""
+        existing = self._read_jsonl(path)
+        if existing:
+            previous_hash = str(existing[-1].get("record_hash") or "")
+        record = {**payload, "previous_hash": previous_hash}
+        record["record_hash"] = _hash_payload(record)
+        return record
+
     def _append_jsonl(self, path: Path, payload: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(_redact_value(payload), sort_keys=True) + "\n")
+
+    def _write_jsonl(self, path: Path, rows: list[dict[str, Any]]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(
+            "".join(json.dumps(_redact_value(row), sort_keys=True) + "\n" for row in rows),
+            encoding="utf-8",
+        )
+        tmp.replace(path)
 
     def _read_jsonl(self, path: Path) -> list[dict[str, Any]]:
         if not path.exists():
@@ -789,6 +907,7 @@ __all__ = [
     "RunStepRecord",
     "ToolCallRecord",
     "ToolTrustEnvelope",
+    "TrustEvalCase",
     "TrustRuntimeStore",
     "build_tool_trust_envelope",
     "classify_tool_risk",

@@ -18,6 +18,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from ..capability_admission import CapabilityAdmissionStore
 from ..capability_pack import call_capability_tool, list_capability_tools
 from ..chimera_pilot import ChimeraPilotKernel
 from ..chimera_pilot.autonomy import get_autonomy_profile, list_autonomy_profiles
@@ -131,6 +132,16 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "name": "trust eval baseline",
         "command": "ghostchimera trust eval baseline",
         "purpose": "Creates a fresh local trust baseline before production deployment.",
+    },
+    {
+        "name": "trust eval cases",
+        "command": "ghostchimera trust eval-cases list",
+        "purpose": "Lists promoted local trust regression cases for the eval flywheel.",
+    },
+    {
+        "name": "capability admission",
+        "command": "ghostchimera capability-admission list",
+        "purpose": "Checks reviewed capability records before production activation.",
     },
     {
         "name": "base wheel smoke",
@@ -624,6 +635,7 @@ def register_console_routes(
     console_state_dir = Path(state_dir or server.config.state_dir)
     remote_store = RemoteControlStore(console_state_dir)
     trust_store = TrustRuntimeStore(console_state_dir)
+    admission_store = CapabilityAdmissionStore(console_state_dir)
     path_config_file = Path(config_path).expanduser() if config_path else None
     console_config_file = _config_file_for_console(config_path)
     scheduler = cron_scheduler
@@ -2048,6 +2060,7 @@ def register_console_routes(
         )
         remote_payload = remote_store.status()
         trust_payload = trust_store.trust_status()
+        admission_payload = admission_store.summary()
         if isinstance(summary.get("cards"), list):
             summary["cards"].append(
                 {
@@ -2062,6 +2075,14 @@ def register_console_routes(
                     "id": "trust-runtime",
                     "label": "Trust Runtime",
                     "status": trust_payload.get("production_readiness", {}).get("status", "review"),
+                    "action": "trust",
+                }
+            )
+            summary["cards"].append(
+                {
+                    "id": "capability-admission",
+                    "label": "Capability Admission",
+                    "status": "ready" if admission_payload.get("production_ready") else "review",
                     "action": "trust",
                 }
             )
@@ -2083,6 +2104,7 @@ def register_console_routes(
                     "policy": remote_payload.get("policy", {}),
                 },
                 "trust": trust_payload,
+                "capability_admission": admission_payload,
             }
         )
         return summary
@@ -2240,6 +2262,92 @@ def register_console_routes(
             "trust_eval_baseline_created",
             {"trust_score": payload.get("trust_score"), "case_count": payload.get("case_count")},
         )
+        return payload
+
+    def trust_eval_cases(ctx: dict[str, Any]) -> dict[str, Any]:
+        query = ctx.get("query") or {}
+        try:
+            limit = int(query.get("limit") or 100)
+        except (TypeError, ValueError):
+            limit = 100
+        return trust_store.list_eval_cases(limit=limit)
+
+    def trust_eval_case_promote(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        run_id = str(body.get("run_id") or "").strip()
+        if not run_id:
+            return {"ok": False, "error": "run_id is required."}
+        payload = trust_store.promote_run_to_eval_case(
+            run_id,
+            label=str(body.get("label") or "").strip(),
+            severity=str(body.get("severity") or "P2").strip().upper(),
+        )
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "trust_eval_case_promoted",
+                {"run_id": run_id, "case_id": payload.get("case", {}).get("case_id"), "severity": payload.get("case", {}).get("severity")},
+            )
+        return payload
+
+    def capability_admission_route(ctx: dict[str, Any]) -> dict[str, Any]:
+        if ctx.get("method") == "GET":
+            query = ctx.get("query") or {}
+            return admission_store.list_records(
+                status=str(query.get("status") or ""),
+                capability_kind=str(query.get("kind") or query.get("capability_kind") or ""),
+            )
+        body = _json_body(ctx)
+        try:
+            payload = admission_store.register_or_update(
+                capability_kind=str(body.get("capability_kind") or body.get("kind") or "").strip(),
+                name=str(body.get("name") or "").strip(),
+                source=str(body.get("source") or "console").strip() or "console",
+                risk_level=str(body.get("risk_level") or "medium"),
+                risk_ceiling=str(body.get("risk_ceiling") or body.get("risk_level") or "medium"),
+                requested_permissions=[str(item) for item in (body.get("requested_permissions") or body.get("permissions") or []) if str(item).strip()],
+                metadata=body.get("metadata") if isinstance(body.get("metadata"), dict) else {},
+                inspection={"inspected_by": "console", "created_from": "dashboard"},
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        record_timeline_event(
+            console_state_dir,
+            "capability_admission_recorded",
+            {
+                "id": payload.get("record", {}).get("id"),
+                "kind": payload.get("record", {}).get("capability_kind"),
+                "risk_level": payload.get("record", {}).get("risk_level"),
+            },
+        )
+        return payload
+
+    def capability_admission_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/capability-admission/")
+        parts = [part for part in suffix.split("/") if part]
+        action_map = {
+            "inspect": "inspected",
+            "review": "review_required",
+            "approve": "approved",
+            "activate": "active",
+            "revoke": "revoked",
+            "quarantine": "quarantined",
+        }
+        if len(parts) != 2 or parts[1] not in action_map:
+            return {"ok": False, "error": "Expected /api/console/capability-admission/{id}/{inspect|review|approve|activate|revoke|quarantine}."}
+        body = _json_body(ctx)
+        payload = admission_store.transition(
+            parts[0],
+            action_map[parts[1]],
+            reviewer=str(body.get("reviewer") or "console"),
+            reason=str(body.get("reason") or ""),
+        )
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "capability_admission_transitioned",
+                {"id": parts[0], "status": action_map[parts[1]], "action": parts[1]},
+            )
         return payload
 
     def mcp_trust_registry(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -2879,6 +2987,37 @@ def register_console_routes(
         trust_eval_baseline,
         method="POST",
         description="Create a local Trust Runtime eval baseline",
+    )
+    _api_register(
+        "/api/console/trust/eval-cases",
+        trust_eval_cases,
+        method="GET",
+        description="List promoted Trust Runtime eval cases",
+    )
+    _api_register(
+        "/api/console/trust/eval-cases/promote",
+        trust_eval_case_promote,
+        method="POST",
+        description="Promote a durable run into a reusable Trust Runtime eval case",
+    )
+    _api_register(
+        "/api/console/capability-admission",
+        capability_admission_route,
+        method="GET",
+        description="List capability admission records",
+    )
+    _api_register(
+        "/api/console/capability-admission",
+        capability_admission_route,
+        method="POST",
+        description="Register a capability admission record",
+    )
+    _api_register(
+        "/api/console/capability-admission/",
+        capability_admission_action,
+        method="POST",
+        prefix=True,
+        description="Review, approve, activate, revoke, or quarantine a capability admission record",
     )
     _api_register("/api/console/mcp/trust", mcp_trust_registry, method="GET", description="List MCP trust registry")
     _api_register(

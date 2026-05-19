@@ -29,8 +29,12 @@ class TrustConsoleRouteTests(unittest.TestCase):
                 ("GET", "/api/console/trust/runs"),
                 ("GET", "/api/console/trust/approvals"),
                 ("GET", "/api/console/trust/evals"),
+                ("GET", "/api/console/trust/eval-cases"),
+                ("GET", "/api/console/capability-admission"),
                 ("GET", "/api/console/mcp/trust"),
                 ("POST", "/api/console/trust/evals/baseline"),
+                ("POST", "/api/console/trust/eval-cases/promote"),
+                ("POST", "/api/console/capability-admission"),
             ]:
                 self.assertIsNotNone(server.routes.find(method, path), f"{method} {path}")
 
@@ -155,6 +159,62 @@ class TrustConsoleRouteTests(unittest.TestCase):
                 _ctx("POST", "/api/console/mcp/trust/chimeralang/revoke")
             )
             self.assertTrue(revoked["ok"])
+
+    def test_trust_eval_case_promotion_route(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-console-eval-cases-") as tmp:
+            server = GatewayServer()
+            register_console_routes(server, state_dir=tmp, run_objective=lambda objective: {"ok": True})
+            run_route = server.routes.find("POST", "/api/console/run")
+            run_route.handler(_ctx("POST", "/api/console/run", {"objective": "build eval case"}))
+            runs = server.routes.find("GET", "/api/console/trust/runs").handler(_ctx("GET", "/api/console/trust/runs"))
+            run_id = runs["runs"][0]["run_id"]
+
+            promoted = server.routes.find("POST", "/api/console/trust/eval-cases/promote").handler(
+                _ctx("POST", "/api/console/trust/eval-cases/promote", {"run_id": run_id, "label": "console eval", "severity": "P1"})
+            )
+            cases = server.routes.find("GET", "/api/console/trust/eval-cases").handler(
+                _ctx("GET", "/api/console/trust/eval-cases")
+            )
+
+            self.assertTrue(promoted["ok"])
+            self.assertEqual(cases["count"], 1)
+            self.assertEqual(cases["cases"][0]["label"], "console eval")
+
+    def test_capability_admission_routes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-console-admission-") as tmp:
+            server = GatewayServer()
+            register_console_routes(server, state_dir=tmp)
+
+            created = server.routes.find("POST", "/api/console/capability-admission").handler(
+                _ctx(
+                    "POST",
+                    "/api/console/capability-admission",
+                    {
+                        "capability_kind": "model",
+                        "name": "openrouter/test-model",
+                        "source": "openrouter",
+                        "risk_level": "medium",
+                        "requested_permissions": ["model.chat"],
+                        "metadata": {"api_key": "sk-testsecret123456"},
+                    },
+                )
+            )
+            record_id = created["record"]["id"]
+            inspected = server.routes.find("POST", f"/api/console/capability-admission/{record_id}/inspect").handler(
+                _ctx("POST", f"/api/console/capability-admission/{record_id}/inspect")
+            )
+            approved = server.routes.find("POST", f"/api/console/capability-admission/{record_id}/approve").handler(
+                _ctx("POST", f"/api/console/capability-admission/{record_id}/approve")
+            )
+            records = server.routes.find("GET", "/api/console/capability-admission").handler(
+                _ctx("GET", "/api/console/capability-admission")
+            )
+
+            self.assertTrue(created["ok"])
+            self.assertEqual(inspected["record"]["status"], "inspected")
+            self.assertEqual(approved["record"]["status"], "approved")
+            self.assertEqual(records["count"], 1)
+            self.assertNotIn("sk-testsecret123456", json.dumps(records))
 
 
 if __name__ == "__main__":

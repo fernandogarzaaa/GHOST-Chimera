@@ -1281,6 +1281,8 @@
         ["Approvals", summary.approvals ? summary.approvals.pending : 0],
         ["MCP Trust", summary.mcp_trust ? summary.mcp_trust.status : "review"],
         ["Eval Baseline", summary.eval_baseline ? summary.eval_baseline.status : "missing"],
+        ["Eval Cases", data.eval_cases ? data.eval_cases.length : 0],
+        ["Admission", summary.capability_admission && summary.capability_admission.production_ready ? "ready" : "review"],
         ["Trace Export", summary.trace_health ? summary.trace_health.status : "local"],
       ].forEach(function(cardData) {
         var card = el("div", { class: "card" });
@@ -1361,6 +1363,51 @@
         });
       }
     }
+
+    var evalCases = $("#trustEvalCases");
+    if (evalCases) {
+      evalCases.innerHTML = "";
+      if (!Array.isArray(data.eval_cases) || !data.eval_cases.length) {
+        evalCases.appendChild(el("div", { class: "empty" }, "No promoted eval cases yet. Promote a durable run to make it reusable for regression checks."));
+      } else {
+        data.eval_cases.forEach(function(testCase) {
+          var item = el("div", { class: "list-item" });
+          item.appendChild(el("span", { class: "badge" }, testCase.severity || "P2"));
+          item.appendChild(el("span", { class: "name" }, testCase.label || testCase.case_id));
+          item.appendChild(el("span", { class: "meta" }, "run: " + (testCase.run_id || "unknown") + " | steps: " + String((testCase.step_types || []).length)));
+          evalCases.appendChild(item);
+        });
+      }
+    }
+
+    var admission = $("#admissionRecords");
+    if (admission) {
+      admission.innerHTML = "";
+      if (!Array.isArray(data.admission_records) || !data.admission_records.length) {
+        admission.appendChild(el("div", { class: "empty" }, "No capability records yet. Add models, MCP servers, skills, tools, or RAG sources for explicit review before activation."));
+      } else {
+        data.admission_records.forEach(function(record) {
+          var item = el("div", { class: "list-item" });
+          var badgeClass = record.status === "active" || record.status === "approved" ? "ok" : record.status === "quarantined" || record.status === "revoked" ? "error" : "warn";
+          item.appendChild(el("span", { class: "badge " + badgeClass }, record.status || "discovered"));
+          item.appendChild(el("span", { class: "name" }, record.name || record.id));
+          item.appendChild(el("span", { class: "meta" }, (record.capability_kind || "capability") + " | risk: " + (record.risk_level || "medium") + " | " + (record.source || "local")));
+          var actions = el("span", { class: "actions" });
+          [
+            ["Approve", "approve", null],
+            ["Activate", "activate", null],
+            ["Revoke", "revoke", "danger"],
+            ["Quarantine", "quarantine", "danger"],
+          ].forEach(function(actionData) {
+            var btn = el("button", actionData[2] ? { class: actionData[2] } : null, actionData[0]);
+            btn.addEventListener("click", function() { updateCapabilityAdmission(record.id, actionData[1]); });
+            actions.appendChild(btn);
+          });
+          item.appendChild(actions);
+          admission.appendChild(item);
+        });
+      }
+    }
   }
 
   async function refreshTrust() {
@@ -1370,12 +1417,17 @@
       var approvals = await api("/api/console/trust/approvals");
       var mcp = await api("/api/console/mcp/trust");
       var evals = await api("/api/console/trust/evals");
+      var evalCases = await api("/api/console/trust/eval-cases");
+      var admission = await api("/api/console/capability-admission");
+      summary.capability_admission = admission.summary || {};
       renderTrust({
         summary: summary,
         runs: runs.runs || [],
         approvals: approvals.approvals || [],
         mcp_servers: mcp.servers || [],
         evals: evals,
+        eval_cases: evalCases.cases || [],
+        admission_records: admission.records || [],
       });
     } catch (e) {
       empty("#trustRuns", "Trust Runtime unavailable: " + e.message);
@@ -1437,6 +1489,82 @@
     }
   }
 
+  async function promoteTrustEvalCase() {
+    var runId = ($("#trustEvalRunId").value || "").trim();
+    if (!runId && state.trust && Array.isArray(state.trust.runs) && state.trust.runs.length) {
+      runId = state.trust.runs[0].run_id;
+    }
+    if (!runId) {
+      toast("Run id is required before promoting an eval case.", "warn");
+      return;
+    }
+    try {
+      var data = await api("/api/console/trust/eval-cases/promote", {
+        method: "POST",
+        body: {
+          run_id: runId,
+          label: ($("#trustEvalLabel").value || "").trim(),
+          severity: $("#trustEvalSeverity").value || "P2",
+        },
+      });
+      $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshTrust();
+      await refreshTimeline();
+      toast(data.ok ? "Eval case promoted." : (data.error || "Eval case promotion failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#trustOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function registerCapabilityAdmission() {
+    var name = ($("#admissionName").value || "").trim();
+    if (!name) {
+      toast("Capability name is required.", "warn");
+      return;
+    }
+    var permissions = ($("#admissionPermissions").value || "")
+      .split(",")
+      .map(function(item) { return item.trim(); })
+      .filter(Boolean);
+    try {
+      var data = await api("/api/console/capability-admission", {
+        method: "POST",
+        body: {
+          capability_kind: $("#admissionKind").value || "tool",
+          name: name,
+          source: ($("#admissionSource").value || "").trim() || "console",
+          risk_level: $("#admissionRisk").value || "medium",
+          permissions: permissions,
+          metadata: { intake: "operator_console" },
+        },
+      });
+      $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshTrust();
+      await refreshTimeline();
+      toast(data.ok ? "Capability queued for review." : (data.error || "Capability admission failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#trustOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function updateCapabilityAdmission(recordId, action) {
+    try {
+      var data = await api("/api/console/capability-admission/" + encodeURIComponent(recordId) + "/" + action, {
+        method: "POST",
+        body: { reviewer: "console", reason: action + " from Trust Runtime dashboard" },
+      });
+      $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshTrust();
+      await refreshTimeline();
+      toast(data.ok ? "Capability admission updated." : (data.error || "Capability admission update failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#trustOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
   async function exportTrustTrace(runId) {
     try {
       var target = runId || "latest";
@@ -1452,6 +1580,8 @@
   $("#trustRefresh").addEventListener("click", refreshTrust);
   $("#trustBaseline").addEventListener("click", createTrustBaseline);
   $("#trustTraceExport").addEventListener("click", function() { exportTrustTrace("latest"); });
+  $("#trustPromoteEvalCase").addEventListener("click", promoteTrustEvalCase);
+  $("#admissionInspect").addEventListener("click", registerCapabilityAdmission);
 
   // ── Status ───────────────────────────────────────────────────────────────
   function renderThinking(data) {
