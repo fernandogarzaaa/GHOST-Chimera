@@ -151,14 +151,21 @@ class TrustConsoleRouteTests(unittest.TestCase):
                 _ctx("POST", "/api/console/mcp/trust/chimeralang/approve", {"risk_ceiling": "medium", "tools": ["read"]})
             )
             self.assertTrue(approved["ok"])
+            self.assertEqual(approved["admission_record"]["status"], "active")
             registry = server.routes.find("GET", "/api/console/mcp/trust").handler(_ctx("GET", "/api/console/mcp/trust"))
             self.assertEqual(registry["servers"][0]["server_id"], "chimeralang")
             self.assertEqual(registry["servers"][0]["status"], "approved")
+            records = server.routes.find("GET", "/api/console/capability-admission").handler(
+                _ctx("GET", "/api/console/capability-admission")
+            )
+            self.assertEqual(records["records"][0]["capability_kind"], "mcp")
+            self.assertEqual(records["records"][0]["status"], "active")
 
             revoked = server.routes.find("POST", "/api/console/mcp/trust/chimeralang/revoke").handler(
                 _ctx("POST", "/api/console/mcp/trust/chimeralang/revoke")
             )
             self.assertTrue(revoked["ok"])
+            self.assertEqual(revoked["admission_record"]["status"], "revoked")
 
     def test_trust_eval_case_promotion_route(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghost-console-eval-cases-") as tmp:

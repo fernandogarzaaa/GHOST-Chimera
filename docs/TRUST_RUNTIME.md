@@ -108,6 +108,12 @@ level, permission list, source, and redacted metadata. Records move through:
 Records can also be revoked or quarantined. Critical or high-risk records keep
 production readiness in `review` until a human approves or disables them.
 
+Activation-sensitive flows call this gate directly. Model Discovery will not
+save a newly selected model until its model admission record is active.
+Self-Evolution will not promote a candidate until its candidate admission record
+is active. MCP trust approvals keep the MCP trust registry and admission record
+in sync.
+
 ## Trace Export
 
 Trace export returns local JSON with stable Ghost fields and `gen_ai.*`-style attributes:

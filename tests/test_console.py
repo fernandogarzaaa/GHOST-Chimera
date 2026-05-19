@@ -146,7 +146,7 @@ class ConsoleRouteTests(unittest.TestCase):
         server = GatewayServer()
         with tempfile.TemporaryDirectory(prefix="ghostchimera-console-path-") as tmp:
             config_path = Path(tmp) / "config.json"
-            register_console_routes(server, config_path=config_path)
+            register_console_routes(server, state_dir=tmp, config_path=config_path)
 
             profiles_route = server.routes.find("GET", "/api/console/paths")
             synthesize_route = server.routes.find("POST", "/api/console/paths/synthesize")
@@ -300,7 +300,7 @@ class ConsoleRouteTests(unittest.TestCase):
         server = GatewayServer()
         with tempfile.TemporaryDirectory(prefix="ghostchimera-console-config-ui-") as tmp:
             config_path = Path(tmp) / "config.json"
-            register_console_routes(server, config_path=config_path)
+            register_console_routes(server, state_dir=tmp, config_path=config_path)
             config_route = server.routes.find("GET", "/api/console/config")
             save_route = server.routes.find("POST", "/api/console/config")
 
@@ -373,7 +373,7 @@ class ConsoleRouteTests(unittest.TestCase):
         server = GatewayServer()
         with tempfile.TemporaryDirectory(prefix="ghostchimera-console-model-discovery-") as tmp:
             config_path = Path(tmp) / "config.json"
-            register_console_routes(server, config_path=config_path)
+            register_console_routes(server, state_dir=tmp, config_path=config_path)
             list_route = server.routes.find("GET", "/api/console/models/discovery")
             refresh_route = server.routes.find("POST", "/api/console/models/discovery/refresh")
             select_route = server.routes.find("POST", "/api/console/models/discovery/select")
@@ -447,11 +447,51 @@ class ConsoleRouteTests(unittest.TestCase):
                     "query": {},
                 }
             )
+            self.assertFalse(selected["ok"])
+            self.assertTrue(selected["admission_required"])
+            record_id = selected["admission_record"]["id"]
+            approved = server.routes.find("POST", f"/api/console/capability-admission/{record_id}/approve").handler(
+                {
+                    "method": "POST",
+                    "path": f"/api/console/capability-admission/{record_id}/approve",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+            activated = server.routes.find("POST", f"/api/console/capability-admission/{record_id}/activate").handler(
+                {
+                    "method": "POST",
+                    "path": f"/api/console/capability-admission/{record_id}/activate",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+            self.assertTrue(approved["ok"])
+            self.assertTrue(activated["ok"])
+
+            selected = select_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/models/discovery/select",
+                    "headers": {},
+                    "body": json.dumps(
+                        {
+                            "source": "openrouter",
+                            "provider": "openrouter",
+                            "model_id": "openai/gpt-4o-mini",
+                        }
+                    ),
+                    "query": {},
+                }
+            )
             self.assertTrue(selected["ok"])
             self.assertEqual(selected["model"]["provider"], "openrouter")
             self.assertEqual(selected["model"]["model"], "openai/gpt-4o-mini")
             self.assertFalse(selected["model"]["api_key_configured"])
             self.assertTrue(selected["security"]["secrets_are_write_only"])
+            self.assertEqual(selected["admission_record"]["status"], "active")
 
             with patch("ghostchimera.control_plane.console.get_provider", return_value=FakeModelProvider()):
                 pinged = ping_route.handler(
@@ -686,6 +726,39 @@ class ConsoleRouteTests(unittest.TestCase):
                 }
             )
             self.assertTrue(reviewed["ok"])
+
+            promoted = promote_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/evolution/candidates/candidate-id/promote",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+            self.assertFalse(promoted["ok"])
+            self.assertTrue(promoted["admission_required"])
+            record_id = promoted["admission_record"]["id"]
+            approved = server.routes.find("POST", f"/api/console/capability-admission/{record_id}/approve").handler(
+                {
+                    "method": "POST",
+                    "path": f"/api/console/capability-admission/{record_id}/approve",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+            activated = server.routes.find("POST", f"/api/console/capability-admission/{record_id}/activate").handler(
+                {
+                    "method": "POST",
+                    "path": f"/api/console/capability-admission/{record_id}/activate",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+            self.assertTrue(approved["ok"])
+            self.assertTrue(activated["ok"])
 
             promoted = promote_route.handler(
                 {

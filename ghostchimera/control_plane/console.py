@@ -781,6 +781,87 @@ def register_console_routes(
         )
         return {"repo": repo, "skill_name": slug, "path": str(skill_path)}
 
+    def _move_admission_to_review(record: dict[str, Any], *, reason: str) -> dict[str, Any]:
+        current = str(record.get("status") or "discovered")
+        record_id = str(record.get("id") or "")
+        if current == "discovered":
+            moved = admission_store.transition(record_id, "inspected", reviewer="console", reason=reason)
+            if moved.get("ok"):
+                record = moved["record"]
+                current = str(record.get("status") or "inspected")
+        if current == "inspected":
+            moved = admission_store.transition(record_id, "review_required", reviewer="console", reason=reason)
+            if moved.get("ok"):
+                record = moved["record"]
+        return record
+
+    def _move_admission_to_active(record: dict[str, Any], *, reason: str) -> dict[str, Any]:
+        current = str(record.get("status") or "discovered")
+        record_id = str(record.get("id") or "")
+        if current in {"revoked", "quarantined"}:
+            return record
+        record = _move_admission_to_review(record, reason=reason)
+        current = str(record.get("status") or "")
+        if current == "review_required":
+            moved = admission_store.transition(record_id, "approved", reviewer="console", reason=reason)
+            if moved.get("ok"):
+                record = moved["record"]
+                current = str(record.get("status") or "")
+        if current == "approved":
+            moved = admission_store.transition(record_id, "active", reviewer="console", reason=reason)
+            if moved.get("ok"):
+                record = moved["record"]
+        return record
+
+    def _admission_gate(
+        *,
+        capability_kind: str,
+        name: str,
+        source: str,
+        risk_level: str = "medium",
+        risk_ceiling: str = "medium",
+        requested_permissions: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        inspection: dict[str, Any] | None = None,
+        reason: str,
+    ) -> dict[str, Any]:
+        payload = admission_store.register_or_update(
+            capability_kind=capability_kind,
+            name=name,
+            source=source,
+            risk_level=risk_level,
+            risk_ceiling=risk_ceiling,
+            requested_permissions=requested_permissions,
+            metadata=metadata,
+            inspection=inspection,
+        )
+        if not payload.get("ok"):
+            return payload
+        record = payload.get("record") or {}
+        status_value = str(record.get("status") or "discovered")
+        if status_value == "active":
+            return {"ok": True, "record": record}
+        if status_value in {"revoked", "quarantined"}:
+            return {
+                "ok": False,
+                "admission_required": True,
+                "error": f"Capability admission record is {status_value}.",
+                "record": record,
+            }
+        record = _move_admission_to_review(record, reason=reason)
+        return {
+            "ok": False,
+            "admission_required": True,
+            "error": "Capability Admission approval and activation are required before this can be used.",
+            "record": record,
+        }
+
+    def _find_evolution_candidate(candidate_id: str) -> dict[str, Any] | None:
+        for item in list_candidates(console_state_dir):
+            if str(item.get("id") or "") == candidate_id:
+                return item
+        return None
+
     def console_page(ctx: dict[str, Any]) -> HttpResponse:
         return HttpResponse(body=CONSOLE_HTML, content_type="text/html; charset=utf-8")
 
@@ -898,12 +979,38 @@ def register_console_routes(
         )
         if not selected.get("ok"):
             return selected
+        selected_model = selected.get("selected_model") or {}
+        admission = _admission_gate(
+            capability_kind="model",
+            name=f"{provider}/{model_id}",
+            source=source or provider,
+            risk_level="medium",
+            risk_ceiling="medium",
+            requested_permissions=[
+                "model_inference",
+                "network_provider",
+                *([] if not selected.get("requires_api_key", False) else ["api_key"]),
+            ],
+            metadata=selected_model if isinstance(selected_model, dict) else {},
+            inspection={
+                "compatibility_status": selected_model.get("compatibility_status") if isinstance(selected_model, dict) else "",
+                "requires_api_key": bool(selected.get("requires_api_key", False)),
+            },
+            reason="Model selection from discovery requires explicit capability admission.",
+        )
+        if not admission.get("ok"):
+            return {
+                "ok": False,
+                "admission_required": True,
+                "error": admission.get("error"),
+                "admission_record": admission.get("record"),
+                "selected_model": selected_model,
+            }
         next_config = selected["config"]
         save_config(next_config, console_config_file)
         env_vars = config_to_env_vars(next_config)
         env_file = _write_env_file(console_config_file, env_vars)
         _apply_model_env(env_vars, overwrite=True)
-        selected_model = selected.get("selected_model") or {}
         record_timeline_event(
             console_state_dir,
             "model_activated",
@@ -912,6 +1019,7 @@ def register_console_routes(
                 "provider": provider,
                 "model_id": model_id,
                 "requires_api_key": bool(selected.get("requires_api_key", False)),
+                "admission_record": admission.get("record", {}).get("id"),
             },
         )
         upsert_candidate(
@@ -931,6 +1039,7 @@ def register_console_routes(
                 "env_file": str(env_file),
                 "selected_model": selected_model,
                 "requires_api_key": selected.get("requires_api_key", False),
+                "admission_record": admission.get("record"),
             }
         )
         return payload
@@ -2366,10 +2475,39 @@ def register_console_routes(
             risk_ceiling=str(body.get("risk_ceiling") or "medium"),
             tools=[str(tool) for tool in (body.get("tools") or []) if str(tool).strip()],
         )
+        admission = admission_store.register_or_update(
+            capability_kind="mcp",
+            name=parts[0],
+            source="mcp_trust_registry",
+            risk_level=str(body.get("risk_ceiling") or "medium"),
+            risk_ceiling=str(body.get("risk_ceiling") or "medium"),
+            requested_permissions=[str(tool) for tool in (body.get("tools") or ["mcp_tool_execution"]) if str(tool).strip()],
+            metadata={"server_id": parts[0], "mcp_status": status_value},
+            inspection={"trust_action": parts[1], "runtime_registry_status": status_value},
+        )
+        admission_record = admission.get("record") if admission.get("ok") else {}
+        if isinstance(admission_record, dict) and admission_record.get("id"):
+            if status_value == "approved":
+                admission_record = _move_admission_to_active(admission_record, reason="MCP trust approval from Console.")
+            elif str(admission_record.get("status") or "") not in {"revoked", "quarantined"}:
+                revoked = admission_store.transition(
+                    str(admission_record.get("id")),
+                    "revoked",
+                    reviewer="console",
+                    reason="MCP trust revoked from Console.",
+                )
+                if revoked.get("ok"):
+                    admission_record = revoked["record"]
+        payload["admission_record"] = admission_record
         record_timeline_event(
             console_state_dir,
             "mcp_trust_updated",
-            {"server_id": parts[0], "status": status_value, "risk_ceiling": payload.get("server", {}).get("risk_ceiling")},
+            {
+                "server_id": parts[0],
+                "status": status_value,
+                "risk_ceiling": payload.get("server", {}).get("risk_ceiling"),
+                "admission_record": admission_record.get("id") if isinstance(admission_record, dict) else "",
+            },
         )
         return payload
 
@@ -2634,6 +2772,34 @@ def register_console_routes(
         if len(parts) != 2 or parts[1] not in allowed:
             return {"ok": False, "error": "Expected /api/console/evolution/candidates/{id}/review, /promote, or /reject"}
         body = _json_body(ctx)
+        if parts[1] == "promote":
+            candidate_for_gate = _find_evolution_candidate(parts[0])
+            if not isinstance(candidate_for_gate, dict):
+                return {"ok": False, "error": "Evolution candidate not found."}
+            admission = _admission_gate(
+                capability_kind=str(candidate_for_gate.get("candidate_type") or "self_evolution_candidate"),
+                name=str(candidate_for_gate.get("title") or parts[0]),
+                source=str(candidate_for_gate.get("source_id") or "self-evolution"),
+                risk_level=str(candidate_for_gate.get("risk_level") or "medium"),
+                risk_ceiling=str(candidate_for_gate.get("risk_ceiling") or "medium"),
+                requested_permissions=[
+                    str(item)
+                    for item in (candidate_for_gate.get("required_permissions") or ["self_evolution_promotion"])
+                    if str(item).strip()
+                ],
+                metadata=candidate_for_gate.get("metadata") if isinstance(candidate_for_gate.get("metadata"), dict) else {},
+                inspection={"candidate_id": parts[0], "status": candidate_for_gate.get("status")},
+                reason="Self-Evolution promotion requires active capability admission.",
+            )
+            if not admission.get("ok"):
+                return {
+                    "ok": False,
+                    "admission_required": True,
+                    "error": admission.get("error"),
+                    "admission_record": admission.get("record"),
+                    "candidate": candidate_for_gate,
+                    "candidates": list_candidates(console_state_dir),
+                }
         try:
             candidate = set_candidate_status(
                 console_state_dir,

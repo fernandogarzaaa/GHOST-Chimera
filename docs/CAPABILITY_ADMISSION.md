@@ -53,6 +53,16 @@ them without editing `.env` or code.
 
 The panel is intentionally a review surface, not an auto-enable mechanism.
 
+Model Discovery, MCP trust, and Self-Evolution use the same gate:
+
+- Selecting a discovered model queues a model admission record first. The model
+  is saved only after that record is approved and activated.
+- Approving an MCP server creates and activates the matching MCP admission
+  record; revoking MCP trust revokes that record.
+- Promoting a Self-Evolution candidate requires an active admission record for
+  the candidate. The first promotion attempt queues review if no active record
+  exists.
+
 ## Production Rules
 
 Production readiness should remain in review when any high or critical record is

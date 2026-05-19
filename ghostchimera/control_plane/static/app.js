@@ -417,7 +417,17 @@
   async function setCandidateStatus(id, action) {
     try {
       var data = await api("/api/console/evolution/candidates/" + encodeURIComponent(id) + "/" + action, { method: "POST", body: {} });
-      if (!data.ok) { toast(data.error || "Candidate update failed.", "error"); return; }
+      if (!data.ok) {
+        if (data.admission_required) {
+          $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+          await refreshTrust();
+          openTab("trust");
+          toast("Capability Admission must be approved and activated before promotion.", "warn");
+          return;
+        }
+        toast(data.error || "Candidate update failed.", "error");
+        return;
+      }
       toast("Candidate " + action + " recorded.", "ok");
       await refreshEvolution();
       await refreshOperatorSummary();
@@ -555,6 +565,13 @@
         body: { source: model.source, provider: model.provider, model_id: model.model_id },
       });
       if (!data.ok) {
+        if (data.admission_required) {
+          $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+          await refreshTrust();
+          openTab("trust");
+          toast("Review and activate this model in Capability Admission, then select it again.", "warn");
+          return;
+        }
         toast(data.error || "Model selection failed.", "error");
         return;
       }
