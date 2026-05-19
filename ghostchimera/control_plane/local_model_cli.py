@@ -122,7 +122,7 @@ def _profile_fit(profile_name: str, resources: dict[str, Any]) -> dict[str, Any]
     }
 
 
-def run_local_model_cli(action: str, profile: str = "") -> int:
+def run_local_model_cli(action: str, profile: str = "", source: str = "") -> int:
     """Dispatch ``ghostchimera local-model <action>``."""
     resources = _detect_resources()
 
@@ -178,5 +178,25 @@ def run_local_model_cli(action: str, profile: str = "") -> int:
         print(json.dumps({"ok": True, "profile": profile_name, "steps": guidance}, indent=2, sort_keys=True))
         return 0
 
-    print(json.dumps({"ok": False, "error": f"Unknown action '{action}'. Use: check, guide, profiles"}, indent=2))
+    if action == "inventory":
+        from ..model_layer.local_model_inventory import discover_local_model_inventory
+
+        print(json.dumps(discover_local_model_inventory(), indent=2, sort_keys=True))
+        return 0
+
+    if action == "resolve":
+        from ..model_layer.local_model_inventory import resolve_model_source
+
+        if not source:
+            print(json.dumps({"ok": False, "error": "--source is required for resolve"}, indent=2, sort_keys=True))
+            return 2
+        print(json.dumps({"ok": True, "model": resolve_model_source(source).to_dict()}, indent=2, sort_keys=True))
+        return 0
+
+    print(
+        json.dumps(
+            {"ok": False, "error": f"Unknown action '{action}'. Use: check, guide, profiles, inventory, resolve"},
+            indent=2,
+        )
+    )
     return 1

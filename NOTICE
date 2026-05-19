@@ -10,3 +10,20 @@ MiniMind license: Apache License 2.0
 
 Ghost Chimera does not bundle MiniMind model weights. Local MiniMind inference
 requires operator-provided weights and optional runtime dependencies.
+
+Native Absorption
+
+Ghost Chimera includes Ghost-native implementations inspired by the author's
+adjacent projects:
+
+- chimeralang-mcp: confidence gating, tamper-evident handoff, and
+  query-aware context compression ideas.
+- ChimeraLang: belief confidence, variance guard, and operational reasoning
+  trace concepts.
+- OpenDrop: local model source resolution, hardware posture, model inventory,
+  license posture, and quantization recommendation concepts.
+- OpenChimera_v1: MCP capability normalization and operator sandbox journey
+  patterns.
+
+These capabilities are implemented inside Ghost Chimera and do not require
+those repositories as runtime dependencies.

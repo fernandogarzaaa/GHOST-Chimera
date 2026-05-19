@@ -13,6 +13,8 @@ Key capabilities:
 - **Browser console (Ghost Console)** â€” full point-and-click UI with Quick Actions, Skills browser, Run history, live security monitor, cron scheduler, and provider visibility. No terminal needed for day-to-day use.
 - **Conservative safety defaults** â€” Python, shell, network, and desktop execution are all off by default. Production mode adds deployment-level guardrails.
 - **Personal MiniMind** â€” consent-gated local memory bootstrap with system specs, approved files/email exports, optional whole-machine/email-artifact crawling, MiniMind JSONL dataset generation, and primary-model RAG handoff.
+- **Native Chimera capability pack** - built-in cognition guardrails, tamper-evident handoffs, query-aware context compression, local model inventory/resolution, MCP normalization, and sandbox journeys with no external project dependency. [Details](docs/NATIVE_ABSORPTION.md)
+- **Trust Runtime** - durable local run journals, resumable approval checkpoints, MCP zero-trust envelopes, eval baselines, and OTel-compatible JSON trace exports. [Details](docs/TRUST_RUNTIME.md)
 
 - **Competitive capability intelligence** - CLI, console, docs, and eval gates compare Ghost Chimera against Codex, Claude Code, LangGraph, CrewAI, Hermes-style tool gateways, and OpenClaw-style local autonomy patterns.
 - **Automated PR review** - deterministic `ghostchimera review-pr` checks for secrets, destructive commands, missing tests, release-checklist drift, generated artifacts, and unfinished beta code.
@@ -26,6 +28,7 @@ If you are new to Ghost Chimera, use the tutorial first:
 
 - [User Tutorial](docs/USER_TUTORIAL.md) - first-run walkthrough for Ghost Console, Ghost Paths, MiniMind, and your first objective
 - [Quick Start](docs/quick-start.md) - fastest install and launch path
+- [Remote Control](docs/REMOTE_CONTROL.md) - paired mobile/messaging commands with dashboard-controlled direct execution
 - [GitHub-Connected Workflow](docs/GITHUB_CONNECTED_AUTONOMOUS_ENGINEER.md) - optional GitHub planning and issue-to-objective flow
 
 ---
@@ -163,6 +166,7 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 | **Memory** | Ingest emails (`.eml` / `.mbox` files or pasted raw RFC 2822 text), ingest files/directories, ingest plain text, search memory, teach Ghost by recording prompt/response training pairs, export MiniMind JSONL datasets, view MiniMind status. |
 | **MiniMind** | Grant or revoke Personal MiniMind admin consent, configure approved local/email source paths, toggle whole-machine and email-artifact crawling, bootstrap personal memory and datasets, and build the RAG handoff prompt for the configured primary model. |
 | **Skills** | Browse all registered skills (bundled + workspace) with domain and description, select a skill and optional input, run it directly from the browser. Backed by `GET /api/console/skills`. |
+| **Remote Control** | Pair mobile or messaging senders, review safe slash commands, toggle global direct-execution policy, enable direct execution per paired admin, and approve or deny remote `/run` requests. |
 | **Browser** | Fetch a URL (content scraping), open a URL in the agent browser workspace, take a DOM snapshot. |
 | **Security** | Security metric cards, HMAC audit chain status, recent LobsterTrap/DPI threat events. |
 | **Schedules** | Create cron schedules (start disabled for review), enable/disable/delete existing schedules, see next-run times. |

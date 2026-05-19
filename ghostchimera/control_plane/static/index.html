@@ -36,6 +36,8 @@
     <button class="tab" data-tab="config">Config</button>
     <button class="tab" data-tab="path">Path</button>
     <button class="tab" data-tab="github">GitHub</button>
+    <button class="tab" data-tab="remote">Remote Control</button>
+    <button class="tab" data-tab="trust">Trust Runtime</button>
     <button class="tab" data-tab="thinking">Thinking</button>
     <button class="tab" data-tab="run">▶ Run</button>
     <button class="tab" data-tab="jobs">Jobs</button>
@@ -48,6 +50,10 @@
     <button class="tab" data-tab="evolution">Self-Evolution</button>
     <button class="tab" data-tab="activity">Activity</button>
     <button class="tab" data-tab="latency">Latency</button>
+    <button class="tab" data-tab="local-models">Local Models</button>
+    <button class="tab" data-tab="cognition">Cognitive Guardrails</button>
+    <button class="tab" data-tab="capability-pack">Capability Pack</button>
+    <button class="tab" data-tab="sandbox">Sandbox</button>
     <button class="tab" data-tab="browser">Browser</button>
     <button class="tab" data-tab="security">Security</button>
     <button class="tab" data-tab="schedules">Schedules</button>
@@ -159,6 +165,150 @@
     </div>
     <div class="section-hdr">Synthesized Configuration</div>
     <pre class="output" id="pathOutput">Choose a path to synthesize Ghost Chimera.</pre>
+  </div>
+
+  <div class="tab-content" id="tab-remote">
+    <div class="section-hdr" style="margin-top:0;">Remote Control Center</div>
+    <div class="grid" id="remoteSummary"></div>
+    <div class="remote-layout">
+      <div>
+        <div class="section-hdr" style="margin-top:0;">Policy</div>
+        <label class="inline-check"><input id="remoteEnabled" type="checkbox"> Enable remote control</label>
+        <label class="inline-check"><input id="remoteDirectExecution" type="checkbox"> Allow paired admins to enable direct execution</label>
+        <label class="inline-check"><input id="remoteDefaultDirectAdmins" type="checkbox"> New admin pairings default to direct execution</label>
+        <div class="row">
+          <button id="remoteSavePolicy" class="primary">Save Remote Policy</button>
+          <button id="remoteRefresh">Refresh</button>
+        </div>
+        <p class="hint">Direct execution is still limited to paired admin peers that are explicitly allowed below.</p>
+      </div>
+      <div>
+        <div class="section-hdr" style="margin-top:0;">Create Pairing</div>
+        <div class="form-group">
+          <label>Channel</label>
+          <select id="remotePairChannel">
+            <option value="webhook">Webhook / test</option>
+            <option value="telegram">Telegram</option>
+            <option value="discord">Discord</option>
+            <option value="slack">Slack</option>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="signal">Signal</option>
+            <option value="sms">SMS</option>
+            <option value="email">Email</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Peer ID</label>
+          <input id="remotePairPeer" placeholder="phone, username, chat id, or sender id">
+        </div>
+        <div class="form-group">
+          <label>Display Name</label>
+          <input id="remotePairName" placeholder="admin mobile">
+        </div>
+        <button id="remoteCreatePairing" class="primary">Create Pairing Code</button>
+      </div>
+    </div>
+    <div class="section-hdr">Paired Peers</div>
+    <div id="remotePeers" class="list"></div>
+    <div class="section-hdr">Adapter Configuration</div>
+    <div class="remote-layout">
+      <div>
+        <div class="form-group">
+          <label>Channel</label>
+          <select id="remoteConfigChannel">
+            <option value="telegram">Telegram</option>
+            <option value="discord">Discord</option>
+            <option value="slack">Slack</option>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="signal">Signal</option>
+            <option value="sms">SMS</option>
+            <option value="email">Email</option>
+            <option value="webhook">Webhook</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Bot/API Token</label>
+          <input id="remoteConfigToken" type="password" autocomplete="off" placeholder="write-only; leave blank to keep existing">
+        </div>
+        <div class="form-group">
+          <label>Webhook URL / Provider Endpoint</label>
+          <input id="remoteConfigWebhook" type="password" autocomplete="off" placeholder="write-only optional endpoint">
+        </div>
+      </div>
+      <div>
+        <div class="form-group">
+          <label>Phone Number ID / Sender ID</label>
+          <input id="remoteConfigPhone" type="password" autocomplete="off" placeholder="write-only optional id">
+        </div>
+        <div class="form-group">
+          <label>Signing Secret</label>
+          <input id="remoteConfigSigning" type="password" autocomplete="off" placeholder="write-only optional HMAC secret">
+          <small>When saved, provider webhooks must include a matching SHA-256 signature. Local simulation remains unsigned.</small>
+        </div>
+        <label class="inline-check"><input id="remoteConfigEnabled" type="checkbox" checked> Enable inbound adapter metadata</label>
+        <label class="inline-check"><input id="remoteConfigSendEnabled" type="checkbox"> Enable outbound sending for this channel</label>
+        <div class="row">
+          <button id="remoteSaveChannel" class="primary">Save Channel Config</button>
+          <button id="remoteClearChannel" class="danger">Clear Channel Secrets</button>
+        </div>
+      </div>
+    </div>
+    <div id="remoteChannels" class="list"></div>
+    <div class="section-hdr">Send Test Reply</div>
+    <div class="row">
+      <select id="remoteSendChannel" style="max-width:180px;">
+        <option value="telegram">Telegram</option>
+        <option value="discord">Discord</option>
+        <option value="slack">Slack</option>
+        <option value="whatsapp">WhatsApp</option>
+        <option value="signal">Signal</option>
+        <option value="sms">SMS</option>
+        <option value="email">Email</option>
+        <option value="webhook">Webhook</option>
+      </select>
+      <input id="remoteSendTarget" placeholder="reply target / chat id / channel id" style="flex:1;min-width:220px;">
+      <input id="remoteSendText" value="Ghost Chimera remote test reply." style="flex:3;min-width:260px;">
+      <button id="remoteSendTest" class="primary">Send Test</button>
+    </div>
+    <div class="section-hdr">Pending Pairings</div>
+    <div id="remotePairings" class="list"></div>
+    <div class="section-hdr">Pending Remote Approvals</div>
+    <div id="remoteApprovals" class="list"></div>
+    <div class="section-hdr">Simulate Inbound Message</div>
+    <div class="row">
+      <select id="remoteSimChannel" style="max-width:180px;">
+        <option value="webhook">Webhook</option>
+        <option value="telegram">Telegram</option>
+        <option value="discord">Discord</option>
+        <option value="slack">Slack</option>
+        <option value="whatsapp">WhatsApp</option>
+        <option value="signal">Signal</option>
+      </select>
+      <input id="remoteSimPeer" placeholder="peer id" style="flex:1;min-width:160px;">
+      <input id="remoteSimText" placeholder="/status or /run summarize my readiness" style="flex:3;min-width:260px;">
+      <button id="remoteSimSend" class="primary">Send</button>
+    </div>
+    <div class="section-hdr">Provider Webhook Endpoint</div>
+    <div id="remoteWebhookExamples" class="list"></div>
+    <pre class="output compact-output" id="remoteOutput">Remote commands are paired, audited, and policy-gated. Provider adapters are optional. Signing secrets make provider webhooks fail closed.</pre>
+  </div>
+
+  <div class="tab-content" id="tab-trust">
+    <div class="section-hdr" style="margin-top:0;">Trust Runtime</div>
+    <div class="grid" id="trustCards"></div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="trustRefresh" class="primary">Refresh Trust Runtime</button>
+      <button id="trustBaseline">Create Eval Baseline</button>
+      <button id="trustTraceExport">Export Latest Trace</button>
+    </div>
+    <div class="section-hdr">Durable Runs</div>
+    <div id="trustRuns" class="list"></div>
+    <div class="section-hdr">Pending Approvals</div>
+    <div id="trustApprovals" class="list"></div>
+    <div class="section-hdr">MCP Trust Registry</div>
+    <div id="trustMcp" class="list"></div>
+    <div class="section-hdr">Eval And Trace Output</div>
+    <pre class="output compact-output" id="trustOutput">Trust Runtime is local-first. Refresh to inspect run journals, approvals, MCP trust, evals, and trace export readiness.</pre>
   </div>
 
   <div class="tab-content" id="tab-github">
@@ -566,6 +716,51 @@
     <div id="latencyRecommendations"></div>
     <div class="section-hdr">Slowest Events</div>
     <div id="latencyEvents"></div>
+  </div>
+
+  <div class="tab-content" id="tab-local-models">
+    <div class="section-hdr" style="margin-top:0;">Local Models</div>
+    <div class="row" style="margin-bottom:12px;">
+      <input id="localModelSource" placeholder="Hugging Face model, URL, or local .gguf/.safetensors path" style="flex:3;">
+      <button id="resolveLocalModel" class="primary">Resolve</button>
+      <button id="refreshLocalModels">Inventory</button>
+    </div>
+    <div id="localModelCards" class="grid"></div>
+    <pre class="output compact-output" id="localModelOutput">Preview only: Ghost will not download, convert, train, or activate a model without approval.</pre>
+  </div>
+
+  <div class="tab-content" id="tab-cognition">
+    <div class="section-hdr" style="margin-top:0;">Cognitive Guardrails</div>
+    <div class="row" style="margin-bottom:12px;">
+      <input id="cognitionConfidence" value="0.9" placeholder="confidence" style="flex:1;">
+      <input id="cognitionVariance" value="0.01" placeholder="variance" style="flex:1;">
+      <input id="cognitionGoal" placeholder="goal for operational trace" style="flex:2;">
+      <button id="runCognitionGuard" class="primary">Run Guard</button>
+      <button id="refreshCognitionTrace">Trace</button>
+    </div>
+    <div id="cognitionTraceList"></div>
+    <pre class="output compact-output" id="cognitionOutput">Operational trace only. Hidden chain-of-thought is never exposed.</pre>
+  </div>
+
+  <div class="tab-content" id="tab-capability-pack">
+    <div class="section-hdr" style="margin-top:0;">Internal Chimera Capability Pack</div>
+    <div class="row" style="margin-bottom:12px;">
+      <select id="capabilityToolSelect" style="flex:2;"></select>
+      <input id="capabilityToolArgs" value="{}" placeholder='{"confidence":0.9}' style="flex:3;">
+      <button id="runCapabilityTool" class="primary">Run Tool</button>
+      <button id="refreshCapabilityPack">Refresh</button>
+    </div>
+    <div id="capabilityPackList"></div>
+    <pre class="output compact-output" id="capabilityPackOutput">Built-in tools run locally and do not require external MCP servers.</pre>
+  </div>
+
+  <div class="tab-content" id="tab-sandbox">
+    <div class="section-hdr" style="margin-top:0;">Operator Sandbox Journey</div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="runSandboxJourney" class="primary">Run Journey</button>
+    </div>
+    <div id="sandboxSteps"></div>
+    <pre class="output compact-output" id="sandboxOutput">Runs a local preview journey and preserves findings.</pre>
   </div>
 
   <div class="tab-content" id="tab-browser">

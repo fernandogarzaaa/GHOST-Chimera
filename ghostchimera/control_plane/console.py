@@ -18,24 +18,31 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from ..capability_pack import call_capability_tool, list_capability_tools
 from ..chimera_pilot import ChimeraPilotKernel
 from ..chimera_pilot.autonomy import get_autonomy_profile, list_autonomy_profiles
 from ..chimera_pilot.autonomy_jobs import JOB_SPECS
 from ..chimera_pilot.autonomy_queue import AutonomyJobQueue
 from ..chimera_pilot.capability_intelligence import inspect_capabilities
+from ..chimera_pilot.context_compressor import compress_text_query_aware
 from ..chimera_pilot.desktop_policy import DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN
 from ..chimera_pilot.gateway_server import GatewayServer, HttpResponse
 from ..chimera_pilot.pr_review import run_pr_review
+from ..cognition_layer.trust import GhostBelief, guard_belief, summarize_operational_trace
 from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 from ..config import GhostChimeraConfig
+from ..integrations.remote_control import RemoteControlStore, normalize_remote_payload, verify_remote_webhook_signature
 from ..memory_layer.store import MemoryStore
 from ..model_layer.auth_profiles import AuthProfile
+from ..model_layer.local_model_inventory import discover_local_model_inventory, resolve_model_source
 from ..model_layer.minimind_lifecycle import MiniMindLifecycle
 from ..model_layer.minimind_personal_agent import MiniMindPersonalAgent
 from ..model_layer.model_discovery import get_model_discovery, refresh_model_discovery, select_discovered_model
 from ..model_layer.providers import get_provider
+from ..sandbox.journey import run_sandbox_journey
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
+from ..trust_runtime import TrustRuntimeStore
 from .config import CONFIG_FILE, config_to_env_vars, get_autonomy_config, get_default_config, load_config, save_config
 from .evolution import (
     create_learning_source,
@@ -116,6 +123,16 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "purpose": "Verifies production-mode guardrail configuration.",
     },
     {
+        "name": "trust runtime status",
+        "command": "ghostchimera trust status",
+        "purpose": "Checks durable journals, approvals, MCP trust, trace health, and trust eval posture.",
+    },
+    {
+        "name": "trust eval baseline",
+        "command": "ghostchimera trust eval baseline",
+        "purpose": "Creates a fresh local trust baseline before production deployment.",
+    },
+    {
         "name": "base wheel smoke",
         "command": "python scripts/smoke_installed_wheel.py",
         "purpose": "Verifies the installed artifact without optional extras.",
@@ -139,6 +156,31 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "name": "competitive capability smoke",
         "command": "ghostchimera capabilities --format json",
         "purpose": "Verifies the competitive capability matrix is reachable from the CLI.",
+    },
+    {
+        "name": "native capability pack smoke",
+        "command": "ghostchimera capability-pack list",
+        "purpose": "Verifies built-in Chimera capability tools are reachable without external MCP servers.",
+    },
+    {
+        "name": "local model inventory smoke",
+        "command": "ghostchimera local-model inventory",
+        "purpose": "Verifies local model inventory remains preview-only and self-contained.",
+    },
+    {
+        "name": "cognition guard smoke",
+        "command": "ghostchimera cognition guard --confidence 0.9 --variance 0.01",
+        "purpose": "Verifies the confidence and variance guard CLI surface.",
+    },
+    {
+        "name": "sandbox journey smoke",
+        "command": "ghostchimera sandbox journey",
+        "purpose": "Verifies the operator sandbox journey report is reachable.",
+    },
+    {
+        "name": "remote control smoke",
+        "command": "ghostchimera remote status",
+        "purpose": "Verifies Ghost-native mobile/messaging remote control is reachable without external gateways.",
     },
     {
         "name": "GitHub connection smoke",
@@ -336,6 +378,7 @@ def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str,
         "modules": [
             {"id": "path", "label": "Ghost Paths", "tab": "path", "enabled": True},
             {"id": "github", "label": "GitHub", "tab": "github", "enabled": True},
+            {"id": "remote", "label": "Remote Control", "tab": "remote", "enabled": True},
             {"id": "operator", "label": "Operator Home", "tab": "operator", "enabled": True},
             {"id": "thinking", "label": "Thinking", "tab": "thinking", "enabled": True},
             {"id": "evolution", "label": "Self-Evolution", "tab": "evolution", "enabled": True},
@@ -579,6 +622,8 @@ def register_console_routes(
     queue = autonomy_queue or AutonomyJobQueue(state_dir=state_dir or server.config.state_dir)
     workspace_store = operator_workspace or OperatorWorkspaceStore(state_dir=state_dir or server.config.state_dir)
     console_state_dir = Path(state_dir or server.config.state_dir)
+    remote_store = RemoteControlStore(console_state_dir)
+    trust_store = TrustRuntimeStore(console_state_dir)
     path_config_file = Path(config_path).expanduser() if config_path else None
     console_config_file = _config_file_for_console(config_path)
     scheduler = cron_scheduler
@@ -945,12 +990,59 @@ def register_console_routes(
         objective = str(body.get("objective") or "").strip()
         if not objective:
             return {"ok": False, "error": "Missing objective"}
+        trust_run = trust_store.create_run(
+            agent_name="ghost_console",
+            objective=objective,
+            source="console",
+            metadata={"route": "/api/console/run"},
+        )
+        previous_trust_run_id = os.environ.get("GHOSTCHIMERA_TRUST_RUN_ID")
+        os.environ["GHOSTCHIMERA_TRUST_RUN_ID"] = trust_run["run_id"]
         try:
-            return objective_runner(objective)
+            trust_store.record_step(
+                trust_run["run_id"],
+                step_type="goal_intake",
+                status="completed",
+                inputs={"objective": objective},
+                idempotency_key=f"{trust_run['run_id']}:goal-intake",
+            )
+            result = objective_runner(objective)
+            ok = not (isinstance(result, dict) and result.get("ok") is False)
+            trust_store.record_step(
+                trust_run["run_id"],
+                step_type="execution_result",
+                status="completed" if ok else "failed",
+                outputs=result if isinstance(result, dict) else {"result": result},
+                idempotency_key=f"{trust_run['run_id']}:execution-result",
+            )
+            if isinstance(result, dict):
+                result.setdefault("trust_run", trust_store.get_run(trust_run["run_id"]))
+                return result
+            return {"ok": True, "result": result, "trust_run": trust_store.get_run(trust_run["run_id"])}
         except PermissionError as exc:
+            trust_store.record_step(
+                trust_run["run_id"],
+                step_type="policy_check",
+                status="blocked",
+                outputs={"error": str(exc), "type": "permission"},
+                policy_decision={"decision": "blocked", "reason": str(exc)},
+                idempotency_key=f"{trust_run['run_id']}:permission-error",
+            )
             return {"ok": False, "error": str(exc), "type": "permission"}
         except Exception as exc:
+            trust_store.record_step(
+                trust_run["run_id"],
+                step_type="execution_result",
+                status="failed",
+                outputs={"error": str(exc), "type": "runtime"},
+                idempotency_key=f"{trust_run['run_id']}:runtime-error",
+            )
             return {"ok": False, "error": str(exc), "type": "runtime"}
+        finally:
+            if previous_trust_run_id is None:
+                os.environ.pop("GHOSTCHIMERA_TRUST_RUN_ID", None)
+            else:
+                os.environ["GHOSTCHIMERA_TRUST_RUN_ID"] = previous_trust_run_id
 
     def browser_fetch(ctx: dict[str, Any]) -> dict[str, Any]:
         body = _json_body(ctx)
@@ -1751,6 +1843,7 @@ def register_console_routes(
             "tool_count": len(tools),
             "tools": tools,
             "module_detected": bool(importlib.util.find_spec("chimeralang_mcp")),
+            "trust": trust_store.mcp_trust_list().get("servers", []),
         }
 
     def mcp_enable_chimeralang(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -1769,6 +1862,12 @@ def register_console_routes(
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
         result = mcp_status(ctx)
+        trust_store.mcp_trust_set(
+            "chimeralang",
+            status="reviewed",
+            risk_ceiling="medium",
+            tools=[str(tool) for tool in result.get("tools", []) if str(tool).strip()],
+        )
         upsert_candidate(
             console_state_dir,
             {
@@ -1794,6 +1893,7 @@ def register_console_routes(
             disconnect_mcp_servers()
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+        trust_store.mcp_trust_set("chimeralang", status="revoked", risk_ceiling="low", tools=[])
         record_timeline_event(console_state_dir, "mcp_disabled", {"server": "chimeralang"})
         return {"ok": True, "enabled": False, "tool_count": 0, "tools": []}
 
@@ -1946,6 +2046,25 @@ def register_console_routes(
             candidates=candidates,
             latency=latency_payload,
         )
+        remote_payload = remote_store.status()
+        trust_payload = trust_store.trust_status()
+        if isinstance(summary.get("cards"), list):
+            summary["cards"].append(
+                {
+                    "id": "remote",
+                    "label": "Remote Control",
+                    "status": "paired" if remote_payload.get("counts", {}).get("paired_peers") else "setup",
+                    "action": "remote",
+                }
+            )
+            summary["cards"].append(
+                {
+                    "id": "trust-runtime",
+                    "label": "Trust Runtime",
+                    "status": trust_payload.get("production_readiness", {}).get("status", "review"),
+                    "action": "trust",
+                }
+            )
         summary.update(
             {
                 "active_path": active_path,
@@ -1959,6 +2078,11 @@ def register_console_routes(
                     "advisory_only": True,
                     "automatic_promotion_enabled": False,
                 },
+                "remote": {
+                    "counts": remote_payload.get("counts", {}),
+                    "policy": remote_payload.get("policy", {}),
+                },
+                "trust": trust_payload,
             }
         )
         return summary
@@ -2008,6 +2132,345 @@ def register_console_routes(
             return {"ok": False, "error": "Unsupported setup step.", "allowed_steps": sorted(allowed)}
         record_timeline_event(console_state_dir, "setup_step_completed", {"step": step})
         return {"ok": True, "step": step, "summary": _operator_summary_payload()}
+
+    def _record_remote_trust_run(command_payload: dict[str, Any], *, channel: str, peer_id: str, text: str) -> None:
+        command = str(command_payload.get("command") or "").strip()
+        if command not in {"run", "/run"}:
+            return
+        objective = str(command_payload.get("objective") or text.removeprefix("/run").strip()).strip()
+        approval_payload = command_payload.get("approval") if isinstance(command_payload.get("approval"), dict) else {}
+        trust_run = trust_store.create_run(
+            agent_name="ghost_remote_control",
+            objective=objective,
+            source=f"remote:{channel}",
+            metadata={
+                "peer_id": peer_id,
+                "command": command,
+                "mode": command_payload.get("mode", ""),
+                "approval_id": command_payload.get("approval_id", "") or approval_payload.get("id", ""),
+            },
+        )
+        trust_store.record_step(
+            trust_run["run_id"],
+            step_type="goal_intake",
+            status="completed",
+            inputs={"objective": objective, "channel": channel, "peer_id": peer_id},
+            idempotency_key=f"{trust_run['run_id']}:remote-goal-intake",
+        )
+        if command_payload.get("mode") == "approval_required":
+            checkpoint = trust_store.create_approval(
+                trust_run["run_id"],
+                step_id=str(command_payload.get("approval_id") or approval_payload.get("id") or "remote-run-approval"),
+                reason="Remote /run command requires operator approval before execution.",
+                requested_by=peer_id or channel,
+                metadata={
+                    "remote_approval_id": command_payload.get("approval_id", "") or approval_payload.get("id", ""),
+                    "channel": channel,
+                },
+            )
+            command_payload["trust_approval"] = checkpoint
+        else:
+            trust_store.record_step(
+                trust_run["run_id"],
+                step_type="approval_boundary",
+                status="completed",
+                outputs={"mode": command_payload.get("mode", ""), "direct_execution": True},
+                idempotency_key=f"{trust_run['run_id']}:approval-boundary",
+            )
+        command_payload["trust_run"] = trust_store.get_run(trust_run["run_id"])
+
+    def trust_summary(ctx: dict[str, Any]) -> dict[str, Any]:
+        return trust_store.trust_status()
+
+    def trust_runs(ctx: dict[str, Any]) -> dict[str, Any]:
+        return trust_store.list_runs()
+
+    def trust_run_detail(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/trust/runs/")
+        parts = [part for part in suffix.split("/") if part]
+        if not parts:
+            return {"ok": False, "error": "Run id is required."}
+        run_id = parts[0]
+        if len(parts) == 2 and parts[1] == "resume":
+            payload = trust_store.resume_run(run_id)
+            if payload.get("ok"):
+                record_timeline_event(console_state_dir, "trust_run_resumed", {"run_id": run_id})
+            return payload
+        if len(parts) != 1:
+            return {"ok": False, "error": "Expected /api/console/trust/runs/{id} or /resume."}
+        return trust_store.get_run(run_id)
+
+    def trust_approvals(ctx: dict[str, Any]) -> dict[str, Any]:
+        return trust_store.pending_approvals()
+
+    def trust_approval_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/trust/approvals/")
+        parts = [part for part in suffix.split("/") if part]
+        if len(parts) != 2 or parts[1] not in {"approve", "deny"}:
+            return {"ok": False, "error": "Expected /api/console/trust/approvals/{id}/approve or /deny."}
+        status_value = "approved" if parts[1] == "approve" else "denied"
+        payload = trust_store.resolve_approval(parts[0], status_value, reviewer="console")
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "trust_approval_resolved",
+                {"approval_id": parts[0], "status": status_value},
+            )
+        return payload
+
+    def trust_trace_export(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/trust/traces/")
+        run_id = suffix.removesuffix("/export").strip("/")
+        if run_id == "latest":
+            runs = trust_store.list_runs(limit=1).get("runs", [])
+            if not runs:
+                return {"ok": False, "error": "No trust runs available."}
+            run_id = str(runs[0].get("run_id") or "")
+        if not run_id:
+            return {"ok": False, "error": "Run id is required."}
+        return trust_store.export_trace(run_id)
+
+    def trust_evals(ctx: dict[str, Any]) -> dict[str, Any]:
+        return {"ok": True, "baseline": trust_store.trust_status().get("eval_baseline", {}), "comparison": trust_store.eval_compare()}
+
+    def trust_eval_baseline(ctx: dict[str, Any]) -> dict[str, Any]:
+        payload = trust_store.eval_baseline()
+        record_timeline_event(
+            console_state_dir,
+            "trust_eval_baseline_created",
+            {"trust_score": payload.get("trust_score"), "case_count": payload.get("case_count")},
+        )
+        return payload
+
+    def mcp_trust_registry(ctx: dict[str, Any]) -> dict[str, Any]:
+        return trust_store.mcp_trust_list()
+
+    def mcp_trust_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/mcp/trust/")
+        parts = [part for part in suffix.split("/") if part]
+        if len(parts) != 2 or parts[1] not in {"approve", "revoke"}:
+            return {"ok": False, "error": "Expected /api/console/mcp/trust/{server_id}/approve or /revoke."}
+        body = _json_body(ctx)
+        status_value = "approved" if parts[1] == "approve" else "revoked"
+        payload = trust_store.mcp_trust_set(
+            parts[0],
+            status=status_value,
+            risk_ceiling=str(body.get("risk_ceiling") or "medium"),
+            tools=[str(tool) for tool in (body.get("tools") or []) if str(tool).strip()],
+        )
+        record_timeline_event(
+            console_state_dir,
+            "mcp_trust_updated",
+            {"server_id": parts[0], "status": status_value, "risk_ceiling": payload.get("server", {}).get("risk_ceiling")},
+        )
+        return payload
+
+    def remote_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        return remote_store.status()
+
+    def remote_policy(ctx: dict[str, Any]) -> dict[str, Any]:
+        try:
+            payload = remote_store.update_policy(_json_body(ctx))
+        except (TypeError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        record_timeline_event(
+            console_state_dir,
+            "remote_policy_updated",
+            {"direct_execution_enabled": payload.get("policy", {}).get("direct_execution_enabled")},
+        )
+        return payload
+
+    def remote_pairing_create(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        try:
+            payload = remote_store.create_pairing(
+                channel=str(body.get("channel") or "webhook"),
+                peer_id=str(body.get("peer_id") or ""),
+                display_name=str(body.get("display_name") or ""),
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        record_timeline_event(
+            console_state_dir,
+            "remote_pairing_created",
+            {
+                "channel": payload.get("pairing", {}).get("channel"),
+                "peer_id": payload.get("pairing", {}).get("peer_id"),
+            },
+        )
+        return payload
+
+    def remote_pairing_approve(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        payload = remote_store.approve_pairing(
+            pairing_id=str(body.get("pairing_id") or ""),
+            channel=str(body.get("channel") or ""),
+            peer_id=str(body.get("peer_id") or ""),
+            code=str(body.get("code") or ""),
+        )
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "remote_peer_paired",
+                {
+                    "channel": payload.get("peer", {}).get("channel"),
+                    "peer_id": payload.get("peer", {}).get("peer_id"),
+                },
+            )
+        return payload
+
+    def remote_peer_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/remote/peers/")
+        parts = [part for part in suffix.split("/") if part]
+        if len(parts) != 2 or parts[1] not in {"direct", "revoke"}:
+            return {"ok": False, "error": "Expected /api/console/remote/peers/{id}/direct or /revoke"}
+        body = _json_body(ctx)
+        if parts[1] == "direct":
+            payload = remote_store.set_peer_direct_execution(parts[0], _as_bool(body.get("allow"), default=False))
+        else:
+            payload = remote_store.revoke_peer(parts[0])
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "remote_peer_updated",
+                {"peer_id": parts[0], "action": parts[1], "allow": body.get("allow")},
+            )
+        return payload
+
+    def remote_channel_config(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/remote/channels/")
+        channel = suffix.split("/", 1)[0].strip().lower()
+        if not channel:
+            return {"ok": False, "error": "Remote channel is required."}
+        try:
+            payload = remote_store.configure_channel(channel, _json_body(ctx))
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "remote_channel_configured",
+                {
+                    "channel": channel,
+                    "configured": payload.get("channel", {}).get("configured"),
+                    "send_enabled": payload.get("channel", {}).get("send_enabled"),
+                },
+            )
+        return payload
+
+    def remote_send_test(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        channel = str(body.get("channel") or "").strip().lower()
+        reply_target = str(body.get("reply_target") or body.get("peer_id") or "").strip()
+        text = str(body.get("text") or "Ghost Chimera remote test reply.").strip()
+        if not channel or not reply_target:
+            return {"ok": False, "error": "channel and reply_target are required."}
+        payload = remote_store.send_reply(channel=channel, reply_target=reply_target, text=text)
+        record_timeline_event(
+            console_state_dir,
+            "remote_test_reply_sent",
+            {"channel": channel, "reply_target": reply_target, "ok": bool(payload.get("ok"))},
+        )
+        return payload
+
+    def remote_inbound(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+
+        def paths_provider() -> dict[str, Any]:
+            from ..personalization.path_state import get_active_ghost_path
+            from ..personalization.role_profiles import list_role_profiles
+
+            return {
+                "ok": True,
+                "active_path": get_active_ghost_path(config_path=path_config_file),
+                "profiles": [profile.to_dict() for profile in list_role_profiles()],
+            }
+
+        payload = remote_store.handle_inbound(
+            channel=str(body.get("channel") or "webhook"),
+            peer_id=str(body.get("peer_id") or ""),
+            display_name=str(body.get("display_name") or ""),
+            text=str(body.get("text") or ""),
+            objective_runner=objective_runner,
+            status_provider=_operator_summary_payload,
+            paths_provider=paths_provider,
+            jobs_provider=lambda: {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()},
+        )
+        _record_remote_trust_run(
+            payload,
+            channel=str(body.get("channel") or "webhook"),
+            peer_id=str(body.get("peer_id") or ""),
+            text=str(body.get("text") or ""),
+        )
+        record_timeline_event(
+            console_state_dir,
+            "remote_command_received",
+            {
+                "channel": body.get("channel") or "webhook",
+                "peer_id": body.get("peer_id") or "",
+                "command": payload.get("command", ""),
+                "mode": payload.get("mode", ""),
+                "ok": bool(payload.get("ok")),
+            },
+        )
+        return payload
+
+    def remote_provider_webhook(ctx: dict[str, Any]) -> dict[str, Any]:
+        channel = _suffix(ctx, "/api/console/remote/webhook/")
+        raw_body = str(ctx.get("body") or "")
+        signature = verify_remote_webhook_signature(remote_store, channel, dict(ctx.get("headers") or {}), raw_body)
+        if not signature.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "remote_provider_webhook_rejected",
+                {"channel": channel, "signature_status": signature.get("signature_status", ""), "ok": False},
+            )
+            return signature
+        body = _json_body(ctx)
+        try:
+            inbound = normalize_remote_payload(channel, body)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        payload = remote_store.handle_inbound(
+            channel=inbound.channel,
+            peer_id=inbound.peer_id,
+            display_name=inbound.display_name,
+            text=inbound.text,
+            objective_runner=objective_runner,
+            status_provider=_operator_summary_payload,
+            paths_provider=lambda: {"ok": True, "active_path": _operator_summary_payload().get("active_path", {})},
+            jobs_provider=lambda: {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()},
+        )
+        _record_remote_trust_run(payload, channel=inbound.channel, peer_id=inbound.peer_id, text=inbound.text)
+        payload["signature_status"] = signature.get("signature_status", "")
+        payload["normalized"] = inbound.to_dict()
+        record_timeline_event(
+            console_state_dir,
+            "remote_provider_webhook_received",
+            {
+                "channel": inbound.channel,
+                "peer_id": inbound.peer_id,
+                "shape": inbound.raw_shape,
+                "command": payload.get("command", ""),
+                "mode": payload.get("mode", ""),
+                "ok": bool(payload.get("ok")),
+            },
+        )
+        return payload
+
+    def remote_approval_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/remote/approvals/")
+        parts = [part for part in suffix.split("/") if part]
+        if len(parts) != 2 or parts[1] not in {"approve", "deny"}:
+            return {"ok": False, "error": "Expected /api/console/remote/approvals/{id}/approve or /deny"}
+        payload = remote_store.resolve_approval(parts[0], approved=parts[1] == "approve", objective_runner=objective_runner)
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "remote_approval_resolved",
+                {"approval_id": parts[0], "action": parts[1], "ok": bool(payload.get("ok"))},
+            )
+        return payload
 
     def evolution_sources_route(ctx: dict[str, Any]) -> dict[str, Any]:
         if ctx.get("method") == "GET":
@@ -2080,6 +2543,101 @@ def register_console_routes(
             {"candidate_id": candidate["id"], "candidate_type": candidate.get("candidate_type")},
         )
         return {"ok": True, "candidate": candidate, "candidates": list_candidates(console_state_dir)}
+
+    def capability_pack_list(ctx: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "policy": {
+                "external_mcp_required": False,
+                "preview_first": True,
+                "secrets_are_write_only": True,
+            },
+            "tools": [tool.to_dict() for tool in list_capability_tools()],
+        }
+
+    def capability_pack_run(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        tool_id = str(body.get("tool_id") or "").strip()
+        arguments = body.get("arguments") if isinstance(body.get("arguments"), dict) else {}
+        payload = call_capability_tool(tool_id, arguments)
+        record_timeline_event(
+            console_state_dir,
+            "capability_pack_tool_run",
+            {"tool_id": tool_id, "ok": bool(payload.get("ok"))},
+        )
+        return payload
+
+    def local_models_inventory(ctx: dict[str, Any]) -> dict[str, Any]:
+        query = ctx.get("query") or {}
+        roots_raw = query.get("root") or []
+        roots = roots_raw if isinstance(roots_raw, list) else ([roots_raw] if roots_raw else None)
+        payload = discover_local_model_inventory(roots)
+        record_timeline_event(
+            console_state_dir,
+            "local_model_inventory_previewed",
+            {"count": payload.get("count", 0), "preview_only": True},
+        )
+        return payload
+
+    def local_models_resolve(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        source = str(body.get("source") or "").strip()
+        if not source:
+            return {"ok": False, "error": "source is required"}
+        candidate = resolve_model_source(source, license_id=str(body.get("license_id") or ""))
+        record_timeline_event(
+            console_state_dir,
+            "local_model_source_resolved",
+            {"source_type": candidate.source_type, "status": candidate.compatibility_status},
+        )
+        return {
+            "ok": True,
+            "model": candidate.to_dict(),
+            "policy": {"activation": "preview_only", "requires_user_approval": True},
+        }
+
+    def cognition_trace(ctx: dict[str, Any]) -> dict[str, Any]:
+        query = ctx.get("query") or {}
+        goal = str(query.get("goal") or "operator request")
+        return summarize_operational_trace(
+            goal=goal,
+            sources=["config", "memory", "model catalog"],
+            policy_decision="approval_required",
+            tool_candidates=["capability_pack", "mcp", "local_model"],
+        )
+
+    def cognition_guard(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        belief = GhostBelief.from_confidence(
+            str(body.get("value") or "candidate"),
+            float(body.get("confidence") or 0.0),
+            variance=float(body.get("variance") or 0.0),
+            source=str(body.get("source") or "console"),
+        )
+        result = guard_belief(
+            belief,
+            max_risk=float(body.get("max_risk") or 0.2),
+            max_variance=float(body.get("max_variance") or 0.05),
+        )
+        return {"ok": True, "belief": belief.to_dict(), "guard": result.to_dict()}
+
+    def context_efficiency(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx) if ctx.get("method") == "POST" else {}
+        result = compress_text_query_aware(
+            str(body.get("text") or ""),
+            focus=str(body.get("focus") or ""),
+            budget_tokens=int(body.get("budget_tokens") or 800),
+        )
+        return result.to_dict()
+
+    def sandbox_journey(ctx: dict[str, Any]) -> dict[str, Any]:
+        report = run_sandbox_journey(state_dir=console_state_dir)
+        record_timeline_event(
+            console_state_dir,
+            "sandbox_journey_run",
+            {"steps": len(report.steps), "findings": len(report.findings)},
+        )
+        return report.to_dict()
 
     def jobs_list(ctx: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()}
@@ -2225,6 +2783,111 @@ def register_console_routes(
     _api_register("/api/console/operator/latency", operator_latency, method="GET", description="Operator latency telemetry")
     _api_register("/api/console/operator/readiness", operator_readiness, method="POST", description="Run operator readiness check")
     _api_register("/api/console/operator/setup-step", operator_setup_step, method="POST", description="Record guided setup step")
+    _api_register("/api/console/remote/status", remote_status, method="GET", description="Inspect remote control status")
+    _api_register("/api/console/remote/policy", remote_policy, method="POST", description="Update remote control policy")
+    _api_register(
+        "/api/console/remote/pairing/create",
+        remote_pairing_create,
+        method="POST",
+        description="Create a remote sender pairing code",
+    )
+    _api_register(
+        "/api/console/remote/pairing/approve",
+        remote_pairing_approve,
+        method="POST",
+        description="Approve a pending remote sender pairing",
+    )
+    _api_register(
+        "/api/console/remote/peers/",
+        remote_peer_action,
+        method="POST",
+        prefix=True,
+        description="Update or revoke a paired remote sender",
+    )
+    _api_register(
+        "/api/console/remote/channels/",
+        remote_channel_config,
+        method="POST",
+        prefix=True,
+        description="Configure write-only remote adapter credentials and send policy",
+    )
+    _api_register(
+        "/api/console/remote/send-test",
+        remote_send_test,
+        method="POST",
+        description="Send a gated test reply through a configured remote channel",
+    )
+    _api_register(
+        "/api/console/remote/inbound",
+        remote_inbound,
+        method="POST",
+        description="Process a paired mobile or messaging command",
+    )
+    _api_register(
+        "/api/console/remote/webhook/",
+        remote_provider_webhook,
+        method="POST",
+        prefix=True,
+        description="Normalize provider-shaped webhook payloads into remote commands",
+    )
+    _api_register(
+        "/api/console/remote/approvals/",
+        remote_approval_action,
+        method="POST",
+        prefix=True,
+        description="Approve or deny a pending remote command",
+    )
+    _api_register("/api/console/trust/summary", trust_summary, method="GET", description="Inspect Trust Runtime summary")
+    _api_register("/api/console/trust/runs", trust_runs, method="GET", description="List durable Trust Runtime runs")
+    _api_register(
+        "/api/console/trust/runs/",
+        trust_run_detail,
+        method="GET",
+        prefix=True,
+        description="Inspect a durable Trust Runtime run",
+    )
+    _api_register(
+        "/api/console/trust/runs/",
+        trust_run_detail,
+        method="POST",
+        prefix=True,
+        description="Resume a durable Trust Runtime run",
+    )
+    _api_register(
+        "/api/console/trust/approvals",
+        trust_approvals,
+        method="GET",
+        description="List pending Trust Runtime approvals",
+    )
+    _api_register(
+        "/api/console/trust/approvals/",
+        trust_approval_action,
+        method="POST",
+        prefix=True,
+        description="Approve or deny a Trust Runtime checkpoint",
+    )
+    _api_register(
+        "/api/console/trust/traces/",
+        trust_trace_export,
+        method="GET",
+        prefix=True,
+        description="Export a redacted OTel-compatible local trace bundle",
+    )
+    _api_register("/api/console/trust/evals", trust_evals, method="GET", description="Inspect Trust Runtime eval status")
+    _api_register(
+        "/api/console/trust/evals/baseline",
+        trust_eval_baseline,
+        method="POST",
+        description="Create a local Trust Runtime eval baseline",
+    )
+    _api_register("/api/console/mcp/trust", mcp_trust_registry, method="GET", description="List MCP trust registry")
+    _api_register(
+        "/api/console/mcp/trust/",
+        mcp_trust_action,
+        method="POST",
+        prefix=True,
+        description="Approve or revoke an MCP server trust envelope",
+    )
     _api_register(
         "/api/console/evolution/sources",
         evolution_sources_route,
@@ -2262,6 +2925,54 @@ def register_console_routes(
         method="POST",
         prefix=True,
         description="Review, promote, or reject Self-Evolution candidate",
+    )
+    _api_register(
+        "/api/console/capability-pack",
+        capability_pack_list,
+        method="GET",
+        description="List built-in Ghost-native Chimera capability tools",
+    )
+    _api_register(
+        "/api/console/capability-pack/run",
+        capability_pack_run,
+        method="POST",
+        description="Run a built-in Ghost-native capability tool",
+    )
+    _api_register(
+        "/api/console/local-models/inventory",
+        local_models_inventory,
+        method="GET",
+        description="Preview local model inventory without activation",
+    )
+    _api_register(
+        "/api/console/local-models/resolve",
+        local_models_resolve,
+        method="POST",
+        description="Resolve a HF or local model source without downloading",
+    )
+    _api_register(
+        "/api/console/cognition/trace",
+        cognition_trace,
+        method="GET",
+        description="Show safe Ghost operational trace stages",
+    )
+    _api_register(
+        "/api/console/cognition/guard",
+        cognition_guard,
+        method="POST",
+        description="Run confidence and variance guard preview",
+    )
+    _api_register(
+        "/api/console/context/compress",
+        context_efficiency,
+        method="POST",
+        description="Preview query-aware deterministic compression",
+    )
+    _api_register(
+        "/api/console/sandbox/journey",
+        sandbox_journey,
+        method="GET",
+        description="Run local operator sandbox journey",
     )
     _api_register("/api/console/config", dashboard_config, method="GET", description="Inspect dashboard configuration")
     _api_register("/api/console/config", dashboard_config, method="POST", description="Update dashboard configuration")

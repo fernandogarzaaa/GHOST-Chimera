@@ -14,6 +14,10 @@
     operator: null,
     evolution: null,
     latency: null,
+    capabilityPack: null,
+    localModels: null,
+    remote: null,
+    trust: null,
   };
 
   function $(sel) { return document.querySelector(sel); }
@@ -968,6 +972,487 @@
   $("#githubPlan").addEventListener("click", planGithubIssue);
   $("#githubPolicyPreview").addEventListener("click", previewGithubPolicy);
 
+  // Remote Control
+  function renderRemote(data) {
+    state.remote = data;
+    var policy = data.policy || {};
+    if ($("#remoteEnabled")) $("#remoteEnabled").checked = policy.enabled !== false;
+    if ($("#remoteDirectExecution")) $("#remoteDirectExecution").checked = !!policy.direct_execution_enabled;
+    if ($("#remoteDefaultDirectAdmins")) $("#remoteDefaultDirectAdmins").checked = !!policy.default_direct_execution_for_admins;
+
+    var summary = $("#remoteSummary");
+    if (summary) {
+      summary.innerHTML = "";
+      [
+        ["Paired", data.counts ? data.counts.paired_peers : 0],
+        ["Pairings", data.counts ? data.counts.pending_pairings : 0],
+        ["Approvals", data.counts ? data.counts.pending_approvals : 0],
+        ["Direct", policy.direct_execution_enabled ? "enabled" : "approval-first"],
+      ].forEach(function(m) {
+        var card = el("div", { class: "card" });
+        card.appendChild(el("h3", null, m[0]));
+        card.appendChild(el("div", { class: "value" }, String(m[1])));
+        summary.appendChild(card);
+      });
+    }
+
+    var peers = $("#remotePeers");
+    if (peers) {
+      peers.innerHTML = "";
+      if (!Array.isArray(data.peers) || !data.peers.length) {
+        peers.appendChild(el("div", { class: "empty" }, "No paired peers yet."));
+      } else {
+        data.peers.forEach(function(peer) {
+          var item = el("div", { class: "list-item" });
+          item.appendChild(el("span", { class: "badge " + (peer.status === "paired" ? "ok" : "warn") }, peer.status || "peer"));
+          item.appendChild(el("span", { class: "name" }, (peer.display_name || peer.peer_id || "peer")));
+          item.appendChild(el("span", { class: "meta" }, (peer.channel || "") + " / " + (peer.allow_direct_execution ? "direct enabled" : "approval required")));
+          var actions = el("span", { class: "actions" });
+          var direct = el("button", { "data-id": peer.id, "data-action": "direct" }, peer.allow_direct_execution ? "Disable Direct" : "Enable Direct");
+          direct.addEventListener("click", function() { updateRemotePeer(peer.id, "direct", !peer.allow_direct_execution); });
+          var revoke = el("button", { class: "danger", "data-id": peer.id, "data-action": "revoke" }, "Revoke");
+          revoke.addEventListener("click", function() { updateRemotePeer(peer.id, "revoke", false); });
+          actions.appendChild(direct);
+          actions.appendChild(revoke);
+          item.appendChild(actions);
+          peers.appendChild(item);
+        });
+      }
+    }
+
+    var pairings = $("#remotePairings");
+    if (pairings) {
+      pairings.innerHTML = "";
+      if (!Array.isArray(data.pairings) || !data.pairings.length) {
+        pairings.appendChild(el("div", { class: "empty" }, "No pending pairings."));
+      } else {
+        data.pairings.forEach(function(pairing) {
+          var item = el("div", { class: "list-item" });
+          item.appendChild(el("span", { class: "badge warn" }, pairing.status || "pending"));
+          item.appendChild(el("span", { class: "name" }, pairing.channel + " / " + pairing.peer_id));
+          item.appendChild(el("span", { class: "meta mono" }, "code " + (pairing.code_preview || "")));
+          var actions = el("span", { class: "actions" });
+          var approve = el("button", { "data-id": pairing.id }, "Approve");
+          approve.addEventListener("click", function() { approveRemotePairing(pairing.id, ""); });
+          actions.appendChild(approve);
+          item.appendChild(actions);
+          pairings.appendChild(item);
+        });
+      }
+    }
+
+    var channels = $("#remoteChannels");
+    if (channels) {
+      channels.innerHTML = "";
+      (data.channels || []).forEach(function(channel) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "badge " + (channel.send_enabled ? "ok" : channel.configured ? "warn" : "") }, channel.id || "channel"));
+        item.appendChild(el("span", { class: "name" }, channel.adapter_status || "metadata_only"));
+        var fields = (channel.secret_fields_configured || []).join(", ") || "no credentials";
+        var signed = (channel.secret_fields_configured || []).indexOf("signing_secret") >= 0 ? " / signed webhooks required" : " / unsigned webhooks allowed";
+        item.appendChild(el("span", { class: "meta" }, fields + " / outbound " + (channel.send_enabled ? "enabled" : "disabled") + signed));
+        channels.appendChild(item);
+      });
+    }
+
+    var approvals = $("#remoteApprovals");
+    if (approvals) {
+      approvals.innerHTML = "";
+      if (!Array.isArray(data.approvals) || !data.approvals.length) {
+        approvals.appendChild(el("div", { class: "empty" }, "No pending remote approvals."));
+      } else {
+        data.approvals.forEach(function(approval) {
+          var item = el("div", { class: "list-item" });
+          item.appendChild(el("span", { class: "badge warn" }, approval.status || "pending"));
+          item.appendChild(el("span", { class: "name" }, approval.command || "command"));
+          item.appendChild(el("span", { class: "meta" }, approval.objective || ""));
+          var actions = el("span", { class: "actions" });
+          var approve = el("button", { "data-id": approval.id }, "Approve");
+          approve.addEventListener("click", function() { resolveRemoteApproval(approval.id, "approve"); });
+          var deny = el("button", { class: "danger", "data-id": approval.id }, "Deny");
+          deny.addEventListener("click", function() { resolveRemoteApproval(approval.id, "deny"); });
+          actions.appendChild(approve);
+          actions.appendChild(deny);
+          item.appendChild(actions);
+          approvals.appendChild(item);
+        });
+      }
+    }
+
+    var examples = $("#remoteWebhookExamples");
+    if (examples) {
+      examples.innerHTML = "";
+      ["telegram", "discord", "slack", "whatsapp", "signal", "webhook"].forEach(function(channel) {
+        var item = el("div", { class: "list-item" });
+          item.appendChild(el("span", { class: "badge ok" }, channel));
+          item.appendChild(el("span", { class: "name" }, "/api/console/remote/webhook/" + channel));
+          item.appendChild(el("span", { class: "meta" }, "Normalizes inbound payloads and returns a token-free reply_preview. If a signing secret is saved, the raw body must match the SHA-256 signature."));
+        examples.appendChild(item);
+      });
+    }
+  }
+
+  async function refreshRemote() {
+    try {
+      renderRemote(await api("/api/console/remote/status"));
+    } catch (e) {
+      empty("#remotePeers", "Remote control unavailable: " + e.message);
+    }
+  }
+
+  async function saveRemotePolicy() {
+    try {
+      var data = await api("/api/console/remote/policy", {
+        method: "POST",
+        body: {
+          enabled: $("#remoteEnabled").checked,
+          direct_execution_enabled: $("#remoteDirectExecution").checked,
+          default_direct_execution_for_admins: $("#remoteDefaultDirectAdmins").checked,
+        },
+      });
+      $("#remoteOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshRemote();
+      await refreshTimeline();
+      toast("Remote policy saved.", data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#remoteOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function createRemotePairing() {
+    try {
+      var data = await api("/api/console/remote/pairing/create", {
+        method: "POST",
+        body: {
+          channel: $("#remotePairChannel").value,
+          peer_id: $("#remotePairPeer").value,
+          display_name: $("#remotePairName").value,
+        },
+      });
+      $("#remoteOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshRemote();
+      await refreshTimeline();
+      toast(data.ok ? "Pairing code created." : (data.error || "Pairing failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#remoteOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function approveRemotePairing(pairingId, code) {
+    try {
+      var data = await api("/api/console/remote/pairing/approve", {
+        method: "POST",
+        body: { pairing_id: pairingId, code: code || "" },
+      });
+      $("#remoteOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshRemote();
+      await refreshTimeline();
+      toast(data.ok ? "Remote peer paired." : (data.error || "Pairing approval failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#remoteOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function updateRemotePeer(peerId, action, allow) {
+    try {
+      var data = await api("/api/console/remote/peers/" + encodeURIComponent(peerId) + "/" + action, {
+        method: "POST",
+        body: { allow: !!allow },
+      });
+      $("#remoteOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshRemote();
+      await refreshTimeline();
+      toast(data.ok ? "Remote peer updated." : (data.error || "Update failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#remoteOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function saveRemoteChannel(clearSecrets) {
+    try {
+      var channel = $("#remoteConfigChannel").value;
+      var body = {
+        enabled: $("#remoteConfigEnabled").checked,
+        send_enabled: $("#remoteConfigSendEnabled").checked,
+        clear_secrets: !!clearSecrets,
+        bot_token: $("#remoteConfigToken").value,
+        api_token: $("#remoteConfigToken").value,
+        webhook_url: $("#remoteConfigWebhook").value,
+        phone_number_id: $("#remoteConfigPhone").value,
+        signing_secret: $("#remoteConfigSigning").value,
+      };
+      var data = await api("/api/console/remote/channels/" + encodeURIComponent(channel), {
+        method: "POST",
+        body: body,
+      });
+      $("#remoteConfigToken").value = "";
+      $("#remoteConfigWebhook").value = "";
+      $("#remoteConfigPhone").value = "";
+      $("#remoteConfigSigning").value = "";
+      $("#remoteOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshRemote();
+      await refreshTimeline();
+      toast(data.ok ? "Remote channel config saved." : (data.error || "Channel config failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#remoteOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function sendRemoteTestReply() {
+    try {
+      var data = await api("/api/console/remote/send-test", {
+        method: "POST",
+        body: {
+          channel: $("#remoteSendChannel").value,
+          reply_target: $("#remoteSendTarget").value,
+          text: $("#remoteSendText").value,
+        },
+      });
+      $("#remoteOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshRemote();
+      await refreshTimeline();
+      toast(data.ok ? "Remote test reply sent." : (data.error || "Remote send failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#remoteOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function sendRemoteSimulation() {
+    try {
+      var data = await api("/api/console/remote/inbound", {
+        method: "POST",
+        body: {
+          channel: $("#remoteSimChannel").value,
+          peer_id: $("#remoteSimPeer").value,
+          text: $("#remoteSimText").value,
+          display_name: $("#remoteSimPeer").value,
+        },
+      });
+      $("#remoteOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshRemote();
+      await refreshTimeline();
+      toast(data.ok ? "Remote command processed." : (data.error || data.message || "Remote command blocked."), data.ok ? "ok" : "warn");
+    } catch (e) {
+      $("#remoteOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function resolveRemoteApproval(id, action) {
+    try {
+      var data = await api("/api/console/remote/approvals/" + encodeURIComponent(id) + "/" + action, {
+        method: "POST",
+        body: {},
+      });
+      $("#remoteOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshRemote();
+      await refreshTimeline();
+      toast(data.ok ? "Remote approval resolved." : (data.error || "Approval failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#remoteOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  $("#remoteSavePolicy").addEventListener("click", saveRemotePolicy);
+  $("#remoteRefresh").addEventListener("click", refreshRemote);
+  $("#remoteCreatePairing").addEventListener("click", createRemotePairing);
+  $("#remoteSimSend").addEventListener("click", sendRemoteSimulation);
+  $("#remoteSaveChannel").addEventListener("click", function() { saveRemoteChannel(false); });
+  $("#remoteClearChannel").addEventListener("click", function() { saveRemoteChannel(true); });
+  $("#remoteSendTest").addEventListener("click", sendRemoteTestReply);
+
+  // Trust Runtime
+  function renderTrust(data) {
+    state.trust = data;
+    var summary = data.summary || {};
+    var cards = $("#trustCards");
+    if (cards) {
+      cards.innerHTML = "";
+      [
+        ["Journal", summary.journal && summary.journal.ok ? "ready" : "review"],
+        ["Runs", summary.runs ? summary.runs.total : 0],
+        ["Approvals", summary.approvals ? summary.approvals.pending : 0],
+        ["MCP Trust", summary.mcp_trust ? summary.mcp_trust.status : "review"],
+        ["Eval Baseline", summary.eval_baseline ? summary.eval_baseline.status : "missing"],
+        ["Trace Export", summary.trace_health ? summary.trace_health.status : "local"],
+      ].forEach(function(cardData) {
+        var card = el("div", { class: "card" });
+        card.appendChild(el("h3", null, cardData[0]));
+        card.appendChild(el("div", { class: "value" }, String(cardData[1])));
+        cards.appendChild(card);
+      });
+    }
+
+    var runs = $("#trustRuns");
+    if (runs) {
+      runs.innerHTML = "";
+      if (!Array.isArray(data.runs) || !data.runs.length) {
+        runs.appendChild(el("div", { class: "empty" }, "No durable runs recorded yet."));
+      } else {
+        data.runs.forEach(function(run) {
+          var item = el("div", { class: "list-item" });
+          item.appendChild(el("span", { class: "badge" }, run.status || "unknown"));
+          item.appendChild(el("span", { class: "name" }, run.objective || run.run_id));
+          item.appendChild(el("span", { class: "meta" }, (run.source || "local") + " | " + run.run_id));
+          var actions = el("span", { class: "actions" });
+          var resume = el("button", null, "Resume");
+          resume.addEventListener("click", function() { resumeTrustRun(run.run_id); });
+          var trace = el("button", null, "Trace");
+          trace.addEventListener("click", function() { exportTrustTrace(run.run_id); });
+          actions.appendChild(resume);
+          actions.appendChild(trace);
+          item.appendChild(actions);
+          runs.appendChild(item);
+        });
+      }
+    }
+
+    var approvals = $("#trustApprovals");
+    if (approvals) {
+      approvals.innerHTML = "";
+      if (!Array.isArray(data.approvals) || !data.approvals.length) {
+        approvals.appendChild(el("div", { class: "empty" }, "No pending Trust Runtime approvals."));
+      } else {
+        data.approvals.forEach(function(approval) {
+          var item = el("div", { class: "list-item" });
+          item.appendChild(el("span", { class: "badge warn" }, approval.status || "pending"));
+          item.appendChild(el("span", { class: "name" }, approval.reason || approval.id));
+          item.appendChild(el("span", { class: "meta" }, approval.run_id || ""));
+          var actions = el("span", { class: "actions" });
+          var approve = el("button", null, "Approve");
+          approve.addEventListener("click", function() { resolveTrustApproval(approval.id, "approve"); });
+          var deny = el("button", { class: "danger" }, "Deny");
+          deny.addEventListener("click", function() { resolveTrustApproval(approval.id, "deny"); });
+          actions.appendChild(approve);
+          actions.appendChild(deny);
+          item.appendChild(actions);
+          approvals.appendChild(item);
+        });
+      }
+    }
+
+    var mcp = $("#trustMcp");
+    if (mcp) {
+      mcp.innerHTML = "";
+      if (!Array.isArray(data.mcp_servers) || !data.mcp_servers.length) {
+        mcp.appendChild(el("div", { class: "empty" }, "No MCP servers reviewed yet."));
+      } else {
+        data.mcp_servers.forEach(function(server) {
+          var item = el("div", { class: "list-item" });
+          item.appendChild(el("span", { class: "badge" }, server.status || "review"));
+          item.appendChild(el("span", { class: "name" }, server.server_id || "mcp-server"));
+          item.appendChild(el("span", { class: "meta" }, "risk ceiling: " + (server.risk_ceiling || "medium")));
+          var actions = el("span", { class: "actions" });
+          var approve = el("button", null, "Approve");
+          approve.addEventListener("click", function() { updateMcpTrust(server.server_id, "approve"); });
+          var revoke = el("button", { class: "danger" }, "Revoke");
+          revoke.addEventListener("click", function() { updateMcpTrust(server.server_id, "revoke"); });
+          actions.appendChild(approve);
+          actions.appendChild(revoke);
+          item.appendChild(actions);
+          mcp.appendChild(item);
+        });
+      }
+    }
+  }
+
+  async function refreshTrust() {
+    try {
+      var summary = await api("/api/console/trust/summary");
+      var runs = await api("/api/console/trust/runs");
+      var approvals = await api("/api/console/trust/approvals");
+      var mcp = await api("/api/console/mcp/trust");
+      var evals = await api("/api/console/trust/evals");
+      renderTrust({
+        summary: summary,
+        runs: runs.runs || [],
+        approvals: approvals.approvals || [],
+        mcp_servers: mcp.servers || [],
+        evals: evals,
+      });
+    } catch (e) {
+      empty("#trustRuns", "Trust Runtime unavailable: " + e.message);
+    }
+  }
+
+  async function resumeTrustRun(runId) {
+    try {
+      var data = await api("/api/console/trust/runs/" + encodeURIComponent(runId) + "/resume", { method: "POST", body: {} });
+      $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshTrust();
+      await refreshTimeline();
+      toast(data.ok ? "Trust run resumed." : (data.error || "Run cannot resume."), data.ok ? "ok" : "warn");
+    } catch (e) {
+      $("#trustOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function resolveTrustApproval(id, action) {
+    try {
+      var data = await api("/api/console/trust/approvals/" + encodeURIComponent(id) + "/" + action, { method: "POST", body: {} });
+      $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshTrust();
+      await refreshTimeline();
+      toast(data.ok ? "Trust approval resolved." : (data.error || "Approval failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#trustOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function updateMcpTrust(serverId, action) {
+    try {
+      var data = await api("/api/console/mcp/trust/" + encodeURIComponent(serverId) + "/" + action, {
+        method: "POST",
+        body: { risk_ceiling: "medium" },
+      });
+      $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshTrust();
+      await refreshTimeline();
+      toast(data.ok ? "MCP trust updated." : (data.error || "MCP trust update failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#trustOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function createTrustBaseline() {
+    try {
+      var data = await api("/api/console/trust/evals/baseline", { method: "POST", body: {} });
+      $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshTrust();
+      await refreshTimeline();
+      toast(data.ok ? "Trust baseline created." : (data.error || "Baseline failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#trustOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function exportTrustTrace(runId) {
+    try {
+      var target = runId || "latest";
+      var data = await api("/api/console/trust/traces/" + encodeURIComponent(target) + "/export");
+      $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+      toast(data.ok ? "Trace bundle exported." : (data.error || "Trace export unavailable."), data.ok ? "ok" : "warn");
+    } catch (e) {
+      $("#trustOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  $("#trustRefresh").addEventListener("click", refreshTrust);
+  $("#trustBaseline").addEventListener("click", createTrustBaseline);
+  $("#trustTraceExport").addEventListener("click", function() { exportTrustTrace("latest"); });
+
   // ── Status ───────────────────────────────────────────────────────────────
   function renderThinking(data) {
     state.thinking = data;
@@ -1106,6 +1591,8 @@
         refreshReadiness(),
         refreshOperatorSummary(),
         refreshLatency(),
+        refreshRemote(),
+        refreshTrust(),
       ]);
     } catch (e) {
       badge($("#health"), "offline", "error");
@@ -1948,6 +2435,130 @@
   }
   $("#runPrReview").addEventListener("click", runPrReview);
 
+  // -- Native absorption panels ------------------------------------------------
+  function renderLocalModels(data) {
+    state.localModels = data;
+    var cards = $("#localModelCards");
+    if (!cards) return;
+    cards.innerHTML = "";
+    var models = (data && data.models) || [];
+    [
+      ["Status", data && data.ok ? "ready" : "unknown"],
+      ["Models", String((data && data.count) || models.length || 0)],
+      ["Policy", ((data && data.policy) || {}).activation || "preview_only"],
+    ].forEach(function(row) {
+      var card = el("div", { class: "card" });
+      card.appendChild(el("h3", null, row[0]));
+      card.appendChild(el("div", { class: "value" }, row[1]));
+      cards.appendChild(card);
+    });
+  }
+
+  async function refreshLocalModels() {
+    try {
+      var data = await api("/api/console/local-models/inventory");
+      renderLocalModels(data);
+      $("#localModelOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) { $("#localModelOutput").textContent = "Error: " + e.message; }
+  }
+
+  async function resolveLocalModel() {
+    var source = ($("#localModelSource").value || "").trim();
+    if (!source) { toast("Enter a model source first.", "warn"); return; }
+    try {
+      var data = await api("/api/console/local-models/resolve", { method: "POST", body: { source: source } });
+      $("#localModelOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) { $("#localModelOutput").textContent = "Error: " + e.message; }
+  }
+
+  async function refreshCognitionTrace() {
+    try {
+      var goal = encodeURIComponent(($("#cognitionGoal").value || "operator request").trim());
+      var data = await api("/api/console/cognition/trace?goal=" + goal);
+      var list = $("#cognitionTraceList");
+      list.innerHTML = "";
+      (data.stages || []).forEach(function(stage) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "name" }, stage.stage));
+        item.appendChild(el("span", { class: "badge ok" }, stage.status));
+        item.appendChild(el("span", { class: "meta" }, typeof stage.detail === "string" ? stage.detail : JSON.stringify(stage.detail || "")));
+        list.appendChild(item);
+      });
+      $("#cognitionOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) { $("#cognitionOutput").textContent = "Error: " + e.message; }
+  }
+
+  async function runCognitionGuard() {
+    try {
+      var data = await api("/api/console/cognition/guard", {
+        method: "POST",
+        body: {
+          confidence: parseFloat($("#cognitionConfidence").value) || 0,
+          variance: parseFloat($("#cognitionVariance").value) || 0,
+        },
+      });
+      $("#cognitionOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) { $("#cognitionOutput").textContent = "Error: " + e.message; }
+  }
+
+  function renderCapabilityPack(data) {
+    state.capabilityPack = data;
+    var list = $("#capabilityPackList");
+    var select = $("#capabilityToolSelect");
+    if (!list || !select) return;
+    list.innerHTML = "";
+    select.innerHTML = "";
+    (data.tools || []).forEach(function(tool) {
+      var opt = el("option", { value: tool.id }, tool.id);
+      select.appendChild(opt);
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "name" }, tool.name));
+      item.appendChild(el("span", { class: "badge ok" }, tool.category));
+      item.appendChild(el("span", { class: "meta" }, tool.description));
+      list.appendChild(item);
+    });
+  }
+
+  async function refreshCapabilityPack() {
+    try {
+      var data = await api("/api/console/capability-pack");
+      renderCapabilityPack(data);
+    } catch (e) { empty("#capabilityPackList", "Capability pack unavailable: " + e.message); }
+  }
+
+  async function runCapabilityTool() {
+    var args = {};
+    try { args = JSON.parse($("#capabilityToolArgs").value || "{}"); } catch (e) { toast("Arguments must be valid JSON.", "error"); return; }
+    try {
+      var data = await api("/api/console/capability-pack/run", { method: "POST", body: { tool_id: $("#capabilityToolSelect").value, arguments: args } });
+      $("#capabilityPackOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) { $("#capabilityPackOutput").textContent = "Error: " + e.message; }
+  }
+
+  async function runSandboxJourney() {
+    try {
+      var data = await api("/api/console/sandbox/journey");
+      var list = $("#sandboxSteps");
+      list.innerHTML = "";
+      (data.steps || []).forEach(function(step) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "name" }, step.name));
+        item.appendChild(el("span", { class: "badge " + (step.status === "warning" ? "warn" : "ok") }, step.status));
+        item.appendChild(el("span", { class: "meta" }, step.detail || ""));
+        list.appendChild(item);
+      });
+      $("#sandboxOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (e) { $("#sandboxOutput").textContent = "Error: " + e.message; }
+  }
+
+  $("#refreshLocalModels").addEventListener("click", refreshLocalModels);
+  $("#resolveLocalModel").addEventListener("click", resolveLocalModel);
+  $("#refreshCognitionTrace").addEventListener("click", refreshCognitionTrace);
+  $("#runCognitionGuard").addEventListener("click", runCognitionGuard);
+  $("#refreshCapabilityPack").addEventListener("click", refreshCapabilityPack);
+  $("#runCapabilityTool").addEventListener("click", runCapabilityTool);
+  $("#runSandboxJourney").addEventListener("click", runSandboxJourney);
+
   async function refreshReadiness() {
     var data = await api("/api/console/readiness");
     var list = $("#readinessList");
@@ -2005,6 +2616,10 @@
     refreshEvolution();
     refreshTimeline();
     refreshLatency();
+    refreshLocalModels();
+    refreshCapabilityPack();
+    refreshCognitionTrace();
+    refreshTrust();
   });
   setInterval(refreshStatus, 30000);
 })();

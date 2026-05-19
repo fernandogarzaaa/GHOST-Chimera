@@ -140,6 +140,47 @@ def _main(argv: list[str] | None = None) -> int:
     github_parser.add_argument(
         "--label", action="append", default=[], help="Issue label for local planning. Repeatable."
     )
+    remote_parser = sub.add_parser("remote", help="Manage Ghost-native mobile/messaging remote control")
+    remote_parser.add_argument(
+        "action",
+        choices=["status", "pair-code", "peers", "simulate", "policy", "channel-config", "send-test"],
+        nargs="?",
+        default="status",
+    )
+    remote_parser.add_argument("--state-dir", default="", help="Optional remote-control state directory.")
+    remote_parser.add_argument("--channel", default="webhook", help="Remote channel, for example telegram or discord.")
+    remote_parser.add_argument("--peer", default="", help="Remote peer id, chat id, sender id, phone, or username.")
+    remote_parser.add_argument("--display-name", default="", help="Friendly name for the remote peer.")
+    remote_parser.add_argument("--text", default="/status", help="Inbound message text for simulate.")
+    remote_parser.add_argument("--reply-target", default="", help="Reply target for send-test.")
+    remote_parser.add_argument("--bot-token", default="", help="Write-only bot token for channel-config.")
+    remote_parser.add_argument("--api-token", default="", help="Write-only API token for channel-config.")
+    remote_parser.add_argument("--webhook-url", default="", help="Write-only provider endpoint/webhook URL.")
+    remote_parser.add_argument("--phone-number-id", default="", help="Write-only WhatsApp phone number id.")
+    remote_parser.add_argument("--signing-secret", default="", help="Write-only provider signing secret.")
+    remote_parser.add_argument("--send-enabled", action="store_true", help="Enable outbound sending for channel-config.")
+    remote_parser.add_argument("--clear-secrets", action="store_true", help="Clear stored channel secrets.")
+    remote_parser.add_argument("--direct-execution", action="store_true", help="Enable global direct execution policy.")
+    remote_parser.add_argument("--no-direct-execution", action="store_true", help="Disable global direct execution policy.")
+    trust_parser = sub.add_parser("trust", help="Inspect durable Trust Runtime runs, traces, approvals, and evals")
+    trust_sub = trust_parser.add_subparsers(dest="trust_command")
+    trust_sub.add_parser("status", help="Show Trust Runtime readiness")
+    trust_runs = trust_sub.add_parser("runs", help="List, show, or resume durable runs")
+    trust_runs.add_argument("runs_action", choices=["list", "show", "resume"], nargs="?", default="list")
+    trust_runs.add_argument("run_id", nargs="?", default="", help="Run id for show/resume.")
+    trust_trace = trust_sub.add_parser("trace", help="Export a local OTel-compatible trace bundle")
+    trust_trace.add_argument("trace_action", choices=["export"], nargs="?", default="export")
+    trust_trace.add_argument("run_id", nargs="?", default="latest", help="Run id or latest.")
+    trust_eval = trust_sub.add_parser("eval", help="Create or compare local trust eval baselines")
+    trust_eval.add_argument("eval_action", choices=["baseline", "compare"], nargs="?", default="baseline")
+    trust_parser.add_argument("--state-dir", default="", help="Optional Trust Runtime state directory.")
+    mcp_parser = sub.add_parser("mcp", help="Manage MCP trust registry")
+    mcp_parser.add_argument("action", choices=["trust"], nargs="?", default="trust")
+    mcp_parser.add_argument("trust_action", choices=["list", "approve", "revoke"], nargs="?", default="list")
+    mcp_parser.add_argument("server_id", nargs="?", default="", help="MCP server id.")
+    mcp_parser.add_argument("--state-dir", default="", help="Optional Trust Runtime state directory.")
+    mcp_parser.add_argument("--risk-ceiling", choices=["low", "medium", "high", "critical"], default="medium")
+    mcp_parser.add_argument("--tool", action="append", default=[], help="Reviewed tool name. Repeatable.")
     path_parser = sub.add_parser("path", help="Show, list, and persist the active multi-purpose Ghost path")
     path_parser.add_argument("action", choices=["show", "set", "list"], nargs="?", default="show")
     path_parser.add_argument("--profile", default="autonomous-engineer", help="Role profile id for 'set'.")
@@ -289,14 +330,35 @@ def _main(argv: list[str] | None = None) -> int:
     local_model_parser = sub.add_parser("local-model", help="Bootstrap and check local model inference readiness")
     local_model_parser.add_argument(
         "action",
-        choices=["check", "guide", "profiles"],
+        choices=["check", "guide", "profiles", "inventory", "resolve"],
         nargs="?",
         default="check",
-        help="check: report readiness; guide: print install steps; profiles: list all profiles",
+        help="check: report readiness; guide: print install steps; profiles: list all profiles; inventory/resolve: preview local model sources",
     )
     local_model_parser.add_argument(
         "--profile", default="", help="Local model profile name (tiny, balanced, stronger)."
     )
+    local_model_parser.add_argument("--source", default="", help="Model source for resolve: HF id, HF URL, or local path.")
+    cognition_parser = sub.add_parser("cognition", help="Run Ghost-native cognition trust helpers")
+    cognition_parser.add_argument("action", choices=["guard", "handoff"], nargs="?", default="guard")
+    cognition_parser.add_argument("handoff_action", choices=["verify"], nargs="?")
+    cognition_parser.add_argument("--confidence", type=float, default=0.0)
+    cognition_parser.add_argument("--variance", type=float, default=0.0)
+    cognition_parser.add_argument("--max-risk", type=float, default=0.2)
+    cognition_parser.add_argument("--handoff-json", default="", help="Ghost handoff JSON for verification.")
+    context_parser = sub.add_parser("context", help="Run context efficiency helpers")
+    context_parser.add_argument("action", choices=["compress"], nargs="?", default="compress")
+    context_parser.add_argument("--text", default="", help="Text to compress.")
+    context_parser.add_argument("--file", default="", help="Optional UTF-8 file to compress.")
+    context_parser.add_argument("--focus", default="", help="Focus query for compression.")
+    context_parser.add_argument("--budget-tokens", type=int, default=800)
+    capability_parser = sub.add_parser("capability-pack", help="Inspect and run built-in Chimera capability tools")
+    capability_parser.add_argument("action", choices=["list", "run"], nargs="?", default="list")
+    capability_parser.add_argument("--tool-id", default="", help="Tool id for run.")
+    capability_parser.add_argument("--arguments-json", default="{}", help="JSON object passed to capability tool.")
+    sandbox_parser = sub.add_parser("sandbox", help="Run local operator sandbox journeys")
+    sandbox_parser.add_argument("action", choices=["journey"], nargs="?", default="journey")
+    sandbox_parser.add_argument("--state-dir", default="", help="Optional sandbox state directory.")
     runtime_warmup_parser = sub.add_parser("runtime-warmup", help="Precompute local runtime specialization manifests")
     runtime_warmup_parser.add_argument(
         "--runtime-specialization-cache-dir",
@@ -434,6 +496,15 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "github":
         return _run_github_cli(args)
 
+    if args.command == "remote":
+        return _run_remote_cli(args)
+
+    if args.command == "trust":
+        return _run_trust_cli(args)
+
+    if args.command == "mcp":
+        return _run_mcp_cli(args)
+
     if args.command == "path":
         return _run_path_cli(args)
 
@@ -467,7 +538,21 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "local-model":
         from .local_model_cli import run_local_model_cli
 
-        return run_local_model_cli(action=args.action, profile=getattr(args, "profile", ""))
+        return run_local_model_cli(
+            action=args.action, profile=getattr(args, "profile", ""), source=getattr(args, "source", "")
+        )
+
+    if args.command == "cognition":
+        return _run_cognition_cli(args)
+
+    if args.command == "context":
+        return _run_context_cli(args)
+
+    if args.command == "capability-pack":
+        return _run_capability_pack_cli(args)
+
+    if args.command == "sandbox":
+        return _run_sandbox_cli(args)
 
     if args.command == "runtime-warmup":
         from ..model_layer.runtime_specialization import detect_runtime_environment, warm_runtime_specialization_cache
@@ -654,6 +739,163 @@ def _run_github_cli(args: argparse.Namespace) -> int:
     return 2
 
 
+def _run_remote_cli(args: argparse.Namespace) -> int:
+    from ..integrations.remote_control import RemoteControlStore
+
+    state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
+    store = RemoteControlStore(state_dir)
+
+    if args.action == "status":
+        print(json.dumps(store.status(), indent=2, sort_keys=True))
+        return 0
+
+    if args.action == "peers":
+        payload = store.status()
+        print(
+            json.dumps(
+                {"ok": True, "peers": payload.get("peers", []), "pairings": payload.get("pairings", [])},
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+
+    if args.action == "policy":
+        payload: dict[str, object] = {}
+        if args.direct_execution:
+            payload["direct_execution_enabled"] = True
+        if args.no_direct_execution:
+            payload["direct_execution_enabled"] = False
+        if not payload:
+            print(json.dumps(store.status().get("policy", {}), indent=2, sort_keys=True))
+            return 0
+        print(json.dumps(store.update_policy(payload), indent=2, sort_keys=True))
+        return 0
+
+    if args.action == "pair-code":
+        if not args.peer:
+            print(json.dumps({"ok": False, "error": "--peer is required"}, indent=2, sort_keys=True))
+            return 2
+        try:
+            payload = store.create_pairing(
+                channel=args.channel,
+                peer_id=args.peer,
+                display_name=args.display_name,
+            )
+        except ValueError as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}, indent=2, sort_keys=True))
+            return 2
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+
+    if args.action == "simulate":
+        if not args.peer:
+            print(json.dumps({"ok": False, "error": "--peer is required"}, indent=2, sort_keys=True))
+            return 2
+        payload = store.handle_inbound(
+            channel=args.channel,
+            peer_id=args.peer,
+            display_name=args.display_name,
+            text=args.text,
+            status_provider=lambda: {"ok": True, "status": "Ghost Chimera remote CLI simulation online"},
+        )
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
+    if args.action == "channel-config":
+        try:
+            payload = store.configure_channel(
+                args.channel,
+                {
+                    "enabled": True,
+                    "send_enabled": args.send_enabled,
+                    "clear_secrets": args.clear_secrets,
+                    "bot_token": args.bot_token,
+                    "api_token": args.api_token,
+                    "webhook_url": args.webhook_url,
+                    "phone_number_id": args.phone_number_id,
+                    "signing_secret": args.signing_secret,
+                },
+            )
+        except ValueError as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}, indent=2, sort_keys=True))
+            return 2
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
+    if args.action == "send-test":
+        reply_target = args.reply_target or args.peer
+        if not reply_target:
+            print(json.dumps({"ok": False, "error": "--reply-target or --peer is required"}, indent=2, sort_keys=True))
+            return 2
+        payload = store.send_reply(channel=args.channel, reply_target=reply_target, text=args.text)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
+    return 2
+
+
+def _run_trust_cli(args: argparse.Namespace) -> int:
+    from ..trust_runtime import TrustRuntimeStore
+
+    state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
+    store = TrustRuntimeStore(state_dir)
+    command = args.trust_command or "status"
+
+    if command == "status":
+        print(json.dumps(store.trust_status(), indent=2, sort_keys=True))
+        return 0
+
+    if command == "runs":
+        action = args.runs_action or "list"
+        if action == "list":
+            print(json.dumps(store.list_runs(), indent=2, sort_keys=True))
+            return 0
+        if not args.run_id:
+            print(json.dumps({"ok": False, "error": "run_id is required"}, indent=2, sort_keys=True))
+            return 2
+        payload = store.get_run(args.run_id) if action == "show" else store.resume_run(args.run_id)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
+    if command == "trace":
+        payload = store.export_trace(args.run_id or "latest")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
+    if command == "eval":
+        payload = store.eval_baseline() if args.eval_action == "baseline" else store.eval_compare()
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
+    return 2
+
+
+def _run_mcp_cli(args: argparse.Namespace) -> int:
+    from ..trust_runtime import TrustRuntimeStore
+
+    state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
+    store = TrustRuntimeStore(state_dir)
+    if args.action != "trust":
+        print(json.dumps({"ok": False, "error": "Only 'trust' is supported."}, indent=2, sort_keys=True))
+        return 2
+    if args.trust_action == "list":
+        print(json.dumps(store.mcp_trust_list(), indent=2, sort_keys=True))
+        return 0
+    if not args.server_id:
+        print(json.dumps({"ok": False, "error": "server_id is required"}, indent=2, sort_keys=True))
+        return 2
+    status = "approved" if args.trust_action == "approve" else "revoked"
+    payload = store.mcp_trust_set(
+        args.server_id,
+        status,
+        risk_ceiling=args.risk_ceiling,
+        tools=list(args.tool or []),
+    )
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if payload.get("ok") else 1
+
+
 def _run_path_cli(args: argparse.Namespace) -> int:
     from ..personalization.path_state import get_active_ghost_path, set_active_ghost_path
     from ..personalization.role_profiles import list_role_profiles
@@ -675,6 +917,67 @@ def _run_path_cli(args: argparse.Namespace) -> int:
         payload = get_active_ghost_path(config_path=config_path)
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
+
+
+def _run_cognition_cli(args: argparse.Namespace) -> int:
+    from ..cognition_layer.trust import GhostBelief, GhostHandoff, guard_belief, verify_handoff
+
+    if args.action == "guard":
+        belief = GhostBelief.from_confidence("cli", args.confidence, variance=args.variance)
+        print(json.dumps({"ok": True, "result": guard_belief(belief, max_risk=args.max_risk).to_dict()}, indent=2))
+        return 0
+    if args.action == "handoff" and args.handoff_action == "verify":
+        if not args.handoff_json:
+            print(json.dumps({"ok": False, "error": "--handoff-json is required"}, indent=2))
+            return 2
+        result = verify_handoff(GhostHandoff.from_json(args.handoff_json))
+        print(json.dumps({"ok": result.accepted, "result": result.to_dict()}, indent=2, sort_keys=True))
+        return 0 if result.accepted else 1
+    print(json.dumps({"ok": False, "error": "Unsupported cognition action"}, indent=2))
+    return 2
+
+
+def _run_context_cli(args: argparse.Namespace) -> int:
+    from ..chimera_pilot.context_compressor import compress_text_query_aware
+
+    text = args.text or ""
+    if args.file:
+        text = Path(args.file).expanduser().read_text(encoding="utf-8")
+    result = compress_text_query_aware(text, focus=args.focus, budget_tokens=args.budget_tokens)
+    print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+    return 0 if result.ok else 1
+
+
+def _run_capability_pack_cli(args: argparse.Namespace) -> int:
+    from ..capability_pack import call_capability_tool, list_capability_tools
+
+    if args.action == "list":
+        print(
+            json.dumps(
+                {"ok": True, "tools": [tool.to_dict() for tool in list_capability_tools()]},
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+    try:
+        arguments = json.loads(args.arguments_json or "{}")
+    except json.JSONDecodeError as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, indent=2, sort_keys=True))
+        return 2
+    payload = call_capability_tool(args.tool_id, arguments)
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if payload.get("ok") else 1
+
+
+def _run_sandbox_cli(args: argparse.Namespace) -> int:
+    from ..sandbox.journey import run_sandbox_journey
+
+    if args.action == "journey":
+        report = run_sandbox_journey(state_dir=args.state_dir or None)
+        print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+        return 0 if report.ok else 1
+    return 2
 
 
 def _run_workspace_cli(args: argparse.Namespace) -> int:
