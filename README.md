@@ -14,6 +14,7 @@ Key capabilities:
 - **Conservative safety defaults** â€” Python, shell, network, and desktop execution are all off by default. Production mode adds deployment-level guardrails.
 - **Personal MiniMind** â€” consent-gated local memory bootstrap with system specs, approved files/email exports, optional whole-machine/email-artifact crawling, MiniMind JSONL dataset generation, and primary-model RAG handoff.
 - **Native Chimera capability pack** - built-in cognition guardrails, tamper-evident handoffs, query-aware context compression, local model inventory/resolution, MCP normalization, and sandbox journeys with no external project dependency. [Details](docs/NATIVE_ABSORPTION.md)
+- **Trust Runtime** - durable local run journals, resumable approval checkpoints, MCP zero-trust envelopes, eval baselines, and OTel-compatible JSON trace exports. [Details](docs/TRUST_RUNTIME.md)
 
 - **Competitive capability intelligence** - CLI, console, docs, and eval gates compare Ghost Chimera against Codex, Claude Code, LangGraph, CrewAI, Hermes-style tool gateways, and OpenClaw-style local autonomy patterns.
 - **Automated PR review** - deterministic `ghostchimera review-pr` checks for secrets, destructive commands, missing tests, release-checklist drift, generated artifacts, and unfinished beta code.

@@ -27,6 +27,10 @@ ghostchimera context compress --text "latency latency matters" --focus latency
 ghostchimera capability-pack list
 ghostchimera sandbox journey
 ghostchimera remote status
+ghostchimera trust status
+ghostchimera trust eval baseline
+ghostchimera trust trace export latest
+ghostchimera mcp trust list
 ghostchimera github status
 ghostchimera path list
 ghostchimera path set --profile ai-engineer-proxy --training-mode rag-first --approval-level supervised
@@ -94,6 +98,10 @@ environment.
 - [ ] `ghostchimera capability-pack list` reports built-in tools without requiring an external MCP server.
 - [ ] `ghostchimera sandbox journey` emits a local operator journey report and preserves findings.
 - [ ] `ghostchimera remote status` reports disabled-by-default remote control state, no paired peers unless intentionally configured, and no raw channel secrets.
+- [ ] `ghostchimera trust status` reports durable journal readiness, pending approvals, MCP trust posture, trace health, and eval baseline status without raw secrets.
+- [ ] `ghostchimera trust eval baseline` creates a fresh local trust baseline before production deployment.
+- [ ] `ghostchimera trust trace export latest` exports redacted local JSON when a run exists, or fails closed when no runs exist.
+- [ ] `ghostchimera mcp trust list` shows approved/revoked/reviewed MCP servers and no unreviewed high-risk server is enabled for production.
 - [ ] `ghostchimera local-model guide --profile balanced` prints install steps.
 - [ ] Optional hackathon/developer tooling, including IBM Bob files, remains outside the `ghostchimera/` runtime package and is documented in `docs/BOB_OPTIONAL_TOOLING.md`.
 - [ ] README quickstart works from a clean virtual environment.

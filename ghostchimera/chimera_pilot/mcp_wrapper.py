@@ -8,6 +8,7 @@ so the agent can call MCP tools as part of its tool-calling loop.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import threading
 import time
@@ -16,7 +17,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..config import GhostChimeraConfig
 from ..logging_config import get_logger
+from ..trust_runtime import TrustRuntimeStore, build_tool_trust_envelope, classify_tool_risk
 
 logger = get_logger("mcp_wrapper")
 
@@ -136,6 +139,21 @@ class MCPClient:
         if not self.available or not self._process or not self._process.stdin:
             return {"status": "error", "content": f"Server {self.name} not connected"}
 
+        trust_store = TrustRuntimeStore(GhostChimeraConfig.from_env().state_dir)
+        risk_level = classify_tool_risk(name, arguments, source=f"mcp:{self.name}")
+        if not trust_store.is_mcp_tool_allowed(self.name, name, risk_level) and risk_level in {"high", "critical"}:
+            envelope = build_tool_trust_envelope(
+                name,
+                arguments=arguments,
+                source=f"mcp:{self.name}",
+                output={"status": "blocked", "reason": "unapproved high-risk MCP tool"},
+            )
+            return {
+                "status": "error",
+                "content": f"MCP tool {name} is blocked until server {self.name!r} is approved in the trust registry.",
+                "trust_envelope": envelope.to_dict(),
+            }
+
         request_id = int(time.time() * 1000)
         request = json.dumps(
             {
@@ -155,7 +173,7 @@ class MCPClient:
             if response:
                 resp = json.loads(response.strip())
                 result = resp.get("result", {})
-                return {
+                payload = {
                     "status": "success",
                     "content": "",
                     "content_parts": [
@@ -165,6 +183,21 @@ class MCPClient:
                     ],
                     "is_error": result.get("isError", False),
                 }
+                envelope = build_tool_trust_envelope(name, arguments=arguments, source=f"mcp:{self.name}", output=payload)
+                payload["trust_envelope"] = envelope.to_dict()
+                run_id = os.environ.get("GHOSTCHIMERA_TRUST_RUN_ID", "").strip()
+                if run_id:
+                    trust_store.record_tool_call(
+                        run_id,
+                        tool_name=name,
+                        arguments=arguments,
+                        result=payload,
+                        source=f"mcp:{self.name}",
+                    )
+                if envelope.violations:
+                    payload["status"] = "error"
+                    payload["content"] = "MCP output failed trust sanitation."
+                return payload
         except Exception as exc:
             return {"status": "error", "content": str(exc)}
 

@@ -37,6 +37,7 @@
     <button class="tab" data-tab="path">Path</button>
     <button class="tab" data-tab="github">GitHub</button>
     <button class="tab" data-tab="remote">Remote Control</button>
+    <button class="tab" data-tab="trust">Trust Runtime</button>
     <button class="tab" data-tab="thinking">Thinking</button>
     <button class="tab" data-tab="run">▶ Run</button>
     <button class="tab" data-tab="jobs">Jobs</button>
@@ -290,6 +291,24 @@
     <div class="section-hdr">Provider Webhook Endpoint</div>
     <div id="remoteWebhookExamples" class="list"></div>
     <pre class="output compact-output" id="remoteOutput">Remote commands are paired, audited, and policy-gated. Provider adapters are optional. Signing secrets make provider webhooks fail closed.</pre>
+  </div>
+
+  <div class="tab-content" id="tab-trust">
+    <div class="section-hdr" style="margin-top:0;">Trust Runtime</div>
+    <div class="grid" id="trustCards"></div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="trustRefresh" class="primary">Refresh Trust Runtime</button>
+      <button id="trustBaseline">Create Eval Baseline</button>
+      <button id="trustTraceExport">Export Latest Trace</button>
+    </div>
+    <div class="section-hdr">Durable Runs</div>
+    <div id="trustRuns" class="list"></div>
+    <div class="section-hdr">Pending Approvals</div>
+    <div id="trustApprovals" class="list"></div>
+    <div class="section-hdr">MCP Trust Registry</div>
+    <div id="trustMcp" class="list"></div>
+    <div class="section-hdr">Eval And Trace Output</div>
+    <pre class="output compact-output" id="trustOutput">Trust Runtime is local-first. Refresh to inspect run journals, approvals, MCP trust, evals, and trace export readiness.</pre>
   </div>
 
   <div class="tab-content" id="tab-github">

@@ -162,6 +162,25 @@ def _main(argv: list[str] | None = None) -> int:
     remote_parser.add_argument("--clear-secrets", action="store_true", help="Clear stored channel secrets.")
     remote_parser.add_argument("--direct-execution", action="store_true", help="Enable global direct execution policy.")
     remote_parser.add_argument("--no-direct-execution", action="store_true", help="Disable global direct execution policy.")
+    trust_parser = sub.add_parser("trust", help="Inspect durable Trust Runtime runs, traces, approvals, and evals")
+    trust_sub = trust_parser.add_subparsers(dest="trust_command")
+    trust_sub.add_parser("status", help="Show Trust Runtime readiness")
+    trust_runs = trust_sub.add_parser("runs", help="List, show, or resume durable runs")
+    trust_runs.add_argument("runs_action", choices=["list", "show", "resume"], nargs="?", default="list")
+    trust_runs.add_argument("run_id", nargs="?", default="", help="Run id for show/resume.")
+    trust_trace = trust_sub.add_parser("trace", help="Export a local OTel-compatible trace bundle")
+    trust_trace.add_argument("trace_action", choices=["export"], nargs="?", default="export")
+    trust_trace.add_argument("run_id", nargs="?", default="latest", help="Run id or latest.")
+    trust_eval = trust_sub.add_parser("eval", help="Create or compare local trust eval baselines")
+    trust_eval.add_argument("eval_action", choices=["baseline", "compare"], nargs="?", default="baseline")
+    trust_parser.add_argument("--state-dir", default="", help="Optional Trust Runtime state directory.")
+    mcp_parser = sub.add_parser("mcp", help="Manage MCP trust registry")
+    mcp_parser.add_argument("action", choices=["trust"], nargs="?", default="trust")
+    mcp_parser.add_argument("trust_action", choices=["list", "approve", "revoke"], nargs="?", default="list")
+    mcp_parser.add_argument("server_id", nargs="?", default="", help="MCP server id.")
+    mcp_parser.add_argument("--state-dir", default="", help="Optional Trust Runtime state directory.")
+    mcp_parser.add_argument("--risk-ceiling", choices=["low", "medium", "high", "critical"], default="medium")
+    mcp_parser.add_argument("--tool", action="append", default=[], help="Reviewed tool name. Repeatable.")
     path_parser = sub.add_parser("path", help="Show, list, and persist the active multi-purpose Ghost path")
     path_parser.add_argument("action", choices=["show", "set", "list"], nargs="?", default="show")
     path_parser.add_argument("--profile", default="autonomous-engineer", help="Role profile id for 'set'.")
@@ -479,6 +498,12 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "remote":
         return _run_remote_cli(args)
+
+    if args.command == "trust":
+        return _run_trust_cli(args)
+
+    if args.command == "mcp":
+        return _run_mcp_cli(args)
 
     if args.command == "path":
         return _run_path_cli(args)
@@ -808,6 +833,67 @@ def _run_remote_cli(args: argparse.Namespace) -> int:
         return 0 if payload.get("ok") else 1
 
     return 2
+
+
+def _run_trust_cli(args: argparse.Namespace) -> int:
+    from ..trust_runtime import TrustRuntimeStore
+
+    state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
+    store = TrustRuntimeStore(state_dir)
+    command = args.trust_command or "status"
+
+    if command == "status":
+        print(json.dumps(store.trust_status(), indent=2, sort_keys=True))
+        return 0
+
+    if command == "runs":
+        action = args.runs_action or "list"
+        if action == "list":
+            print(json.dumps(store.list_runs(), indent=2, sort_keys=True))
+            return 0
+        if not args.run_id:
+            print(json.dumps({"ok": False, "error": "run_id is required"}, indent=2, sort_keys=True))
+            return 2
+        payload = store.get_run(args.run_id) if action == "show" else store.resume_run(args.run_id)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
+    if command == "trace":
+        payload = store.export_trace(args.run_id or "latest")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
+    if command == "eval":
+        payload = store.eval_baseline() if args.eval_action == "baseline" else store.eval_compare()
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
+    return 2
+
+
+def _run_mcp_cli(args: argparse.Namespace) -> int:
+    from ..trust_runtime import TrustRuntimeStore
+
+    state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
+    store = TrustRuntimeStore(state_dir)
+    if args.action != "trust":
+        print(json.dumps({"ok": False, "error": "Only 'trust' is supported."}, indent=2, sort_keys=True))
+        return 2
+    if args.trust_action == "list":
+        print(json.dumps(store.mcp_trust_list(), indent=2, sort_keys=True))
+        return 0
+    if not args.server_id:
+        print(json.dumps({"ok": False, "error": "server_id is required"}, indent=2, sort_keys=True))
+        return 2
+    status = "approved" if args.trust_action == "approve" else "revoked"
+    payload = store.mcp_trust_set(
+        args.server_id,
+        status,
+        risk_ceiling=args.risk_ceiling,
+        tools=list(args.tool or []),
+    )
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if payload.get("ok") else 1
 
 
 def _run_path_cli(args: argparse.Namespace) -> int:

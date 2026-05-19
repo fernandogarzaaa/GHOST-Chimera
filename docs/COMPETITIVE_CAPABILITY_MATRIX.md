@@ -28,6 +28,7 @@ The matrix is also available in Ghost Console through
 | CrewAI | Role-based crews, flows, processes, and agent collaboration. See [CrewAI docs](https://docs.crewai.com/). | Agent pool, subagents, Mixture-of-Agents scoring, autonomy job profiles. |
 | Hermes-style tool gateways | Tool-calling and MCP-style tool gateway patterns. See [Nous Hermes function calling](https://github.com/NousResearch/Hermes-Function-Calling). | MCP gateway/client/backend, credential-aware wrappers, policy hooks. |
 | OpenClaw-style local autonomy | Local-first operator control, desktop/runtime actions, and policy-gated execution. | Desktop control policy, kill switch, browser workspace, local model/MiniMind runtime. |
+| Production agent trust runtimes | Durable journals, approval resume points, tool trust controls, eval flywheels, and OTel-style traces. | Trust Runtime journals, approval checkpoints, MCP trust registry, trust eval baselines, and local trace export. |
 
 ## Required Capabilities
 
@@ -46,6 +47,7 @@ The competitive eval currently checks these capability families:
 - GitHub-connected autonomous engineer
 - Multi-purpose Ghost path synthesis
 - Automated code review
+- Trust Runtime durable journals, approval checkpoints, MCP zero-trust controls, eval baselines, and trace exports
 
 Each capability must map to real files and symbols. Missing surfaces lower the
 score and appear as `top_gaps` in `ghostchimera capabilities --format json`.

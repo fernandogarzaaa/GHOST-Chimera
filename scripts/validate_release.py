@@ -34,6 +34,7 @@ REQUIRED_FILES = [
     "docs/COMPETITIVE_CAPABILITY_MATRIX.md",
     "docs/NATIVE_ABSORPTION.md",
     "docs/REMOTE_CONTROL.md",
+    "docs/TRUST_RUNTIME.md",
     "docs/RELEASE_CHECKLIST.md",
     "scripts/smoke_installed_wheel.py",
 ]
@@ -138,6 +139,7 @@ def check_imports() -> dict[str, Any]:
         "ghostchimera.mcp.client",
         "ghostchimera.sandbox.journey",
         "ghostchimera.chimera_pilot.backends.mcp",
+        "ghostchimera.trust_runtime",
     ]
     imported: list[str] = []
     for module in modules:

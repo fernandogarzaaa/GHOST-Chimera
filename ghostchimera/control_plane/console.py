@@ -42,6 +42,7 @@ from ..model_layer.providers import get_provider
 from ..sandbox.journey import run_sandbox_journey
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
+from ..trust_runtime import TrustRuntimeStore
 from .config import CONFIG_FILE, config_to_env_vars, get_autonomy_config, get_default_config, load_config, save_config
 from .evolution import (
     create_learning_source,
@@ -120,6 +121,16 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "name": "production doctor",
         "command": "GHOSTCHIMERA_DEPLOYMENT_MODE=production GHOSTCHIMERA_EXTERNAL_ISOLATION=container GHOSTCHIMERA_SECURITY_REVIEWED=1 GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED=1 ghostchimera doctor --production",
         "purpose": "Verifies production-mode guardrail configuration.",
+    },
+    {
+        "name": "trust runtime status",
+        "command": "ghostchimera trust status",
+        "purpose": "Checks durable journals, approvals, MCP trust, trace health, and trust eval posture.",
+    },
+    {
+        "name": "trust eval baseline",
+        "command": "ghostchimera trust eval baseline",
+        "purpose": "Creates a fresh local trust baseline before production deployment.",
     },
     {
         "name": "base wheel smoke",
@@ -612,6 +623,7 @@ def register_console_routes(
     workspace_store = operator_workspace or OperatorWorkspaceStore(state_dir=state_dir or server.config.state_dir)
     console_state_dir = Path(state_dir or server.config.state_dir)
     remote_store = RemoteControlStore(console_state_dir)
+    trust_store = TrustRuntimeStore(console_state_dir)
     path_config_file = Path(config_path).expanduser() if config_path else None
     console_config_file = _config_file_for_console(config_path)
     scheduler = cron_scheduler
@@ -978,12 +990,59 @@ def register_console_routes(
         objective = str(body.get("objective") or "").strip()
         if not objective:
             return {"ok": False, "error": "Missing objective"}
+        trust_run = trust_store.create_run(
+            agent_name="ghost_console",
+            objective=objective,
+            source="console",
+            metadata={"route": "/api/console/run"},
+        )
+        previous_trust_run_id = os.environ.get("GHOSTCHIMERA_TRUST_RUN_ID")
+        os.environ["GHOSTCHIMERA_TRUST_RUN_ID"] = trust_run["run_id"]
         try:
-            return objective_runner(objective)
+            trust_store.record_step(
+                trust_run["run_id"],
+                step_type="goal_intake",
+                status="completed",
+                inputs={"objective": objective},
+                idempotency_key=f"{trust_run['run_id']}:goal-intake",
+            )
+            result = objective_runner(objective)
+            ok = not (isinstance(result, dict) and result.get("ok") is False)
+            trust_store.record_step(
+                trust_run["run_id"],
+                step_type="execution_result",
+                status="completed" if ok else "failed",
+                outputs=result if isinstance(result, dict) else {"result": result},
+                idempotency_key=f"{trust_run['run_id']}:execution-result",
+            )
+            if isinstance(result, dict):
+                result.setdefault("trust_run", trust_store.get_run(trust_run["run_id"]))
+                return result
+            return {"ok": True, "result": result, "trust_run": trust_store.get_run(trust_run["run_id"])}
         except PermissionError as exc:
+            trust_store.record_step(
+                trust_run["run_id"],
+                step_type="policy_check",
+                status="blocked",
+                outputs={"error": str(exc), "type": "permission"},
+                policy_decision={"decision": "blocked", "reason": str(exc)},
+                idempotency_key=f"{trust_run['run_id']}:permission-error",
+            )
             return {"ok": False, "error": str(exc), "type": "permission"}
         except Exception as exc:
+            trust_store.record_step(
+                trust_run["run_id"],
+                step_type="execution_result",
+                status="failed",
+                outputs={"error": str(exc), "type": "runtime"},
+                idempotency_key=f"{trust_run['run_id']}:runtime-error",
+            )
             return {"ok": False, "error": str(exc), "type": "runtime"}
+        finally:
+            if previous_trust_run_id is None:
+                os.environ.pop("GHOSTCHIMERA_TRUST_RUN_ID", None)
+            else:
+                os.environ["GHOSTCHIMERA_TRUST_RUN_ID"] = previous_trust_run_id
 
     def browser_fetch(ctx: dict[str, Any]) -> dict[str, Any]:
         body = _json_body(ctx)
@@ -1784,6 +1843,7 @@ def register_console_routes(
             "tool_count": len(tools),
             "tools": tools,
             "module_detected": bool(importlib.util.find_spec("chimeralang_mcp")),
+            "trust": trust_store.mcp_trust_list().get("servers", []),
         }
 
     def mcp_enable_chimeralang(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -1802,6 +1862,12 @@ def register_console_routes(
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
         result = mcp_status(ctx)
+        trust_store.mcp_trust_set(
+            "chimeralang",
+            status="reviewed",
+            risk_ceiling="medium",
+            tools=[str(tool) for tool in result.get("tools", []) if str(tool).strip()],
+        )
         upsert_candidate(
             console_state_dir,
             {
@@ -1827,6 +1893,7 @@ def register_console_routes(
             disconnect_mcp_servers()
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+        trust_store.mcp_trust_set("chimeralang", status="revoked", risk_ceiling="low", tools=[])
         record_timeline_event(console_state_dir, "mcp_disabled", {"server": "chimeralang"})
         return {"ok": True, "enabled": False, "tool_count": 0, "tools": []}
 
@@ -1980,6 +2047,7 @@ def register_console_routes(
             latency=latency_payload,
         )
         remote_payload = remote_store.status()
+        trust_payload = trust_store.trust_status()
         if isinstance(summary.get("cards"), list):
             summary["cards"].append(
                 {
@@ -1987,6 +2055,14 @@ def register_console_routes(
                     "label": "Remote Control",
                     "status": "paired" if remote_payload.get("counts", {}).get("paired_peers") else "setup",
                     "action": "remote",
+                }
+            )
+            summary["cards"].append(
+                {
+                    "id": "trust-runtime",
+                    "label": "Trust Runtime",
+                    "status": trust_payload.get("production_readiness", {}).get("status", "review"),
+                    "action": "trust",
                 }
             )
         summary.update(
@@ -2006,6 +2082,7 @@ def register_console_routes(
                     "counts": remote_payload.get("counts", {}),
                     "policy": remote_payload.get("policy", {}),
                 },
+                "trust": trust_payload,
             }
         )
         return summary
@@ -2055,6 +2132,138 @@ def register_console_routes(
             return {"ok": False, "error": "Unsupported setup step.", "allowed_steps": sorted(allowed)}
         record_timeline_event(console_state_dir, "setup_step_completed", {"step": step})
         return {"ok": True, "step": step, "summary": _operator_summary_payload()}
+
+    def _record_remote_trust_run(command_payload: dict[str, Any], *, channel: str, peer_id: str, text: str) -> None:
+        command = str(command_payload.get("command") or "").strip()
+        if command not in {"run", "/run"}:
+            return
+        objective = str(command_payload.get("objective") or text.removeprefix("/run").strip()).strip()
+        approval_payload = command_payload.get("approval") if isinstance(command_payload.get("approval"), dict) else {}
+        trust_run = trust_store.create_run(
+            agent_name="ghost_remote_control",
+            objective=objective,
+            source=f"remote:{channel}",
+            metadata={
+                "peer_id": peer_id,
+                "command": command,
+                "mode": command_payload.get("mode", ""),
+                "approval_id": command_payload.get("approval_id", "") or approval_payload.get("id", ""),
+            },
+        )
+        trust_store.record_step(
+            trust_run["run_id"],
+            step_type="goal_intake",
+            status="completed",
+            inputs={"objective": objective, "channel": channel, "peer_id": peer_id},
+            idempotency_key=f"{trust_run['run_id']}:remote-goal-intake",
+        )
+        if command_payload.get("mode") == "approval_required":
+            checkpoint = trust_store.create_approval(
+                trust_run["run_id"],
+                step_id=str(command_payload.get("approval_id") or approval_payload.get("id") or "remote-run-approval"),
+                reason="Remote /run command requires operator approval before execution.",
+                requested_by=peer_id or channel,
+                metadata={
+                    "remote_approval_id": command_payload.get("approval_id", "") or approval_payload.get("id", ""),
+                    "channel": channel,
+                },
+            )
+            command_payload["trust_approval"] = checkpoint
+        else:
+            trust_store.record_step(
+                trust_run["run_id"],
+                step_type="approval_boundary",
+                status="completed",
+                outputs={"mode": command_payload.get("mode", ""), "direct_execution": True},
+                idempotency_key=f"{trust_run['run_id']}:approval-boundary",
+            )
+        command_payload["trust_run"] = trust_store.get_run(trust_run["run_id"])
+
+    def trust_summary(ctx: dict[str, Any]) -> dict[str, Any]:
+        return trust_store.trust_status()
+
+    def trust_runs(ctx: dict[str, Any]) -> dict[str, Any]:
+        return trust_store.list_runs()
+
+    def trust_run_detail(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/trust/runs/")
+        parts = [part for part in suffix.split("/") if part]
+        if not parts:
+            return {"ok": False, "error": "Run id is required."}
+        run_id = parts[0]
+        if len(parts) == 2 and parts[1] == "resume":
+            payload = trust_store.resume_run(run_id)
+            if payload.get("ok"):
+                record_timeline_event(console_state_dir, "trust_run_resumed", {"run_id": run_id})
+            return payload
+        if len(parts) != 1:
+            return {"ok": False, "error": "Expected /api/console/trust/runs/{id} or /resume."}
+        return trust_store.get_run(run_id)
+
+    def trust_approvals(ctx: dict[str, Any]) -> dict[str, Any]:
+        return trust_store.pending_approvals()
+
+    def trust_approval_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/trust/approvals/")
+        parts = [part for part in suffix.split("/") if part]
+        if len(parts) != 2 or parts[1] not in {"approve", "deny"}:
+            return {"ok": False, "error": "Expected /api/console/trust/approvals/{id}/approve or /deny."}
+        status_value = "approved" if parts[1] == "approve" else "denied"
+        payload = trust_store.resolve_approval(parts[0], status_value, reviewer="console")
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "trust_approval_resolved",
+                {"approval_id": parts[0], "status": status_value},
+            )
+        return payload
+
+    def trust_trace_export(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/trust/traces/")
+        run_id = suffix.removesuffix("/export").strip("/")
+        if run_id == "latest":
+            runs = trust_store.list_runs(limit=1).get("runs", [])
+            if not runs:
+                return {"ok": False, "error": "No trust runs available."}
+            run_id = str(runs[0].get("run_id") or "")
+        if not run_id:
+            return {"ok": False, "error": "Run id is required."}
+        return trust_store.export_trace(run_id)
+
+    def trust_evals(ctx: dict[str, Any]) -> dict[str, Any]:
+        return {"ok": True, "baseline": trust_store.trust_status().get("eval_baseline", {}), "comparison": trust_store.eval_compare()}
+
+    def trust_eval_baseline(ctx: dict[str, Any]) -> dict[str, Any]:
+        payload = trust_store.eval_baseline()
+        record_timeline_event(
+            console_state_dir,
+            "trust_eval_baseline_created",
+            {"trust_score": payload.get("trust_score"), "case_count": payload.get("case_count")},
+        )
+        return payload
+
+    def mcp_trust_registry(ctx: dict[str, Any]) -> dict[str, Any]:
+        return trust_store.mcp_trust_list()
+
+    def mcp_trust_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/mcp/trust/")
+        parts = [part for part in suffix.split("/") if part]
+        if len(parts) != 2 or parts[1] not in {"approve", "revoke"}:
+            return {"ok": False, "error": "Expected /api/console/mcp/trust/{server_id}/approve or /revoke."}
+        body = _json_body(ctx)
+        status_value = "approved" if parts[1] == "approve" else "revoked"
+        payload = trust_store.mcp_trust_set(
+            parts[0],
+            status=status_value,
+            risk_ceiling=str(body.get("risk_ceiling") or "medium"),
+            tools=[str(tool) for tool in (body.get("tools") or []) if str(tool).strip()],
+        )
+        record_timeline_event(
+            console_state_dir,
+            "mcp_trust_updated",
+            {"server_id": parts[0], "status": status_value, "risk_ceiling": payload.get("server", {}).get("risk_ceiling")},
+        )
+        return payload
 
     def remote_status(ctx: dict[str, Any]) -> dict[str, Any]:
         return remote_store.status()
@@ -2187,6 +2396,12 @@ def register_console_routes(
             paths_provider=paths_provider,
             jobs_provider=lambda: {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()},
         )
+        _record_remote_trust_run(
+            payload,
+            channel=str(body.get("channel") or "webhook"),
+            peer_id=str(body.get("peer_id") or ""),
+            text=str(body.get("text") or ""),
+        )
         record_timeline_event(
             console_state_dir,
             "remote_command_received",
@@ -2226,6 +2441,7 @@ def register_console_routes(
             paths_provider=lambda: {"ok": True, "active_path": _operator_summary_payload().get("active_path", {})},
             jobs_provider=lambda: {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()},
         )
+        _record_remote_trust_run(payload, channel=inbound.channel, peer_id=inbound.peer_id, text=inbound.text)
         payload["signature_status"] = signature.get("signature_status", "")
         payload["normalized"] = inbound.to_dict()
         record_timeline_event(
@@ -2620,6 +2836,57 @@ def register_console_routes(
         method="POST",
         prefix=True,
         description="Approve or deny a pending remote command",
+    )
+    _api_register("/api/console/trust/summary", trust_summary, method="GET", description="Inspect Trust Runtime summary")
+    _api_register("/api/console/trust/runs", trust_runs, method="GET", description="List durable Trust Runtime runs")
+    _api_register(
+        "/api/console/trust/runs/",
+        trust_run_detail,
+        method="GET",
+        prefix=True,
+        description="Inspect a durable Trust Runtime run",
+    )
+    _api_register(
+        "/api/console/trust/runs/",
+        trust_run_detail,
+        method="POST",
+        prefix=True,
+        description="Resume a durable Trust Runtime run",
+    )
+    _api_register(
+        "/api/console/trust/approvals",
+        trust_approvals,
+        method="GET",
+        description="List pending Trust Runtime approvals",
+    )
+    _api_register(
+        "/api/console/trust/approvals/",
+        trust_approval_action,
+        method="POST",
+        prefix=True,
+        description="Approve or deny a Trust Runtime checkpoint",
+    )
+    _api_register(
+        "/api/console/trust/traces/",
+        trust_trace_export,
+        method="GET",
+        prefix=True,
+        description="Export a redacted OTel-compatible local trace bundle",
+    )
+    _api_register("/api/console/trust/evals", trust_evals, method="GET", description="Inspect Trust Runtime eval status")
+    _api_register(
+        "/api/console/trust/evals/baseline",
+        trust_eval_baseline,
+        method="POST",
+        description="Create a local Trust Runtime eval baseline",
+    )
+    _api_register("/api/console/mcp/trust", mcp_trust_registry, method="GET", description="List MCP trust registry")
+    _api_register(
+        "/api/console/mcp/trust/",
+        mcp_trust_action,
+        method="POST",
+        prefix=True,
+        description="Approve or revoke an MCP server trust envelope",
     )
     _api_register(
         "/api/console/evolution/sources",
