@@ -9,6 +9,7 @@ dashboard-controlled direct execution policy.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import secrets
 import time
@@ -292,6 +293,44 @@ def build_outbound_reply(channel: str, reply_target: str, text: str) -> RemoteOu
             body={"peer_id": reply_target, "text": text},
         )
     raise ValueError(f"Unsupported remote channel: {channel}")
+
+
+def verify_remote_webhook_signature(
+    store: RemoteControlStore,
+    channel: str,
+    headers: dict[str, Any],
+    body: bytes | str,
+) -> dict[str, Any]:
+    """Verify an optional channel signing secret against the raw webhook body.
+
+    Channels without a configured signing secret remain usable for local
+    simulation and provider previews. Once a signing secret is saved, provider
+    webhook ingestion fails closed until the request includes a matching HMAC
+    SHA-256 signature.
+    """
+
+    channel = channel.strip().lower() or "webhook"
+    secrets_data = store._load_secrets()
+    channel_secrets = secrets_data.get(channel) if isinstance(secrets_data.get(channel), dict) else {}
+    signing_secret = str(channel_secrets.get("signing_secret") or "").strip()
+    if not signing_secret:
+        return {"ok": True, "signature_status": "not_configured"}
+
+    normalized_headers = {str(key).lower(): str(value).strip() for key, value in headers.items()}
+    provided = (
+        normalized_headers.get("x-ghost-signature")
+        or normalized_headers.get("x-hub-signature-256")
+        or normalized_headers.get("x-signature")
+    )
+    if not provided:
+        return {"ok": False, "error": "Missing webhook signature.", "signature_status": "missing"}
+
+    body_bytes = body.encode("utf-8") if isinstance(body, str) else body
+    expected = hmac.new(signing_secret.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
+    provided_digest = provided.split("=", 1)[1] if provided.startswith("sha256=") else provided
+    if not hmac.compare_digest(expected, provided_digest):
+        return {"ok": False, "error": "Webhook signature mismatch.", "signature_status": "mismatch"}
+    return {"ok": True, "signature_status": "verified"}
 
 
 def _normalize_telegram(payload: dict[str, Any]) -> RemoteInboundMessage:

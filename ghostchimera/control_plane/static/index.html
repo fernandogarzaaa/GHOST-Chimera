@@ -241,7 +241,8 @@
         </div>
         <div class="form-group">
           <label>Signing Secret</label>
-          <input id="remoteConfigSigning" type="password" autocomplete="off" placeholder="write-only optional secret">
+          <input id="remoteConfigSigning" type="password" autocomplete="off" placeholder="write-only optional HMAC secret">
+          <small>When saved, provider webhooks must include a matching SHA-256 signature. Local simulation remains unsigned.</small>
         </div>
         <label class="inline-check"><input id="remoteConfigEnabled" type="checkbox" checked> Enable inbound adapter metadata</label>
         <label class="inline-check"><input id="remoteConfigSendEnabled" type="checkbox"> Enable outbound sending for this channel</label>
@@ -288,7 +289,7 @@
     </div>
     <div class="section-hdr">Provider Webhook Endpoint</div>
     <div id="remoteWebhookExamples" class="list"></div>
-    <pre class="output compact-output" id="remoteOutput">Remote commands are paired, audited, and policy-gated. Provider adapters are optional.</pre>
+    <pre class="output compact-output" id="remoteOutput">Remote commands are paired, audited, and policy-gated. Provider adapters are optional. Signing secrets make provider webhooks fail closed.</pre>
   </div>
 
   <div class="tab-content" id="tab-github">

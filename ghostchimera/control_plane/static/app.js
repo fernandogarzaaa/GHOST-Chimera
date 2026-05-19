@@ -1048,7 +1048,8 @@
         item.appendChild(el("span", { class: "badge " + (channel.send_enabled ? "ok" : channel.configured ? "warn" : "") }, channel.id || "channel"));
         item.appendChild(el("span", { class: "name" }, channel.adapter_status || "metadata_only"));
         var fields = (channel.secret_fields_configured || []).join(", ") || "no credentials";
-        item.appendChild(el("span", { class: "meta" }, fields + " / outbound " + (channel.send_enabled ? "enabled" : "disabled")));
+        var signed = (channel.secret_fields_configured || []).indexOf("signing_secret") >= 0 ? " / signed webhooks required" : " / unsigned webhooks allowed";
+        item.appendChild(el("span", { class: "meta" }, fields + " / outbound " + (channel.send_enabled ? "enabled" : "disabled") + signed));
         channels.appendChild(item);
       });
     }
@@ -1084,7 +1085,7 @@
         var item = el("div", { class: "list-item" });
           item.appendChild(el("span", { class: "badge ok" }, channel));
           item.appendChild(el("span", { class: "name" }, "/api/console/remote/webhook/" + channel));
-          item.appendChild(el("span", { class: "meta" }, "Normalizes inbound payloads and returns a token-free reply_preview for the provider."));
+          item.appendChild(el("span", { class: "meta" }, "Normalizes inbound payloads and returns a token-free reply_preview. If a signing secret is saved, the raw body must match the SHA-256 signature."));
         examples.appendChild(item);
       });
     }

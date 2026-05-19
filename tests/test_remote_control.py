@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import tempfile
 import unittest
@@ -8,7 +10,12 @@ from pathlib import Path
 from ghostchimera.chimera_pilot.gateway_server import GatewayServer
 from ghostchimera.control_plane.cli import _main
 from ghostchimera.control_plane.console import register_console_routes
-from ghostchimera.integrations.remote_control import RemoteControlStore, build_outbound_reply, normalize_remote_payload
+from ghostchimera.integrations.remote_control import (
+    RemoteControlStore,
+    build_outbound_reply,
+    normalize_remote_payload,
+    verify_remote_webhook_signature,
+)
 
 
 class RemoteControlStoreTests(unittest.TestCase):
@@ -126,6 +133,30 @@ class RemoteControlStoreTests(unittest.TestCase):
             self.assertEqual(captured["body"], {"chat_id": "42", "text": "hello"})
             self.assertNotIn("telegram-secret-token", json.dumps(sent))
             self.assertEqual(sent["transport"]["provider_token"], "[redacted]")
+
+    def test_webhook_signature_verification_requires_matching_channel_secret(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-remote-signature-") as tmp:
+            store = RemoteControlStore(tmp)
+            body = b'{"peer_id":"admin","text":"/status"}'
+
+            unsigned = verify_remote_webhook_signature(store, "webhook", {}, body)
+            self.assertTrue(unsigned["ok"])
+            self.assertEqual(unsigned["signature_status"], "not_configured")
+
+            store.configure_channel("webhook", {"signing_secret": "local-signing-secret"})
+            unsigned_after_config = verify_remote_webhook_signature(store, "webhook", {}, body)
+            digest = hmac.new(b"local-signing-secret", body, hashlib.sha256).hexdigest()
+            valid = verify_remote_webhook_signature(store, "webhook", {"x-ghost-signature": f"sha256={digest}"}, body)
+            invalid = verify_remote_webhook_signature(store, "webhook", {"x-ghost-signature": "sha256=bad"}, body)
+
+            self.assertFalse(unsigned_after_config["ok"])
+            self.assertEqual(unsigned_after_config["error"], "Missing webhook signature.")
+            self.assertTrue(valid["ok"])
+            self.assertEqual(valid["signature_status"], "verified")
+            self.assertFalse(invalid["ok"])
+            self.assertEqual(invalid["error"], "Webhook signature mismatch.")
+            self.assertNotIn("local-signing-secret", json.dumps(valid))
+            self.assertNotIn("local-signing-secret", json.dumps(invalid))
 
     def test_unknown_sender_gets_pairing_challenge_and_no_command_execution(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghost-remote-") as tmp:
@@ -355,6 +386,52 @@ class RemoteControlConsoleRouteTests(unittest.TestCase):
             self.assertEqual(blocked["reply_preview"]["channel"], "telegram")
             self.assertEqual(blocked["reply_preview"]["body"]["chat_id"], "123")
             self.assertEqual(calls, [])
+
+    def test_console_provider_webhook_rejects_unsigned_payload_when_signing_secret_exists(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-remote-webhook-signature-") as tmp:
+            server = GatewayServer()
+            register_console_routes(server, state_dir=tmp)
+            config_route = server.routes.find("POST", "/api/console/remote/channels/telegram")
+            route = server.routes.find("POST", "/api/console/remote/webhook/telegram")
+            self.assertIsNotNone(config_route)
+            self.assertIsNotNone(route)
+
+            config_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/remote/channels/telegram",
+                    "headers": {},
+                    "body": json.dumps({"signing_secret": "telegram-signing-secret"}),
+                    "query": {},
+                }
+            )
+            body = json.dumps({"message": {"chat": {"id": 123}, "text": "/status"}})
+            unsigned = route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/remote/webhook/telegram",
+                    "headers": {},
+                    "body": body,
+                    "query": {},
+                }
+            )
+            digest = hmac.new(b"telegram-signing-secret", body.encode("utf-8"), hashlib.sha256).hexdigest()
+            signed = route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/remote/webhook/telegram",
+                    "headers": {"x-ghost-signature": f"sha256={digest}"},
+                    "body": body,
+                    "query": {},
+                }
+            )
+
+            self.assertFalse(unsigned["ok"])
+            self.assertEqual(unsigned["error"], "Missing webhook signature.")
+            self.assertTrue(signed["pairing_required"])
+            self.assertEqual(signed["signature_status"], "verified")
+            self.assertNotIn("telegram-signing-secret", json.dumps(unsigned))
+            self.assertNotIn("telegram-signing-secret", json.dumps(signed))
 
     def test_cli_remote_simulate_uses_local_state(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghost-remote-cli-") as tmp:

@@ -31,7 +31,7 @@ from ..chimera_pilot.pr_review import run_pr_review
 from ..cognition_layer.trust import GhostBelief, guard_belief, summarize_operational_trace
 from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 from ..config import GhostChimeraConfig
-from ..integrations.remote_control import RemoteControlStore, normalize_remote_payload
+from ..integrations.remote_control import RemoteControlStore, normalize_remote_payload, verify_remote_webhook_signature
 from ..memory_layer.store import MemoryStore
 from ..model_layer.auth_profiles import AuthProfile
 from ..model_layer.local_model_inventory import discover_local_model_inventory, resolve_model_source
@@ -2202,6 +2202,15 @@ def register_console_routes(
 
     def remote_provider_webhook(ctx: dict[str, Any]) -> dict[str, Any]:
         channel = _suffix(ctx, "/api/console/remote/webhook/")
+        raw_body = str(ctx.get("body") or "")
+        signature = verify_remote_webhook_signature(remote_store, channel, dict(ctx.get("headers") or {}), raw_body)
+        if not signature.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "remote_provider_webhook_rejected",
+                {"channel": channel, "signature_status": signature.get("signature_status", ""), "ok": False},
+            )
+            return signature
         body = _json_body(ctx)
         try:
             inbound = normalize_remote_payload(channel, body)
@@ -2217,6 +2226,7 @@ def register_console_routes(
             paths_provider=lambda: {"ok": True, "active_path": _operator_summary_payload().get("active_path", {})},
             jobs_provider=lambda: {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()},
         )
+        payload["signature_status"] = signature.get("signature_status", "")
         payload["normalized"] = inbound.to_dict()
         record_timeline_event(
             console_state_dir,

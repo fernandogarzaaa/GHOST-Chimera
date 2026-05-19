@@ -37,6 +37,7 @@ Remote control is built around pairing, explicit policy, and auditability:
    - Save the channel.
    - Ghost only reports `configured`, `secret_fields_configured`, and `send_enabled`; raw values are never returned.
    - Outbound sending remains disabled until **Enable outbound sending for this channel** is checked.
+   - If a `signing_secret` is configured, provider webhook endpoints require a matching HMAC SHA-256 signature in `X-Ghost-Signature`, `X-Hub-Signature-256`, or `X-Signature`.
 
 ## CLI Flow
 
@@ -70,6 +71,8 @@ POST /api/console/remote/webhook/webhook
 ```
 
 Those endpoints normalize each provider payload into the same paired command path used by the dashboard simulation. A Telegram `message.text`, Discord `content`, Slack `event.text`, WhatsApp Cloud API text message, Signal envelope message, or generic `{ "peer_id": "...", "text": "/status" }` body all become a `RemoteInboundMessage`.
+
+Webhook signatures are optional until a channel has a saved signing secret. After that, the provider endpoint fails closed unless the raw request body matches `sha256=<hmac>` using the stored secret. The local **Simulate Inbound Message** dashboard action is intentionally unsigned so operators can test pairing and command flow without provider setup.
 
 Every inbound response also includes a `reply_preview` object. This is a provider-shaped outbound payload preview, not a network send. It includes the method, endpoint hint, body, and whether auth is required. Raw provider tokens are never returned.
 
@@ -106,6 +109,7 @@ Provider credentials are stored separately in `remote_control_secrets.json`. The
 - Status responses show only configured field names, never token values.
 - Enabling outbound sending requires stored credentials and a separate channel-level toggle.
 - **Send Test Reply** performs an actual outbound POST only when the channel is configured and `send_enabled` is true. Provider failures are returned as redacted status/error data.
+- Provider webhook signatures are enforced only when a signing secret is stored for that channel. This keeps the default local flow low-friction while letting production adapters fail closed.
 
 Direct execution has two gates:
 
