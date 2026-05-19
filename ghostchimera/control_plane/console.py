@@ -18,22 +18,28 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from ..capability_pack import call_capability_tool, list_capability_tools
 from ..chimera_pilot import ChimeraPilotKernel
 from ..chimera_pilot.autonomy import get_autonomy_profile, list_autonomy_profiles
 from ..chimera_pilot.autonomy_jobs import JOB_SPECS
 from ..chimera_pilot.autonomy_queue import AutonomyJobQueue
 from ..chimera_pilot.capability_intelligence import inspect_capabilities
+from ..chimera_pilot.context_compressor import compress_text_query_aware
 from ..chimera_pilot.desktop_policy import DESTRUCTIVE_DESKTOP_CONFIRMATION_TOKEN
 from ..chimera_pilot.gateway_server import GatewayServer, HttpResponse
 from ..chimera_pilot.pr_review import run_pr_review
+from ..cognition_layer.trust import GhostBelief, guard_belief, summarize_operational_trace
 from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 from ..config import GhostChimeraConfig
+from ..integrations.remote_control import RemoteControlStore, normalize_remote_payload, verify_remote_webhook_signature
 from ..memory_layer.store import MemoryStore
 from ..model_layer.auth_profiles import AuthProfile
+from ..model_layer.local_model_inventory import discover_local_model_inventory, resolve_model_source
 from ..model_layer.minimind_lifecycle import MiniMindLifecycle
 from ..model_layer.minimind_personal_agent import MiniMindPersonalAgent
 from ..model_layer.model_discovery import get_model_discovery, refresh_model_discovery, select_discovered_model
 from ..model_layer.providers import get_provider
+from ..sandbox.journey import run_sandbox_journey
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
 from .config import CONFIG_FILE, config_to_env_vars, get_autonomy_config, get_default_config, load_config, save_config
@@ -139,6 +145,31 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "name": "competitive capability smoke",
         "command": "ghostchimera capabilities --format json",
         "purpose": "Verifies the competitive capability matrix is reachable from the CLI.",
+    },
+    {
+        "name": "native capability pack smoke",
+        "command": "ghostchimera capability-pack list",
+        "purpose": "Verifies built-in Chimera capability tools are reachable without external MCP servers.",
+    },
+    {
+        "name": "local model inventory smoke",
+        "command": "ghostchimera local-model inventory",
+        "purpose": "Verifies local model inventory remains preview-only and self-contained.",
+    },
+    {
+        "name": "cognition guard smoke",
+        "command": "ghostchimera cognition guard --confidence 0.9 --variance 0.01",
+        "purpose": "Verifies the confidence and variance guard CLI surface.",
+    },
+    {
+        "name": "sandbox journey smoke",
+        "command": "ghostchimera sandbox journey",
+        "purpose": "Verifies the operator sandbox journey report is reachable.",
+    },
+    {
+        "name": "remote control smoke",
+        "command": "ghostchimera remote status",
+        "purpose": "Verifies Ghost-native mobile/messaging remote control is reachable without external gateways.",
     },
     {
         "name": "GitHub connection smoke",
@@ -336,6 +367,7 @@ def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str,
         "modules": [
             {"id": "path", "label": "Ghost Paths", "tab": "path", "enabled": True},
             {"id": "github", "label": "GitHub", "tab": "github", "enabled": True},
+            {"id": "remote", "label": "Remote Control", "tab": "remote", "enabled": True},
             {"id": "operator", "label": "Operator Home", "tab": "operator", "enabled": True},
             {"id": "thinking", "label": "Thinking", "tab": "thinking", "enabled": True},
             {"id": "evolution", "label": "Self-Evolution", "tab": "evolution", "enabled": True},
@@ -579,6 +611,7 @@ def register_console_routes(
     queue = autonomy_queue or AutonomyJobQueue(state_dir=state_dir or server.config.state_dir)
     workspace_store = operator_workspace or OperatorWorkspaceStore(state_dir=state_dir or server.config.state_dir)
     console_state_dir = Path(state_dir or server.config.state_dir)
+    remote_store = RemoteControlStore(console_state_dir)
     path_config_file = Path(config_path).expanduser() if config_path else None
     console_config_file = _config_file_for_console(config_path)
     scheduler = cron_scheduler
@@ -1946,6 +1979,16 @@ def register_console_routes(
             candidates=candidates,
             latency=latency_payload,
         )
+        remote_payload = remote_store.status()
+        if isinstance(summary.get("cards"), list):
+            summary["cards"].append(
+                {
+                    "id": "remote",
+                    "label": "Remote Control",
+                    "status": "paired" if remote_payload.get("counts", {}).get("paired_peers") else "setup",
+                    "action": "remote",
+                }
+            )
         summary.update(
             {
                 "active_path": active_path,
@@ -1958,6 +2001,10 @@ def register_console_routes(
                     "candidates": candidates,
                     "advisory_only": True,
                     "automatic_promotion_enabled": False,
+                },
+                "remote": {
+                    "counts": remote_payload.get("counts", {}),
+                    "policy": remote_payload.get("policy", {}),
                 },
             }
         )
@@ -2008,6 +2055,206 @@ def register_console_routes(
             return {"ok": False, "error": "Unsupported setup step.", "allowed_steps": sorted(allowed)}
         record_timeline_event(console_state_dir, "setup_step_completed", {"step": step})
         return {"ok": True, "step": step, "summary": _operator_summary_payload()}
+
+    def remote_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        return remote_store.status()
+
+    def remote_policy(ctx: dict[str, Any]) -> dict[str, Any]:
+        try:
+            payload = remote_store.update_policy(_json_body(ctx))
+        except (TypeError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        record_timeline_event(
+            console_state_dir,
+            "remote_policy_updated",
+            {"direct_execution_enabled": payload.get("policy", {}).get("direct_execution_enabled")},
+        )
+        return payload
+
+    def remote_pairing_create(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        try:
+            payload = remote_store.create_pairing(
+                channel=str(body.get("channel") or "webhook"),
+                peer_id=str(body.get("peer_id") or ""),
+                display_name=str(body.get("display_name") or ""),
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        record_timeline_event(
+            console_state_dir,
+            "remote_pairing_created",
+            {
+                "channel": payload.get("pairing", {}).get("channel"),
+                "peer_id": payload.get("pairing", {}).get("peer_id"),
+            },
+        )
+        return payload
+
+    def remote_pairing_approve(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        payload = remote_store.approve_pairing(
+            pairing_id=str(body.get("pairing_id") or ""),
+            channel=str(body.get("channel") or ""),
+            peer_id=str(body.get("peer_id") or ""),
+            code=str(body.get("code") or ""),
+        )
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "remote_peer_paired",
+                {
+                    "channel": payload.get("peer", {}).get("channel"),
+                    "peer_id": payload.get("peer", {}).get("peer_id"),
+                },
+            )
+        return payload
+
+    def remote_peer_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/remote/peers/")
+        parts = [part for part in suffix.split("/") if part]
+        if len(parts) != 2 or parts[1] not in {"direct", "revoke"}:
+            return {"ok": False, "error": "Expected /api/console/remote/peers/{id}/direct or /revoke"}
+        body = _json_body(ctx)
+        if parts[1] == "direct":
+            payload = remote_store.set_peer_direct_execution(parts[0], _as_bool(body.get("allow"), default=False))
+        else:
+            payload = remote_store.revoke_peer(parts[0])
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "remote_peer_updated",
+                {"peer_id": parts[0], "action": parts[1], "allow": body.get("allow")},
+            )
+        return payload
+
+    def remote_channel_config(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/remote/channels/")
+        channel = suffix.split("/", 1)[0].strip().lower()
+        if not channel:
+            return {"ok": False, "error": "Remote channel is required."}
+        try:
+            payload = remote_store.configure_channel(channel, _json_body(ctx))
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "remote_channel_configured",
+                {
+                    "channel": channel,
+                    "configured": payload.get("channel", {}).get("configured"),
+                    "send_enabled": payload.get("channel", {}).get("send_enabled"),
+                },
+            )
+        return payload
+
+    def remote_send_test(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        channel = str(body.get("channel") or "").strip().lower()
+        reply_target = str(body.get("reply_target") or body.get("peer_id") or "").strip()
+        text = str(body.get("text") or "Ghost Chimera remote test reply.").strip()
+        if not channel or not reply_target:
+            return {"ok": False, "error": "channel and reply_target are required."}
+        payload = remote_store.send_reply(channel=channel, reply_target=reply_target, text=text)
+        record_timeline_event(
+            console_state_dir,
+            "remote_test_reply_sent",
+            {"channel": channel, "reply_target": reply_target, "ok": bool(payload.get("ok"))},
+        )
+        return payload
+
+    def remote_inbound(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+
+        def paths_provider() -> dict[str, Any]:
+            from ..personalization.path_state import get_active_ghost_path
+            from ..personalization.role_profiles import list_role_profiles
+
+            return {
+                "ok": True,
+                "active_path": get_active_ghost_path(config_path=path_config_file),
+                "profiles": [profile.to_dict() for profile in list_role_profiles()],
+            }
+
+        payload = remote_store.handle_inbound(
+            channel=str(body.get("channel") or "webhook"),
+            peer_id=str(body.get("peer_id") or ""),
+            display_name=str(body.get("display_name") or ""),
+            text=str(body.get("text") or ""),
+            objective_runner=objective_runner,
+            status_provider=_operator_summary_payload,
+            paths_provider=paths_provider,
+            jobs_provider=lambda: {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()},
+        )
+        record_timeline_event(
+            console_state_dir,
+            "remote_command_received",
+            {
+                "channel": body.get("channel") or "webhook",
+                "peer_id": body.get("peer_id") or "",
+                "command": payload.get("command", ""),
+                "mode": payload.get("mode", ""),
+                "ok": bool(payload.get("ok")),
+            },
+        )
+        return payload
+
+    def remote_provider_webhook(ctx: dict[str, Any]) -> dict[str, Any]:
+        channel = _suffix(ctx, "/api/console/remote/webhook/")
+        raw_body = str(ctx.get("body") or "")
+        signature = verify_remote_webhook_signature(remote_store, channel, dict(ctx.get("headers") or {}), raw_body)
+        if not signature.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "remote_provider_webhook_rejected",
+                {"channel": channel, "signature_status": signature.get("signature_status", ""), "ok": False},
+            )
+            return signature
+        body = _json_body(ctx)
+        try:
+            inbound = normalize_remote_payload(channel, body)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        payload = remote_store.handle_inbound(
+            channel=inbound.channel,
+            peer_id=inbound.peer_id,
+            display_name=inbound.display_name,
+            text=inbound.text,
+            objective_runner=objective_runner,
+            status_provider=_operator_summary_payload,
+            paths_provider=lambda: {"ok": True, "active_path": _operator_summary_payload().get("active_path", {})},
+            jobs_provider=lambda: {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()},
+        )
+        payload["signature_status"] = signature.get("signature_status", "")
+        payload["normalized"] = inbound.to_dict()
+        record_timeline_event(
+            console_state_dir,
+            "remote_provider_webhook_received",
+            {
+                "channel": inbound.channel,
+                "peer_id": inbound.peer_id,
+                "shape": inbound.raw_shape,
+                "command": payload.get("command", ""),
+                "mode": payload.get("mode", ""),
+                "ok": bool(payload.get("ok")),
+            },
+        )
+        return payload
+
+    def remote_approval_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/remote/approvals/")
+        parts = [part for part in suffix.split("/") if part]
+        if len(parts) != 2 or parts[1] not in {"approve", "deny"}:
+            return {"ok": False, "error": "Expected /api/console/remote/approvals/{id}/approve or /deny"}
+        payload = remote_store.resolve_approval(parts[0], approved=parts[1] == "approve", objective_runner=objective_runner)
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "remote_approval_resolved",
+                {"approval_id": parts[0], "action": parts[1], "ok": bool(payload.get("ok"))},
+            )
+        return payload
 
     def evolution_sources_route(ctx: dict[str, Any]) -> dict[str, Any]:
         if ctx.get("method") == "GET":
@@ -2080,6 +2327,101 @@ def register_console_routes(
             {"candidate_id": candidate["id"], "candidate_type": candidate.get("candidate_type")},
         )
         return {"ok": True, "candidate": candidate, "candidates": list_candidates(console_state_dir)}
+
+    def capability_pack_list(ctx: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "policy": {
+                "external_mcp_required": False,
+                "preview_first": True,
+                "secrets_are_write_only": True,
+            },
+            "tools": [tool.to_dict() for tool in list_capability_tools()],
+        }
+
+    def capability_pack_run(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        tool_id = str(body.get("tool_id") or "").strip()
+        arguments = body.get("arguments") if isinstance(body.get("arguments"), dict) else {}
+        payload = call_capability_tool(tool_id, arguments)
+        record_timeline_event(
+            console_state_dir,
+            "capability_pack_tool_run",
+            {"tool_id": tool_id, "ok": bool(payload.get("ok"))},
+        )
+        return payload
+
+    def local_models_inventory(ctx: dict[str, Any]) -> dict[str, Any]:
+        query = ctx.get("query") or {}
+        roots_raw = query.get("root") or []
+        roots = roots_raw if isinstance(roots_raw, list) else ([roots_raw] if roots_raw else None)
+        payload = discover_local_model_inventory(roots)
+        record_timeline_event(
+            console_state_dir,
+            "local_model_inventory_previewed",
+            {"count": payload.get("count", 0), "preview_only": True},
+        )
+        return payload
+
+    def local_models_resolve(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        source = str(body.get("source") or "").strip()
+        if not source:
+            return {"ok": False, "error": "source is required"}
+        candidate = resolve_model_source(source, license_id=str(body.get("license_id") or ""))
+        record_timeline_event(
+            console_state_dir,
+            "local_model_source_resolved",
+            {"source_type": candidate.source_type, "status": candidate.compatibility_status},
+        )
+        return {
+            "ok": True,
+            "model": candidate.to_dict(),
+            "policy": {"activation": "preview_only", "requires_user_approval": True},
+        }
+
+    def cognition_trace(ctx: dict[str, Any]) -> dict[str, Any]:
+        query = ctx.get("query") or {}
+        goal = str(query.get("goal") or "operator request")
+        return summarize_operational_trace(
+            goal=goal,
+            sources=["config", "memory", "model catalog"],
+            policy_decision="approval_required",
+            tool_candidates=["capability_pack", "mcp", "local_model"],
+        )
+
+    def cognition_guard(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        belief = GhostBelief.from_confidence(
+            str(body.get("value") or "candidate"),
+            float(body.get("confidence") or 0.0),
+            variance=float(body.get("variance") or 0.0),
+            source=str(body.get("source") or "console"),
+        )
+        result = guard_belief(
+            belief,
+            max_risk=float(body.get("max_risk") or 0.2),
+            max_variance=float(body.get("max_variance") or 0.05),
+        )
+        return {"ok": True, "belief": belief.to_dict(), "guard": result.to_dict()}
+
+    def context_efficiency(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx) if ctx.get("method") == "POST" else {}
+        result = compress_text_query_aware(
+            str(body.get("text") or ""),
+            focus=str(body.get("focus") or ""),
+            budget_tokens=int(body.get("budget_tokens") or 800),
+        )
+        return result.to_dict()
+
+    def sandbox_journey(ctx: dict[str, Any]) -> dict[str, Any]:
+        report = run_sandbox_journey(state_dir=console_state_dir)
+        record_timeline_event(
+            console_state_dir,
+            "sandbox_journey_run",
+            {"steps": len(report.steps), "findings": len(report.findings)},
+        )
+        return report.to_dict()
 
     def jobs_list(ctx: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()}
@@ -2225,6 +2567,60 @@ def register_console_routes(
     _api_register("/api/console/operator/latency", operator_latency, method="GET", description="Operator latency telemetry")
     _api_register("/api/console/operator/readiness", operator_readiness, method="POST", description="Run operator readiness check")
     _api_register("/api/console/operator/setup-step", operator_setup_step, method="POST", description="Record guided setup step")
+    _api_register("/api/console/remote/status", remote_status, method="GET", description="Inspect remote control status")
+    _api_register("/api/console/remote/policy", remote_policy, method="POST", description="Update remote control policy")
+    _api_register(
+        "/api/console/remote/pairing/create",
+        remote_pairing_create,
+        method="POST",
+        description="Create a remote sender pairing code",
+    )
+    _api_register(
+        "/api/console/remote/pairing/approve",
+        remote_pairing_approve,
+        method="POST",
+        description="Approve a pending remote sender pairing",
+    )
+    _api_register(
+        "/api/console/remote/peers/",
+        remote_peer_action,
+        method="POST",
+        prefix=True,
+        description="Update or revoke a paired remote sender",
+    )
+    _api_register(
+        "/api/console/remote/channels/",
+        remote_channel_config,
+        method="POST",
+        prefix=True,
+        description="Configure write-only remote adapter credentials and send policy",
+    )
+    _api_register(
+        "/api/console/remote/send-test",
+        remote_send_test,
+        method="POST",
+        description="Send a gated test reply through a configured remote channel",
+    )
+    _api_register(
+        "/api/console/remote/inbound",
+        remote_inbound,
+        method="POST",
+        description="Process a paired mobile or messaging command",
+    )
+    _api_register(
+        "/api/console/remote/webhook/",
+        remote_provider_webhook,
+        method="POST",
+        prefix=True,
+        description="Normalize provider-shaped webhook payloads into remote commands",
+    )
+    _api_register(
+        "/api/console/remote/approvals/",
+        remote_approval_action,
+        method="POST",
+        prefix=True,
+        description="Approve or deny a pending remote command",
+    )
     _api_register(
         "/api/console/evolution/sources",
         evolution_sources_route,
@@ -2262,6 +2658,54 @@ def register_console_routes(
         method="POST",
         prefix=True,
         description="Review, promote, or reject Self-Evolution candidate",
+    )
+    _api_register(
+        "/api/console/capability-pack",
+        capability_pack_list,
+        method="GET",
+        description="List built-in Ghost-native Chimera capability tools",
+    )
+    _api_register(
+        "/api/console/capability-pack/run",
+        capability_pack_run,
+        method="POST",
+        description="Run a built-in Ghost-native capability tool",
+    )
+    _api_register(
+        "/api/console/local-models/inventory",
+        local_models_inventory,
+        method="GET",
+        description="Preview local model inventory without activation",
+    )
+    _api_register(
+        "/api/console/local-models/resolve",
+        local_models_resolve,
+        method="POST",
+        description="Resolve a HF or local model source without downloading",
+    )
+    _api_register(
+        "/api/console/cognition/trace",
+        cognition_trace,
+        method="GET",
+        description="Show safe Ghost operational trace stages",
+    )
+    _api_register(
+        "/api/console/cognition/guard",
+        cognition_guard,
+        method="POST",
+        description="Run confidence and variance guard preview",
+    )
+    _api_register(
+        "/api/console/context/compress",
+        context_efficiency,
+        method="POST",
+        description="Preview query-aware deterministic compression",
+    )
+    _api_register(
+        "/api/console/sandbox/journey",
+        sandbox_journey,
+        method="GET",
+        description="Run local operator sandbox journey",
     )
     _api_register("/api/console/config", dashboard_config, method="GET", description="Inspect dashboard configuration")
     _api_register("/api/console/config", dashboard_config, method="POST", description="Update dashboard configuration")

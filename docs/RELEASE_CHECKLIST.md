@@ -20,6 +20,13 @@ python -m ghostchimera.evals run --suite path-synthesis
 python scripts/smoke_installed_wheel.py
 python scripts/smoke_installed_wheel.py --extras gateway
 ghostchimera capabilities --format json
+ghostchimera local-model inventory
+ghostchimera local-model resolve --source Qwen/Qwen2.5-7B-Instruct
+ghostchimera cognition guard --confidence 0.9 --variance 0.01
+ghostchimera context compress --text "latency latency matters" --focus latency
+ghostchimera capability-pack list
+ghostchimera sandbox journey
+ghostchimera remote status
 ghostchimera github status
 ghostchimera path list
 ghostchimera path set --profile ai-engineer-proxy --training-mode rag-first --approval-level supervised
@@ -80,6 +87,13 @@ environment.
 - [ ] `docs/COMPETITIVE_CAPABILITY_MATRIX.md` is current for Codex, Claude Code, LangGraph, CrewAI, Hermes-style, and OpenClaw-style benchmarks.
 - [ ] `ghostchimera local-model check` reports system readiness and llama-cpp install state.
 - [ ] `ghostchimera local-model profiles` lists tiny, balanced, and stronger profiles.
+- [ ] `ghostchimera local-model inventory` scans only local model roots and remains preview-only.
+- [ ] `ghostchimera local-model resolve --source Qwen/Qwen2.5-7B-Instruct` classifies model sources without downloading anything.
+- [ ] `ghostchimera cognition guard --confidence 0.9 --variance 0.01` reports a passing confidence/variance guard.
+- [ ] `ghostchimera context compress --text "latency latency matters" --focus latency` returns deterministic compressed text.
+- [ ] `ghostchimera capability-pack list` reports built-in tools without requiring an external MCP server.
+- [ ] `ghostchimera sandbox journey` emits a local operator journey report and preserves findings.
+- [ ] `ghostchimera remote status` reports disabled-by-default remote control state, no paired peers unless intentionally configured, and no raw channel secrets.
 - [ ] `ghostchimera local-model guide --profile balanced` prints install steps.
 - [ ] Optional hackathon/developer tooling, including IBM Bob files, remains outside the `ghostchimera/` runtime package and is documented in `docs/BOB_OPTIONAL_TOOLING.md`.
 - [ ] README quickstart works from a clean virtual environment.

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
+from collections import Counter
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..logging_config import get_logger
@@ -44,6 +46,37 @@ _COMPRESSION_THRESHOLD = 0.75  # 75% of model context length
 # Minimum protected messages at head/tail
 _PROTECT_FIRST_N = 3
 _PROTECT_LAST_N = 6
+_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "but",
+    "by",
+    "for",
+    "from",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "with",
+    "you",
+    "your",
+}
+_FILLER_RE = re.compile(
+    r"\b(?:please note that|it is worth noting that|in order to|basically|actually|very|just|simply|clearly)\b",
+    flags=re.IGNORECASE,
+)
+_CODE_BLOCK_RE = re.compile(r"```[\s\S]*?```")
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +132,139 @@ def _append_text(content: Any, text: str, *, prepend: bool = False) -> Any:
         text_block = {"type": "text", "text": text}
         return [text_block, *content] if prepend else [*content, text_block]
     return text + str(content) if prepend else str(content) + text
+
+
+def _normalize_whitespace(text: str) -> str:
+    text = re.sub(r"[ \t]+", " ", str(text or ""))
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+@dataclass(frozen=True)
+class QueryAwareCompressionResult:
+    """Result for deterministic query-aware text compression."""
+
+    ok: bool
+    text: str
+    original_tokens: int
+    compressed_tokens: int
+    original_chars: int
+    compressed_chars: int
+    focus_terms: list[str] = field(default_factory=list)
+    code_blocks_preserved: int = 0
+    passes_applied: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "text": self.text,
+            "original_tokens": self.original_tokens,
+            "compressed_tokens": self.compressed_tokens,
+            "original_chars": self.original_chars,
+            "compressed_chars": self.compressed_chars,
+            "focus_terms": self.focus_terms,
+            "code_blocks_preserved": self.code_blocks_preserved,
+            "passes_applied": self.passes_applied,
+        }
+
+
+def compress_text_query_aware(text: str, *, budget_tokens: int = 800, focus: str = "") -> QueryAwareCompressionResult:
+    """Compress text deterministically while preserving code and focus terms."""
+
+    raw = str(text or "")
+    original_tokens = _estimate_tokens(raw)
+    if not raw.strip():
+        return QueryAwareCompressionResult(True, "", 0, 0, 0, 0)
+
+    stashed, blocks = _stash_code_blocks(raw)
+    focus_terms = _extract_focus_terms(focus or raw)
+    passes = ["code_block_stash"] if blocks else []
+    normalized = _normalize_whitespace(_FILLER_RE.sub("", stashed))
+    passes.append("filler_strip")
+    units = _rank_compression_units(normalized, focus_terms)
+    budget = max(8, int(budget_tokens))
+    kept: list[str] = []
+    used = 0
+    for unit in units:
+        cost = _estimate_tokens(unit["text"])
+        if used + cost > budget and kept:
+            continue
+        kept.append(unit["text"])
+        used += cost
+        if used >= budget:
+            break
+    compressed = "\n".join(dict.fromkeys(kept)) if kept else normalized[: budget * _CHARS_PER_TOKEN]
+    compressed = _restore_code_blocks(compressed, blocks)
+    compressed = _normalize_whitespace(compressed)
+    if _estimate_tokens(compressed) >= original_tokens and original_tokens > budget:
+        compressed = compressed[: max(1, budget * _CHARS_PER_TOKEN)]
+        compressed = _normalize_whitespace(compressed)
+    passes.extend(["focus_rank", "dedupe"])
+    return QueryAwareCompressionResult(
+        ok=True,
+        text=compressed,
+        original_tokens=original_tokens,
+        compressed_tokens=_estimate_tokens(compressed),
+        original_chars=len(raw),
+        compressed_chars=len(compressed),
+        focus_terms=focus_terms,
+        code_blocks_preserved=len(blocks),
+        passes_applied=passes,
+    )
+
+
+def _estimate_tokens(text: str) -> int:
+    return max(1, len(str(text or "")) // _CHARS_PER_TOKEN)
+
+
+def _stash_code_blocks(text: str) -> tuple[str, list[str]]:
+    blocks: list[str] = []
+
+    def stash(match: re.Match[str]) -> str:
+        blocks.append(match.group(0))
+        return f"__GHOST_CODE_BLOCK_{len(blocks) - 1}__"
+
+    return _CODE_BLOCK_RE.sub(stash, text), blocks
+
+
+def _restore_code_blocks(text: str, blocks: list[str]) -> str:
+    for index, block in enumerate(blocks):
+        text = text.replace(f"__GHOST_CODE_BLOCK_{index}__", block)
+    return text
+
+
+def _token_terms(text: str) -> list[str]:
+    terms: list[str] = []
+    for token in re.findall(r"[A-Za-z0-9_./:-]+", text.lower()):
+        if len(token) < 3 or token in _STOPWORDS:
+            continue
+        terms.append(token[:80])
+    return terms
+
+
+def _extract_focus_terms(text: str, limit: int = 12) -> list[str]:
+    counts = Counter(_token_terms(text))
+    return [term for term, _count in counts.most_common(limit)]
+
+
+def _rank_compression_units(text: str, focus_terms: list[str]) -> list[dict[str, Any]]:
+    chunks = [chunk.strip() for chunk in re.split(r"(?:\n\s*\n|(?<=[.!?])\s+)", text) if chunk.strip()]
+    if not chunks:
+        chunks = [text]
+    focus = set(focus_terms)
+    seen: set[str] = set()
+    ranked: list[dict[str, Any]] = []
+    for index, chunk in enumerate(chunks):
+        key = re.sub(r"\s+", " ", chunk.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        terms = set(_token_terms(chunk))
+        score = len(terms & focus) * 4 + min(len(terms), 20) / 20
+        if "__GHOST_CODE_BLOCK_" in chunk:
+            score += 100
+        ranked.append({"index": index, "text": chunk, "score": score})
+    return sorted(ranked, key=lambda item: (-item["score"], item["index"]))
 
 
 # ---------------------------------------------------------------------------
