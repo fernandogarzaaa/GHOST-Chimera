@@ -592,6 +592,84 @@ class TrustRuntimeStore:
             previous_hash = recorded_hash
         return {"ok": True, "verified": True, "run_id": run_id, "step_count": len(steps), "latest_hash": previous_hash}
 
+    def simulate_replay(
+        self,
+        run_id: str,
+        *,
+        mode: str = "same_policy",
+        model_provider: str = "",
+        disabled_tools: list[str] | None = None,
+        stricter_policy: bool = False,
+    ) -> dict[str, Any]:
+        """Preview replay impact without executing tools or model calls."""
+
+        payload = self.get_run(run_id)
+        if not payload.get("ok"):
+            return payload
+        mode = str(mode or "same_policy").strip().lower()
+        if mode not in {"same_policy", "stricter_policy", "try_model", "disable_tools"}:
+            return {"ok": False, "error": "Unsupported replay simulation mode."}
+        disabled = {str(tool).strip().lower() for tool in (disabled_tools or []) if str(tool).strip()}
+        run = payload.get("run") if isinstance(payload.get("run"), dict) else {}
+        steps = payload.get("steps") if isinstance(payload.get("steps"), list) else []
+        tool_calls = payload.get("tool_calls") if isinstance(payload.get("tool_calls"), list) else []
+        approvals = payload.get("approvals") if isinstance(payload.get("approvals"), list) else []
+        blocked_steps = [step for step in steps if str(step.get("status") or "") in {"blocked", "denied", "error"}]
+        pending_approvals = [item for item in approvals if str(item.get("status") or "") == "pending"]
+        high_risk_tools = [
+            call
+            for call in tool_calls
+            if str(((call.get("envelope") or {}) if isinstance(call, dict) else {}).get("risk_level") or "") in {"high", "critical"}
+        ]
+        disabled_hits = [call for call in tool_calls if str(call.get("tool_name") or "").strip().lower() in disabled]
+        replay_steps: list[dict[str, Any]] = []
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            strict = bool(stricter_policy or mode == "stricter_policy")
+            replay_steps.append(
+                {
+                    "step_id": step.get("step_id"),
+                    "step_type": step.get("step_type"),
+                    "original_status": step.get("status"),
+                    "replay_status": "needs_approval"
+                    if strict and str(step.get("step_type") or "") in {"tool_call", "execution_result"}
+                    else step.get("status"),
+                    "policy_preview": "stricter approval boundary" if strict else "unchanged",
+                }
+            )
+        warnings: list[str] = []
+        if pending_approvals:
+            warnings.append("Replay starts behind unresolved approval checkpoints.")
+        if blocked_steps:
+            warnings.append("Original run contains blocked, denied, or error steps.")
+        if high_risk_tools and (mode == "stricter_policy" or stricter_policy):
+            warnings.append("Stricter policy would require approval before high-risk tool execution.")
+        if disabled_hits:
+            warnings.append("Simulation disables tools used by the original run.")
+        if mode == "try_model" and model_provider and model_provider != run.get("model_provider"):
+            warnings.append("Model change may alter cost, latency, and output quality.")
+        projected_status = "blocked_preview" if pending_approvals or disabled_hits else "replayable_preview"
+        return {
+            "ok": True,
+            "simulation": {
+                "run_id": run_id,
+                "mode": mode,
+                "projected_status": projected_status,
+                "execution_performed": False,
+                "mutation_performed": False,
+                "model_provider": model_provider or run.get("model_provider", ""),
+                "disabled_tools": sorted(disabled),
+                "stricter_policy": bool(stricter_policy or mode == "stricter_policy"),
+                "step_count": len(steps),
+                "tool_call_count": len(tool_calls),
+                "approval_count": len(approvals),
+                "blocked_step_count": len(blocked_steps),
+                "warnings": warnings,
+                "steps": replay_steps[:100],
+            },
+        }
+
     def export_trace(self, run_id: str) -> dict[str, Any]:
         if run_id == "latest":
             runs = self.list_runs(limit=1)["runs"]

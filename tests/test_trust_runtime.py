@@ -173,6 +173,40 @@ class TrustRuntimeStoreTests(unittest.TestCase):
             self.assertFalse(verified["ok"])
             self.assertFalse(verified["verified"])
 
+    def test_replay_simulation_is_preview_only_and_flags_disabled_tools(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-trust-replay-") as tmp:
+            store = TrustRuntimeStore(tmp)
+            run = store.create_run(
+                agent_name="ghost",
+                objective="replay me",
+                source="console",
+                model_provider="openrouter",
+                model_name="demo",
+            )
+            store.record_tool_call(
+                run["run_id"],
+                tool_name="delete_file",
+                arguments={"path": "tmp.txt"},
+                result={"ok": False, "error": "blocked"},
+                source="mcp:external",
+            )
+
+            simulated = store.simulate_replay(
+                run["run_id"],
+                mode="disable_tools",
+                disabled_tools=["delete_file"],
+                model_provider="vultr",
+            )
+            invalid = store.simulate_replay(run["run_id"], mode="execute_for_real")
+
+            self.assertTrue(simulated["ok"])
+            self.assertFalse(simulated["simulation"]["execution_performed"])
+            self.assertFalse(simulated["simulation"]["mutation_performed"])
+            self.assertEqual(simulated["simulation"]["projected_status"], "blocked_preview")
+            self.assertIn("delete_file", simulated["simulation"]["disabled_tools"])
+            self.assertTrue(simulated["simulation"]["warnings"])
+            self.assertFalse(invalid["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

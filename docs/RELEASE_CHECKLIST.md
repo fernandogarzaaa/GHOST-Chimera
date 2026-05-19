@@ -105,6 +105,7 @@ environment.
 - [ ] `ghostchimera trust eval baseline` creates a fresh local trust baseline before production deployment.
 - [ ] `ghostchimera trust eval-cases list` lists promoted regression cases or returns an empty local-first case list without failing.
 - [ ] `ghostchimera trust trace export latest` exports redacted local JSON when a run exists, or fails closed when no runs exist.
+- [ ] Console Trust Runtime tab can preview a replay simulation from a durable run without executing tools, calling models, or mutating state.
 - [ ] `ghostchimera mcp trust list` shows approved/revoked/reviewed MCP servers and no unreviewed high-risk server is enabled for production.
 - [ ] `ghostchimera capability-admission list` reports reviewed capability records and does not expose raw secrets.
 - [ ] Console Trust Runtime tab can add a capability record, approve it, activate it, revoke it, and quarantine it through `/api/console/capability-admission`.

@@ -34,6 +34,7 @@ class TrustConsoleRouteTests(unittest.TestCase):
                 ("GET", "/api/console/mcp/trust"),
                 ("POST", "/api/console/trust/evals/baseline"),
                 ("POST", "/api/console/trust/eval-cases/promote"),
+                ("POST", "/api/console/trust/replay/example-run"),
                 ("POST", "/api/console/capability-admission"),
             ]:
                 self.assertIsNotNone(server.routes.find(method, path), f"{method} {path}")
@@ -186,6 +187,24 @@ class TrustConsoleRouteTests(unittest.TestCase):
             self.assertTrue(promoted["ok"])
             self.assertEqual(cases["count"], 1)
             self.assertEqual(cases["cases"][0]["label"], "console eval")
+
+    def test_trust_replay_route_is_preview_only(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-console-replay-") as tmp:
+            server = GatewayServer()
+            register_console_routes(server, state_dir=tmp, run_objective=lambda objective: {"ok": True})
+            run_route = server.routes.find("POST", "/api/console/run")
+            run_route.handler(_ctx("POST", "/api/console/run", {"objective": "preview replay"}))
+            runs = server.routes.find("GET", "/api/console/trust/runs").handler(_ctx("GET", "/api/console/trust/runs"))
+            run_id = runs["runs"][0]["run_id"]
+
+            replay = server.routes.find("POST", f"/api/console/trust/replay/{run_id}").handler(
+                _ctx("POST", f"/api/console/trust/replay/{run_id}", {"mode": "stricter_policy", "stricter_policy": True})
+            )
+
+            self.assertTrue(replay["ok"])
+            self.assertFalse(replay["simulation"]["execution_performed"])
+            self.assertFalse(replay["simulation"]["mutation_performed"])
+            self.assertEqual(replay["simulation"]["mode"], "stricter_policy")
 
     def test_capability_admission_routes(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghost-console-admission-") as tmp:

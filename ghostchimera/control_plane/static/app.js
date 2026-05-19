@@ -1325,8 +1325,11 @@
           resume.addEventListener("click", function() { resumeTrustRun(run.run_id); });
           var trace = el("button", null, "Trace");
           trace.addEventListener("click", function() { exportTrustTrace(run.run_id); });
+          var replay = el("button", null, "Replay");
+          replay.addEventListener("click", function() { previewTrustReplay(run.run_id); });
           actions.appendChild(resume);
           actions.appendChild(trace);
+          actions.appendChild(replay);
           item.appendChild(actions);
           runs.appendChild(item);
         });
@@ -1534,6 +1537,38 @@
     }
   }
 
+  async function previewTrustReplay(runId) {
+    var target = (runId || ($("#trustReplayRunId").value || "").trim());
+    if (!target && state.trust && Array.isArray(state.trust.runs) && state.trust.runs.length) {
+      target = state.trust.runs[0].run_id;
+    }
+    if (!target) {
+      toast("Run id is required before replay simulation.", "warn");
+      return;
+    }
+    var disabled = ($("#trustReplayDisabledTools").value || "")
+      .split(",")
+      .map(function(item) { return item.trim(); })
+      .filter(Boolean);
+    try {
+      var data = await api("/api/console/trust/replay/" + encodeURIComponent(target), {
+        method: "POST",
+        body: {
+          mode: $("#trustReplayMode").value || "same_policy",
+          model_provider: ($("#trustReplayModel").value || "").trim(),
+          disabled_tools: disabled,
+          stricter_policy: !!$("#trustReplayStrict").checked,
+        },
+      });
+      $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshTimeline();
+      toast(data.ok ? "Replay simulation generated." : (data.error || "Replay simulation failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#trustOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
   async function registerCapabilityAdmission() {
     var name = ($("#admissionName").value || "").trim();
     if (!name) {
@@ -1598,6 +1633,7 @@
   $("#trustBaseline").addEventListener("click", createTrustBaseline);
   $("#trustTraceExport").addEventListener("click", function() { exportTrustTrace("latest"); });
   $("#trustPromoteEvalCase").addEventListener("click", promoteTrustEvalCase);
+  $("#trustReplayPreview").addEventListener("click", function() { previewTrustReplay(""); });
   $("#admissionInspect").addEventListener("click", registerCapabilityAdmission);
 
   // ── Status ───────────────────────────────────────────────────────────────

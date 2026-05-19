@@ -56,6 +56,7 @@ Ghost Console exposes a **Trust Runtime** tab and API routes:
 - `POST /api/console/trust/approvals/{id}/approve`
 - `POST /api/console/trust/approvals/{id}/deny`
 - `GET /api/console/trust/traces/{id}/export`
+- `POST /api/console/trust/replay/{id}`
 - `GET /api/console/trust/evals`
 - `POST /api/console/trust/evals/baseline`
 - `GET /api/console/trust/eval-cases`
@@ -71,6 +72,20 @@ Ghost Console exposes a **Trust Runtime** tab and API routes:
 - `POST /api/console/mcp/trust/{server_id}/revoke`
 
 Console runs and paired remote `/run` commands create durable journal records. Remote `/run` requests also create a Trust Runtime approval checkpoint unless direct execution is explicitly enabled for a paired admin.
+
+## Replay Simulation
+
+Replay simulation previews an existing durable run without executing tools,
+calling models, mutating files, or resolving approvals:
+
+```bash
+POST /api/console/trust/replay/{run_id}
+```
+
+Supported modes are `same_policy`, `stricter_policy`, `try_model`, and
+`disable_tools`. The response shows projected status, warnings, disabled tool
+impact, and step-level replay status. This is a Replay Studio foundation, not a
+real re-execution engine.
 
 ## MCP Zero Trust
 

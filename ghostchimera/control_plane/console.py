@@ -2361,6 +2361,32 @@ def register_console_routes(
             return {"ok": False, "error": "Run id is required."}
         return trust_store.export_trace(run_id)
 
+    def trust_run_replay(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/trust/replay/")
+        run_id = suffix.strip("/")
+        if not run_id:
+            return {"ok": False, "error": "Run id is required."}
+        body = _json_body(ctx)
+        disabled_tools = [str(item) for item in (body.get("disabled_tools") or []) if str(item).strip()]
+        payload = trust_store.simulate_replay(
+            run_id,
+            mode=str(body.get("mode") or "same_policy"),
+            model_provider=str(body.get("model_provider") or ""),
+            disabled_tools=disabled_tools,
+            stricter_policy=_as_bool(body.get("stricter_policy"), default=False),
+        )
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "trust_run_replay_previewed",
+                {
+                    "run_id": run_id,
+                    "mode": payload.get("simulation", {}).get("mode"),
+                    "projected_status": payload.get("simulation", {}).get("projected_status"),
+                },
+            )
+        return payload
+
     def trust_evals(ctx: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "baseline": trust_store.trust_status().get("eval_baseline", {}), "comparison": trust_store.eval_compare()}
 
@@ -3146,6 +3172,13 @@ def register_console_routes(
         method="GET",
         prefix=True,
         description="Export a redacted OTel-compatible local trace bundle",
+    )
+    _api_register(
+        "/api/console/trust/replay/",
+        trust_run_replay,
+        method="POST",
+        prefix=True,
+        description="Preview a durable run replay without executing tools or model calls",
     )
     _api_register("/api/console/trust/evals", trust_evals, method="GET", description="Inspect Trust Runtime eval status")
     _api_register(

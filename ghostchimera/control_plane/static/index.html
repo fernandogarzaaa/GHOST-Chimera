@@ -320,6 +320,20 @@
       <button id="trustPromoteEvalCase" class="primary">Promote Run</button>
     </div>
     <div id="trustEvalCases" class="list"></div>
+    <div class="section-hdr">Replay Simulation</div>
+    <div class="row" style="margin-bottom:12px;">
+      <input id="trustReplayRunId" placeholder="run id to replay (blank uses latest)" style="flex:2;min-width:220px;">
+      <select id="trustReplayMode" style="flex:1;min-width:150px;">
+        <option value="same_policy">Same Policy</option>
+        <option value="stricter_policy">Stricter Policy</option>
+        <option value="try_model">Try Model</option>
+        <option value="disable_tools">Disable Tools</option>
+      </select>
+      <input id="trustReplayModel" placeholder="optional model/provider" style="flex:2;min-width:180px;">
+      <input id="trustReplayDisabledTools" placeholder="disabled tools, comma-separated" style="flex:2;min-width:220px;">
+      <label class="inline-check"><input id="trustReplayStrict" type="checkbox"> stricter</label>
+      <button id="trustReplayPreview" class="primary">Preview Replay</button>
+    </div>
     <div class="section-hdr">Capability Admission</div>
     <div class="row" style="margin-bottom:12px;">
       <select id="admissionKind" style="flex:1;min-width:140px;">
