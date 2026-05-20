@@ -133,6 +133,32 @@ class TrustRuntimeStoreTests(unittest.TestCase):
             self.assertTrue(compare["ok"])
             self.assertGreaterEqual(compare["p0_failures"], 1)
 
+    def test_trust_status_requires_fresh_passing_baseline(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-trust-status-") as tmp:
+            store = TrustRuntimeStore(tmp)
+
+            missing = store.trust_status()
+            self.assertFalse(missing["ready"])
+            self.assertEqual(missing["eval_baseline_status"]["status"], "missing")
+
+            baseline = store.eval_baseline()
+            self.assertEqual(store.trust_status()["eval_baseline_status"]["status"], "fresh")
+
+            baseline["created_at"] = baseline["created_at"] - (8 * 24 * 60 * 60)
+            store._write_json(store.eval_baseline_path, baseline)
+            stale = store.trust_status()
+            self.assertFalse(stale["ready"])
+            self.assertEqual(stale["eval_baseline_status"]["status"], "stale")
+            self.assertTrue(any("Refresh the trust eval baseline" in item for item in stale["warnings"]))
+
+            baseline["created_at"] = baseline["created_at"] + (8 * 24 * 60 * 60)
+            baseline["p0_failures"] = 1
+            store._write_json(store.eval_baseline_path, baseline)
+            failing = store.trust_status()
+            self.assertFalse(failing["ready"])
+            self.assertEqual(failing["eval_baseline_status"]["status"], "failing")
+            self.assertTrue(any("P0 failures" in item for item in failing["warnings"]))
+
     def test_promote_run_to_eval_case_and_list_cases(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghost-trust-cases-") as tmp:
             store = TrustRuntimeStore(tmp)

@@ -1297,7 +1297,7 @@
         ["Runs", summary.runs ? summary.runs.total : 0],
         ["Approvals", summary.approvals ? summary.approvals.pending : 0],
         ["MCP Trust", summary.mcp_trust ? summary.mcp_trust.status : "review"],
-        ["Eval Baseline", summary.eval_baseline ? summary.eval_baseline.status : "missing"],
+        ["Eval Baseline", summary.eval_baseline_status ? summary.eval_baseline_status.status : "missing"],
         ["Eval Cases", data.eval_cases ? data.eval_cases.length : 0],
         ["Admission", summary.capability_admission && summary.capability_admission.production_ready ? "ready" : "review"],
         ["Trace Export", summary.trace_health ? summary.trace_health.status : "local"],

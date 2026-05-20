@@ -2170,6 +2170,20 @@ def register_console_routes(
         remote_payload = remote_store.status()
         trust_payload = trust_store.trust_status()
         admission_payload = admission_store.summary()
+        combined_warnings = list(summary.get("warnings") or [])
+        combined_warnings.extend(str(item) for item in trust_payload.get("warnings", []) if str(item).strip())
+        combined_warnings.extend(str(item) for item in admission_payload.get("warnings", []) if str(item).strip())
+        summary["warnings"] = list(dict.fromkeys(combined_warnings))
+        production_ready = bool(trust_payload.get("ready")) and bool(admission_payload.get("production_ready"))
+        summary["production_readiness"] = {
+            "ready": production_ready,
+            "status": "ready" if production_ready and not summary["warnings"] else "review",
+            "trust": trust_payload.get("production_readiness", {}),
+            "capability_admission": {
+                "production_ready": admission_payload.get("production_ready", False),
+                "counts": admission_payload.get("counts", {}),
+            },
+        }
         if isinstance(summary.get("cards"), list):
             summary["cards"].append(
                 {
@@ -2428,10 +2442,12 @@ def register_console_routes(
     def capability_admission_route(ctx: dict[str, Any]) -> dict[str, Any]:
         if ctx.get("method") == "GET":
             query = ctx.get("query") or {}
-            return admission_store.list_records(
+            payload = admission_store.list_records(
                 status=str(query.get("status") or ""),
                 capability_kind=str(query.get("kind") or query.get("capability_kind") or ""),
             )
+            payload["summary"] = admission_store.summary()
+            return payload
         body = _json_body(ctx)
         try:
             payload = admission_store.register_or_update(

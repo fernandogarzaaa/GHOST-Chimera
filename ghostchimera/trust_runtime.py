@@ -31,6 +31,7 @@ POISON_PATTERNS = (
 )
 STATUS_RESUMABLE = {"pending_approval", "retryable_failure", "interrupted"}
 RISK_ORDER = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+TRUST_BASELINE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -729,6 +730,18 @@ class TrustRuntimeStore:
         approvals = self.pending_approvals()["approvals"]
         mcp = self.mcp_trust_list()
         latest_baseline = self._load_json(self.eval_baseline_path, {})
+        baseline_created_at = float(latest_baseline.get("created_at") or 0.0) if latest_baseline else 0.0
+        baseline_age_seconds = (_now() - baseline_created_at) if baseline_created_at else None
+        baseline_is_stale = baseline_age_seconds is None or baseline_age_seconds > TRUST_BASELINE_MAX_AGE_SECONDS
+        baseline_p0_failures = int(latest_baseline.get("p0_failures") or 0) if latest_baseline else 0
+        if not latest_baseline:
+            baseline_status = "missing"
+        elif baseline_p0_failures:
+            baseline_status = "failing"
+        elif baseline_is_stale:
+            baseline_status = "stale"
+        else:
+            baseline_status = "fresh"
         high_risk_unreviewed = [
             item for item in mcp.get("servers", []) if item.get("status") not in {"approved", "revoked"} and item.get("risk_ceiling") in {"high", "critical"}
         ]
@@ -736,7 +749,7 @@ class TrustRuntimeStore:
         for run in runs[:50]:
             detail = self.get_run(str(run.get("run_id")))
             blocked_steps += sum(1 for step in detail.get("steps", []) if step.get("status") == "blocked")
-        ready = not approvals and not high_risk_unreviewed and blocked_steps == 0 and bool(latest_baseline)
+        ready = not approvals and not high_risk_unreviewed and blocked_steps == 0 and baseline_status == "fresh"
         return {
             "ok": True,
             "ready": ready,
@@ -750,13 +763,29 @@ class TrustRuntimeStore:
                 "high_risk_unreviewed_mcp": len(high_risk_unreviewed),
                 "blocked_steps_recent": blocked_steps,
                 "has_eval_baseline": bool(latest_baseline),
+                "baseline_p0_failures": baseline_p0_failures,
             },
             "production_readiness": {"status": "ready" if ready else "review"},
             "trace_health": {"status": "local-json", "raw_prompts_exported": False, "secrets_exported": False},
             "latest_runs": runs[:5],
             "mcp_trust": mcp,
             "eval_baseline": _redact_value(latest_baseline),
-            "warnings": self._trust_warnings(approvals, high_risk_unreviewed, blocked_steps, latest_baseline),
+            "eval_baseline_status": {
+                "status": baseline_status,
+                "age_seconds": round(baseline_age_seconds, 3) if baseline_age_seconds is not None else None,
+                "max_age_seconds": TRUST_BASELINE_MAX_AGE_SECONDS,
+                "p0_failures": baseline_p0_failures,
+                "case_count": int(latest_baseline.get("case_count") or 0) if latest_baseline else 0,
+            },
+            "warnings": self._trust_warnings(
+                approvals,
+                high_risk_unreviewed,
+                blocked_steps,
+                latest_baseline,
+                baseline_status=baseline_status,
+                baseline_age_seconds=baseline_age_seconds,
+                baseline_p0_failures=baseline_p0_failures,
+            ),
         }
 
     def mcp_trust_list(self) -> dict[str, Any]:
@@ -881,6 +910,10 @@ class TrustRuntimeStore:
         high_risk_unreviewed: list[dict[str, Any]],
         blocked_steps: int,
         latest_baseline: dict[str, Any],
+        *,
+        baseline_status: str = "",
+        baseline_age_seconds: float | None = None,
+        baseline_p0_failures: int = 0,
     ) -> list[str]:
         warnings: list[str] = []
         if approvals:
@@ -891,6 +924,11 @@ class TrustRuntimeStore:
             warnings.append("Recent runs contain blocked or denied trust steps.")
         if not latest_baseline:
             warnings.append("Create a trust eval baseline before release.")
+        elif baseline_status == "stale":
+            days = round((baseline_age_seconds or 0.0) / 86400, 1)
+            warnings.append(f"Refresh the trust eval baseline; latest baseline is {days} days old.")
+        elif baseline_status == "failing" or baseline_p0_failures:
+            warnings.append("Resolve trust eval P0 failures before production operation.")
         return warnings
 
     def _load_index(self) -> dict[str, Any]:

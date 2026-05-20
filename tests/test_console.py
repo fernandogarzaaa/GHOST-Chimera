@@ -589,6 +589,9 @@ class ConsoleRouteTests(unittest.TestCase):
             self.assertTrue(summary["ok"])
             self.assertIn("cards", summary)
             self.assertIn("evolution", summary)
+            self.assertIn("production_readiness", summary)
+            self.assertEqual(summary["production_readiness"]["status"], "review")
+            self.assertTrue(any("trust eval baseline" in warning for warning in summary["warnings"]))
             self.assertTrue(summary["secret_policy"]["secrets_are_write_only"])
 
             readiness = readiness_route.handler(

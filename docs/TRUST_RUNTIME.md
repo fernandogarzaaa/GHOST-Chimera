@@ -111,6 +111,10 @@ without silently training or changing runtime behavior.
 
 Production readiness should require a fresh trust baseline, no unresolved approvals, no unreviewed high-risk MCP servers, and zero P0 trust failures.
 
+The baseline freshness window is seven days. Trust Runtime reports baseline
+state as `missing`, `stale`, `failing`, or `fresh`; production readiness stays
+in review unless the latest baseline is fresh and has zero P0 failures.
+
 ## Capability Admission
 
 Capability Admission is the review gate for new capability sources. It is

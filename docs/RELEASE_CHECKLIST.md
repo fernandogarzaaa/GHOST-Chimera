@@ -102,7 +102,7 @@ environment.
 - [ ] `ghostchimera sandbox journey` emits a local operator journey report and preserves findings.
 - [ ] `ghostchimera remote status` reports disabled-by-default remote control state, no paired peers unless intentionally configured, and no raw channel secrets.
 - [ ] `ghostchimera trust status` reports durable journal readiness, pending approvals, MCP trust posture, trace health, and eval baseline status without raw secrets.
-- [ ] `ghostchimera trust eval baseline` creates a fresh local trust baseline before production deployment.
+- [ ] `ghostchimera trust eval baseline` creates a fresh local trust baseline before production deployment, and `ghostchimera trust status` reports the latest baseline as `fresh` with zero P0 failures.
 - [ ] `ghostchimera trust eval-cases list` lists promoted regression cases or returns an empty local-first case list without failing.
 - [ ] `ghostchimera trust trace export latest` exports redacted local JSON when a run exists, or fails closed when no runs exist.
 - [ ] Console Trust Runtime tab can preview a replay simulation from a durable run without executing tools, calling models, or mutating state.

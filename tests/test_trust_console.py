@@ -44,6 +44,7 @@ class TrustConsoleRouteTests(unittest.TestCase):
             )
             self.assertTrue(summary["ok"])
             self.assertIn("journal", summary)
+            self.assertEqual(summary["eval_baseline_status"]["status"], "missing")
             self.assertNotIn("sk-test-secret", json.dumps(summary).lower())
 
     def test_console_run_creates_durable_journal_and_trace_export(self) -> None:
@@ -240,6 +241,8 @@ class TrustConsoleRouteTests(unittest.TestCase):
             self.assertEqual(inspected["record"]["status"], "inspected")
             self.assertEqual(approved["record"]["status"], "approved")
             self.assertEqual(records["count"], 1)
+            self.assertIn("summary", records)
+            self.assertTrue(records["summary"]["production_ready"])
             self.assertNotIn("sk-testsecret123456", json.dumps(records))
 
 
