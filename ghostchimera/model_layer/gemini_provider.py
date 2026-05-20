@@ -76,7 +76,7 @@ class GeminiProvider:
 
     def __init__(self, profile: AuthProfile | None = None) -> None:
         if profile is not None:
-            self.api_key = profile.api_key or os.environ.get("GOOGLE_API_KEY", "")
+            self.api_key = profile.api_key or profile.oauth_token or os.environ.get("GOOGLE_API_KEY", "")
             self.model = profile.model or os.environ.get("GEMINI_MODEL", self._DEFAULT_MODEL)
         else:
             self.api_key = os.environ.get("GOOGLE_API_KEY", "")

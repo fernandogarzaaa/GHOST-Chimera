@@ -470,7 +470,7 @@
     [
       ["Provider", provider || "not set"],
       ["Model", (data.model && data.model.model) || "not set"],
-      ["API Key", data.model && data.model.api_key_configured ? "configured" : "not set"],
+      ["Credential", data.model && (data.model.api_key_configured || data.model.oauth_token_configured) ? "configured" : "not set"],
       ["Config File", data.config_path || "local state"],
     ].forEach(function(m) {
       var card = el("div", { class: "card" });
@@ -510,6 +510,7 @@
       env_preview: data.env_preview || {},
       security: data.security || {},
     }, null, 2);
+    renderProviderAuth(data.provider_auth || {});
   }
 
   function renderConfigModelOptions() {
@@ -526,6 +527,61 @@
     $("#configKeyHint").textContent = option && option.requires_api_key
       ? (option.api_key_label + " is write-only; leave blank to keep the saved key.")
       : "This provider does not require a hosted API key.";
+    renderProviderAuthMethodOptions(option);
+  }
+
+  function renderProviderAuthMethodOptions(option) {
+    var select = $("#providerAuthMethod");
+    var hint = $("#providerAuthHint");
+    if (!select) return;
+    var previous = select.value;
+    select.innerHTML = "";
+    ((option && option.auth_methods) || [{ method: "api_key", label: "API key", status: "ready" }]).forEach(function(method) {
+      var label = method.label || method.method;
+      if (method.status && method.status !== "ready") label += " (" + method.status + ")";
+      select.appendChild(el("option", { value: method.method }, label));
+    });
+    if (Array.from(select.options).some(function(opt) { return opt.value === previous; })) {
+      select.value = previous;
+    }
+    var current = ((option && option.auth_methods) || []).find(function(item) { return item.method === select.value; });
+    if (hint) {
+      hint.textContent = current
+        ? ((current.setup_hint || current.description || "") + " Raw secrets stay write-only.")
+        : "Secrets are write-only. Local providers do not need hosted credentials.";
+    }
+  }
+
+  function renderProviderAuth(auth) {
+    var grid = $("#providerAuthGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+    var providers = (auth && auth.providers) || [];
+    providers.slice(0, 36).forEach(function(provider) {
+      var card = el("div", { class: "model-card " + (provider.active ? "ready" : "candidate") });
+      card.appendChild(el("div", { class: "model-title" }, provider.name || provider.id));
+      card.appendChild(el("div", { class: "model-id" }, provider.id + (provider.active ? " / active" : "")));
+      var badges = el("div", { class: "model-badges" });
+      badges.appendChild(el("span", { class: "badge " + (provider.api_key_configured || provider.oauth_configured || !provider.requires_api_key ? "ok" : "warn") }, provider.requires_api_key ? (provider.api_key_configured || provider.oauth_configured ? "connected" : "needs secret") : "no key"));
+      if (provider.oauth_supported) badges.appendChild(el("span", { class: "badge warn" }, "OAuth-capable"));
+      (provider.capability_badges || []).slice(0, 4).forEach(function(badge) {
+        badges.appendChild(el("span", { class: "badge" }, badge));
+      });
+      card.appendChild(badges);
+      card.appendChild(el("div", { class: "model-desc" }, provider.description || "Provider auth option."));
+      var actions = el("div", { class: "model-actions" });
+      var choose = el("button", { type: "button" }, "Configure");
+      choose.addEventListener("click", function() {
+        $("#configProvider").value = provider.id;
+        if (provider.selected_model) $("#configModel").value = provider.selected_model;
+        if (provider.selected_base_url) $("#configBaseUrl").value = provider.selected_base_url;
+        renderConfigModelOptions();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+      actions.appendChild(choose);
+      card.appendChild(actions);
+      grid.appendChild(card);
+    });
   }
 
   function selectedModelDiscoverySources() {
@@ -712,10 +768,50 @@
       toast(e.message, "error");
     }
   }
+  async function saveProviderAuth() {
+    try {
+      var data = await api("/api/console/provider-auth", {
+        method: "POST",
+        body: {
+          provider: $("#configProvider").value,
+          method: $("#providerAuthMethod").value,
+          model: $("#configModel").value,
+          base_url: $("#configBaseUrl").value,
+          api_key: $("#configApiKey").value,
+          make_active: $("#providerAuthActive").checked,
+        },
+      });
+      renderConfig(data);
+      toast(data.ok ? "Provider auth saved." : (data.error || "Provider auth save failed."), data.ok ? "ok" : "error");
+      await refreshStatus();
+    } catch (e) {
+      $("#configOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function connectProviderAuth() {
+    try {
+      var data = await api("/api/console/provider-auth/connect", {
+        method: "POST",
+        body: {
+          provider: $("#configProvider").value,
+          method: $("#providerAuthMethod").value,
+        },
+      });
+      $("#configOutput").textContent = JSON.stringify(data, null, 2);
+      toast(data.ok ? (data.status || "Auth flow prepared.") : (data.error || "Auth flow unavailable."), data.ok ? "warn" : "error");
+    } catch (e) {
+      $("#configOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
   $("#configProvider").addEventListener("change", renderConfigModelOptions);
   $("#configSave").addEventListener("click", function() { saveConfig(false); });
   $("#configClearKey").addEventListener("click", function() { saveConfig(true); });
   $("#configRefresh").addEventListener("click", refreshConfig);
+  $("#providerAuthSave").addEventListener("click", saveProviderAuth);
+  $("#providerAuthConnect").addEventListener("click", connectProviderAuth);
   $("#modelDiscoveryRefresh").addEventListener("click", function() { refreshModelDiscovery(true); });
   $("#modelDiscoveryQuery").addEventListener("input", function() { refreshModelDiscovery(false); });
   $("#modelCapabilityFilter").addEventListener("change", function() { refreshModelDiscovery(false); });

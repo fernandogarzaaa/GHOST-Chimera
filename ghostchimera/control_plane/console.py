@@ -39,6 +39,12 @@ from ..model_layer.local_model_inventory import discover_local_model_inventory, 
 from ..model_layer.minimind_lifecycle import MiniMindLifecycle
 from ..model_layer.minimind_personal_agent import MiniMindPersonalAgent
 from ..model_layer.model_discovery import get_model_discovery, refresh_model_discovery, select_discovered_model
+from ..model_layer.provider_auth import (
+    get_provider_auth_spec,
+    list_provider_options,
+    provider_auth_summary,
+    provider_env_keys,
+)
 from ..model_layer.providers import get_provider
 from ..sandbox.journey import run_sandbox_journey
 from ..tool_layer.browser import http_get
@@ -208,107 +214,9 @@ RELEASE_CHECKS: list[dict[str, str]] = [
 
 CONSOLE_HTML = "<!-- Ghost Console -- served by static/index.html -->"
 
-PROVIDER_OPTIONS: list[dict[str, Any]] = [
-    {
-        "id": "openai",
-        "name": "OpenAI",
-        "description": "Hosted OpenAI models.",
-        "models": ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"],
-        "requires_api_key": True,
-        "base_url_required": False,
-        "api_key_label": "OpenAI API key",
-    },
-    {
-        "id": "anthropic",
-        "name": "Anthropic",
-        "description": "Claude models through Anthropic.",
-        "models": ["claude-3-5-haiku-20241022", "claude-sonnet-4-6", "claude-opus-4-6"],
-        "requires_api_key": True,
-        "base_url_required": False,
-        "api_key_label": "Anthropic API key",
-    },
-    {
-        "id": "openrouter",
-        "name": "OpenRouter",
-        "description": "Many hosted models behind one OpenRouter API key.",
-        "models": ["openai/gpt-4o-mini", "anthropic/claude-3-5-haiku", "google/gemini-flash-1.5"],
-        "requires_api_key": True,
-        "base_url_required": False,
-        "api_key_label": "OpenRouter API key",
-    },
-    {
-        "id": "vultr",
-        "name": "Vultr Serverless Inference",
-        "description": "OpenAI-compatible Vultr serverless inference.",
-        "models": ["", "llama-3.1-70b", "mixtral-8x7b"],
-        "requires_api_key": True,
-        "base_url_required": True,
-        "api_key_label": "Vultr inference API key",
-        "default_base_url": "https://api.vultrinference.com/v1/chat/completions",
-    },
-    {
-        "id": "huggingface",
-        "name": "Hugging Face",
-        "description": "Hugging Face Inference API for compatible hosted open models.",
-        "models": ["meta-llama/Llama-3.3-70B-Instruct", "mistralai/Mistral-7B-Instruct-v0.3"],
-        "requires_api_key": True,
-        "base_url_required": False,
-        "api_key_label": "Hugging Face token",
-        "default_base_url": "https://api-inference.huggingface.co/v1/chat/completions",
-    },
-    {
-        "id": "ollama",
-        "name": "Ollama",
-        "description": "Local Ollama models running on this machine.",
-        "models": ["llama3.2", "mistral", "qwen2.5:7b"],
-        "requires_api_key": False,
-        "base_url_required": False,
-        "api_key_label": "",
-        "default_base_url": "http://localhost:11434",
-    },
-    {
-        "id": "lmstudio",
-        "name": "LM Studio",
-        "description": "Local LM Studio OpenAI-compatible server.",
-        "models": ["lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF", "any"],
-        "requires_api_key": False,
-        "base_url_required": False,
-        "api_key_label": "",
-        "default_base_url": "http://localhost:1234",
-    },
-    {
-        "id": "minimind",
-        "name": "Local MiniMind",
-        "description": "Local-first profile without a hosted API key.",
-        "models": ["tiny", "balanced", "stronger"],
-        "requires_api_key": False,
-        "base_url_required": False,
-        "api_key_label": "",
-    },
-]
+PROVIDER_OPTIONS: list[dict[str, Any]] = list_provider_options()
 
-_MODEL_ENV_KEYS = {
-    "GHOSTCHIMERA_MODEL_PROVIDER",
-    "OPENAI_API_KEY",
-    "OPENAI_MODEL",
-    "OPENAI_BASE_URL",
-    "OPENROUTER_API_KEY",
-    "OPENROUTER_MODEL",
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_MODEL",
-    "VULTR_INFERENCE_API_KEY",
-    "VULTR_INFERENCE_MODEL",
-    "VULTR_INFERENCE_BASE_URL",
-    "HF_TOKEN",
-    "HUGGINGFACE_MODEL",
-    "HUGGINGFACE_BASE_URL",
-    "OLLAMA_MODEL",
-    "OLLAMA_BASE_URL",
-    "LMSTUDIO_MODEL",
-    "LMSTUDIO_BASE_URL",
-    "MINIMIND_MODEL_PROFILE",
-    "CUSTOM_MODEL",
-}
+_MODEL_ENV_KEYS = provider_env_keys()
 
 
 def _redact_secret(value: str) -> str:
@@ -317,6 +225,11 @@ def _redact_secret(value: str) -> str:
     if len(value) <= 6:
         return "[configured]"
     return f"{value[:2]}...{value[-2:]}"
+
+
+def _is_secret_env_key(key: str) -> bool:
+    marker = key.upper()
+    return any(part in marker for part in ("API_KEY", "TOKEN", "SECRET", "PASSWORD"))
 
 
 def _option_ids() -> set[str]:
@@ -378,13 +291,15 @@ def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str,
             "model": str(model.get("model") or ""),
             "base_url": str(model.get("base_url") or ""),
             "api_key_configured": bool(model.get("api_key")),
+            "oauth_token_configured": bool(model.get("oauth_token")),
             "api_key_preview": _redact_secret(str(model.get("api_key") or "")),
         },
         "env_preview": {
-            key: (_redact_secret(value) if key.endswith("_API_KEY") else value)
+            key: (_redact_secret(value) if _is_secret_env_key(key) else value)
             for key, value in sorted(env_vars.items())
             if value
         },
+        "provider_auth": provider_auth_summary(config),
         "runtime": runtime,
         "modules": [
             {"id": "path", "label": "Ghost Paths", "tab": "path", "enabled": True},
@@ -914,6 +829,18 @@ def register_console_routes(
             model["api_key"] = api_key
 
         config["model"] = model
+        provider_auth = config.setdefault("provider_auth", {})
+        if isinstance(provider_auth, dict):
+            auth_record = provider_auth.setdefault(provider, {})
+            if isinstance(auth_record, dict):
+                auth_record["provider"] = provider
+                auth_record["method"] = "api_key" if model.get("api_key") else "local"
+                auth_record["model"] = model.get("model", "")
+                auth_record["base_url"] = model.get("base_url", "")
+                if clear_api_key:
+                    auth_record.pop("api_key", None)
+                elif api_key:
+                    auth_record["api_key"] = api_key
         save_config(config, console_config_file)
         env_vars = config_to_env_vars(config)
         env_file = _write_env_file(console_config_file, env_vars)
@@ -926,6 +853,146 @@ def register_console_routes(
         payload = _safe_config_payload(config, console_config_file)
         payload.update({"saved": True, "env_file": str(env_file)})
         return payload
+
+    def provider_auth_vault(ctx: dict[str, Any]) -> dict[str, Any]:
+        config = _load_console_config(console_config_file)
+        if ctx.get("method") == "GET":
+            return provider_auth_summary(config)
+
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "").strip().lower()
+        method = str(body.get("method") or "api_key").strip().lower()
+        make_active = _as_bool(body.get("make_active"), default=False)
+        clear_secret = _as_bool(body.get("clear_secret"), default=False)
+        api_key = str(body.get("api_key") or "").strip()
+        oauth_token = str(body.get("oauth_token") or "").strip()
+        model_name = str(body.get("model") or "").strip()
+        base_url = str(body.get("base_url") or "").strip()
+        if provider not in _option_ids():
+            return {"ok": False, "error": "Choose a supported provider."}
+        spec = get_provider_auth_spec(provider)
+        if not spec:
+            return {"ok": False, "error": "Provider metadata is not available."}
+        allowed_methods = {choice.get("method") for choice in spec.to_console_option().get("auth_methods", [])}
+        if method not in allowed_methods:
+            return {"ok": False, "error": "This auth method is not offered for the selected provider."}
+        selected_choice = next((choice for choice in spec.auth_choices if choice.method == method), None)
+        if make_active and selected_choice and not selected_choice.supports_runtime_activation:
+            return {
+                "ok": False,
+                "error": "This OAuth method needs an ExternalAuthProvider connector before it can run models.",
+            }
+        if len(api_key) > 2000 or len(oauth_token) > 4000:
+            return {"ok": False, "error": "Credential is too long."}
+        if len(model_name) > 300 or len(base_url) > 500:
+            return {"ok": False, "error": "Model or base URL is too long."}
+        if base_url and not (base_url.startswith("http://") or base_url.startswith("https://")):
+            return {"ok": False, "error": "Base URL must start with http:// or https://."}
+
+        provider_auth = config.setdefault("provider_auth", {})
+        if not isinstance(provider_auth, dict):
+            provider_auth = {}
+            config["provider_auth"] = provider_auth
+        record = provider_auth.setdefault(provider, {})
+        if not isinstance(record, dict):
+            record = {}
+            provider_auth[provider] = record
+        record.update(
+            {
+                "provider": provider,
+                "method": method,
+                "model": model_name or record.get("model", ""),
+                "base_url": base_url or record.get("base_url", ""),
+                "updated_at": time.time(),
+            }
+        )
+        if clear_secret:
+            record.pop("api_key", None)
+            record.pop("oauth_token", None)
+        elif method == "api_key" and api_key:
+            record["api_key"] = api_key
+        elif method == "oauth" and oauth_token:
+            record["oauth_token"] = oauth_token
+
+        if make_active:
+            model = config.setdefault("model", {})
+            if not isinstance(model, dict):
+                model = {}
+                config["model"] = model
+            model["provider"] = provider
+            if model_name:
+                model["model"] = model_name
+            elif record.get("model"):
+                model["model"] = record["model"]
+            elif spec.models and spec.models[0]:
+                model["model"] = spec.models[0]
+            if base_url:
+                model["base_url"] = base_url
+            elif record.get("base_url"):
+                model["base_url"] = record["base_url"]
+            elif spec.default_base_url:
+                model["base_url"] = spec.default_base_url
+            if clear_secret:
+                model.pop("api_key", None)
+                model.pop("oauth_token", None)
+            elif method == "api_key" and (api_key or record.get("api_key")):
+                model["api_key"] = api_key or record["api_key"]
+            elif method == "oauth" and (oauth_token or record.get("oauth_token")):
+                model["oauth_token"] = oauth_token or record["oauth_token"]
+
+        save_config(config, console_config_file)
+        env_vars = config_to_env_vars(config)
+        env_file = _write_env_file(console_config_file, env_vars)
+        _apply_model_env(env_vars, overwrite=True)
+        record_timeline_event(
+            console_state_dir,
+            "provider_auth_saved",
+            {
+                "provider": provider,
+                "method": method,
+                "make_active": make_active,
+                "secret_configured": bool(api_key or oauth_token or record.get("api_key") or record.get("oauth_token")),
+            },
+        )
+        payload = _safe_config_payload(config, console_config_file)
+        payload.update({"saved": True, "env_file": str(env_file), "provider_auth": provider_auth_summary(config)})
+        return payload
+
+    def provider_auth_connect(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "").strip().lower()
+        method = str(body.get("method") or "oauth").strip().lower()
+        spec = get_provider_auth_spec(provider)
+        if not spec:
+            return {"ok": False, "error": "Provider metadata is not available."}
+        choice = next((item for item in spec.auth_choices if item.method == method), None)
+        if not choice:
+            return {"ok": False, "error": "This auth method is not offered for the selected provider."}
+        if choice.method != "oauth":
+            return {
+                "ok": True,
+                "provider": provider,
+                "method": method,
+                "status": "manual_secret_entry",
+                "message": "Use the write-only secret field in Config to connect this provider.",
+                "raw_secret_returned": False,
+            }
+        return {
+            "ok": True,
+            "provider": provider,
+            "method": method,
+            "status": choice.status,
+            "runtime_activation_supported": choice.supports_runtime_activation,
+            "message": choice.setup_hint or choice.description,
+            "auth_url": "",
+            "manual_required": True,
+            "raw_secret_returned": False,
+            "policy": {
+                "secrets_are_write_only": True,
+                "oauth_requires_provider_connector": True,
+                "no_browser_cookie_scraping": True,
+            },
+        }
 
     def model_discovery(ctx: dict[str, Any]) -> dict[str, Any]:
         query = ctx.get("query") or {}
@@ -3330,6 +3397,24 @@ def register_console_routes(
     )
     _api_register("/api/console/config", dashboard_config, method="GET", description="Inspect dashboard configuration")
     _api_register("/api/console/config", dashboard_config, method="POST", description="Update dashboard configuration")
+    _api_register(
+        "/api/console/provider-auth",
+        provider_auth_vault,
+        method="GET",
+        description="Inspect provider auth vault status without exposing secrets",
+    )
+    _api_register(
+        "/api/console/provider-auth",
+        provider_auth_vault,
+        method="POST",
+        description="Save write-only provider auth metadata",
+    )
+    _api_register(
+        "/api/console/provider-auth/connect",
+        provider_auth_connect,
+        method="POST",
+        description="Prepare provider-specific auth connection flow",
+    )
     _api_register(
         "/api/console/models/discovery",
         model_discovery,

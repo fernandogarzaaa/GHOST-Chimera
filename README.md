@@ -28,6 +28,7 @@ If you are new to Ghost Chimera, use the tutorial first:
 
 - [User Tutorial](docs/USER_TUTORIAL.md) - first-run walkthrough for Ghost Console, Ghost Paths, MiniMind, and your first objective
 - [Quick Start](docs/quick-start.md) - fastest install and launch path
+- [Provider Auth Vault](docs/PROVIDER_AUTH_VAULT.md) - dashboard-based provider setup, OAuth connector slots, and local Ollama/LM Studio auth posture
 - [Remote Control](docs/REMOTE_CONTROL.md) - paired mobile/messaging commands with dashboard-controlled direct execution
 - [GitHub-Connected Workflow](docs/GITHUB_CONNECTED_AUTONOMOUS_ENGINEER.md) - optional GitHub planning and issue-to-objective flow
 
@@ -375,7 +376,9 @@ store = client.memory    # MemoryStore instance
 
 ## Model Providers
 
-Ghost Chimera supports **27 model providers**. All are optional â€” set the relevant environment variable and select the provider.
+Ghost Chimera supports **27 model providers** plus a custom OpenAI-compatible endpoint. All are optional. Non-technical users can connect providers from the Ghost Console **Config -> Provider Auth Vault** without editing `.env`; developers can still set environment variables directly.
+
+OAuth is modular. The dashboard shows OAuth-capable connector slots when a provider has a plausible OpenClaw-style flow, but Ghost Chimera does not scrape browser sessions or treat ChatGPT subscriptions as OpenAI API keys. See [Provider Auth Vault](docs/PROVIDER_AUTH_VAULT.md).
 
 | Provider | Env var | Default model |
 |---|---|---|

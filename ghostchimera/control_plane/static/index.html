@@ -110,6 +110,18 @@
           <button id="configClearKey" class="danger">Clear Key</button>
           <button id="configRefresh">Refresh</button>
         </div>
+        <div class="section-hdr">Provider Auth Vault</div>
+        <div class="row">
+          <select id="providerAuthMethod">
+            <option value="api_key">API key / token</option>
+            <option value="oauth">OAuth connector</option>
+            <option value="local">Local server</option>
+          </select>
+          <label class="inline-check"><input id="providerAuthActive" type="checkbox" checked> Make active</label>
+          <button id="providerAuthSave">Save Provider Auth</button>
+          <button id="providerAuthConnect">Connect / Sign In</button>
+        </div>
+        <div class="hint" id="providerAuthHint">OAuth is provider-specific. Ghost never scrapes browser cookies and never returns raw tokens.</div>
       </div>
       <div>
         <div class="section-hdr" style="margin-top:0;">Production Posture</div>
@@ -119,6 +131,7 @@
       </div>
     </div>
     <div class="section-hdr">Discover Models</div>
+    <div id="providerAuthGrid" class="model-grid"></div>
     <div class="discovery-toolbar">
       <input id="modelDiscoveryQuery" placeholder="search models">
       <label class="inline-check"><input type="checkbox" class="model-source" value="openrouter" checked> OpenRouter</label>

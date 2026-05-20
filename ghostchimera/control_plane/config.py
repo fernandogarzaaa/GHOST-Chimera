@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..model_layer.provider_auth import config_to_provider_env
+
 DEFAULT_STATE_DIR = Path.home() / ".ghostchimera"
 CONFIG_FILE = DEFAULT_STATE_DIR / "config.json"
 
@@ -81,68 +83,8 @@ def config_to_env_vars(config: dict[str, Any]) -> dict[str, str]:
     """Convert config dict to env var names/values for backwards compatibility."""
     env: dict[str, str] = {}
     model = config.get("model", {})
-    provider = model.get("provider", "")
-
-    if provider == "openai":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "openai"
-        if model.get("api_key"):
-            env["OPENAI_API_KEY"] = model["api_key"]
-        if model.get("model"):
-            env["OPENAI_MODEL"] = model["model"]
-        if model.get("base_url"):
-            env["OPENAI_BASE_URL"] = model["base_url"]
-    elif provider == "openrouter":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "openrouter"
-        env["OPENAI_BASE_URL"] = "https://openrouter.ai/api/v1"
-        if model.get("api_key"):
-            env["OPENROUTER_API_KEY"] = model["api_key"]
-        if model.get("model"):
-            env["OPENROUTER_MODEL"] = model["model"]
-    elif provider == "anthropic":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "anthropic"
-        if model.get("api_key"):
-            env["ANTHROPIC_API_KEY"] = model["api_key"]
-        if model.get("model"):
-            env["ANTHROPIC_MODEL"] = model["model"]
-    elif provider == "vultr":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "vultr"
-        if model.get("api_key"):
-            env["VULTR_INFERENCE_API_KEY"] = model["api_key"]
-        if model.get("model"):
-            env["VULTR_INFERENCE_MODEL"] = model["model"]
-        if model.get("base_url"):
-            env["VULTR_INFERENCE_BASE_URL"] = model["base_url"]
-    elif provider == "huggingface":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "huggingface"
-        if model.get("api_key"):
-            env["HF_TOKEN"] = model["api_key"]
-        if model.get("model"):
-            env["HUGGINGFACE_MODEL"] = model["model"]
-        if model.get("base_url"):
-            env["HUGGINGFACE_BASE_URL"] = model["base_url"]
-    elif provider == "ollama":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "ollama"
-        if model.get("model"):
-            env["OLLAMA_MODEL"] = model["model"]
-        if model.get("base_url"):
-            env["OLLAMA_BASE_URL"] = model["base_url"]
-    elif provider == "lmstudio":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "lmstudio"
-        if model.get("model"):
-            env["LMSTUDIO_MODEL"] = model["model"]
-        if model.get("base_url"):
-            env["LMSTUDIO_BASE_URL"] = model["base_url"]
-    elif provider == "custom":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "custom"
-        if model.get("api_key"):
-            env["OPENAI_API_KEY"] = model["api_key"]
-        if model.get("base_url"):
-            env["OPENAI_BASE_URL"] = model["base_url"]
-        if model.get("model"):
-            env["CUSTOM_MODEL"] = model["model"]
-    elif provider in {"local", "minimind"}:
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "minimind"
-        env["MINIMIND_MODEL_PROFILE"] = model.get("model", "tiny")
+    if isinstance(model, dict):
+        env.update(config_to_provider_env(model))
 
     safety = config.get("safety", {})
     env["GHOSTCHIMERA_ALLOW_SHELL"] = "1" if safety.get("allow_shell") else "0"

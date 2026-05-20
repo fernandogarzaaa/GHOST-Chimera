@@ -81,7 +81,7 @@ class OpenAICompatibleProvider(BaseProvider):
 
     def __init__(self, profile: AuthProfile | None = None) -> None:
         if profile is not None:
-            self.api_key: str = profile.api_key or os.environ.get(self._KEY_ENV_VAR, "")
+            self.api_key: str = profile.api_key or profile.oauth_token or os.environ.get(self._KEY_ENV_VAR, "")
             self.model: str = profile.model or os.environ.get(self._MODEL_ENV_VAR, self._DEFAULT_MODEL)
             self._base_url: str = profile.base_url or self._DEFAULT_BASE_URL
         else:
