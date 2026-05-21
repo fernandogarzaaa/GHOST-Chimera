@@ -26,6 +26,7 @@ from urllib import request as urllib_request
 
 from ..logging_config import get_logger
 from .base_provider import BaseProvider
+from .codex_cli_provider import CodexCliProvider
 from .gemini_provider import GeminiProvider
 from .llamacpp_runtime import LlamaCppRuntime
 from .local_profiles import get_local_model_profile
@@ -73,7 +74,7 @@ class OpenAIProvider(BaseProvider):
 
     def __init__(self, profile: AuthProfile | None = None) -> None:
         if profile is not None:
-            self.api_key = profile.api_key or os.environ.get("OPENAI_API_KEY", "")
+            self.api_key = profile.api_key or profile.oauth_token or os.environ.get("OPENAI_API_KEY", "")
             self.model = profile.model or os.environ.get("OPENAI_MODEL", "gpt-3.5-turbo")
             self._base_url = profile.base_url or "https://api.openai.com/v1/chat/completions"
         else:
@@ -151,7 +152,7 @@ class AnthropicProvider(BaseProvider):
 
     def __init__(self, profile: AuthProfile | None = None) -> None:
         if profile is not None:
-            self.api_key = profile.api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+            self.api_key = profile.api_key or profile.oauth_token or os.environ.get("ANTHROPIC_API_KEY", "")
             self.model = profile.model or os.environ.get("ANTHROPIC_MODEL", self._DEFAULT_MODEL)
             self._base_url = profile.base_url or "https://api.anthropic.com/v1/messages"
         else:
@@ -312,6 +313,7 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
     AI21Provider.name: AI21Provider,
     AnthropicProvider.name: AnthropicProvider,
     CerebrasProvider.name: CerebrasProvider,
+    CodexCliProvider.name: CodexCliProvider,
     CohereProvider.name: CohereProvider,
     DeepInfraProvider.name: DeepInfraProvider,
     DeepSeekProvider.name: DeepSeekProvider,
@@ -344,6 +346,7 @@ TEXT_PROVIDERS: dict[str, type[BaseProvider]] = {
     AI21Provider.name: AI21Provider,
     AnthropicProvider.name: AnthropicProvider,
     CerebrasProvider.name: CerebrasProvider,
+    CodexCliProvider.name: CodexCliProvider,
     CohereProvider.name: CohereProvider,
     DeepInfraProvider.name: DeepInfraProvider,
     DeepSeekProvider.name: DeepSeekProvider,

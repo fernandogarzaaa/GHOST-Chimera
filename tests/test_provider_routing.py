@@ -33,6 +33,7 @@ from ghostchimera.model_layer.providers import (
     TEXT_PROVIDERS,
     AnthropicProvider,
     BaseProvider,
+    CodexCliProvider,
     OpenAIProvider,
     get_provider,
     register_text_provider,
@@ -220,6 +221,7 @@ class PROVIDERSAndTEXT_PROVIDERSTests(unittest.TestCase):
     def test_all_standard_providers_registered(self):
         self.assertIn("openai", PROVIDERS)
         self.assertIn("anthropic", PROVIDERS)
+        self.assertIn("codex_cli", PROVIDERS)
         self.assertIn("llamacpp", PROVIDERS)
         self.assertIn("minimind", PROVIDERS)
 
@@ -229,6 +231,7 @@ class PROVIDERSAndTEXT_PROVIDERSTests(unittest.TestCase):
     def test_new_providers_in_registry(self):
         expected = {
             "groq": GroqProvider,
+            "codex_cli": CodexCliProvider,
             "xai": XAIProvider,
             "mistral": MistralProvider,
             "deepseek": DeepSeekProvider,

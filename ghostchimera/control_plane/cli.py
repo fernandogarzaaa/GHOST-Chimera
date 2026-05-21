@@ -173,7 +173,23 @@ def _main(argv: list[str] | None = None) -> int:
     trust_trace.add_argument("run_id", nargs="?", default="latest", help="Run id or latest.")
     trust_eval = trust_sub.add_parser("eval", help="Create or compare local trust eval baselines")
     trust_eval.add_argument("eval_action", choices=["baseline", "compare"], nargs="?", default="baseline")
+    trust_eval_cases = trust_sub.add_parser("eval-cases", help="List or promote Trust Runtime eval cases")
+    trust_eval_cases.add_argument("eval_cases_action", choices=["list", "promote"], nargs="?", default="list")
+    trust_eval_cases.add_argument("run_id", nargs="?", default="", help="Run id for promote.")
+    trust_eval_cases.add_argument("--label", default="", help="Label for promoted eval case.")
+    trust_eval_cases.add_argument("--severity", choices=["P0", "P1", "P2", "P3"], default="P2")
     trust_parser.add_argument("--state-dir", default="", help="Optional Trust Runtime state directory.")
+    admission_parser = sub.add_parser("capability-admission", help="Inspect and approve capability admission records")
+    admission_parser.add_argument("action", choices=["list", "inspect", "approve", "activate", "revoke", "quarantine"], nargs="?", default="list")
+    admission_parser.add_argument("record_id", nargs="?", default="", help="Admission record id for state changes.")
+    admission_parser.add_argument("--state-dir", default="", help="Optional capability admission state directory.")
+    admission_parser.add_argument("--kind", default="model", help="Capability kind for inspect.")
+    admission_parser.add_argument("--name", default="", help="Capability name for inspect.")
+    admission_parser.add_argument("--source", default="cli", help="Capability source for inspect.")
+    admission_parser.add_argument("--risk", choices=["low", "medium", "high", "critical"], default="medium")
+    admission_parser.add_argument("--risk-ceiling", choices=["low", "medium", "high", "critical"], default="medium")
+    admission_parser.add_argument("--permission", action="append", default=[], help="Requested permission. Repeatable.")
+    admission_parser.add_argument("--reason", default="", help="Review reason for transition.")
     mcp_parser = sub.add_parser("mcp", help="Manage MCP trust registry")
     mcp_parser.add_argument("action", choices=["trust"], nargs="?", default="trust")
     mcp_parser.add_argument("trust_action", choices=["list", "approve", "revoke"], nargs="?", default="list")
@@ -501,6 +517,9 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "trust":
         return _run_trust_cli(args)
+
+    if args.command == "capability-admission":
+        return _run_capability_admission_cli(args)
 
     if args.command == "mcp":
         return _run_mcp_cli(args)
@@ -868,7 +887,50 @@ def _run_trust_cli(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0 if payload.get("ok") else 1
 
+    if command == "eval-cases":
+        action = args.eval_cases_action or "list"
+        if action == "list":
+            payload = store.list_eval_cases()
+        elif not args.run_id:
+            payload = {"ok": False, "error": "run_id is required"}
+        else:
+            payload = store.promote_run_to_eval_case(args.run_id, label=args.label, severity=args.severity)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
     return 2
+
+
+def _run_capability_admission_cli(args: argparse.Namespace) -> int:
+    from ..capability_admission import CapabilityAdmissionStore
+
+    state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
+    store = CapabilityAdmissionStore(state_dir)
+    action = args.action or "list"
+    if action == "list":
+        payload = store.list_records()
+    elif action == "inspect":
+        if not args.name:
+            payload = {"ok": False, "error": "--name is required for inspect"}
+        else:
+            payload = store.register_or_update(
+                capability_kind=args.kind,
+                name=args.name,
+                source=args.source,
+                risk_level=args.risk,
+                risk_ceiling=args.risk_ceiling,
+                requested_permissions=list(args.permission or []),
+                inspection={"inspected_by": "cli"},
+            )
+            if payload.get("ok"):
+                payload = store.transition(payload["record"]["id"], "inspected", reviewer="cli")
+    else:
+        if not args.record_id:
+            payload = {"ok": False, "error": "record_id is required"}
+        else:
+            payload = store.transition(args.record_id, action, reviewer="cli", reason=args.reason)
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if payload.get("ok") else 1
 
 
 def _run_mcp_cli(args: argparse.Namespace) -> int:

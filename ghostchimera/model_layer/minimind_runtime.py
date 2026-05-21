@@ -7,8 +7,10 @@ Transformers/PyTorch code only when a local model path is configured.
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import importlib.util
+import json
 import math
 import os
 import sys
@@ -161,6 +163,7 @@ _PROFILE_ARCHITECTURE = {
 
 _PACKAGE_RUNTIME_FACTORIES = ("load_model", "create_chat_model")
 _MODEL_FILE_SUFFIXES = {".safetensors", ".bin", ".pth", ".gguf"}
+_DATASET_ADAPTER_FILE = "local_adapter.json"
 
 
 @dataclass(frozen=True)
@@ -249,6 +252,35 @@ class MiniMindTransformersRuntime:
         return self.tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
 
+class MiniMindDatasetAdapterRuntime:
+    """Small local inference adapter trained from MiniMind JSONL records.
+
+    This is deliberately dependency-free and does not pretend to fine-tune
+    neural weights. It gives Ghost Chimera a real local MiniMind inference
+    path by retrieving the most relevant trained prompt/response exemplar from
+    an explicit, operator-approved dataset artifact.
+    """
+
+    def __init__(self, adapter_path: str | Path) -> None:
+        self.adapter_path = Path(adapter_path).expanduser()
+        data = json.loads(self.adapter_path.read_text(encoding="utf-8"))
+        records = data.get("records") if isinstance(data, dict) else []
+        self.records = [record for record in records if isinstance(record, dict)]
+        self.metadata = data.get("metadata") if isinstance(data, dict) and isinstance(data.get("metadata"), dict) else {}
+
+    def chat(self, messages: list[dict[str, str]], *, max_context_tokens: int = 8192) -> str:
+        del max_context_tokens
+        query = "\n".join(str(item.get("content") or "") for item in messages if item.get("role") != "system")
+        result = infer_from_dataset_adapter(self.adapter_path, query)
+        answer = str(result.get("answer") or "").strip()
+        confidence = float(result.get("confidence") or 0.0)
+        return (
+            f"{answer}\n\n"
+            f"[MiniMind local dataset adapter: confidence={confidence:.2f}, "
+            f"record_id={result.get('record_id', '')}]"
+        ).strip()
+
+
 def minimind_source_metadata() -> dict[str, str]:
     return {
         "url": MINIMIND_SOURCE_URL,
@@ -278,7 +310,7 @@ def inspect_minimind_runtime(
     root: str | Path | None = None,
     model_path: str | Path | None = None,
 ) -> MiniMindRuntimeInspection:
-    del state_dir
+    state_path = Path(state_dir or os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera")).expanduser()
     architecture = get_minimind_architecture(profile_name or os.environ.get("MINIMIND_ARCHITECTURE", "minimind-3"))
     errors: list[str] = []
     notes: list[str] = []
@@ -321,6 +353,11 @@ def inspect_minimind_runtime(
     if not model_files_found:
         notes.append("No MiniMind model weights were found; set MINIMIND_MODEL_PATH for local inference")
 
+    adapter_path = _dataset_adapter_path(state_path)
+    dataset_adapter_found = adapter_path.exists()
+    if dataset_adapter_found:
+        notes.append("Ghost-native MiniMind dataset adapter is trained and available for local inference")
+
     optional_dependencies = {
         "torch": _module_available("torch"),
         "transformers": _module_available("transformers"),
@@ -331,10 +368,11 @@ def inspect_minimind_runtime(
         notes.append("Missing optional MiniMind inference dependencies: " + ", ".join(missing_runtime_deps))
 
     transformers_ready = model_files_found and all(optional_dependencies.values())
-    inference_available = package_compatible or transformers_ready
+    inference_available = package_compatible or transformers_ready or dataset_adapter_found
     runtime_hint = _runtime_hint(
         package_compatible=package_compatible,
         transformers_ready=transformers_ready,
+        dataset_adapter_found=dataset_adapter_found,
         workspace_compatible=workspace_compatible,
     )
 
@@ -401,6 +439,9 @@ def load_minimind_chat_runtime(
                 notes=inspection.notes,
             )
             return None, failed
+    adapter_path = _dataset_adapter_path(Path(state_dir or os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera")).expanduser())
+    if adapter_path.exists():
+        return MiniMindDatasetAdapterRuntime(adapter_path), inspection
     return None, inspection
 
 
@@ -423,11 +464,19 @@ def _load_package_runtime(
     return None
 
 
-def _runtime_hint(*, package_compatible: bool, transformers_ready: bool, workspace_compatible: bool) -> str:
+def _runtime_hint(
+    *,
+    package_compatible: bool,
+    transformers_ready: bool,
+    dataset_adapter_found: bool,
+    workspace_compatible: bool,
+) -> str:
     if package_compatible:
         return "package"
     if transformers_ready:
         return "transformers"
+    if dataset_adapter_found:
+        return "dataset-adapter"
     if workspace_compatible:
         return "workspace"
     return "embedded-architecture"
@@ -486,16 +535,126 @@ def _has_model_files(path: Path) -> bool:
     return (path / "config.json").exists() or any(child.suffix.lower() in {".pth", ".gguf"} for child in weight_files)
 
 
+def _dataset_adapter_path(state_dir: Path) -> Path:
+    return state_dir / "minimind" / "adapters" / _DATASET_ADAPTER_FILE
+
+
+def _tokenize(text: str) -> set[str]:
+    tokens: set[str] = set()
+    current: list[str] = []
+    for char in text.lower():
+        if char.isalnum():
+            current.append(char)
+        elif current:
+            token = "".join(current)
+            if len(token) > 2:
+                tokens.add(token)
+            current = []
+    if current:
+        token = "".join(current)
+        if len(token) > 2:
+            tokens.add(token)
+    return tokens
+
+
+def _record_id(prompt: str, response: str) -> str:
+    return hashlib.sha1(f"{prompt}\n{response}".encode()).hexdigest()[:16]
+
+
+def train_dataset_adapter(
+    dataset_path: str | Path,
+    *,
+    state_dir: str | Path,
+    profile_name: str,
+) -> dict[str, Any]:
+    dataset = Path(dataset_path).expanduser()
+    if not dataset.exists():
+        return {"ok": False, "error": f"Dataset not found: {dataset}"}
+    records: list[dict[str, Any]] = []
+    for line in dataset.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(raw, dict):
+            continue
+        prompt = str(raw.get("instruction") or raw.get("prompt") or "").strip()
+        response = str(raw.get("output") or raw.get("response") or "").strip()
+        if not prompt and not response:
+            continue
+        records.append(
+            {
+                "id": _record_id(prompt, response),
+                "prompt": prompt,
+                "response": response,
+                "tokens": sorted(_tokenize(f"{prompt} {response}")),
+            }
+        )
+    adapter_path = _dataset_adapter_path(Path(state_dir).expanduser())
+    adapter_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "adapter_version": "1.0",
+        "kind": "dataset-retrieval-adapter",
+        "profile": profile_name,
+        "dataset_path": str(dataset),
+        "record_count": len(records),
+        "metadata": {
+            "created_by": "Ghost Chimera MiniMindLifecycle",
+            "neural_weight_finetune": False,
+            "inference_mode": "local_dataset_retrieval",
+        },
+        "records": records,
+    }
+    adapter_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return {"ok": True, "adapter_path": str(adapter_path), "adapter": {k: v for k, v in payload.items() if k != "records"}}
+
+
+def infer_from_dataset_adapter(adapter_path: str | Path, query: str) -> dict[str, Any]:
+    path = Path(adapter_path).expanduser()
+    if not path.exists():
+        return {"ok": False, "error": f"Adapter not found: {path}", "answer": "", "confidence": 0.0}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    records = data.get("records") if isinstance(data, dict) else []
+    query_tokens = _tokenize(query)
+    best: dict[str, Any] | None = None
+    best_score = -1.0
+    for record in records if isinstance(records, list) else []:
+        if not isinstance(record, dict):
+            continue
+        tokens = set(str(item) for item in (record.get("tokens") or []))
+        overlap = len(query_tokens & tokens)
+        union = max(1, len(query_tokens | tokens))
+        score = overlap / union
+        if score > best_score:
+            best_score = score
+            best = record
+    if not best:
+        return {"ok": False, "answer": "", "confidence": 0.0, "record_id": "", "adapter_path": str(path)}
+    return {
+        "ok": True,
+        "answer": str(best.get("response") or ""),
+        "matched_prompt": str(best.get("prompt") or ""),
+        "confidence": round(max(0.05, min(best_score, 1.0)), 4),
+        "record_id": str(best.get("id") or ""),
+        "adapter_path": str(path),
+    }
+
+
 __all__ = [
     "MINIMIND_LICENSE",
     "MINIMIND_SOURCE_COMMIT",
     "MINIMIND_SOURCE_URL",
     "MiniMindArchitectureSpec",
+    "MiniMindDatasetAdapterRuntime",
     "MiniMindRuntimeInspection",
     "MiniMindTransformersRuntime",
     "get_minimind_architecture",
+    "infer_from_dataset_adapter",
     "inspect_minimind_runtime",
     "list_minimind_architectures",
     "load_minimind_chat_runtime",
     "minimind_source_metadata",
+    "train_dataset_adapter",
 ]

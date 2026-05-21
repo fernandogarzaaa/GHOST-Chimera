@@ -35,6 +35,7 @@ REQUIRED_FILES = [
     "docs/NATIVE_ABSORPTION.md",
     "docs/REMOTE_CONTROL.md",
     "docs/TRUST_RUNTIME.md",
+    "docs/CAPABILITY_ADMISSION.md",
     "docs/RELEASE_CHECKLIST.md",
     "scripts/smoke_installed_wheel.py",
 ]
@@ -131,6 +132,7 @@ def check_imports() -> dict[str, Any]:
         "ghostchimera.cognition_layer.workspace_state",
         "ghostchimera.cognition_layer.trust",
         "ghostchimera.capability_pack",
+        "ghostchimera.capability_admission",
         "ghostchimera.control_plane.cli",
         "ghostchimera.integrations.remote_control",
         "ghostchimera.model_layer.local_model_inventory",
@@ -288,6 +290,8 @@ def check_release_hardening() -> dict[str, Any]:
             "ghostchimera capability-pack list",
             "ghostchimera sandbox journey",
             "ghostchimera remote status",
+            "ghostchimera trust eval-cases list",
+            "ghostchimera capability-admission list",
         )
         if token not in release_checklist
     ]
@@ -311,6 +315,8 @@ def check_release_hardening() -> dict[str, Any]:
         "ghostchimera cognition guard --confidence 0.9 --variance 0.01",
         "ghostchimera sandbox journey",
         "ghostchimera remote status",
+        "ghostchimera trust eval-cases list",
+        "ghostchimera capability-admission list",
     ):
         if command not in commands:
             errors.append(f"console readiness missing {command!r}")

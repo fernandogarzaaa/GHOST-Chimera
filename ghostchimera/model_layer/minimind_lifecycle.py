@@ -13,7 +13,12 @@ from ..memory_layer.store import MemoryStore
 from ..personalization.document_ingester import DocumentIngester
 from ..personalization.email_ingester import EmailIngester
 from .local_profiles import get_local_model_profile, list_local_model_profiles
-from .minimind_runtime import inspect_minimind_runtime, minimind_source_metadata
+from .minimind_runtime import (
+    infer_from_dataset_adapter,
+    inspect_minimind_runtime,
+    minimind_source_metadata,
+    train_dataset_adapter,
+)
 
 
 @dataclass(frozen=True)
@@ -127,6 +132,32 @@ class MiniMindLifecycle:
                     continue
                 handle.write(json.dumps({"instruction": prompt, "input": "", "output": response}) + "\n")
         return destination
+
+    def dataset_path(self) -> Path:
+        return self.state_dir / "minimind" / "datasets" / "dataset.jsonl"
+
+    def adapter_path(self) -> Path:
+        return self.state_dir / "minimind" / "adapters" / "local_adapter.json"
+
+    def train_local_adapter(self, *, dataset_path: str | Path | None = None) -> dict[str, Any]:
+        """Train Ghost's lightweight local MiniMind adapter from JSONL data.
+
+        This creates an on-disk retrieval adapter that can answer from the
+        user's approved MiniMind dataset without external services. It is not
+        neural weight fine-tuning; that remains an optional heavier path when
+        MiniMind weights and training dependencies are installed.
+        """
+
+        return train_dataset_adapter(
+            dataset_path or self.dataset_path(),
+            state_dir=self.state_dir,
+            profile_name=self.profile.name,
+        )
+
+    def infer(self, query: str) -> dict[str, Any]:
+        """Answer a query from the trained local MiniMind adapter."""
+
+        return infer_from_dataset_adapter(self.adapter_path(), query)
 
     def log_low_confidence(
         self,

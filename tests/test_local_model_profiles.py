@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import types
 import unittest
 from importlib.machinery import ModuleSpec
@@ -85,6 +86,7 @@ class LocalModelProfileTests(unittest.TestCase):
         fake_spec = ModuleSpec("minimind", loader=None)
 
         with (
+            tempfile.TemporaryDirectory() as state_dir,
             patch.object(minimind_runtime.importlib.util, "find_spec", return_value=fake_spec),
             patch.object(
                 minimind_runtime.importlib,
@@ -92,7 +94,7 @@ class LocalModelProfileTests(unittest.TestCase):
                 side_effect=ModuleNotFoundError("No module named 'matplotlib'"),
             ),
         ):
-            inspection = minimind_runtime.inspect_minimind_runtime()
+            inspection = minimind_runtime.inspect_minimind_runtime(state_dir=state_dir)
 
         self.assertTrue(inspection.architecture_embedded)
         self.assertTrue(inspection.package_found)

@@ -104,6 +104,12 @@
     });
   }
 
+  var POST_TRAINING_OBJECTIVE = [
+    "Use the current Personal MiniMind dataset, memory, and RAG handoff to perform a post-training operator workflow.",
+    "Summarize what MiniMind learned, identify one safe self-evolution candidate, run a readiness check, and list exact next approvals needed.",
+    "Do not scrape email, do not modify files, do not install tools, and do not enable MCP or skills without explicit approval."
+  ].join(" ");
+
   // ── Token auth ───────────────────────────────────────────────────────────
   function showTokenOverlay() { $("#tokenOverlay").style.display = "flex"; }
   function hideTokenOverlay() { $("#tokenOverlay").style.display = "none"; }
@@ -417,7 +423,17 @@
   async function setCandidateStatus(id, action) {
     try {
       var data = await api("/api/console/evolution/candidates/" + encodeURIComponent(id) + "/" + action, { method: "POST", body: {} });
-      if (!data.ok) { toast(data.error || "Candidate update failed.", "error"); return; }
+      if (!data.ok) {
+        if (data.admission_required) {
+          $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+          await refreshTrust();
+          openTab("trust");
+          toast("Capability Admission must be approved and activated before promotion.", "warn");
+          return;
+        }
+        toast(data.error || "Candidate update failed.", "error");
+        return;
+      }
       toast("Candidate " + action + " recorded.", "ok");
       await refreshEvolution();
       await refreshOperatorSummary();
@@ -453,6 +469,17 @@
     modelInput.value = (data.model && data.model.model) || "";
     baseUrl.value = (data.model && data.model.base_url) || "";
     $("#configApiKey").value = "";
+    if ($("#configGmailClientId")) $("#configGmailClientId").value = "";
+    if ($("#configGmailClientSecret")) $("#configGmailClientSecret").value = "";
+    if ($("#configOutlookClientId")) $("#configOutlookClientId").value = "";
+    if ($("#configMicrosoftTenantId")) $("#configMicrosoftTenantId").value = "";
+    if ($("#configGithubClientId")) $("#configGithubClientId").value = "";
+    if ($("#githubClientId")) $("#githubClientId").value = "";
+    if ($("#connectionsGmailClientId")) $("#connectionsGmailClientId").value = "";
+    if ($("#connectionsGmailClientSecret")) $("#connectionsGmailClientSecret").value = "";
+    if ($("#connectionsOutlookClientId")) $("#connectionsOutlookClientId").value = "";
+    if ($("#connectionsMicrosoftTenantId")) $("#connectionsMicrosoftTenantId").value = "";
+    if ($("#connectionsGithubClientId")) $("#connectionsGithubClientId").value = "";
     renderConfigModelOptions();
 
     var summary = $("#configSummary");
@@ -460,7 +487,7 @@
     [
       ["Provider", provider || "not set"],
       ["Model", (data.model && data.model.model) || "not set"],
-      ["API Key", data.model && data.model.api_key_configured ? "configured" : "not set"],
+      ["Credential", data.model && (data.model.api_key_configured || data.model.oauth_token_configured) ? "configured" : "not set"],
       ["Config File", data.config_path || "local state"],
     ].forEach(function(m) {
       var card = el("div", { class: "card" });
@@ -498,8 +525,67 @@
     $("#configOutput").textContent = JSON.stringify({
       env_file: data.env_file,
       env_preview: data.env_preview || {},
+      email_oauth: data.email_oauth || {},
+      github_oauth: data.github_oauth || {},
       security: data.security || {},
     }, null, 2);
+    renderProviderAuth(data.provider_auth || {});
+    renderEmailOAuthConfig(data.email_oauth || {});
+    renderGithubOAuthConfig(data.github_oauth || {});
+    renderConnectionsSummary();
+  }
+
+  function renderGithubOAuthConfig(github) {
+    var hint = $("#githubOAuthConfigHint");
+    var configured = github.client_id_configured ? "GitHub client configured" : "GitHub client not configured";
+    var device = github.device_flow_enabled ? "device sign-in ready" : "device sign-in needs client ID";
+    if (hint) hint.textContent = configured + " | " + device + ". Tokens are write-only and stay local.";
+    if ($("#githubClientId")) $("#githubClientId").placeholder = github.client_id_configured ? "client ID saved; leave blank to keep it" : "paste GitHub OAuth client ID";
+    if ($("#connectionsGithubClientId")) $("#connectionsGithubClientId").placeholder = github.client_id_configured ? "client ID saved; leave blank to keep it" : "paste GitHub OAuth client ID";
+    if ($("#configGithubClientId")) $("#configGithubClientId").placeholder = github.client_id_configured ? "client ID saved; leave blank to keep it" : "leave blank to keep existing GitHub client ID";
+  }
+
+  function renderEmailOAuthConfig(email) {
+    var hint = $("#emailOAuthConfigHint");
+    if (!hint) return;
+    var gmail = email.gmail_client_id_configured ? "Gmail client configured" : "Gmail client not configured";
+    var gmailSecret = email.gmail_client_secret_configured ? "browser secret configured" : "browser secret optional";
+    var outlook = email.outlook_client_id_configured ? "Outlook client configured" : "Outlook client not configured";
+    var tenant = email.microsoft_tenant_id_configured ? "tenant configured" : "tenant defaults to common";
+    hint.textContent = gmail + " | " + gmailSecret + " | " + outlook + " | " + tenant + ". Tokens are write-only and crawls require MiniMind email consent.";
+  }
+
+  function writeGithubOutput(text) {
+    if ($("#githubAuthOutput")) $("#githubAuthOutput").textContent = text;
+    if ($("#connectionsGithubOutput")) $("#connectionsGithubOutput").textContent = text;
+  }
+
+  function writeEmailOAuthOutput(payload) {
+    var text = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+    if ($("#pmOutput")) $("#pmOutput").textContent = text;
+    if ($("#connectionsEmailOutput")) $("#connectionsEmailOutput").textContent = text;
+    if ($("#homeEmailOutput")) $("#homeEmailOutput").textContent = text;
+  }
+
+  function renderConnectionsSummary() {
+    var grid = $("#connectionsSummary");
+    if (!grid) return;
+    grid.innerHTML = "";
+    var email = (state.config && state.config.email_oauth) || {};
+    var github = (state.config && state.config.github_oauth) || {};
+    var githubAuth = state.githubStatus ? (state.githubStatus.auth_mode || "unknown") : "unknown";
+    [
+      ["GitHub", githubAuth],
+      ["GitHub OAuth", github.client_id_configured ? "client ready" : "needs client ID"],
+      ["Gmail", email.gmail_client_id_configured ? "client ready" : "needs client ID"],
+      ["Outlook", email.outlook_client_id_configured ? "client ready" : "needs client ID"],
+      ["Policy", "read-only email scopes"],
+    ].forEach(function(row) {
+      var card = el("div", { class: "card" });
+      card.appendChild(el("h3", null, row[0]));
+      card.appendChild(el("div", { class: "value" }, row[1]));
+      grid.appendChild(card);
+    });
   }
 
   function renderConfigModelOptions() {
@@ -516,6 +602,61 @@
     $("#configKeyHint").textContent = option && option.requires_api_key
       ? (option.api_key_label + " is write-only; leave blank to keep the saved key.")
       : "This provider does not require a hosted API key.";
+    renderProviderAuthMethodOptions(option);
+  }
+
+  function renderProviderAuthMethodOptions(option) {
+    var select = $("#providerAuthMethod");
+    var hint = $("#providerAuthHint");
+    if (!select) return;
+    var previous = select.value;
+    select.innerHTML = "";
+    ((option && option.auth_methods) || [{ method: "api_key", label: "API key", status: "ready" }]).forEach(function(method) {
+      var label = method.label || method.method;
+      if (method.status && method.status !== "ready") label += " (" + method.status + ")";
+      select.appendChild(el("option", { value: method.method }, label));
+    });
+    if (Array.from(select.options).some(function(opt) { return opt.value === previous; })) {
+      select.value = previous;
+    }
+    var current = ((option && option.auth_methods) || []).find(function(item) { return item.method === select.value; });
+    if (hint) {
+      hint.textContent = current
+        ? ((current.setup_hint || current.description || "") + " Raw secrets stay write-only.")
+        : "Secrets are write-only. Local providers do not need hosted credentials.";
+    }
+  }
+
+  function renderProviderAuth(auth) {
+    var grid = $("#providerAuthGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+    var providers = (auth && auth.providers) || [];
+    providers.slice(0, 36).forEach(function(provider) {
+      var card = el("div", { class: "model-card " + (provider.active ? "ready" : "candidate") });
+      card.appendChild(el("div", { class: "model-title" }, provider.name || provider.id));
+      card.appendChild(el("div", { class: "model-id" }, provider.id + (provider.active ? " / active" : "")));
+      var badges = el("div", { class: "model-badges" });
+      badges.appendChild(el("span", { class: "badge " + (provider.api_key_configured || provider.oauth_configured || !provider.requires_api_key ? "ok" : "warn") }, provider.requires_api_key ? (provider.api_key_configured || provider.oauth_configured ? "connected" : "needs secret") : "no key"));
+      if (provider.oauth_supported) badges.appendChild(el("span", { class: "badge warn" }, "OAuth-capable"));
+      (provider.capability_badges || []).slice(0, 4).forEach(function(badge) {
+        badges.appendChild(el("span", { class: "badge" }, badge));
+      });
+      card.appendChild(badges);
+      card.appendChild(el("div", { class: "model-desc" }, provider.description || "Provider auth option."));
+      var actions = el("div", { class: "model-actions" });
+      var choose = el("button", { type: "button" }, "Configure");
+      choose.addEventListener("click", function() {
+        $("#configProvider").value = provider.id;
+        if (provider.selected_model) $("#configModel").value = provider.selected_model;
+        if (provider.selected_base_url) $("#configBaseUrl").value = provider.selected_base_url;
+        renderConfigModelOptions();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+      actions.appendChild(choose);
+      card.appendChild(actions);
+      grid.appendChild(card);
+    });
   }
 
   function selectedModelDiscoverySources() {
@@ -555,6 +696,13 @@
         body: { source: model.source, provider: model.provider, model_id: model.model_id },
       });
       if (!data.ok) {
+        if (data.admission_required) {
+          $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+          await refreshTrust();
+          openTab("trust");
+          toast("Review and activate this model in Capability Admission, then select it again.", "warn");
+          return;
+        }
         toast(data.error || "Model selection failed.", "error");
         return;
       }
@@ -675,8 +823,9 @@
     }
   }
 
-  async function saveConfig(clearKey) {
+  async function saveConfig(clearKey, extra) {
     try {
+      extra = extra || {};
       var data = await api("/api/console/config", {
         method: "POST",
         body: {
@@ -685,11 +834,65 @@
           base_url: $("#configBaseUrl").value,
           api_key: $("#configApiKey").value,
           clear_api_key: !!clearKey,
+          gmail_client_id: ($("#configGmailClientId") && $("#configGmailClientId").value) || "",
+          gmail_client_secret: ($("#configGmailClientSecret") && $("#configGmailClientSecret").value) || "",
+          outlook_client_id: ($("#configOutlookClientId") && $("#configOutlookClientId").value) || "",
+          microsoft_tenant_id: ($("#configMicrosoftTenantId") && $("#configMicrosoftTenantId").value) || "",
+          github_client_id: extra.githubClientId || (($("#configGithubClientId") && $("#configGithubClientId").value) || ""),
+          clear_gmail_client_id: !!extra.clearGmailClientId,
+          clear_gmail_client_secret: !!extra.clearGmailClientSecret,
+          clear_outlook_client_id: !!extra.clearOutlookClientId,
+          clear_microsoft_tenant_id: !!extra.clearMicrosoftTenantId,
+          clear_github_client_id: !!extra.clearGithubClientId,
         },
       });
       renderConfig(data);
       toast(data.ok ? "Config saved." : (data.error || "Config save failed."), data.ok ? "ok" : "error");
       await refreshStatus();
+      await refreshEmailOAuthStatus();
+      await refreshGithubStatus();
+    } catch (e) {
+      $("#configOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+  async function saveProviderAuth() {
+    try {
+      var data = await api("/api/console/provider-auth", {
+        method: "POST",
+        body: {
+          provider: $("#configProvider").value,
+          method: $("#providerAuthMethod").value,
+          model: $("#configModel").value,
+          base_url: $("#configBaseUrl").value,
+          api_key: $("#configApiKey").value,
+          make_active: $("#providerAuthActive").checked,
+        },
+      });
+      renderConfig(data);
+      toast(data.ok ? "Provider auth saved." : (data.error || "Provider auth save failed."), data.ok ? "ok" : "error");
+      await refreshStatus();
+    } catch (e) {
+      $("#configOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function connectProviderAuth() {
+    try {
+      var data = await api("/api/console/provider-auth/connect", {
+        method: "POST",
+        body: {
+          provider: $("#configProvider").value,
+          method: $("#providerAuthMethod").value,
+          launch: true,
+        },
+      });
+      $("#configOutput").textContent = JSON.stringify(data, null, 2);
+      if (data.ok && data.auth_url) {
+        window.open(data.auth_url, "_blank", "noopener,noreferrer");
+      }
+      toast(data.ok ? (data.status || "Auth flow prepared.") : (data.error || "Auth flow unavailable."), data.ok ? "warn" : "error");
     } catch (e) {
       $("#configOutput").textContent = e.message;
       toast(e.message, "error");
@@ -699,6 +902,13 @@
   $("#configSave").addEventListener("click", function() { saveConfig(false); });
   $("#configClearKey").addEventListener("click", function() { saveConfig(true); });
   $("#configRefresh").addEventListener("click", refreshConfig);
+  $("#emailOAuthConfigClearGmail").addEventListener("click", function() { saveConfig(false, { clearGmailClientId: true }); });
+  $("#emailOAuthConfigClearGmailSecret").addEventListener("click", function() { saveConfig(false, { clearGmailClientSecret: true }); });
+  $("#emailOAuthConfigClearOutlook").addEventListener("click", function() { saveConfig(false, { clearOutlookClientId: true }); });
+  $("#emailOAuthConfigClearTenant").addEventListener("click", function() { saveConfig(false, { clearMicrosoftTenantId: true }); });
+  $("#githubOAuthConfigClearClient").addEventListener("click", function() { saveConfig(false, { clearGithubClientId: true }); });
+  $("#providerAuthSave").addEventListener("click", saveProviderAuth);
+  $("#providerAuthConnect").addEventListener("click", connectProviderAuth);
   $("#modelDiscoveryRefresh").addEventListener("click", function() { refreshModelDiscovery(true); });
   $("#modelDiscoveryQuery").addEventListener("input", function() { refreshModelDiscovery(false); });
   $("#modelCapabilityFilter").addEventListener("change", function() { refreshModelDiscovery(false); });
@@ -826,9 +1036,9 @@
   async function refreshGithubStatus() {
     try {
       var data = await api("/api/console/github/status");
+      state.githubStatus = data;
       var summary = $("#githubSummary");
-      if (!summary) return;
-      summary.innerHTML = "";
+      if (summary) summary.innerHTML = "";
       [
         ["Status", data.ok ? "ready" : "unavailable"],
         ["Auth", data.auth_mode || "unknown"],
@@ -837,11 +1047,13 @@
         ["Device Flow", data.device_flow_configured ? "configured" : "needs client id"],
         ["Self-Evolution", data.self_evolution_policy ? data.self_evolution_policy.mode : "guarded"],
       ].forEach(function(m) {
+        if (!summary) return;
         var card = el("div", { class: "card" });
         card.appendChild(el("h3", null, m[0]));
         card.appendChild(el("div", { class: "value" }, m[1]));
         summary.appendChild(card);
       });
+      renderConnectionsSummary();
     } catch (e) {
       empty("#githubSummary", "GitHub integration unavailable.");
     }
@@ -849,28 +1061,45 @@
 
   async function startGithubDeviceSignIn() {
     try {
+      var scopeInput = $("#githubDeviceScopes") || $("#connectionsGithubScopes");
       var data = await api("/api/console/github/device/start", {
         method: "POST",
-        body: { scope: ($("#githubDeviceScopes").value || "read:user repo").trim() },
+        body: { scope: ((scopeInput && scopeInput.value) || "read:user repo").trim() },
       });
       if (!data.ok) {
-        $("#githubAuthOutput").textContent = JSON.stringify(data, null, 2);
+        writeGithubOutput(JSON.stringify(data, null, 2));
         toast(data.error || "GitHub sign-in unavailable.", "warn");
         return;
       }
       state.githubDevice = data;
-      $("#githubAuthOutput").textContent = [
+      writeGithubOutput([
         "Open: " + data.verification_uri,
         "Code: " + data.user_code,
         "Then approve the app in GitHub and click 'I Approved It'.",
         "",
         JSON.stringify({ scope: data.scope, expires_in: data.expires_in, interval: data.interval }, null, 2),
-      ].join("\n");
+      ].join("\n"));
       if (data.verification_uri) window.open(data.verification_uri, "_blank", "noopener");
     } catch (e) {
-      $("#githubAuthOutput").textContent = e.message;
+      writeGithubOutput(e.message);
       toast(e.message, "error");
     }
+  }
+
+  async function saveGithubOAuthConfigFromConnections() {
+    var clientId = (
+      ($("#connectionsGithubClientId") && $("#connectionsGithubClientId").value)
+      || ($("#githubClientId") && $("#githubClientId").value)
+      || ""
+    ).trim();
+    if (!clientId) {
+      toast("Paste a GitHub OAuth client ID first.", "warn");
+      return;
+    }
+    await saveConfig(false, { githubClientId: clientId });
+    if ($("#connectionsGithubClientId")) $("#connectionsGithubClientId").value = "";
+    if ($("#githubClientId")) $("#githubClientId").value = "";
+    writeGithubOutput("GitHub OAuth client saved locally. Click Connect GitHub to start device sign-in.");
   }
 
   async function pollGithubDeviceSignIn() {
@@ -883,7 +1112,7 @@
         method: "POST",
         body: { device_code: state.githubDevice.device_code },
       });
-      $("#githubAuthOutput").textContent = JSON.stringify(data, null, 2);
+      writeGithubOutput(JSON.stringify(data, null, 2));
       if (data.ok) {
         state.githubDevice = null;
         await refreshGithubStatus();
@@ -892,7 +1121,7 @@
         toast(data.pending ? "Still waiting for GitHub approval." : (data.error || "Sign-in failed."), data.pending ? "warn" : "error");
       }
     } catch (e) {
-      $("#githubAuthOutput").textContent = e.message;
+      writeGithubOutput(e.message);
       toast(e.message, "error");
     }
   }
@@ -901,11 +1130,11 @@
     try {
       var data = await api("/api/console/github/logout", { method: "POST", body: {} });
       state.githubDevice = null;
-      $("#githubAuthOutput").textContent = JSON.stringify(data, null, 2);
+      writeGithubOutput(JSON.stringify(data, null, 2));
       await refreshGithubStatus();
       toast("GitHub console token cleared.", "ok");
     } catch (e) {
-      $("#githubAuthOutput").textContent = e.message;
+      writeGithubOutput(e.message);
       toast(e.message, "error");
     }
   }
@@ -968,6 +1197,11 @@
   $("#githubDeviceStart").addEventListener("click", startGithubDeviceSignIn);
   $("#githubDevicePoll").addEventListener("click", pollGithubDeviceSignIn);
   $("#githubLogout").addEventListener("click", logoutGithub);
+  $("#githubClientSave").addEventListener("click", saveGithubOAuthConfigFromConnections);
+  $("#connectionsGithubSave").addEventListener("click", saveGithubOAuthConfigFromConnections);
+  $("#connectionsGithubStart").addEventListener("click", startGithubDeviceSignIn);
+  $("#connectionsGithubPoll").addEventListener("click", pollGithubDeviceSignIn);
+  $("#connectionsGithubLogout").addEventListener("click", logoutGithub);
   $("#githubSelfEvolutionPreview").addEventListener("click", previewSelfEvolution);
   $("#githubPlan").addEventListener("click", planGithubIssue);
   $("#githubPolicyPreview").addEventListener("click", previewGithubPolicy);
@@ -1280,7 +1514,9 @@
         ["Runs", summary.runs ? summary.runs.total : 0],
         ["Approvals", summary.approvals ? summary.approvals.pending : 0],
         ["MCP Trust", summary.mcp_trust ? summary.mcp_trust.status : "review"],
-        ["Eval Baseline", summary.eval_baseline ? summary.eval_baseline.status : "missing"],
+        ["Eval Baseline", summary.eval_baseline_status ? summary.eval_baseline_status.status : "missing"],
+        ["Eval Cases", data.eval_cases ? data.eval_cases.length : 0],
+        ["Admission", summary.capability_admission && summary.capability_admission.production_ready ? "ready" : "review"],
         ["Trace Export", summary.trace_health ? summary.trace_health.status : "local"],
       ].forEach(function(cardData) {
         var card = el("div", { class: "card" });
@@ -1306,8 +1542,11 @@
           resume.addEventListener("click", function() { resumeTrustRun(run.run_id); });
           var trace = el("button", null, "Trace");
           trace.addEventListener("click", function() { exportTrustTrace(run.run_id); });
+          var replay = el("button", null, "Replay");
+          replay.addEventListener("click", function() { previewTrustReplay(run.run_id); });
           actions.appendChild(resume);
           actions.appendChild(trace);
+          actions.appendChild(replay);
           item.appendChild(actions);
           runs.appendChild(item);
         });
@@ -1361,6 +1600,51 @@
         });
       }
     }
+
+    var evalCases = $("#trustEvalCases");
+    if (evalCases) {
+      evalCases.innerHTML = "";
+      if (!Array.isArray(data.eval_cases) || !data.eval_cases.length) {
+        evalCases.appendChild(el("div", { class: "empty" }, "No promoted eval cases yet. Promote a durable run to make it reusable for regression checks."));
+      } else {
+        data.eval_cases.forEach(function(testCase) {
+          var item = el("div", { class: "list-item" });
+          item.appendChild(el("span", { class: "badge" }, testCase.severity || "P2"));
+          item.appendChild(el("span", { class: "name" }, testCase.label || testCase.case_id));
+          item.appendChild(el("span", { class: "meta" }, "run: " + (testCase.run_id || "unknown") + " | steps: " + String((testCase.step_types || []).length)));
+          evalCases.appendChild(item);
+        });
+      }
+    }
+
+    var admission = $("#admissionRecords");
+    if (admission) {
+      admission.innerHTML = "";
+      if (!Array.isArray(data.admission_records) || !data.admission_records.length) {
+        admission.appendChild(el("div", { class: "empty" }, "No capability records yet. Add models, MCP servers, skills, tools, or RAG sources for explicit review before activation."));
+      } else {
+        data.admission_records.forEach(function(record) {
+          var item = el("div", { class: "list-item" });
+          var badgeClass = record.status === "active" || record.status === "approved" ? "ok" : record.status === "quarantined" || record.status === "revoked" ? "error" : "warn";
+          item.appendChild(el("span", { class: "badge " + badgeClass }, record.status || "discovered"));
+          item.appendChild(el("span", { class: "name" }, record.name || record.id));
+          item.appendChild(el("span", { class: "meta" }, (record.capability_kind || "capability") + " | risk: " + (record.risk_level || "medium") + " | " + (record.source || "local")));
+          var actions = el("span", { class: "actions" });
+          [
+            ["Approve", "approve", null],
+            ["Activate", "activate", null],
+            ["Revoke", "revoke", "danger"],
+            ["Quarantine", "quarantine", "danger"],
+          ].forEach(function(actionData) {
+            var btn = el("button", actionData[2] ? { class: actionData[2] } : null, actionData[0]);
+            btn.addEventListener("click", function() { updateCapabilityAdmission(record.id, actionData[1]); });
+            actions.appendChild(btn);
+          });
+          item.appendChild(actions);
+          admission.appendChild(item);
+        });
+      }
+    }
   }
 
   async function refreshTrust() {
@@ -1370,12 +1654,17 @@
       var approvals = await api("/api/console/trust/approvals");
       var mcp = await api("/api/console/mcp/trust");
       var evals = await api("/api/console/trust/evals");
+      var evalCases = await api("/api/console/trust/eval-cases");
+      var admission = await api("/api/console/capability-admission");
+      summary.capability_admission = admission.summary || {};
       renderTrust({
         summary: summary,
         runs: runs.runs || [],
         approvals: approvals.approvals || [],
         mcp_servers: mcp.servers || [],
         evals: evals,
+        eval_cases: evalCases.cases || [],
+        admission_records: admission.records || [],
       });
     } catch (e) {
       empty("#trustRuns", "Trust Runtime unavailable: " + e.message);
@@ -1437,6 +1726,114 @@
     }
   }
 
+  async function promoteTrustEvalCase() {
+    var runId = ($("#trustEvalRunId").value || "").trim();
+    if (!runId && state.trust && Array.isArray(state.trust.runs) && state.trust.runs.length) {
+      runId = state.trust.runs[0].run_id;
+    }
+    if (!runId) {
+      toast("Run id is required before promoting an eval case.", "warn");
+      return;
+    }
+    try {
+      var data = await api("/api/console/trust/eval-cases/promote", {
+        method: "POST",
+        body: {
+          run_id: runId,
+          label: ($("#trustEvalLabel").value || "").trim(),
+          severity: $("#trustEvalSeverity").value || "P2",
+        },
+      });
+      $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshTrust();
+      await refreshTimeline();
+      toast(data.ok ? "Eval case promoted." : (data.error || "Eval case promotion failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#trustOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function previewTrustReplay(runId) {
+    var target = (runId || ($("#trustReplayRunId").value || "").trim());
+    if (!target && state.trust && Array.isArray(state.trust.runs) && state.trust.runs.length) {
+      target = state.trust.runs[0].run_id;
+    }
+    if (!target) {
+      toast("Run id is required before replay simulation.", "warn");
+      return;
+    }
+    var disabled = ($("#trustReplayDisabledTools").value || "")
+      .split(",")
+      .map(function(item) { return item.trim(); })
+      .filter(Boolean);
+    try {
+      var data = await api("/api/console/trust/replay/" + encodeURIComponent(target), {
+        method: "POST",
+        body: {
+          mode: $("#trustReplayMode").value || "same_policy",
+          model_provider: ($("#trustReplayModel").value || "").trim(),
+          disabled_tools: disabled,
+          stricter_policy: !!$("#trustReplayStrict").checked,
+        },
+      });
+      $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshTimeline();
+      toast(data.ok ? "Replay simulation generated." : (data.error || "Replay simulation failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#trustOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function registerCapabilityAdmission() {
+    var name = ($("#admissionName").value || "").trim();
+    if (!name) {
+      toast("Capability name is required.", "warn");
+      return;
+    }
+    var permissions = ($("#admissionPermissions").value || "")
+      .split(",")
+      .map(function(item) { return item.trim(); })
+      .filter(Boolean);
+    try {
+      var data = await api("/api/console/capability-admission", {
+        method: "POST",
+        body: {
+          capability_kind: $("#admissionKind").value || "tool",
+          name: name,
+          source: ($("#admissionSource").value || "").trim() || "console",
+          risk_level: $("#admissionRisk").value || "medium",
+          permissions: permissions,
+          metadata: { intake: "operator_console" },
+        },
+      });
+      $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshTrust();
+      await refreshTimeline();
+      toast(data.ok ? "Capability queued for review." : (data.error || "Capability admission failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#trustOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function updateCapabilityAdmission(recordId, action) {
+    try {
+      var data = await api("/api/console/capability-admission/" + encodeURIComponent(recordId) + "/" + action, {
+        method: "POST",
+        body: { reviewer: "console", reason: action + " from Trust Runtime dashboard" },
+      });
+      $("#trustOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshTrust();
+      await refreshTimeline();
+      toast(data.ok ? "Capability admission updated." : (data.error || "Capability admission update failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#trustOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
   async function exportTrustTrace(runId) {
     try {
       var target = runId || "latest";
@@ -1452,6 +1849,9 @@
   $("#trustRefresh").addEventListener("click", refreshTrust);
   $("#trustBaseline").addEventListener("click", createTrustBaseline);
   $("#trustTraceExport").addEventListener("click", function() { exportTrustTrace("latest"); });
+  $("#trustPromoteEvalCase").addEventListener("click", promoteTrustEvalCase);
+  $("#trustReplayPreview").addEventListener("click", function() { previewTrustReplay(""); });
+  $("#admissionInspect").addEventListener("click", registerCapabilityAdmission);
 
   // ── Status ───────────────────────────────────────────────────────────────
   function renderThinking(data) {
@@ -1712,6 +2112,36 @@
     $("#runSummary").style.display = "none";
     writeOutput("Ready.");
   });
+  $("#homeRunObjective").addEventListener("click", function() {
+    var obj = ($("#homeObjective").value || "").trim();
+    if (!obj) { toast("Enter an objective first.", "warn"); return; }
+    $("#objective").value = obj;
+    $("#homeRunOutput").textContent = "Submitted to the Trust Runtime. Opening the full Run tab for live output.";
+    openTab("run");
+    runObjective();
+  });
+  $("#homeObjective").addEventListener("keydown", function(e) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("#homeRunObjective").click();
+  });
+  $("#homePostTrainingAction").addEventListener("click", function() {
+    var obj = POST_TRAINING_OBJECTIVE;
+    $("#homeObjective").value = obj;
+    $("#objective").value = obj;
+    $("#homeRunOutput").textContent = "Running post-training MiniMind workflow.";
+    $("#homePostTrainingAction").disabled = true;
+    api("/api/console/minimind/personal/post-training-action", { method: "POST", body: { objective: obj } })
+      .then(function(r) {
+        $("#homeRunOutput").textContent = JSON.stringify(r, null, 2);
+        toast(r.ok ? "Post-training workflow staged a Self-Evolution candidate." : (r.error || "Post-training workflow failed."), r.ok ? "ok" : "error");
+        return Promise.allSettled([refreshOperatorSummary(), refreshTimeline(), refreshPersonalMiniMind(), refreshEvolution(), refreshJobs()]);
+      })
+      .catch(function(e) {
+        $("#homeRunOutput").textContent = "Error: " + e.message;
+        toast(e.message, "error");
+      })
+      .finally(function() { $("#homePostTrainingAction").disabled = false; });
+  });
+  $("#homeOpenRun").addEventListener("click", function() { openTab("run"); $("#objective").focus(); });
 
   // ── Jobs ─────────────────────────────────────────────────────────────────
   async function refreshJobs() {
@@ -1937,6 +2367,59 @@
     $("#" + id).value = Array.isArray(values) ? values.join("\n") : "";
   }
   function pmOut(r) { $("#pmOutput").textContent = JSON.stringify(r, null, 2); }
+  function renderEmailOAuthStatus(data) {
+    var panel = $("#emailOAuthStatus");
+    if (!panel) return;
+    panel.innerHTML = "";
+    ((data && data.providers) || []).forEach(function(provider) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "name" }, provider.provider));
+      item.appendChild(el("span", { class: "badge " + (provider.configured ? "ok" : "warn") }, provider.configured ? "connected" : "not connected"));
+      item.appendChild(el("span", { class: "badge " + (provider.client_id_configured ? "ok" : "warn") }, provider.client_id_configured ? "client id" : "needs client id"));
+      panel.appendChild(item);
+    });
+  }
+  async function refreshEmailOAuthStatus() {
+    try {
+      var data = await api("/api/console/email/oauth/status");
+      renderEmailOAuthStatus(data);
+      renderConnectionsEmailStatus(data);
+      renderHomeEmailStatus(data);
+    } catch (_) {}
+  }
+
+  function renderHomeEmailStatus(data) {
+    var panel = $("#homeEmailStatus");
+    if (!panel) return;
+    panel.innerHTML = "";
+    var providers = (data && data.providers) || [];
+    if (!providers.length) {
+      empty("#homeEmailStatus", "Email OAuth status unavailable.");
+      return;
+    }
+    providers.forEach(function(provider) {
+      var item = el("div", { class: "list-item compact-list-item" });
+      item.appendChild(el("span", { class: "name" }, provider.provider));
+      item.appendChild(el("span", { class: "badge " + (provider.client_id_configured ? "ok" : "warn") }, provider.client_id_configured ? "client id ready" : "needs client id"));
+      item.appendChild(el("span", { class: "badge " + (provider.configured ? "ok" : "warn") }, provider.configured ? "connected" : "not connected"));
+      item.appendChild(el("span", { class: "meta" }, "read-only OAuth"));
+      panel.appendChild(item);
+    });
+  }
+
+  function renderConnectionsEmailStatus(data) {
+    var panel = $("#connectionsEmailStatus");
+    if (!panel) return;
+    panel.innerHTML = "";
+    ((data && data.providers) || []).forEach(function(provider) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "name" }, provider.provider));
+      item.appendChild(el("span", { class: "badge " + (provider.client_id_configured ? "ok" : "warn") }, provider.client_id_configured ? "client id ready" : "needs client id"));
+      item.appendChild(el("span", { class: "badge " + (provider.configured ? "ok" : "warn") }, provider.configured ? "connected" : "not connected"));
+      item.appendChild(el("span", { class: "meta" }, (provider.scopes || []).join(" ")));
+      panel.appendChild(item);
+    });
+  }
 
   async function refreshPersonalMiniMind() {
     var panel = $("#personalMiniMindStatus");
@@ -1972,6 +2455,7 @@
         if (row[0] === "Dataset") item.appendChild(el("span", { class: "meta" }, st.dataset_path || ""));
         panel.appendChild(item);
       });
+      await refreshEmailOAuthStatus();
     } catch (_) { empty("#personalMiniMindStatus", "Personal MiniMind unavailable."); }
   }
 
@@ -2039,6 +2523,131 @@
   });
 
   // ── RAG Builder tab ───────────────────────────────────────────────────────
+  async function startEmailOAuth(provider) {
+    try {
+      var r = await api("/api/console/email/oauth/start", {
+        method: "POST",
+        body: { provider: provider || $("#emailOAuthProvider").value },
+      });
+      if (r.pending_id) $("#emailOAuthPending").value = r.pending_id;
+      if (r.pending_id && $("#connectionsEmailPending")) $("#connectionsEmailPending").value = r.pending_id;
+      writeEmailOAuthOutput(r);
+      if (r.verification_uri) window.open(r.verification_uri, "_blank", "noopener,noreferrer");
+      toast(r.ok ? "Email OAuth started." : (r.error || "Email OAuth setup needed."), r.ok ? "ok" : "warn");
+      await refreshEmailOAuthStatus();
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  async function startEmailBrowserOAuth(provider) {
+    try {
+      var chosenProvider = provider || ($("#emailOAuthProvider") && $("#emailOAuthProvider").value) || "gmail";
+      var r = await api("/api/console/email/oauth/browser/start", {
+        method: "POST",
+        body: { provider: chosenProvider },
+      });
+      writeEmailOAuthOutput(r);
+      if (r.auth_url) window.open(r.auth_url, "_blank", "noopener,noreferrer");
+      toast(r.ok ? "Browser authorization opened." : (r.error || "Browser OAuth setup needed."), r.ok ? "ok" : "warn");
+      setTimeout(refreshEmailOAuthStatus, 1800);
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  async function pollEmailOAuth(provider, pendingId) {
+    try {
+      var r = await api("/api/console/email/oauth/poll", {
+        method: "POST",
+        body: {
+          provider: provider || $("#emailOAuthProvider").value,
+          pending_id: pendingId || $("#emailOAuthPending").value || ($("#connectionsEmailPending") && $("#connectionsEmailPending").value) || "",
+        },
+      });
+      writeEmailOAuthOutput(r);
+      toast(r.ok ? "Email OAuth connected." : (r.error || "Authorization still pending."), r.ok ? "ok" : "warn");
+      await refreshEmailOAuthStatus();
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  async function crawlEmailOAuth(provider, query) {
+    try {
+      var r = await api("/api/console/email/oauth/crawl", {
+        method: "POST",
+        body: { provider: provider || $("#emailOAuthProvider").value, max_messages: 10, query: query || $("#emailOAuthQuery").value || "" },
+      });
+      writeEmailOAuthOutput(r);
+      toast(r.ok ? "Email crawl complete." : (r.error || "Email crawl blocked."), r.ok ? "ok" : "warn");
+      await refreshPersonalMiniMind();
+      await refreshMemory();
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  async function saveEmailOAuthConfigFromConnections() {
+    try {
+      var model = (state.config && state.config.model) || {};
+      var data = await api("/api/console/config", {
+        method: "POST",
+        body: {
+          provider: model.provider || ($("#configProvider") && $("#configProvider").value) || "codex_cli",
+          model: model.model || ($("#configModel") && $("#configModel").value) || "gpt-5.4-mini",
+          base_url: model.base_url || ($("#configBaseUrl") && $("#configBaseUrl").value) || "",
+          gmail_client_id: ($("#connectionsGmailClientId") && $("#connectionsGmailClientId").value) || "",
+          gmail_client_secret: ($("#connectionsGmailClientSecret") && $("#connectionsGmailClientSecret").value) || "",
+          outlook_client_id: ($("#connectionsOutlookClientId") && $("#connectionsOutlookClientId").value) || "",
+          microsoft_tenant_id: ($("#connectionsMicrosoftTenantId") && $("#connectionsMicrosoftTenantId").value) || "",
+        },
+      });
+      renderConfig(data);
+      await refreshEmailOAuthStatus();
+      toast(data.ok ? "Email OAuth config saved." : (data.error || "Email OAuth config save failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      writeEmailOAuthOutput(e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  $("#emailOAuthBrowserStart").addEventListener("click", function() { startEmailBrowserOAuth($("#emailOAuthProvider").value); });
+  $("#emailOAuthStart").addEventListener("click", function() { startEmailOAuth($("#emailOAuthProvider").value); });
+  $("#emailOAuthPoll").addEventListener("click", function() { pollEmailOAuth($("#emailOAuthProvider").value, $("#emailOAuthPending").value); });
+  $("#emailOAuthCrawl").addEventListener("click", function() { crawlEmailOAuth($("#emailOAuthProvider").value, $("#emailOAuthQuery").value); });
+  $("#connectionsEmailSave").addEventListener("click", saveEmailOAuthConfigFromConnections);
+  $("#connectionsGmailStart").addEventListener("click", function() {
+    if ($("#emailOAuthProvider")) $("#emailOAuthProvider").value = "gmail";
+    startEmailOAuth("gmail");
+  });
+  $("#connectionsGmailBrowserStart").addEventListener("click", function() {
+    if ($("#emailOAuthProvider")) $("#emailOAuthProvider").value = "gmail";
+    startEmailBrowserOAuth("gmail");
+  });
+  $("#connectionsOutlookStart").addEventListener("click", function() {
+    if ($("#emailOAuthProvider")) $("#emailOAuthProvider").value = "outlook";
+    startEmailOAuth("outlook");
+  });
+  $("#connectionsEmailPoll").addEventListener("click", function() {
+    var provider = ($("#emailOAuthProvider") && $("#emailOAuthProvider").value) || "gmail";
+    pollEmailOAuth(provider, $("#connectionsEmailPending").value);
+  });
+  $("#connectionsEmailCrawl").addEventListener("click", function() {
+    var provider = ($("#emailOAuthProvider") && $("#emailOAuthProvider").value) || "gmail";
+    crawlEmailOAuth(provider, ($("#connectionsEmailQuery") && $("#connectionsEmailQuery").value) || "");
+  });
+  $("#homeEmailOpenConnections").addEventListener("click", function() { openTab("connections"); });
+  $("#homeGmailStart").addEventListener("click", function() {
+    if ($("#emailOAuthProvider")) $("#emailOAuthProvider").value = "gmail";
+    startEmailOAuth("gmail");
+  });
+  $("#homeGmailBrowserStart").addEventListener("click", function() {
+    if ($("#emailOAuthProvider")) $("#emailOAuthProvider").value = "gmail";
+    startEmailBrowserOAuth("gmail");
+  });
+  $("#homeOutlookStart").addEventListener("click", function() {
+    if ($("#emailOAuthProvider")) $("#emailOAuthProvider").value = "outlook";
+    startEmailOAuth("outlook");
+  });
+  $("#homeEmailPoll").addEventListener("click", function() {
+    var provider = ($("#emailOAuthProvider") && $("#emailOAuthProvider").value) || "gmail";
+    var pending = ($("#connectionsEmailPending") && $("#connectionsEmailPending").value) || ($("#emailOAuthPending") && $("#emailOAuthPending").value) || "";
+    pollEmailOAuth(provider, pending);
+  });
+
   function ragRepoLines() {
     return ($("#ragOpenSourceRepos").value || "").split(/\r?\n/).map(function(x) { return x.trim(); }).filter(Boolean);
   }
@@ -2610,6 +3219,7 @@
     refreshCapabilities();
     refreshPathProfiles();
     refreshGithubStatus();
+    refreshEmailOAuthStatus();
     refreshThinking();
     refreshMcpStatus();
     refreshOperatorSummary();

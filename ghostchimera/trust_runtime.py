@@ -31,6 +31,7 @@ POISON_PATTERNS = (
 )
 STATUS_RESUMABLE = {"pending_approval", "retryable_failure", "interrupted"}
 RISK_ORDER = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+TRUST_BASELINE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,21 @@ class RunResumeToken:
         return data
 
 
+@dataclass(frozen=True)
+class TrustEvalCase:
+    case_id: str
+    source: str
+    label: str
+    severity: str
+    run_id: str = ""
+    expected_status: str = "ok"
+    created_at: float = field(default_factory=time.time)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return _redact_value(asdict(self))
+
+
 def _now() -> float:
     return time.time()
 
@@ -142,6 +158,14 @@ def _now() -> float:
 def _stable_id(*parts: object, length: int = 16) -> str:
     raw = "|".join(str(part) for part in parts if part is not None)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:length]
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _hash_payload(value: Any) -> str:
+    return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
 
 
 def _redact_text(text: str) -> str:
@@ -260,6 +284,7 @@ class TrustRuntimeStore:
         self.approvals_path = self.trust_dir / "approvals.json"
         self.mcp_trust_path = self.trust_dir / "mcp_trust.json"
         self.eval_baseline_path = self.trust_dir / "trust_eval_baseline.json"
+        self.eval_cases_path = self.trust_dir / "eval_cases.jsonl"
         self.trust_dir.mkdir(parents=True, exist_ok=True)
         self.runs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -333,6 +358,7 @@ class TrustRuntimeStore:
             duration_ms=duration_ms,
             error=_redact_text(error)[:500],
         ).to_dict()
+        record = self._with_record_hash(self._run_journal_path(run_id), record)
         self._append_jsonl(self._run_journal_path(run_id), record)
         self._touch_run(run_id, status=status, increment_step=True)
         return record
@@ -505,6 +531,146 @@ class TrustRuntimeStore:
         items.sort(key=lambda item: float(item.get("requested_at") or 0), reverse=True)
         return {"ok": True, "approvals": items, "count": len(items)}
 
+    def promote_run_to_eval_case(self, run_id: str, *, label: str = "", severity: str = "P2") -> dict[str, Any]:
+        detail = self.get_run(run_id)
+        if not detail.get("ok"):
+            return detail
+        run = detail["run"]
+        steps = detail.get("steps", [])
+        blocked = [step for step in steps if step.get("status") in {"blocked", "denied"}]
+        severity = severity.upper() if severity.upper() in {"P0", "P1", "P2", "P3"} else "P2"
+        label = label.strip() or str(run.get("objective") or run_id)[:80]
+        case = TrustEvalCase(
+            case_id=_stable_id("trust_eval", run_id, label, severity, length=20),
+            source="trust_eval_case",
+            label=label,
+            severity=severity,
+            run_id=run_id,
+            expected_status="blocked" if blocked else "ok",
+            metadata={
+                "objective_ref": _safe_snippet(run.get("objective", "")),
+                "source": run.get("source", ""),
+                "step_count": len(steps),
+                "blocked_step_count": len(blocked),
+                "run_status": run.get("status", ""),
+            },
+        ).to_dict()
+        existing = {item.get("case_id"): item for item in self._read_jsonl(self.eval_cases_path)}
+        existing[case["case_id"]] = case
+        self._write_jsonl(self.eval_cases_path, sorted(existing.values(), key=lambda item: str(item.get("case_id"))))
+        return {"ok": True, "case": case}
+
+    def list_eval_cases(self, *, limit: int = 100) -> dict[str, Any]:
+        cases = self._read_jsonl(self.eval_cases_path)
+        cases.sort(key=lambda item: float(item.get("created_at") or 0), reverse=True)
+        limit = max(1, min(int(limit), 500))
+        return {"ok": True, "cases": _redact_value(cases[:limit]), "count": len(cases)}
+
+    def verify_run_integrity(self, run_id: str) -> dict[str, Any]:
+        previous_hash = ""
+        steps = self._read_jsonl(self._run_journal_path(run_id))
+        for index, step in enumerate(steps):
+            expected_previous = str(step.get("previous_hash") or "")
+            if expected_previous != previous_hash:
+                return {
+                    "ok": False,
+                    "verified": False,
+                    "error": "previous_hash mismatch",
+                    "index": index,
+                    "step_id": step.get("step_id", ""),
+                }
+            recorded_hash = str(step.get("record_hash") or "")
+            payload = {key: value for key, value in step.items() if key != "record_hash"}
+            actual_hash = _hash_payload(payload)
+            if recorded_hash != actual_hash:
+                return {
+                    "ok": False,
+                    "verified": False,
+                    "error": "record_hash mismatch",
+                    "index": index,
+                    "step_id": step.get("step_id", ""),
+                }
+            previous_hash = recorded_hash
+        return {"ok": True, "verified": True, "run_id": run_id, "step_count": len(steps), "latest_hash": previous_hash}
+
+    def simulate_replay(
+        self,
+        run_id: str,
+        *,
+        mode: str = "same_policy",
+        model_provider: str = "",
+        disabled_tools: list[str] | None = None,
+        stricter_policy: bool = False,
+    ) -> dict[str, Any]:
+        """Preview replay impact without executing tools or model calls."""
+
+        payload = self.get_run(run_id)
+        if not payload.get("ok"):
+            return payload
+        mode = str(mode or "same_policy").strip().lower()
+        if mode not in {"same_policy", "stricter_policy", "try_model", "disable_tools"}:
+            return {"ok": False, "error": "Unsupported replay simulation mode."}
+        disabled = {str(tool).strip().lower() for tool in (disabled_tools or []) if str(tool).strip()}
+        run = payload.get("run") if isinstance(payload.get("run"), dict) else {}
+        steps = payload.get("steps") if isinstance(payload.get("steps"), list) else []
+        tool_calls = payload.get("tool_calls") if isinstance(payload.get("tool_calls"), list) else []
+        approvals = payload.get("approvals") if isinstance(payload.get("approvals"), list) else []
+        blocked_steps = [step for step in steps if str(step.get("status") or "") in {"blocked", "denied", "error"}]
+        pending_approvals = [item for item in approvals if str(item.get("status") or "") == "pending"]
+        high_risk_tools = [
+            call
+            for call in tool_calls
+            if str(((call.get("envelope") or {}) if isinstance(call, dict) else {}).get("risk_level") or "") in {"high", "critical"}
+        ]
+        disabled_hits = [call for call in tool_calls if str(call.get("tool_name") or "").strip().lower() in disabled]
+        replay_steps: list[dict[str, Any]] = []
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            strict = bool(stricter_policy or mode == "stricter_policy")
+            replay_steps.append(
+                {
+                    "step_id": step.get("step_id"),
+                    "step_type": step.get("step_type"),
+                    "original_status": step.get("status"),
+                    "replay_status": "needs_approval"
+                    if strict and str(step.get("step_type") or "") in {"tool_call", "execution_result"}
+                    else step.get("status"),
+                    "policy_preview": "stricter approval boundary" if strict else "unchanged",
+                }
+            )
+        warnings: list[str] = []
+        if pending_approvals:
+            warnings.append("Replay starts behind unresolved approval checkpoints.")
+        if blocked_steps:
+            warnings.append("Original run contains blocked, denied, or error steps.")
+        if high_risk_tools and (mode == "stricter_policy" or stricter_policy):
+            warnings.append("Stricter policy would require approval before high-risk tool execution.")
+        if disabled_hits:
+            warnings.append("Simulation disables tools used by the original run.")
+        if mode == "try_model" and model_provider and model_provider != run.get("model_provider"):
+            warnings.append("Model change may alter cost, latency, and output quality.")
+        projected_status = "blocked_preview" if pending_approvals or disabled_hits else "replayable_preview"
+        return {
+            "ok": True,
+            "simulation": {
+                "run_id": run_id,
+                "mode": mode,
+                "projected_status": projected_status,
+                "execution_performed": False,
+                "mutation_performed": False,
+                "model_provider": model_provider or run.get("model_provider", ""),
+                "disabled_tools": sorted(disabled),
+                "stricter_policy": bool(stricter_policy or mode == "stricter_policy"),
+                "step_count": len(steps),
+                "tool_call_count": len(tool_calls),
+                "approval_count": len(approvals),
+                "blocked_step_count": len(blocked_steps),
+                "warnings": warnings,
+                "steps": replay_steps[:100],
+            },
+        }
+
     def export_trace(self, run_id: str) -> dict[str, Any]:
         if run_id == "latest":
             runs = self.list_runs(limit=1)["runs"]
@@ -564,6 +730,18 @@ class TrustRuntimeStore:
         approvals = self.pending_approvals()["approvals"]
         mcp = self.mcp_trust_list()
         latest_baseline = self._load_json(self.eval_baseline_path, {})
+        baseline_created_at = float(latest_baseline.get("created_at") or 0.0) if latest_baseline else 0.0
+        baseline_age_seconds = (_now() - baseline_created_at) if baseline_created_at else None
+        baseline_is_stale = baseline_age_seconds is None or baseline_age_seconds > TRUST_BASELINE_MAX_AGE_SECONDS
+        baseline_p0_failures = int(latest_baseline.get("p0_failures") or 0) if latest_baseline else 0
+        if not latest_baseline:
+            baseline_status = "missing"
+        elif baseline_p0_failures:
+            baseline_status = "failing"
+        elif baseline_is_stale:
+            baseline_status = "stale"
+        else:
+            baseline_status = "fresh"
         high_risk_unreviewed = [
             item for item in mcp.get("servers", []) if item.get("status") not in {"approved", "revoked"} and item.get("risk_ceiling") in {"high", "critical"}
         ]
@@ -571,7 +749,7 @@ class TrustRuntimeStore:
         for run in runs[:50]:
             detail = self.get_run(str(run.get("run_id")))
             blocked_steps += sum(1 for step in detail.get("steps", []) if step.get("status") == "blocked")
-        ready = not approvals and not high_risk_unreviewed and blocked_steps == 0 and bool(latest_baseline)
+        ready = not approvals and not high_risk_unreviewed and blocked_steps == 0 and baseline_status == "fresh"
         return {
             "ok": True,
             "ready": ready,
@@ -585,13 +763,29 @@ class TrustRuntimeStore:
                 "high_risk_unreviewed_mcp": len(high_risk_unreviewed),
                 "blocked_steps_recent": blocked_steps,
                 "has_eval_baseline": bool(latest_baseline),
+                "baseline_p0_failures": baseline_p0_failures,
             },
             "production_readiness": {"status": "ready" if ready else "review"},
             "trace_health": {"status": "local-json", "raw_prompts_exported": False, "secrets_exported": False},
             "latest_runs": runs[:5],
             "mcp_trust": mcp,
             "eval_baseline": _redact_value(latest_baseline),
-            "warnings": self._trust_warnings(approvals, high_risk_unreviewed, blocked_steps, latest_baseline),
+            "eval_baseline_status": {
+                "status": baseline_status,
+                "age_seconds": round(baseline_age_seconds, 3) if baseline_age_seconds is not None else None,
+                "max_age_seconds": TRUST_BASELINE_MAX_AGE_SECONDS,
+                "p0_failures": baseline_p0_failures,
+                "case_count": int(latest_baseline.get("case_count") or 0) if latest_baseline else 0,
+            },
+            "warnings": self._trust_warnings(
+                approvals,
+                high_risk_unreviewed,
+                blocked_steps,
+                latest_baseline,
+                baseline_status=baseline_status,
+                baseline_age_seconds=baseline_age_seconds,
+                baseline_p0_failures=baseline_p0_failures,
+            ),
         }
 
     def mcp_trust_list(self) -> dict[str, Any]:
@@ -636,7 +830,20 @@ class TrustRuntimeStore:
         runs = self.list_runs(limit=200)["runs"]
         approvals = self.pending_approvals(include_resolved=True)["approvals"]
         mcp = self.mcp_trust_list()["servers"]
+        promoted_cases = self.list_eval_cases(limit=500)["cases"]
         cases: list[dict[str, Any]] = []
+        for promoted in promoted_cases:
+            cases.append(
+                {
+                    "case_id": promoted.get("case_id"),
+                    "source": "trust_eval_case",
+                    "ok": promoted.get("expected_status") != "blocked",
+                    "status": promoted.get("expected_status"),
+                    "severity": promoted.get("severity"),
+                    "label": promoted.get("label"),
+                    "run_id": promoted.get("run_id"),
+                }
+            )
         for run in runs[:25]:
             detail = self.get_run(str(run.get("run_id")))
             steps = detail.get("steps", [])
@@ -703,6 +910,10 @@ class TrustRuntimeStore:
         high_risk_unreviewed: list[dict[str, Any]],
         blocked_steps: int,
         latest_baseline: dict[str, Any],
+        *,
+        baseline_status: str = "",
+        baseline_age_seconds: float | None = None,
+        baseline_p0_failures: int = 0,
     ) -> list[str]:
         warnings: list[str] = []
         if approvals:
@@ -713,6 +924,11 @@ class TrustRuntimeStore:
             warnings.append("Recent runs contain blocked or denied trust steps.")
         if not latest_baseline:
             warnings.append("Create a trust eval baseline before release.")
+        elif baseline_status == "stale":
+            days = round((baseline_age_seconds or 0.0) / 86400, 1)
+            warnings.append(f"Refresh the trust eval baseline; latest baseline is {days} days old.")
+        elif baseline_status == "failing" or baseline_p0_failures:
+            warnings.append("Resolve trust eval P0 failures before production operation.")
         return warnings
 
     def _load_index(self) -> dict[str, Any]:
@@ -748,10 +964,28 @@ class TrustRuntimeStore:
                 return step
         return None
 
+    def _with_record_hash(self, path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+        previous_hash = ""
+        existing = self._read_jsonl(path)
+        if existing:
+            previous_hash = str(existing[-1].get("record_hash") or "")
+        record = {**payload, "previous_hash": previous_hash}
+        record["record_hash"] = _hash_payload(record)
+        return record
+
     def _append_jsonl(self, path: Path, payload: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(_redact_value(payload), sort_keys=True) + "\n")
+
+    def _write_jsonl(self, path: Path, rows: list[dict[str, Any]]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(
+            "".join(json.dumps(_redact_value(row), sort_keys=True) + "\n" for row in rows),
+            encoding="utf-8",
+        )
+        tmp.replace(path)
 
     def _read_jsonl(self, path: Path) -> list[dict[str, Any]]:
         if not path.exists():
@@ -789,6 +1023,7 @@ __all__ = [
     "RunStepRecord",
     "ToolCallRecord",
     "ToolTrustEnvelope",
+    "TrustEvalCase",
     "TrustRuntimeStore",
     "build_tool_trust_envelope",
     "classify_tool_risk",

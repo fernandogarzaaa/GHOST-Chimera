@@ -19,6 +19,7 @@ venv/
 !.env.vultr.example
 *.log
 .ghostchimera/
+.ghost-admin-live/
 /data/
 /logs/
 

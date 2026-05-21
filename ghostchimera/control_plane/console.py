@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import html
 import importlib.util
 import json
 import os
@@ -18,6 +19,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from ..capability_admission import CapabilityAdmissionStore
 from ..capability_pack import call_capability_tool, list_capability_tools
 from ..chimera_pilot import ChimeraPilotKernel
 from ..chimera_pilot.autonomy import get_autonomy_profile, list_autonomy_profiles
@@ -31,13 +33,36 @@ from ..chimera_pilot.pr_review import run_pr_review
 from ..cognition_layer.trust import GhostBelief, guard_belief, summarize_operational_trace
 from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 from ..config import GhostChimeraConfig
+from ..integrations.email_oauth import (
+    crawl_email_provider,
+    email_oauth_status,
+    finish_gmail_browser_oauth,
+    poll_email_oauth,
+    start_email_oauth,
+    start_gmail_browser_oauth,
+)
 from ..integrations.remote_control import RemoteControlStore, normalize_remote_payload, verify_remote_webhook_signature
 from ..memory_layer.store import MemoryStore
 from ..model_layer.auth_profiles import AuthProfile
+from ..model_layer.codex_cli_provider import codex_login_command, get_codex_cli_status, launch_codex_login_flow
 from ..model_layer.local_model_inventory import discover_local_model_inventory, resolve_model_source
 from ..model_layer.minimind_lifecycle import MiniMindLifecycle
 from ..model_layer.minimind_personal_agent import MiniMindPersonalAgent
 from ..model_layer.model_discovery import get_model_discovery, refresh_model_discovery, select_discovered_model
+from ..model_layer.provider_auth import (
+    get_provider_auth_spec,
+    list_provider_options,
+    provider_auth_setup_url,
+    provider_auth_summary,
+    provider_env_keys,
+)
+from ..model_layer.provider_oauth_connectors import (
+    exchange_openrouter_code,
+    poll_huggingface_device_flow,
+    start_google_adc_flow,
+    start_huggingface_device_flow,
+    start_openrouter_pkce,
+)
 from ..model_layer.providers import get_provider
 from ..sandbox.journey import run_sandbox_journey
 from ..tool_layer.browser import http_get
@@ -133,6 +158,16 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "purpose": "Creates a fresh local trust baseline before production deployment.",
     },
     {
+        "name": "trust eval cases",
+        "command": "ghostchimera trust eval-cases list",
+        "purpose": "Lists promoted local trust regression cases for the eval flywheel.",
+    },
+    {
+        "name": "capability admission",
+        "command": "ghostchimera capability-admission list",
+        "purpose": "Checks reviewed capability records before production activation.",
+    },
+    {
         "name": "base wheel smoke",
         "command": "python scripts/smoke_installed_wheel.py",
         "purpose": "Verifies the installed artifact without optional extras.",
@@ -197,107 +232,21 @@ RELEASE_CHECKS: list[dict[str, str]] = [
 
 CONSOLE_HTML = "<!-- Ghost Console -- served by static/index.html -->"
 
-PROVIDER_OPTIONS: list[dict[str, Any]] = [
-    {
-        "id": "openai",
-        "name": "OpenAI",
-        "description": "Hosted OpenAI models.",
-        "models": ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"],
-        "requires_api_key": True,
-        "base_url_required": False,
-        "api_key_label": "OpenAI API key",
-    },
-    {
-        "id": "anthropic",
-        "name": "Anthropic",
-        "description": "Claude models through Anthropic.",
-        "models": ["claude-3-5-haiku-20241022", "claude-sonnet-4-6", "claude-opus-4-6"],
-        "requires_api_key": True,
-        "base_url_required": False,
-        "api_key_label": "Anthropic API key",
-    },
-    {
-        "id": "openrouter",
-        "name": "OpenRouter",
-        "description": "Many hosted models behind one OpenRouter API key.",
-        "models": ["openai/gpt-4o-mini", "anthropic/claude-3-5-haiku", "google/gemini-flash-1.5"],
-        "requires_api_key": True,
-        "base_url_required": False,
-        "api_key_label": "OpenRouter API key",
-    },
-    {
-        "id": "vultr",
-        "name": "Vultr Serverless Inference",
-        "description": "OpenAI-compatible Vultr serverless inference.",
-        "models": ["", "llama-3.1-70b", "mixtral-8x7b"],
-        "requires_api_key": True,
-        "base_url_required": True,
-        "api_key_label": "Vultr inference API key",
-        "default_base_url": "https://api.vultrinference.com/v1/chat/completions",
-    },
-    {
-        "id": "huggingface",
-        "name": "Hugging Face",
-        "description": "Hugging Face Inference API for compatible hosted open models.",
-        "models": ["meta-llama/Llama-3.3-70B-Instruct", "mistralai/Mistral-7B-Instruct-v0.3"],
-        "requires_api_key": True,
-        "base_url_required": False,
-        "api_key_label": "Hugging Face token",
-        "default_base_url": "https://api-inference.huggingface.co/v1/chat/completions",
-    },
-    {
-        "id": "ollama",
-        "name": "Ollama",
-        "description": "Local Ollama models running on this machine.",
-        "models": ["llama3.2", "mistral", "qwen2.5:7b"],
-        "requires_api_key": False,
-        "base_url_required": False,
-        "api_key_label": "",
-        "default_base_url": "http://localhost:11434",
-    },
-    {
-        "id": "lmstudio",
-        "name": "LM Studio",
-        "description": "Local LM Studio OpenAI-compatible server.",
-        "models": ["lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF", "any"],
-        "requires_api_key": False,
-        "base_url_required": False,
-        "api_key_label": "",
-        "default_base_url": "http://localhost:1234",
-    },
-    {
-        "id": "minimind",
-        "name": "Local MiniMind",
-        "description": "Local-first profile without a hosted API key.",
-        "models": ["tiny", "balanced", "stronger"],
-        "requires_api_key": False,
-        "base_url_required": False,
-        "api_key_label": "",
-    },
-]
+PROVIDER_OPTIONS: list[dict[str, Any]] = list_provider_options()
 
-_MODEL_ENV_KEYS = {
-    "GHOSTCHIMERA_MODEL_PROVIDER",
-    "OPENAI_API_KEY",
-    "OPENAI_MODEL",
-    "OPENAI_BASE_URL",
-    "OPENROUTER_API_KEY",
-    "OPENROUTER_MODEL",
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_MODEL",
-    "VULTR_INFERENCE_API_KEY",
-    "VULTR_INFERENCE_MODEL",
-    "VULTR_INFERENCE_BASE_URL",
-    "HF_TOKEN",
-    "HUGGINGFACE_MODEL",
-    "HUGGINGFACE_BASE_URL",
-    "OLLAMA_MODEL",
-    "OLLAMA_BASE_URL",
-    "LMSTUDIO_MODEL",
-    "LMSTUDIO_BASE_URL",
-    "MINIMIND_MODEL_PROFILE",
-    "CUSTOM_MODEL",
+_MODEL_ENV_KEYS = provider_env_keys()
+_EMAIL_OAUTH_ENV_KEYS = {
+    "GMAIL_OAUTH_CLIENT_ID",
+    "GMAIL_OAUTH_CLIENT_SECRET",
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "OUTLOOK_OAUTH_CLIENT_ID",
+    "MS_GRAPH_CLIENT_ID",
+    "OUTLOOK_TENANT_ID",
+    "MICROSOFT_TENANT_ID",
 }
+_GITHUB_OAUTH_ENV_KEYS = {"GHOSTCHIMERA_GITHUB_CLIENT_ID", "GITHUB_CLIENT_ID"}
+_CONFIG_ENV_KEYS = _MODEL_ENV_KEYS | _EMAIL_OAUTH_ENV_KEYS | _GITHUB_OAUTH_ENV_KEYS
 
 
 def _redact_secret(value: str) -> str:
@@ -306,6 +255,11 @@ def _redact_secret(value: str) -> str:
     if len(value) <= 6:
         return "[configured]"
     return f"{value[:2]}...{value[-2:]}"
+
+
+def _is_secret_env_key(key: str) -> bool:
+    marker = key.upper()
+    return any(part in marker for part in ("API_KEY", "TOKEN", "SECRET", "PASSWORD"))
 
 
 def _option_ids() -> set[str]:
@@ -337,7 +291,7 @@ def _write_env_file(config_file: Path, env_vars: dict[str, str]) -> Path:
 
 def _apply_model_env(env_vars: dict[str, str], *, overwrite: bool) -> None:
     if overwrite:
-        for key in _MODEL_ENV_KEYS:
+        for key in _CONFIG_ENV_KEYS:
             os.environ.pop(key, None)
     for key, value in env_vars.items():
         if value and (overwrite or not os.environ.get(key)):
@@ -354,6 +308,8 @@ def _apply_saved_config_env(config_path: str | Path | None = None, *, overwrite:
 
 def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str, Any]:
     model = config.get("model", {}) if isinstance(config.get("model"), dict) else {}
+    email_oauth = config.get("email_oauth", {}) if isinstance(config.get("email_oauth"), dict) else {}
+    github_oauth = config.get("github_oauth", {}) if isinstance(config.get("github_oauth"), dict) else {}
     env_vars = config_to_env_vars(config)
     provider = str(model.get("provider") or os.environ.get("GHOSTCHIMERA_MODEL_PROVIDER") or "").strip()
     runtime = GhostChimeraConfig.from_env().to_dict()
@@ -367,12 +323,38 @@ def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str,
             "model": str(model.get("model") or ""),
             "base_url": str(model.get("base_url") or ""),
             "api_key_configured": bool(model.get("api_key")),
+            "oauth_token_configured": bool(model.get("oauth_token")),
             "api_key_preview": _redact_secret(str(model.get("api_key") or "")),
         },
         "env_preview": {
-            key: (_redact_secret(value) if key.endswith("_API_KEY") else value)
+            key: (_redact_secret(value) if _is_secret_env_key(key) else value)
             for key, value in sorted(env_vars.items())
             if value
+        },
+        "provider_auth": provider_auth_summary(config),
+        "email_oauth": {
+            "gmail_client_id_configured": bool(email_oauth.get("gmail_client_id"))
+            or bool(os.environ.get("GMAIL_OAUTH_CLIENT_ID") or os.environ.get("GOOGLE_OAUTH_CLIENT_ID")),
+            "gmail_client_secret_configured": bool(email_oauth.get("gmail_client_secret"))
+            or bool(os.environ.get("GMAIL_OAUTH_CLIENT_SECRET") or os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")),
+            "outlook_client_id_configured": bool(email_oauth.get("outlook_client_id"))
+            or bool(os.environ.get("OUTLOOK_OAUTH_CLIENT_ID") or os.environ.get("MS_GRAPH_CLIENT_ID")),
+            "microsoft_tenant_id_configured": bool(email_oauth.get("microsoft_tenant_id"))
+            or bool(os.environ.get("MICROSOFT_TENANT_ID") or os.environ.get("OUTLOOK_TENANT_ID")),
+            "gmail_client_id_preview": _redact_secret(str(email_oauth.get("gmail_client_id") or "")),
+            "gmail_client_secret_preview": _redact_secret(str(email_oauth.get("gmail_client_secret") or "")),
+            "outlook_client_id_preview": _redact_secret(str(email_oauth.get("outlook_client_id") or "")),
+            "microsoft_tenant_id_preview": _redact_secret(str(email_oauth.get("microsoft_tenant_id") or "")),
+            "read_only_scopes": True,
+            "tokens_are_write_only": True,
+        },
+        "github_oauth": {
+            "client_id_configured": bool(github_oauth.get("client_id"))
+            or bool(os.environ.get("GHOSTCHIMERA_GITHUB_CLIENT_ID") or os.environ.get("GITHUB_CLIENT_ID")),
+            "client_id_preview": _redact_secret(str(github_oauth.get("client_id") or "")),
+            "device_flow_enabled": bool(github_oauth.get("client_id"))
+            or bool(os.environ.get("GHOSTCHIMERA_GITHUB_CLIENT_ID") or os.environ.get("GITHUB_CLIENT_ID")),
+            "tokens_are_write_only": True,
         },
         "runtime": runtime,
         "modules": [
@@ -624,6 +606,7 @@ def register_console_routes(
     console_state_dir = Path(state_dir or server.config.state_dir)
     remote_store = RemoteControlStore(console_state_dir)
     trust_store = TrustRuntimeStore(console_state_dir)
+    admission_store = CapabilityAdmissionStore(console_state_dir)
     path_config_file = Path(config_path).expanduser() if config_path else None
     console_config_file = _config_file_for_console(config_path)
     scheduler = cron_scheduler
@@ -769,7 +752,125 @@ def register_console_routes(
         )
         return {"repo": repo, "skill_name": slug, "path": str(skill_path)}
 
+    def _move_admission_to_review(record: dict[str, Any], *, reason: str) -> dict[str, Any]:
+        current = str(record.get("status") or "discovered")
+        record_id = str(record.get("id") or "")
+        if current == "discovered":
+            moved = admission_store.transition(record_id, "inspected", reviewer="console", reason=reason)
+            if moved.get("ok"):
+                record = moved["record"]
+                current = str(record.get("status") or "inspected")
+        if current == "inspected":
+            moved = admission_store.transition(record_id, "review_required", reviewer="console", reason=reason)
+            if moved.get("ok"):
+                record = moved["record"]
+        return record
+
+    def _move_admission_to_active(record: dict[str, Any], *, reason: str) -> dict[str, Any]:
+        current = str(record.get("status") or "discovered")
+        record_id = str(record.get("id") or "")
+        if current in {"revoked", "quarantined"}:
+            return record
+        record = _move_admission_to_review(record, reason=reason)
+        current = str(record.get("status") or "")
+        if current == "review_required":
+            moved = admission_store.transition(record_id, "approved", reviewer="console", reason=reason)
+            if moved.get("ok"):
+                record = moved["record"]
+                current = str(record.get("status") or "")
+        if current == "approved":
+            moved = admission_store.transition(record_id, "active", reviewer="console", reason=reason)
+            if moved.get("ok"):
+                record = moved["record"]
+        return record
+
+    def _admission_gate(
+        *,
+        capability_kind: str,
+        name: str,
+        source: str,
+        risk_level: str = "medium",
+        risk_ceiling: str = "medium",
+        requested_permissions: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        inspection: dict[str, Any] | None = None,
+        reason: str,
+    ) -> dict[str, Any]:
+        payload = admission_store.register_or_update(
+            capability_kind=capability_kind,
+            name=name,
+            source=source,
+            risk_level=risk_level,
+            risk_ceiling=risk_ceiling,
+            requested_permissions=requested_permissions,
+            metadata=metadata,
+            inspection=inspection,
+        )
+        if not payload.get("ok"):
+            return payload
+        record = payload.get("record") or {}
+        status_value = str(record.get("status") or "discovered")
+        if status_value == "active":
+            return {"ok": True, "record": record}
+        if status_value in {"revoked", "quarantined"}:
+            return {
+                "ok": False,
+                "admission_required": True,
+                "error": f"Capability admission record is {status_value}.",
+                "record": record,
+            }
+        record = _move_admission_to_review(record, reason=reason)
+        return {
+            "ok": False,
+            "admission_required": True,
+            "error": "Capability Admission approval and activation are required before this can be used.",
+            "record": record,
+        }
+
+    def _find_evolution_candidate(candidate_id: str) -> dict[str, Any] | None:
+        for item in list_candidates(console_state_dir):
+            if str(item.get("id") or "") == candidate_id:
+                return item
+        return None
+
     def console_page(ctx: dict[str, Any]) -> HttpResponse:
+        query = ctx.get("query") or {}
+        state = str(query.get("state") or "").strip()
+        code = str(query.get("code") or "").strip()
+        provider_error = str(query.get("error") or "").strip()
+        provider_error_description = str(query.get("error_description") or "").strip()
+        if state and (code or provider_error):
+            if provider_error:
+                safe_error = html.escape(provider_error_description or provider_error)
+                return HttpResponse(
+                    body=(
+                        "<html><body><h1>Gmail connection failed</h1>"
+                        f"<p>{safe_error}</p><p>You can close this tab and return to Ghost Console.</p>"
+                        "</body></html>"
+                    ),
+                    status=400,
+                    content_type="text/html",
+                )
+            result = finish_gmail_browser_oauth(server.config.state_dir, state, code)
+            if result.get("ok"):
+                return HttpResponse(
+                    body=(
+                        "<html><body><h1>Gmail connected</h1>"
+                        "<p>Read-only Gmail OAuth is connected. You can close this tab and return to Ghost Console.</p>"
+                        "</body></html>"
+                    ),
+                    content_type="text/html",
+                )
+            safe_error = html.escape(str(result.get("error") or "OAuth callback failed."))
+            return HttpResponse(
+                body=(
+                    "<html><body><h1>Gmail connection failed</h1>"
+                    f"<p>{safe_error}</p><p>You can close this tab and return to Ghost Console.</p>"
+                    "</body></html>"
+                ),
+                status=400,
+                content_type="text/html",
+            )
         return HttpResponse(body=CONSOLE_HTML, content_type="text/html; charset=utf-8")
 
     def status(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -791,6 +892,16 @@ def register_console_routes(
         base_url = str(body.get("base_url") or "").strip()
         api_key = str(body.get("api_key") or "").strip()
         clear_api_key = _as_bool(body.get("clear_api_key"), default=False)
+        gmail_client_id = str(body.get("gmail_client_id") or "").strip()
+        gmail_client_secret = str(body.get("gmail_client_secret") or "").strip()
+        outlook_client_id = str(body.get("outlook_client_id") or "").strip()
+        microsoft_tenant_id = str(body.get("microsoft_tenant_id") or "").strip()
+        github_client_id = str(body.get("github_client_id") or "").strip()
+        clear_gmail_client_id = _as_bool(body.get("clear_gmail_client_id"), default=False)
+        clear_gmail_client_secret = _as_bool(body.get("clear_gmail_client_secret"), default=False)
+        clear_outlook_client_id = _as_bool(body.get("clear_outlook_client_id"), default=False)
+        clear_microsoft_tenant_id = _as_bool(body.get("clear_microsoft_tenant_id"), default=False)
+        clear_github_client_id = _as_bool(body.get("clear_github_client_id"), default=False)
 
         if base_url and not (base_url.startswith("https://") or base_url.startswith("http://")):
             return {"ok": False, "error": "Base URL must start with http:// or https://."}
@@ -800,6 +911,15 @@ def register_console_routes(
             return {"ok": False, "error": "Base URL is too long."}
         if len(api_key) > 2000:
             return {"ok": False, "error": "API key is too long."}
+        for label, value in (
+            ("Gmail OAuth client ID", gmail_client_id),
+            ("Gmail OAuth client secret", gmail_client_secret),
+            ("Outlook OAuth client ID", outlook_client_id),
+            ("Microsoft tenant ID", microsoft_tenant_id),
+            ("GitHub OAuth client ID", github_client_id),
+        ):
+            if len(value) > 500:
+                return {"ok": False, "error": f"{label} is too long."}
 
         option = next(item for item in PROVIDER_OPTIONS if item["id"] == provider)
         model["provider"] = provider
@@ -821,6 +941,47 @@ def register_console_routes(
             model["api_key"] = api_key
 
         config["model"] = model
+        provider_auth = config.setdefault("provider_auth", {})
+        if isinstance(provider_auth, dict):
+            auth_record = provider_auth.setdefault(provider, {})
+            if isinstance(auth_record, dict):
+                auth_record["provider"] = provider
+                auth_record["method"] = "api_key" if model.get("api_key") else "local"
+                auth_record["model"] = model.get("model", "")
+                auth_record["base_url"] = model.get("base_url", "")
+                if clear_api_key:
+                    auth_record.pop("api_key", None)
+                elif api_key:
+                    auth_record["api_key"] = api_key
+        email_oauth = config.setdefault("email_oauth", {})
+        if not isinstance(email_oauth, dict):
+            email_oauth = {}
+            config["email_oauth"] = email_oauth
+        if clear_gmail_client_id:
+            email_oauth.pop("gmail_client_id", None)
+        elif gmail_client_id:
+            email_oauth["gmail_client_id"] = gmail_client_id
+        if clear_gmail_client_secret:
+            email_oauth.pop("gmail_client_secret", None)
+        elif gmail_client_secret:
+            email_oauth["gmail_client_secret"] = gmail_client_secret
+        if clear_outlook_client_id:
+            email_oauth.pop("outlook_client_id", None)
+        elif outlook_client_id:
+            email_oauth["outlook_client_id"] = outlook_client_id
+        if clear_microsoft_tenant_id:
+            email_oauth.pop("microsoft_tenant_id", None)
+        elif microsoft_tenant_id:
+            email_oauth["microsoft_tenant_id"] = microsoft_tenant_id
+        github_oauth = config.setdefault("github_oauth", {})
+        if not isinstance(github_oauth, dict):
+            github_oauth = {}
+            config["github_oauth"] = github_oauth
+        if clear_github_client_id:
+            github_oauth.pop("client_id", None)
+        elif github_client_id:
+            github_oauth["client_id"] = github_client_id
+
         save_config(config, console_config_file)
         env_vars = config_to_env_vars(config)
         env_file = _write_env_file(console_config_file, env_vars)
@@ -828,10 +989,381 @@ def register_console_routes(
         record_timeline_event(
             console_state_dir,
             "config_saved",
-            {"provider": provider, "model": model.get("model", ""), "api_key_configured": bool(model.get("api_key"))},
+            {
+                "provider": provider,
+                "model": model.get("model", ""),
+                "api_key_configured": bool(model.get("api_key")),
+                "email_oauth_configured": {
+                    "gmail": bool(email_oauth.get("gmail_client_id")),
+                    "outlook": bool(email_oauth.get("outlook_client_id")),
+                },
+                "github_oauth_configured": bool(github_oauth.get("client_id")),
+            },
         )
         payload = _safe_config_payload(config, console_config_file)
         payload.update({"saved": True, "env_file": str(env_file)})
+        return payload
+
+    def provider_auth_vault(ctx: dict[str, Any]) -> dict[str, Any]:
+        config = _load_console_config(console_config_file)
+        if ctx.get("method") == "GET":
+            return provider_auth_summary(config)
+
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "").strip().lower()
+        method = str(body.get("method") or "api_key").strip().lower()
+        make_active = _as_bool(body.get("make_active"), default=False)
+        clear_secret = _as_bool(body.get("clear_secret"), default=False)
+        api_key = str(body.get("api_key") or "").strip()
+        oauth_token = str(body.get("oauth_token") or "").strip()
+        model_name = str(body.get("model") or "").strip()
+        base_url = str(body.get("base_url") or "").strip()
+        if provider not in _option_ids():
+            return {"ok": False, "error": "Choose a supported provider."}
+        spec = get_provider_auth_spec(provider)
+        if not spec:
+            return {"ok": False, "error": "Provider metadata is not available."}
+        allowed_methods = {choice.get("method") for choice in spec.to_console_option().get("auth_methods", [])}
+        if method not in allowed_methods:
+            return {"ok": False, "error": "This auth method is not offered for the selected provider."}
+        selected_choice = next((choice for choice in spec.auth_choices if choice.method == method), None)
+        if make_active and selected_choice and not selected_choice.supports_runtime_activation:
+            return {
+                "ok": False,
+                "error": "This OAuth method needs an ExternalAuthProvider connector before it can run models.",
+            }
+        codex_oauth = method == "oauth" and provider in {"openai", "codex_cli"}
+        codex_status = get_codex_cli_status() if codex_oauth else None
+        if make_active and codex_oauth and (not codex_status or not codex_status.logged_in):
+            return {
+                "ok": False,
+                "error": f"Codex CLI is not logged in. Run: {codex_login_command()}",
+                "login_command": codex_login_command(),
+                "connector_status": codex_status.to_dict() if codex_status else {},
+            }
+        if len(api_key) > 2000 or len(oauth_token) > 4000:
+            return {"ok": False, "error": "Credential is too long."}
+        if len(model_name) > 300 or len(base_url) > 500:
+            return {"ok": False, "error": "Model or base URL is too long."}
+        if base_url and not (base_url.startswith("http://") or base_url.startswith("https://")):
+            return {"ok": False, "error": "Base URL must start with http:// or https://."}
+
+        provider_auth = config.setdefault("provider_auth", {})
+        if not isinstance(provider_auth, dict):
+            provider_auth = {}
+            config["provider_auth"] = provider_auth
+        record = provider_auth.setdefault(provider, {})
+        if not isinstance(record, dict):
+            record = {}
+            provider_auth[provider] = record
+        record.update(
+            {
+                "provider": provider,
+                "method": method,
+                "model": model_name or record.get("model", ""),
+                "base_url": base_url or record.get("base_url", ""),
+                "updated_at": time.time(),
+            }
+        )
+        if codex_oauth:
+            record["oauth_connector"] = "codex_cli"
+            record["connector_status"] = "connected" if codex_status and codex_status.logged_in else "needs_login"
+            record["login_command"] = codex_login_command()
+        if clear_secret:
+            record.pop("api_key", None)
+            record.pop("oauth_token", None)
+        elif method == "api_key" and api_key:
+            record["api_key"] = api_key
+        elif method == "oauth" and oauth_token:
+            record["oauth_token"] = oauth_token
+
+        if make_active:
+            active_provider = "codex_cli" if codex_oauth else provider
+            active_spec = get_provider_auth_spec(active_provider) or spec
+            model = config.setdefault("model", {})
+            if not isinstance(model, dict):
+                model = {}
+                config["model"] = model
+            model["provider"] = active_provider
+            model["auth_method"] = method
+            if codex_oauth:
+                model["oauth_connector"] = "codex_cli"
+            if model_name:
+                model["model"] = model_name
+            elif record.get("model"):
+                model["model"] = record["model"]
+            elif active_spec.models and active_spec.models[0]:
+                model["model"] = active_spec.models[0]
+            if base_url:
+                model["base_url"] = base_url
+            elif record.get("base_url"):
+                model["base_url"] = record["base_url"]
+            elif active_spec.default_base_url:
+                model["base_url"] = active_spec.default_base_url
+            if clear_secret:
+                model.pop("api_key", None)
+                model.pop("oauth_token", None)
+            elif method == "api_key" and (api_key or record.get("api_key")):
+                model["api_key"] = api_key or record["api_key"]
+            elif method == "oauth" and (oauth_token or record.get("oauth_token")):
+                model["oauth_token"] = oauth_token or record["oauth_token"]
+
+        save_config(config, console_config_file)
+        env_vars = config_to_env_vars(config)
+        env_file = _write_env_file(console_config_file, env_vars)
+        _apply_model_env(env_vars, overwrite=True)
+        record_timeline_event(
+            console_state_dir,
+            "provider_auth_saved",
+            {
+                "provider": provider,
+                "method": method,
+                "make_active": make_active,
+                "oauth_connector": "codex_cli" if codex_oauth else "",
+                "secret_configured": bool(
+                    api_key
+                    or oauth_token
+                    or record.get("api_key")
+                    or record.get("oauth_token")
+                    or record.get("oauth_connector")
+                ),
+            },
+        )
+        payload = _safe_config_payload(config, console_config_file)
+        payload.update({"saved": True, "env_file": str(env_file), "provider_auth": provider_auth_summary(config)})
+        return payload
+
+    def provider_auth_connect(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "").strip().lower()
+        method = str(body.get("method") or "oauth").strip().lower()
+        launch = bool(body.get("launch"))
+        spec = get_provider_auth_spec(provider)
+        if not spec:
+            return {"ok": False, "error": "Provider metadata is not available."}
+        choice = next((item for item in spec.auth_choices if item.method == method), None)
+        if not choice:
+            return {"ok": False, "error": "This auth method is not offered for the selected provider."}
+        if choice.method != "oauth":
+            setup_url = provider_auth_setup_url(provider) or spec.docs_url
+            return {
+                "ok": True,
+                "provider": provider,
+                "method": method,
+                "status": "manual_secret_entry",
+                "message": (
+                    "Open the provider setup page, create or copy the supported credential, then paste it into "
+                    "Ghost's write-only Config field."
+                    if choice.method in {"api_key", "token", "custom"}
+                    else choice.setup_hint or "Start the local provider runtime, then save this provider in Config."
+                ),
+                "auth_url": setup_url,
+                "setup_url": setup_url,
+                "login_launched": False,
+                "runtime_activation_supported": choice.supports_runtime_activation,
+                "activation_provider": provider,
+                "raw_secret_returned": False,
+                "policy": {
+                    "secrets_are_write_only": True,
+                    "oauth_requires_provider_connector": False,
+                    "no_browser_cookie_scraping": True,
+                    "token_files_read": False,
+                    "api_key_only_provider": choice.method in {"api_key", "token", "custom"},
+                },
+            }
+        if provider in {"openai", "codex_cli"}:
+            status = get_codex_cli_status()
+            connected = status.available and status.logged_in
+            login_launch = None if connected or not launch else launch_codex_login_flow()
+            return {
+                "ok": True,
+                "provider": provider,
+                "method": method,
+                "status": "connected" if connected else "needs_login",
+                "runtime_activation_supported": connected,
+                "activation_provider": "codex_cli",
+                "message": (
+                    "Codex CLI is logged in with ChatGPT/Codex and can be activated as a Ghost model bridge."
+                    if connected
+                    else (
+                        login_launch.detail
+                        if login_launch is not None
+                        else f"Open a terminal and run the official Codex login flow: {codex_login_command()}"
+                    )
+                ),
+                "auth_url": "",
+                "login_command": codex_login_command(),
+                "login_launched": bool(login_launch and login_launch.launched),
+                "login_launch": login_launch.to_dict() if login_launch is not None else None,
+                "manual_required": not connected,
+                "raw_secret_returned": False,
+                "connector_status": status.to_dict(),
+                "policy": {
+                    "secrets_are_write_only": True,
+                    "oauth_requires_provider_connector": False,
+                    "no_browser_cookie_scraping": True,
+                    "token_files_read": False,
+                },
+            }
+        if provider == "openrouter":
+            payload = start_openrouter_pkce(ctx, console_state_dir, launch=launch).to_dict()
+            payload.update(
+                {
+                    "method": method,
+                    "raw_secret_returned": False,
+                    "policy": {
+                        "secrets_are_write_only": True,
+                        "oauth_requires_provider_connector": False,
+                        "no_browser_cookie_scraping": True,
+                        "token_files_read": False,
+                    },
+                }
+            )
+            return payload
+        if provider == "huggingface":
+            payload = start_huggingface_device_flow(console_state_dir, launch=launch).to_dict()
+            payload.update(
+                {
+                    "method": method,
+                    "raw_secret_returned": False,
+                    "poll_supported": bool(payload.get("pending_id")),
+                    "policy": {
+                        "secrets_are_write_only": True,
+                        "oauth_requires_provider_connector": False,
+                        "no_browser_cookie_scraping": True,
+                        "token_files_read": False,
+                    },
+                }
+            )
+            return payload
+        if provider == "gemini":
+            payload = start_google_adc_flow(launch=launch).to_dict()
+            payload.update(
+                {
+                    "method": method,
+                    "raw_secret_returned": False,
+                    "policy": {
+                        "secrets_are_write_only": True,
+                        "oauth_requires_provider_connector": False,
+                        "no_browser_cookie_scraping": True,
+                        "token_files_read": False,
+                        "runtime_requires_adc_provider_support": True,
+                    },
+                }
+            )
+            return payload
+        return {
+            "ok": True,
+            "provider": provider,
+            "method": method,
+            "status": choice.status,
+            "runtime_activation_supported": choice.supports_runtime_activation,
+            "message": choice.setup_hint or choice.description,
+            "auth_url": provider_auth_setup_url(provider) or spec.docs_url,
+            "setup_url": provider_auth_setup_url(provider) or spec.docs_url,
+            "manual_required": True,
+            "raw_secret_returned": False,
+            "policy": {
+                "secrets_are_write_only": True,
+                "oauth_requires_provider_connector": True,
+                "no_browser_cookie_scraping": True,
+                "token_files_read": False,
+            },
+        }
+
+    def _save_oauth_api_key(
+        *,
+        provider: str,
+        api_key: str,
+        model: str = "",
+        base_url: str = "",
+        make_active: bool = True,
+    ) -> dict[str, Any]:
+        config = _load_console_config(console_config_file)
+        provider_auth = config.setdefault("provider_auth", {})
+        provider_auth[provider] = {
+            "provider": provider,
+            "method": "oauth",
+            "api_key": api_key,
+            "model": model,
+            "base_url": base_url,
+            "updated_at": time.time(),
+            "oauth_connector": f"{provider}_oauth",
+        }
+        if make_active:
+            spec = get_provider_auth_spec(provider)
+            config["model"] = {
+                "provider": provider,
+                "model": model or (spec.models[0] if spec and spec.models else ""),
+                "base_url": base_url,
+                "api_key": api_key,
+                "api_key_configured": True,
+                "oauth_connector": f"{provider}_oauth",
+            }
+        save_config(config, console_config_file)
+        env_vars = config_to_env_vars(config)
+        env_file = _write_env_file(console_config_file, env_vars)
+        _apply_model_env(env_vars, overwrite=True)
+        record_timeline_event(
+            console_state_dir,
+            "provider_oauth_connected",
+            {"provider": provider, "method": "oauth", "secret_configured": bool(api_key)},
+        )
+        payload = _safe_config_payload(config, console_config_file)
+        payload.update({"saved": True, "env_file": str(env_file), "provider_auth": provider_auth_summary(config)})
+        return payload
+
+    def provider_auth_openrouter_callback(ctx: dict[str, Any]) -> HttpResponse:
+        query = ctx.get("query") or {}
+        state = str(query.get("state") or "").strip()
+        code = str(query.get("code") or "").strip()
+        result = exchange_openrouter_code(console_state_dir, state=state, code=code)
+        if result.ok:
+            payload = _save_oauth_api_key(
+                provider="openrouter",
+                api_key=result.api_key,
+                model="openai/gpt-5.2",
+                make_active=True,
+            )
+            status = "connected"
+            body = (
+                "<html><body><h1>OpenRouter connected</h1>"
+                "<p>Ghost Chimera stored the returned API key write-only and activated OpenRouter.</p>"
+                "<p>You can close this tab and return to Ghost Console.</p>"
+                f"<pre>{json.dumps({'ok': True, 'status': status, 'active_provider': payload.get('model', {}).get('provider')}, indent=2)}</pre>"
+                "</body></html>"
+            )
+            return HttpResponse(body=body, content_type="text/html")
+        body = (
+            "<html><body><h1>OpenRouter connection failed</h1>"
+            f"<p>{json.dumps(result.error)}</p>"
+            "<p>Return to Ghost Console and try Connect again.</p>"
+            "</body></html>"
+        )
+        return HttpResponse(body=body, status=400, content_type="text/html")
+
+    def provider_auth_oauth_poll(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "").strip().lower()
+        pending_id = str(body.get("pending_id") or "").strip()
+        if provider != "huggingface":
+            return {"ok": False, "error": "OAuth polling is currently available for Hugging Face device flow only."}
+        result = poll_huggingface_device_flow(console_state_dir, pending_id)
+        if not result.ok:
+            return {
+                "ok": False,
+                "provider": provider,
+                "status": result.status or "pending",
+                "error": result.error,
+                "raw_secret_returned": False,
+            }
+        payload = _save_oauth_api_key(
+            provider="huggingface",
+            api_key=result.api_key,
+            model="meta-llama/Llama-3.3-70B-Instruct",
+            make_active=bool(body.get("make_active", True)),
+        )
+        payload.update({"ok": True, "provider": provider, "status": "connected", "raw_secret_returned": False})
         return payload
 
     def model_discovery(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -886,12 +1418,38 @@ def register_console_routes(
         )
         if not selected.get("ok"):
             return selected
+        selected_model = selected.get("selected_model") or {}
+        admission = _admission_gate(
+            capability_kind="model",
+            name=f"{provider}/{model_id}",
+            source=source or provider,
+            risk_level="medium",
+            risk_ceiling="medium",
+            requested_permissions=[
+                "model_inference",
+                "network_provider",
+                *([] if not selected.get("requires_api_key", False) else ["api_key"]),
+            ],
+            metadata=selected_model if isinstance(selected_model, dict) else {},
+            inspection={
+                "compatibility_status": selected_model.get("compatibility_status") if isinstance(selected_model, dict) else "",
+                "requires_api_key": bool(selected.get("requires_api_key", False)),
+            },
+            reason="Model selection from discovery requires explicit capability admission.",
+        )
+        if not admission.get("ok"):
+            return {
+                "ok": False,
+                "admission_required": True,
+                "error": admission.get("error"),
+                "admission_record": admission.get("record"),
+                "selected_model": selected_model,
+            }
         next_config = selected["config"]
         save_config(next_config, console_config_file)
         env_vars = config_to_env_vars(next_config)
         env_file = _write_env_file(console_config_file, env_vars)
         _apply_model_env(env_vars, overwrite=True)
-        selected_model = selected.get("selected_model") or {}
         record_timeline_event(
             console_state_dir,
             "model_activated",
@@ -900,6 +1458,7 @@ def register_console_routes(
                 "provider": provider,
                 "model_id": model_id,
                 "requires_api_key": bool(selected.get("requires_api_key", False)),
+                "admission_record": admission.get("record", {}).get("id"),
             },
         )
         upsert_candidate(
@@ -919,6 +1478,7 @@ def register_console_routes(
                 "env_file": str(env_file),
                 "selected_model": selected_model,
                 "requires_api_key": selected.get("requires_api_key", False),
+                "admission_record": admission.get("record"),
             }
         )
         return payload
@@ -1331,6 +1891,229 @@ def register_console_routes(
         if not objective:
             return {"ok": False, "error": "Missing objective"}
         return personal_minimind().build_handoff(objective)
+
+    def minimind_post_training_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        objective = str(body.get("objective") or "").strip() or (
+            "Use the current Personal MiniMind dataset and memory handoff to identify the next safe Ghost improvement."
+        )
+        status = personal_minimind().status()
+        readiness = status.get("readiness") if isinstance(status.get("readiness"), dict) else {}
+        autonomy_cfg = get_autonomy_config(load_config())
+        lifecycle = MiniMindLifecycle(
+            profile_name=str(autonomy_cfg.get("local_model_profile") or server.config.local_model_profile or "tiny"),
+            state_dir=server.config.state_dir,
+        )
+        lifecycle.generate_dataset(
+            [
+                {
+                    "prompt": objective,
+                    "response": (
+                        "Summarize learned context, run safe readiness checks, stage one reviewed "
+                        "Self-Evolution candidate, and require explicit approval before promotion."
+                    ),
+                }
+            ]
+        )
+        local_adapter = lifecycle.train_local_adapter()
+        local_inference = lifecycle.infer(objective) if local_adapter.get("ok") else {"ok": False, "answer": ""}
+        training = training_status({"method": "GET", "path": "/api/console/training/status", "headers": {}, "body": "", "query": {}})
+        training_state = training.get("status") if isinstance(training.get("status"), dict) else {}
+        status = personal_minimind().status()
+        readiness = status.get("readiness") if isinstance(status.get("readiness"), dict) else readiness
+        handoff = personal_minimind().build_handoff(objective)
+        source = create_learning_source(
+            console_state_dir,
+            {
+                "source_type": "manual_note",
+                "label": "Personal MiniMind post-training review",
+                "scope": "global",
+                "consent_status": "approved" if readiness.get("consent_ready") else "pending",
+                "risk_level": "low",
+                "provenance": {
+                    "dataset_count": training_state.get("dataset_count", 0),
+                    "memory_count": status.get("memory_count", 0),
+                    "handoff_ready": bool(readiness.get("primary_model_handoff_ready")),
+                    "inference_ready": bool(readiness.get("inference_ready")),
+                },
+                "notes": "Generated from explicit operator post-training action.",
+            },
+        )
+        candidate = upsert_candidate(
+            console_state_dir,
+            {
+                "candidate_type": "config_improvement",
+                "title": "Post-training Ghost readiness improvement",
+                "source_id": source["id"],
+                "status": "reviewed",
+                "required_permissions": ["operator_review", "readiness_check"],
+                "safety_notes": [
+                    "Review candidate before promotion.",
+                    "No email scraping, file mutation, MCP enablement, skill activation, or model switching was performed.",
+                    "Local MiniMind inference uses the Ghost-native dataset adapter; neural weight fine-tuning remains optional future work.",
+                ],
+                "metadata": {
+                    "objective": objective,
+                    "dataset_count": training_state.get("dataset_count", 0),
+                    "memory_count": status.get("memory_count", 0),
+                    "readiness": readiness,
+                    "handoff_context_chars": len(str(handoff.get("personal_context") or "")),
+                    "handoff_sources": len(handoff.get("sources") or []) if isinstance(handoff.get("sources"), list) else 0,
+                    "local_adapter": local_adapter.get("adapter", {}),
+                    "local_inference": {
+                        "ok": bool(local_inference.get("ok")),
+                        "confidence": local_inference.get("confidence", 0.0),
+                        "record_id": local_inference.get("record_id", ""),
+                    },
+                },
+            },
+        )
+        jobs: list[dict[str, Any]] = []
+        for job_name in ("self-audit", "model-health-check", "memory-refresh"):
+            with contextlib.suppress(Exception):
+                jobs.append(queue.enqueue(job_name, profile="supervised", execute=False, run_now=True))
+        summary = _operator_summary_payload()
+        record_timeline_event(
+            console_state_dir,
+            "minimind_post_training_action_run",
+            {
+                "candidate_id": candidate.get("id"),
+                "dataset_count": training_state.get("dataset_count", 0),
+                "jobs": [job.get("name") for job in jobs],
+                "handoff_ready": bool(readiness.get("primary_model_handoff_ready")),
+            },
+        )
+        return {
+            "ok": True,
+            "objective": objective,
+            "mode": "review_then_activate",
+            "status": status,
+            "training": training_state,
+            "handoff": {
+                "ok": bool(handoff.get("ok")),
+                "personal_context_chars": len(str(handoff.get("personal_context") or "")),
+                "source_count": len(handoff.get("sources") or []) if isinstance(handoff.get("sources"), list) else 0,
+                "primary_model_prompt_chars": len(str(handoff.get("primary_model_prompt") or "")),
+            },
+            "local_adapter": local_adapter,
+            "local_inference": local_inference,
+            "learning_source": source,
+            "candidate": candidate,
+            "jobs": jobs,
+            "summary": summary,
+            "next_approvals": [
+                "Review the Self-Evolution candidate.",
+                "Promote only after checking the safety notes and required permissions.",
+                (
+                    "Optional: install MiniMind weights and training dependencies only if you need neural fine-tuning beyond the local dataset adapter."
+                    if local_adapter.get("ok")
+                    else "Train or configure a local MiniMind adapter before expecting local inference."
+                ),
+            ],
+        }
+
+    def email_oauth_status_route(ctx: dict[str, Any]) -> dict[str, Any]:
+        return email_oauth_status(server.config.state_dir)
+
+    def email_oauth_start_route(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "").strip().lower()
+        return start_email_oauth(provider, server.config.state_dir)
+
+    def _console_redirect_uri(ctx: dict[str, Any]) -> str:
+        headers = {str(k).lower(): str(v) for k, v in dict(ctx.get("headers") or {}).items()}
+        host = headers.get("host") or f"127.0.0.1:{server.http_port}"
+        scheme = headers.get("x-forwarded-proto") or ("https" if headers.get("x-forwarded-ssl") == "on" else "http")
+        return f"{scheme}://{host}"
+
+    def email_oauth_browser_start_route(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "gmail").strip().lower()
+        if provider != "gmail":
+            return {
+                "ok": False,
+                "provider": provider,
+                "status": "unsupported_browser_flow",
+                "error": "Browser OAuth is currently available for Gmail. Use device login for Outlook.",
+            }
+        return start_gmail_browser_oauth(server.config.state_dir, _console_redirect_uri(ctx))
+
+    def email_oauth_browser_callback_route(ctx: dict[str, Any]) -> HttpResponse:
+        query = ctx.get("query") or {}
+        state = str(query.get("state") or "").strip()
+        code = str(query.get("code") or "").strip()
+        provider_error = str(query.get("error") or "").strip()
+        provider_error_description = str(query.get("error_description") or "").strip()
+        if provider_error:
+            safe_error = html.escape(provider_error_description or provider_error)
+            return HttpResponse(
+                body=(
+                    "<html><body><h1>Gmail connection failed</h1>"
+                    f"<p>{safe_error}</p><p>You can close this tab and return to Ghost Console.</p>"
+                    "</body></html>"
+                ),
+                status=400,
+                content_type="text/html",
+            )
+        result = finish_gmail_browser_oauth(server.config.state_dir, state, code)
+        if result.get("ok"):
+            return HttpResponse(
+                body=(
+                    "<html><body><h1>Gmail connected</h1>"
+                    "<p>Read-only Gmail OAuth is connected. You can close this tab and return to Ghost Console.</p>"
+                    "</body></html>"
+                ),
+                content_type="text/html",
+            )
+        safe_error = html.escape(str(result.get("error") or "OAuth callback failed."))
+        return HttpResponse(
+            body=(
+                "<html><body><h1>Gmail connection failed</h1>"
+                f"<p>{safe_error}</p><p>You can close this tab and return to Ghost Console.</p>"
+                "</body></html>"
+            ),
+            status=400,
+            content_type="text/html",
+        )
+
+    def email_oauth_poll_route(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "").strip().lower()
+        pending_id = str(body.get("pending_id") or "").strip()
+        return poll_email_oauth(provider, server.config.state_dir, pending_id)
+
+    def email_oauth_crawl_route(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "").strip().lower()
+        max_messages = int(body.get("max_messages") or 10)
+        query = str(body.get("query") or "")
+        consent = personal_minimind().load_consent()
+        if not consent.enabled or not consent.allow_email_crawl:
+            return {
+                "ok": False,
+                "type": "consent_required",
+                "error": "Enable Personal MiniMind admin controls and email crawl consent before OAuth email crawling.",
+            }
+        result = crawl_email_provider(
+            provider,
+            server.config.state_dir,
+            memory_db=server.config.memory_db,
+            max_messages=max_messages,
+            query=query,
+            generate_training=consent.allow_training,
+        )
+        if result.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "email_oauth_crawl_run",
+                {
+                    "provider": provider,
+                    "messages_seen": result.get("messages_seen", 0),
+                    "ingested": result.get("ingested", 0),
+                    "raw_secret_returned": False,
+                },
+            )
+        return result
 
     def capabilities(ctx: dict[str, Any]) -> dict[str, Any]:
         return inspect_capabilities()
@@ -2048,6 +2831,21 @@ def register_console_routes(
         )
         remote_payload = remote_store.status()
         trust_payload = trust_store.trust_status()
+        admission_payload = admission_store.summary()
+        combined_warnings = list(summary.get("warnings") or [])
+        combined_warnings.extend(str(item) for item in trust_payload.get("warnings", []) if str(item).strip())
+        combined_warnings.extend(str(item) for item in admission_payload.get("warnings", []) if str(item).strip())
+        summary["warnings"] = list(dict.fromkeys(combined_warnings))
+        production_ready = bool(trust_payload.get("ready")) and bool(admission_payload.get("production_ready"))
+        summary["production_readiness"] = {
+            "ready": production_ready,
+            "status": "ready" if production_ready and not summary["warnings"] else "review",
+            "trust": trust_payload.get("production_readiness", {}),
+            "capability_admission": {
+                "production_ready": admission_payload.get("production_ready", False),
+                "counts": admission_payload.get("counts", {}),
+            },
+        }
         if isinstance(summary.get("cards"), list):
             summary["cards"].append(
                 {
@@ -2062,6 +2860,14 @@ def register_console_routes(
                     "id": "trust-runtime",
                     "label": "Trust Runtime",
                     "status": trust_payload.get("production_readiness", {}).get("status", "review"),
+                    "action": "trust",
+                }
+            )
+            summary["cards"].append(
+                {
+                    "id": "capability-admission",
+                    "label": "Capability Admission",
+                    "status": "ready" if admission_payload.get("production_ready") else "review",
                     "action": "trust",
                 }
             )
@@ -2083,6 +2889,7 @@ def register_console_routes(
                     "policy": remote_payload.get("policy", {}),
                 },
                 "trust": trust_payload,
+                "capability_admission": admission_payload,
             }
         )
         return summary
@@ -2230,6 +3037,32 @@ def register_console_routes(
             return {"ok": False, "error": "Run id is required."}
         return trust_store.export_trace(run_id)
 
+    def trust_run_replay(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/trust/replay/")
+        run_id = suffix.strip("/")
+        if not run_id:
+            return {"ok": False, "error": "Run id is required."}
+        body = _json_body(ctx)
+        disabled_tools = [str(item) for item in (body.get("disabled_tools") or []) if str(item).strip()]
+        payload = trust_store.simulate_replay(
+            run_id,
+            mode=str(body.get("mode") or "same_policy"),
+            model_provider=str(body.get("model_provider") or ""),
+            disabled_tools=disabled_tools,
+            stricter_policy=_as_bool(body.get("stricter_policy"), default=False),
+        )
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "trust_run_replay_previewed",
+                {
+                    "run_id": run_id,
+                    "mode": payload.get("simulation", {}).get("mode"),
+                    "projected_status": payload.get("simulation", {}).get("projected_status"),
+                },
+            )
+        return payload
+
     def trust_evals(ctx: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "baseline": trust_store.trust_status().get("eval_baseline", {}), "comparison": trust_store.eval_compare()}
 
@@ -2240,6 +3073,94 @@ def register_console_routes(
             "trust_eval_baseline_created",
             {"trust_score": payload.get("trust_score"), "case_count": payload.get("case_count")},
         )
+        return payload
+
+    def trust_eval_cases(ctx: dict[str, Any]) -> dict[str, Any]:
+        query = ctx.get("query") or {}
+        try:
+            limit = int(query.get("limit") or 100)
+        except (TypeError, ValueError):
+            limit = 100
+        return trust_store.list_eval_cases(limit=limit)
+
+    def trust_eval_case_promote(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        run_id = str(body.get("run_id") or "").strip()
+        if not run_id:
+            return {"ok": False, "error": "run_id is required."}
+        payload = trust_store.promote_run_to_eval_case(
+            run_id,
+            label=str(body.get("label") or "").strip(),
+            severity=str(body.get("severity") or "P2").strip().upper(),
+        )
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "trust_eval_case_promoted",
+                {"run_id": run_id, "case_id": payload.get("case", {}).get("case_id"), "severity": payload.get("case", {}).get("severity")},
+            )
+        return payload
+
+    def capability_admission_route(ctx: dict[str, Any]) -> dict[str, Any]:
+        if ctx.get("method") == "GET":
+            query = ctx.get("query") or {}
+            payload = admission_store.list_records(
+                status=str(query.get("status") or ""),
+                capability_kind=str(query.get("kind") or query.get("capability_kind") or ""),
+            )
+            payload["summary"] = admission_store.summary()
+            return payload
+        body = _json_body(ctx)
+        try:
+            payload = admission_store.register_or_update(
+                capability_kind=str(body.get("capability_kind") or body.get("kind") or "").strip(),
+                name=str(body.get("name") or "").strip(),
+                source=str(body.get("source") or "console").strip() or "console",
+                risk_level=str(body.get("risk_level") or "medium"),
+                risk_ceiling=str(body.get("risk_ceiling") or body.get("risk_level") or "medium"),
+                requested_permissions=[str(item) for item in (body.get("requested_permissions") or body.get("permissions") or []) if str(item).strip()],
+                metadata=body.get("metadata") if isinstance(body.get("metadata"), dict) else {},
+                inspection={"inspected_by": "console", "created_from": "dashboard"},
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        record_timeline_event(
+            console_state_dir,
+            "capability_admission_recorded",
+            {
+                "id": payload.get("record", {}).get("id"),
+                "kind": payload.get("record", {}).get("capability_kind"),
+                "risk_level": payload.get("record", {}).get("risk_level"),
+            },
+        )
+        return payload
+
+    def capability_admission_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/capability-admission/")
+        parts = [part for part in suffix.split("/") if part]
+        action_map = {
+            "inspect": "inspected",
+            "review": "review_required",
+            "approve": "approved",
+            "activate": "active",
+            "revoke": "revoked",
+            "quarantine": "quarantined",
+        }
+        if len(parts) != 2 or parts[1] not in action_map:
+            return {"ok": False, "error": "Expected /api/console/capability-admission/{id}/{inspect|review|approve|activate|revoke|quarantine}."}
+        body = _json_body(ctx)
+        payload = admission_store.transition(
+            parts[0],
+            action_map[parts[1]],
+            reviewer=str(body.get("reviewer") or "console"),
+            reason=str(body.get("reason") or ""),
+        )
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "capability_admission_transitioned",
+                {"id": parts[0], "status": action_map[parts[1]], "action": parts[1]},
+            )
         return payload
 
     def mcp_trust_registry(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -2258,10 +3179,39 @@ def register_console_routes(
             risk_ceiling=str(body.get("risk_ceiling") or "medium"),
             tools=[str(tool) for tool in (body.get("tools") or []) if str(tool).strip()],
         )
+        admission = admission_store.register_or_update(
+            capability_kind="mcp",
+            name=parts[0],
+            source="mcp_trust_registry",
+            risk_level=str(body.get("risk_ceiling") or "medium"),
+            risk_ceiling=str(body.get("risk_ceiling") or "medium"),
+            requested_permissions=[str(tool) for tool in (body.get("tools") or ["mcp_tool_execution"]) if str(tool).strip()],
+            metadata={"server_id": parts[0], "mcp_status": status_value},
+            inspection={"trust_action": parts[1], "runtime_registry_status": status_value},
+        )
+        admission_record = admission.get("record") if admission.get("ok") else {}
+        if isinstance(admission_record, dict) and admission_record.get("id"):
+            if status_value == "approved":
+                admission_record = _move_admission_to_active(admission_record, reason="MCP trust approval from Console.")
+            elif str(admission_record.get("status") or "") not in {"revoked", "quarantined"}:
+                revoked = admission_store.transition(
+                    str(admission_record.get("id")),
+                    "revoked",
+                    reviewer="console",
+                    reason="MCP trust revoked from Console.",
+                )
+                if revoked.get("ok"):
+                    admission_record = revoked["record"]
+        payload["admission_record"] = admission_record
         record_timeline_event(
             console_state_dir,
             "mcp_trust_updated",
-            {"server_id": parts[0], "status": status_value, "risk_ceiling": payload.get("server", {}).get("risk_ceiling")},
+            {
+                "server_id": parts[0],
+                "status": status_value,
+                "risk_ceiling": payload.get("server", {}).get("risk_ceiling"),
+                "admission_record": admission_record.get("id") if isinstance(admission_record, dict) else "",
+            },
         )
         return payload
 
@@ -2526,6 +3476,34 @@ def register_console_routes(
         if len(parts) != 2 or parts[1] not in allowed:
             return {"ok": False, "error": "Expected /api/console/evolution/candidates/{id}/review, /promote, or /reject"}
         body = _json_body(ctx)
+        if parts[1] == "promote":
+            candidate_for_gate = _find_evolution_candidate(parts[0])
+            if not isinstance(candidate_for_gate, dict):
+                return {"ok": False, "error": "Evolution candidate not found."}
+            admission = _admission_gate(
+                capability_kind=str(candidate_for_gate.get("candidate_type") or "self_evolution_candidate"),
+                name=str(candidate_for_gate.get("title") or parts[0]),
+                source=str(candidate_for_gate.get("source_id") or "self-evolution"),
+                risk_level=str(candidate_for_gate.get("risk_level") or "medium"),
+                risk_ceiling=str(candidate_for_gate.get("risk_ceiling") or "medium"),
+                requested_permissions=[
+                    str(item)
+                    for item in (candidate_for_gate.get("required_permissions") or ["self_evolution_promotion"])
+                    if str(item).strip()
+                ],
+                metadata=candidate_for_gate.get("metadata") if isinstance(candidate_for_gate.get("metadata"), dict) else {},
+                inspection={"candidate_id": parts[0], "status": candidate_for_gate.get("status")},
+                reason="Self-Evolution promotion requires active capability admission.",
+            )
+            if not admission.get("ok"):
+                return {
+                    "ok": False,
+                    "admission_required": True,
+                    "error": admission.get("error"),
+                    "admission_record": admission.get("record"),
+                    "candidate": candidate_for_gate,
+                    "candidates": list_candidates(console_state_dir),
+                }
         try:
             candidate = set_candidate_status(
                 console_state_dir,
@@ -2873,12 +3851,50 @@ def register_console_routes(
         prefix=True,
         description="Export a redacted OTel-compatible local trace bundle",
     )
+    _api_register(
+        "/api/console/trust/replay/",
+        trust_run_replay,
+        method="POST",
+        prefix=True,
+        description="Preview a durable run replay without executing tools or model calls",
+    )
     _api_register("/api/console/trust/evals", trust_evals, method="GET", description="Inspect Trust Runtime eval status")
     _api_register(
         "/api/console/trust/evals/baseline",
         trust_eval_baseline,
         method="POST",
         description="Create a local Trust Runtime eval baseline",
+    )
+    _api_register(
+        "/api/console/trust/eval-cases",
+        trust_eval_cases,
+        method="GET",
+        description="List promoted Trust Runtime eval cases",
+    )
+    _api_register(
+        "/api/console/trust/eval-cases/promote",
+        trust_eval_case_promote,
+        method="POST",
+        description="Promote a durable run into a reusable Trust Runtime eval case",
+    )
+    _api_register(
+        "/api/console/capability-admission",
+        capability_admission_route,
+        method="GET",
+        description="List capability admission records",
+    )
+    _api_register(
+        "/api/console/capability-admission",
+        capability_admission_route,
+        method="POST",
+        description="Register a capability admission record",
+    )
+    _api_register(
+        "/api/console/capability-admission/",
+        capability_admission_action,
+        method="POST",
+        prefix=True,
+        description="Review, approve, activate, revoke, or quarantine a capability admission record",
     )
     _api_register("/api/console/mcp/trust", mcp_trust_registry, method="GET", description="List MCP trust registry")
     _api_register(
@@ -2976,6 +3992,36 @@ def register_console_routes(
     )
     _api_register("/api/console/config", dashboard_config, method="GET", description="Inspect dashboard configuration")
     _api_register("/api/console/config", dashboard_config, method="POST", description="Update dashboard configuration")
+    _api_register(
+        "/api/console/provider-auth",
+        provider_auth_vault,
+        method="GET",
+        description="Inspect provider auth vault status without exposing secrets",
+    )
+    _api_register(
+        "/api/console/provider-auth",
+        provider_auth_vault,
+        method="POST",
+        description="Save write-only provider auth metadata",
+    )
+    _api_register(
+        "/api/console/provider-auth/connect",
+        provider_auth_connect,
+        method="POST",
+        description="Prepare provider-specific auth connection flow",
+    )
+    _api_register(
+        "/api/console/provider-auth/openrouter/callback",
+        provider_auth_openrouter_callback,
+        method="GET",
+        description="Complete OpenRouter OAuth PKCE callback",
+    )
+    _api_register(
+        "/api/console/provider-auth/oauth/poll",
+        provider_auth_oauth_poll,
+        method="POST",
+        description="Poll a pending provider OAuth device flow",
+    )
     _api_register(
         "/api/console/models/discovery",
         model_discovery,
@@ -3099,6 +4145,48 @@ def register_console_routes(
         minimind_personal_handoff,
         method="POST",
         description="Build Personal MiniMind RAG handoff for the primary model",
+    )
+    _api_register(
+        "/api/console/minimind/personal/post-training-action",
+        minimind_post_training_action,
+        method="POST",
+        description="Run a consent-gated post-training MiniMind workflow and stage a Self-Evolution candidate",
+    )
+    _api_register(
+        "/api/console/email/oauth/status",
+        email_oauth_status_route,
+        method="GET",
+        description="Inspect Gmail and Outlook OAuth email crawl status without exposing tokens",
+    )
+    _api_register(
+        "/api/console/email/oauth/start",
+        email_oauth_start_route,
+        method="POST",
+        description="Start Gmail or Outlook read-only OAuth device flow",
+    )
+    _api_register(
+        "/api/console/email/oauth/browser/start",
+        email_oauth_browser_start_route,
+        method="POST",
+        description="Start Gmail read-only browser OAuth flow with PKCE",
+    )
+    _api_register(
+        "/api/console/email/oauth/browser/callback",
+        email_oauth_browser_callback_route,
+        method="GET",
+        description="Complete Gmail read-only browser OAuth callback",
+    )
+    _api_register(
+        "/api/console/email/oauth/poll",
+        email_oauth_poll_route,
+        method="POST",
+        description="Poll Gmail or Outlook OAuth device flow and store token write-only",
+    )
+    _api_register(
+        "/api/console/email/oauth/crawl",
+        email_oauth_crawl_route,
+        method="POST",
+        description="Crawl bounded Gmail or Outlook messages into Personal MiniMind after consent",
     )
     _api_register("/api/console/paths", role_profiles, method="GET", description="List multi-purpose Ghost paths")
     _api_register(

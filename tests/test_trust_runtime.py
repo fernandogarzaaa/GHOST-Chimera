@@ -133,6 +133,106 @@ class TrustRuntimeStoreTests(unittest.TestCase):
             self.assertTrue(compare["ok"])
             self.assertGreaterEqual(compare["p0_failures"], 1)
 
+    def test_trust_status_requires_fresh_passing_baseline(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-trust-status-") as tmp:
+            store = TrustRuntimeStore(tmp)
+
+            missing = store.trust_status()
+            self.assertFalse(missing["ready"])
+            self.assertEqual(missing["eval_baseline_status"]["status"], "missing")
+
+            baseline = store.eval_baseline()
+            self.assertEqual(store.trust_status()["eval_baseline_status"]["status"], "fresh")
+
+            baseline["created_at"] = baseline["created_at"] - (8 * 24 * 60 * 60)
+            store._write_json(store.eval_baseline_path, baseline)
+            stale = store.trust_status()
+            self.assertFalse(stale["ready"])
+            self.assertEqual(stale["eval_baseline_status"]["status"], "stale")
+            self.assertTrue(any("Refresh the trust eval baseline" in item for item in stale["warnings"]))
+
+            baseline["created_at"] = baseline["created_at"] + (8 * 24 * 60 * 60)
+            baseline["p0_failures"] = 1
+            store._write_json(store.eval_baseline_path, baseline)
+            failing = store.trust_status()
+            self.assertFalse(failing["ready"])
+            self.assertEqual(failing["eval_baseline_status"]["status"], "failing")
+            self.assertTrue(any("P0 failures" in item for item in failing["warnings"]))
+
+    def test_promote_run_to_eval_case_and_list_cases(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-trust-cases-") as tmp:
+            store = TrustRuntimeStore(tmp)
+            run = store.create_run(agent_name="ghost", objective="review secret sk-testsecret123456", source="console")
+            store.record_step(run["run_id"], step_type="policy_check", status="completed", outputs={"ok": True})
+
+            promoted = store.promote_run_to_eval_case(run["run_id"], label="safe review", severity="P1")
+            cases = store.list_eval_cases()
+            baseline = store.eval_baseline()
+
+            self.assertTrue(promoted["ok"])
+            self.assertEqual(promoted["case"]["label"], "safe review")
+            self.assertEqual(promoted["case"]["severity"], "P1")
+            self.assertEqual(cases["count"], 1)
+            self.assertEqual(cases["cases"][0]["case_id"], promoted["case"]["case_id"])
+            self.assertIn("trust_eval_case", {case["source"] for case in baseline["cases"]})
+            self.assertNotIn("sk-testsecret123456", json.dumps(cases))
+
+    def test_journal_hash_chain_detects_tampering(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-trust-integrity-") as tmp:
+            store = TrustRuntimeStore(tmp)
+            run = store.create_run(agent_name="ghost", objective="hash chain", source="console")
+            store.record_step(run["run_id"], step_type="policy_check", status="completed", outputs={"ok": True})
+
+            detail = store.get_run(run["run_id"])
+            self.assertTrue(all(step.get("record_hash") for step in detail["steps"]))
+            self.assertTrue(all("previous_hash" in step for step in detail["steps"]))
+            self.assertTrue(store.verify_run_integrity(run["run_id"])["verified"])
+
+            journal_path = store._run_journal_path(run["run_id"])
+            lines = journal_path.read_text(encoding="utf-8").splitlines()
+            tampered = json.loads(lines[-1])
+            tampered["status"] = "tampered"
+            lines[-1] = json.dumps(tampered, sort_keys=True)
+            journal_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+            verified = store.verify_run_integrity(run["run_id"])
+            self.assertFalse(verified["ok"])
+            self.assertFalse(verified["verified"])
+
+    def test_replay_simulation_is_preview_only_and_flags_disabled_tools(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-trust-replay-") as tmp:
+            store = TrustRuntimeStore(tmp)
+            run = store.create_run(
+                agent_name="ghost",
+                objective="replay me",
+                source="console",
+                model_provider="openrouter",
+                model_name="demo",
+            )
+            store.record_tool_call(
+                run["run_id"],
+                tool_name="delete_file",
+                arguments={"path": "tmp.txt"},
+                result={"ok": False, "error": "blocked"},
+                source="mcp:external",
+            )
+
+            simulated = store.simulate_replay(
+                run["run_id"],
+                mode="disable_tools",
+                disabled_tools=["delete_file"],
+                model_provider="vultr",
+            )
+            invalid = store.simulate_replay(run["run_id"], mode="execute_for_real")
+
+            self.assertTrue(simulated["ok"])
+            self.assertFalse(simulated["simulation"]["execution_performed"])
+            self.assertFalse(simulated["simulation"]["mutation_performed"])
+            self.assertEqual(simulated["simulation"]["projected_status"], "blocked_preview")
+            self.assertIn("delete_file", simulated["simulation"]["disabled_tools"])
+            self.assertTrue(simulated["simulation"]["warnings"])
+            self.assertFalse(invalid["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

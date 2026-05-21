@@ -68,6 +68,89 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIn("autonomy", status_payload)
         self.assertIn("profiles", status_payload)
 
+    def test_console_registers_email_oauth_routes(self) -> None:
+        server = GatewayServer()
+        register_console_routes(server)
+
+        for method, path in [
+            ("GET", "/api/console/email/oauth/status"),
+            ("POST", "/api/console/email/oauth/start"),
+            ("POST", "/api/console/email/oauth/browser/start"),
+            ("GET", "/api/console/email/oauth/browser/callback"),
+            ("POST", "/api/console/email/oauth/poll"),
+            ("POST", "/api/console/email/oauth/crawl"),
+        ]:
+            with self.subTest(path=path):
+                self.assertIsNotNone(server.routes.find(method, path))
+
+    def test_console_gmail_browser_oauth_routes_do_not_return_raw_tokens(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-console-oauth-") as tmp:
+            server = GatewayServer()
+            register_console_routes(server, state_dir=tmp)
+            start_route = server.routes.find("POST", "/api/console/email/oauth/browser/start")
+            callback_route = server.routes.find("GET", "/api/console/email/oauth/browser/callback")
+            self.assertIsNotNone(start_route)
+            self.assertIsNotNone(callback_route)
+
+            with patch(
+                "ghostchimera.control_plane.console.start_gmail_browser_oauth",
+                return_value={"ok": True, "auth_url": "https://accounts.google.com/o/oauth2/v2/auth?x=1"},
+            ) as start_mock:
+                payload = start_route.handler(
+                    {
+                        "method": "POST",
+                        "path": "/api/console/email/oauth/browser/start",
+                        "headers": {"host": "127.0.0.1:8766"},
+                        "body": json.dumps({"provider": "gmail"}),
+                        "query": {},
+                    }
+                )
+            self.assertTrue(payload["ok"])
+            self.assertEqual(start_mock.call_args.args[1], "http://127.0.0.1:8766")
+
+            with patch(
+                "ghostchimera.control_plane.console.finish_gmail_browser_oauth",
+                return_value={"ok": True, "status": "connected", "token": {"access_token": "[redacted]"}},
+            ):
+                response = callback_route.handler(
+                    {
+                        "method": "GET",
+                        "path": "/api/console/email/oauth/browser/callback",
+                        "headers": {},
+                        "body": "",
+                        "query": {"state": "state", "code": "code"},
+                    }
+                )
+            self.assertIsInstance(response, HttpResponse)
+            self.assertEqual(response.content_type, "text/html")
+            self.assertIn("Gmail connected", response.body)
+            self.assertNotIn("access_token", response.body)
+
+    def test_console_root_route_can_complete_gmail_browser_oauth(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-console-oauth-") as tmp:
+            server = GatewayServer()
+            register_console_routes(server, state_dir=tmp)
+            root_route = server.routes.find("GET", "/")
+            self.assertIsNotNone(root_route)
+
+            with patch(
+                "ghostchimera.control_plane.console.finish_gmail_browser_oauth",
+                return_value={"ok": True, "status": "connected", "token": {"access_token": "[redacted]"}},
+            ):
+                response = root_route.handler(
+                    {
+                        "method": "GET",
+                        "path": "/",
+                        "headers": {},
+                        "body": "",
+                        "query": {"state": "state", "code": "code"},
+                    }
+                )
+
+            self.assertIsInstance(response, HttpResponse)
+            self.assertIn("Gmail connected", response.body)
+            self.assertNotIn("access_token", response.body)
+
     def test_console_browser_route_exposes_existing_https_fetch_tool(self) -> None:
         calls: list[str] = []
 
@@ -146,7 +229,7 @@ class ConsoleRouteTests(unittest.TestCase):
         server = GatewayServer()
         with tempfile.TemporaryDirectory(prefix="ghostchimera-console-path-") as tmp:
             config_path = Path(tmp) / "config.json"
-            register_console_routes(server, config_path=config_path)
+            register_console_routes(server, state_dir=tmp, config_path=config_path)
 
             profiles_route = server.routes.find("GET", "/api/console/paths")
             synthesize_route = server.routes.find("POST", "/api/console/paths/synthesize")
@@ -300,7 +383,7 @@ class ConsoleRouteTests(unittest.TestCase):
         server = GatewayServer()
         with tempfile.TemporaryDirectory(prefix="ghostchimera-console-config-ui-") as tmp:
             config_path = Path(tmp) / "config.json"
-            register_console_routes(server, config_path=config_path)
+            register_console_routes(server, state_dir=tmp, config_path=config_path)
             config_route = server.routes.find("GET", "/api/console/config")
             save_route = server.routes.find("POST", "/api/console/config")
 
@@ -318,6 +401,10 @@ class ConsoleRouteTests(unittest.TestCase):
                             "model": "llama-3.1-70b",
                             "base_url": "https://api.vultrinference.com/v1/chat/completions",
                             "api_key": "vultr_secret_key_12345",
+                            "gmail_client_id": "gmail-oauth-client-id",
+                            "outlook_client_id": "outlook-oauth-client-id",
+                            "microsoft_tenant_id": "tenant-for-tests",
+                            "github_client_id": "github-oauth-client-id",
                         }
                     ),
                     "query": {},
@@ -327,6 +414,11 @@ class ConsoleRouteTests(unittest.TestCase):
             self.assertTrue(saved["model"]["api_key_configured"])
             self.assertNotIn("vultr_secret_key_12345", json.dumps(saved))
             self.assertEqual(saved["env_preview"]["VULTR_INFERENCE_API_KEY"], "vu...45")
+            self.assertEqual(saved["env_preview"]["GMAIL_OAUTH_CLIENT_ID"], "gmail-oauth-client-id")
+            self.assertEqual(saved["env_preview"]["GHOSTCHIMERA_GITHUB_CLIENT_ID"], "github-oauth-client-id")
+            self.assertTrue(saved["email_oauth"]["gmail_client_id_configured"])
+            self.assertTrue(saved["email_oauth"]["outlook_client_id_configured"])
+            self.assertTrue(saved["github_oauth"]["client_id_configured"])
             self.assertTrue((Path(tmp) / ".env").exists())
 
             loaded = config_route.handler(
@@ -334,6 +426,9 @@ class ConsoleRouteTests(unittest.TestCase):
             )
             self.assertEqual(loaded["model"]["provider"], "vultr")
             self.assertTrue(loaded["security"]["secrets_are_write_only"])
+            self.assertNotIn("vultr_secret_key_12345", json.dumps(loaded))
+            self.assertTrue(loaded["email_oauth"]["tokens_are_write_only"])
+            self.assertTrue(loaded["github_oauth"]["device_flow_enabled"])
 
             rejected = save_route.handler(
                 {
@@ -369,11 +464,33 @@ class ConsoleRouteTests(unittest.TestCase):
             self.assertTrue(cleared["ok"])
             self.assertFalse(cleared["model"]["api_key_configured"])
 
+            cleared_email = save_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/config",
+                    "headers": {},
+                    "body": json.dumps(
+                        {
+                            "provider": "vultr",
+                            "clear_gmail_client_id": True,
+                            "clear_outlook_client_id": True,
+                            "clear_microsoft_tenant_id": True,
+                            "clear_github_client_id": True,
+                        }
+                    ),
+                    "query": {},
+                }
+            )
+            self.assertTrue(cleared_email["ok"])
+            self.assertFalse(cleared_email["email_oauth"]["gmail_client_id_configured"])
+            self.assertFalse(cleared_email["email_oauth"]["outlook_client_id_configured"])
+            self.assertFalse(cleared_email["github_oauth"]["client_id_configured"])
+
     def test_console_model_discovery_routes_cache_and_select_models(self) -> None:
         server = GatewayServer()
         with tempfile.TemporaryDirectory(prefix="ghostchimera-console-model-discovery-") as tmp:
             config_path = Path(tmp) / "config.json"
-            register_console_routes(server, config_path=config_path)
+            register_console_routes(server, state_dir=tmp, config_path=config_path)
             list_route = server.routes.find("GET", "/api/console/models/discovery")
             refresh_route = server.routes.find("POST", "/api/console/models/discovery/refresh")
             select_route = server.routes.find("POST", "/api/console/models/discovery/select")
@@ -447,11 +564,51 @@ class ConsoleRouteTests(unittest.TestCase):
                     "query": {},
                 }
             )
+            self.assertFalse(selected["ok"])
+            self.assertTrue(selected["admission_required"])
+            record_id = selected["admission_record"]["id"]
+            approved = server.routes.find("POST", f"/api/console/capability-admission/{record_id}/approve").handler(
+                {
+                    "method": "POST",
+                    "path": f"/api/console/capability-admission/{record_id}/approve",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+            activated = server.routes.find("POST", f"/api/console/capability-admission/{record_id}/activate").handler(
+                {
+                    "method": "POST",
+                    "path": f"/api/console/capability-admission/{record_id}/activate",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+            self.assertTrue(approved["ok"])
+            self.assertTrue(activated["ok"])
+
+            selected = select_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/models/discovery/select",
+                    "headers": {},
+                    "body": json.dumps(
+                        {
+                            "source": "openrouter",
+                            "provider": "openrouter",
+                            "model_id": "openai/gpt-4o-mini",
+                        }
+                    ),
+                    "query": {},
+                }
+            )
             self.assertTrue(selected["ok"])
             self.assertEqual(selected["model"]["provider"], "openrouter")
             self.assertEqual(selected["model"]["model"], "openai/gpt-4o-mini")
             self.assertFalse(selected["model"]["api_key_configured"])
             self.assertTrue(selected["security"]["secrets_are_write_only"])
+            self.assertEqual(selected["admission_record"]["status"], "active")
 
             with patch("ghostchimera.control_plane.console.get_provider", return_value=FakeModelProvider()):
                 pinged = ping_route.handler(
@@ -482,8 +639,12 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIn('data-tab="activity"', html)
         self.assertIn('data-tab="latency"', html)
         self.assertIn('data-tab="config"', html)
+        self.assertIn('data-tab="connections"', html)
         self.assertIn("operatorCards", html)
         self.assertIn("setupSteps", html)
+        self.assertIn("homeObjective", html)
+        self.assertIn("homeRunObjective", html)
+        self.assertIn("homePostTrainingAction", html)
         self.assertIn("learningSourceList", html)
         self.assertIn("evolutionCandidateList", html)
         self.assertIn("activityTimeline", html)
@@ -493,6 +654,25 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIn("pathConfirmMiniMind", html)
         self.assertIn("configProvider", html)
         self.assertIn("configApiKey", html)
+        self.assertIn("configGmailClientId", html)
+        self.assertIn("configGmailClientSecret", html)
+        self.assertIn("configOutlookClientId", html)
+        self.assertIn("configMicrosoftTenantId", html)
+        self.assertIn("configGithubClientId", html)
+        self.assertIn("connectionsGithubStart", html)
+        self.assertIn("connectionsGithubClientId", html)
+        self.assertIn("connectionsGithubSave", html)
+        self.assertIn("connectionsGmailStart", html)
+        self.assertIn("connectionsGmailBrowserStart", html)
+        self.assertIn("homeGmailBrowserStart", html)
+        self.assertIn("connectionsOutlookStart", html)
+        self.assertIn("connectionsEmailSave", html)
+        self.assertIn('data-step="connect_email"', html)
+        self.assertIn("homeEmailOpenConnections", html)
+        self.assertIn("homeGmailStart", html)
+        self.assertIn("homeOutlookStart", html)
+        self.assertIn("homeEmailStatus", html)
+        self.assertIn("homeEmailOutput", html)
         self.assertIn("modelDiscoveryGrid", html)
         self.assertIn("modelDiscoveryRefresh", html)
         self.assertIn("pathSave", html)
@@ -518,6 +698,18 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIn("/api/console/github/plan", app)
         self.assertIn("/api/console/thinking", app)
         self.assertIn("/api/console/config", app)
+        self.assertIn("gmail_client_id", app)
+        self.assertIn("gmail_client_secret", app)
+        self.assertIn("outlook_client_id", app)
+        self.assertIn("microsoft_tenant_id", app)
+        self.assertIn("github_client_id", app)
+        self.assertIn("startEmailOAuth", app)
+        self.assertIn("startEmailBrowserOAuth", app)
+        self.assertIn("/api/console/email/oauth/browser/start", app)
+        self.assertIn("saveEmailOAuthConfigFromConnections", app)
+        self.assertIn("saveGithubOAuthConfigFromConnections", app)
+        self.assertIn("renderHomeEmailStatus", app)
+        self.assertIn("homeEmailOpenConnections", app)
         self.assertIn("/api/console/models/discovery", app)
         self.assertIn("/api/console/models/discovery/refresh", app)
         self.assertIn("/api/console/models/discovery/select", app)
@@ -526,6 +718,8 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIn("/api/console/operator/timeline", app)
         self.assertIn("/api/console/operator/latency", app)
         self.assertIn("/api/console/operator/readiness", app)
+        self.assertIn("POST_TRAINING_OBJECTIVE", app)
+        self.assertIn("homePostTrainingAction", app)
         self.assertIn("/api/console/evolution/sources", app)
         self.assertIn("/api/console/evolution/candidates", app)
         self.assertIn("Use the Config tab", app)
@@ -549,6 +743,9 @@ class ConsoleRouteTests(unittest.TestCase):
             self.assertTrue(summary["ok"])
             self.assertIn("cards", summary)
             self.assertIn("evolution", summary)
+            self.assertIn("production_readiness", summary)
+            self.assertEqual(summary["production_readiness"]["status"], "review")
+            self.assertTrue(any("trust eval baseline" in warning for warning in summary["warnings"]))
             self.assertTrue(summary["secret_policy"]["secrets_are_write_only"])
 
             readiness = readiness_route.handler(
@@ -686,6 +883,39 @@ class ConsoleRouteTests(unittest.TestCase):
                 }
             )
             self.assertTrue(reviewed["ok"])
+
+            promoted = promote_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/evolution/candidates/candidate-id/promote",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+            self.assertFalse(promoted["ok"])
+            self.assertTrue(promoted["admission_required"])
+            record_id = promoted["admission_record"]["id"]
+            approved = server.routes.find("POST", f"/api/console/capability-admission/{record_id}/approve").handler(
+                {
+                    "method": "POST",
+                    "path": f"/api/console/capability-admission/{record_id}/approve",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+            activated = server.routes.find("POST", f"/api/console/capability-admission/{record_id}/activate").handler(
+                {
+                    "method": "POST",
+                    "path": f"/api/console/capability-admission/{record_id}/activate",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+            self.assertTrue(approved["ok"])
+            self.assertTrue(activated["ok"])
 
             promoted = promote_route.handler(
                 {
@@ -913,6 +1143,33 @@ class ConsoleRouteTests(unittest.TestCase):
             )
             self.assertFalse(rejected["ok"])
             self.assertEqual(rejected["type"], "policy")
+
+    def test_console_minimind_post_training_action_stages_candidate(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-post-training-") as tmp:
+            server = GatewayServer()
+            register_console_routes(server, state_dir=tmp)
+            route = server.routes.find("POST", "/api/console/minimind/personal/post-training-action")
+            self.assertIsNotNone(route)
+
+            payload = route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/minimind/personal/post-training-action",
+                    "headers": {},
+                    "body": json.dumps({"objective": "review MiniMind after training"}),
+                    "query": {},
+                }
+            )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["mode"], "review_then_activate")
+        self.assertIn("candidate", payload)
+        self.assertEqual(payload["candidate"]["status"], "reviewed")
+        self.assertTrue(payload["local_adapter"]["ok"])
+        self.assertTrue(payload["local_inference"]["ok"])
+        self.assertIn("learning_source", payload)
+        self.assertGreaterEqual(len(payload["jobs"]), 1)
+        self.assertIn("next_approvals", payload)
 
     def test_console_registers_schedule_routes_that_use_autonomy_jobs(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-console-") as tmp:

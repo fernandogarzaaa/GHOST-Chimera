@@ -96,6 +96,13 @@ class PersonalContextProvider:
                 sources=tuple(sources),
                 detail=f"minimind unavailable ({inspection.runtime_hint})",
             )
+        if inspection.runtime_hint == "dataset-adapter":
+            return PersonalContextResult(
+                ok=True,
+                context=excerpt_block[:max_context_chars],
+                sources=tuple(sources),
+                detail="excerpts (dataset adapter reserved for direct MiniMind inference)",
+            )
 
         try:
             messages = [

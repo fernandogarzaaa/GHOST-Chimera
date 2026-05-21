@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..model_layer.provider_auth import config_to_provider_env
+
 DEFAULT_STATE_DIR = Path.home() / ".ghostchimera"
 CONFIG_FILE = DEFAULT_STATE_DIR / "config.json"
 
@@ -74,6 +76,15 @@ def get_default_config() -> dict[str, Any]:
             "desktop_max_live_actions": 25,
             "desktop_max_session_seconds": 300.0,
         },
+        "email_oauth": {
+            "gmail_client_id": "",
+            "gmail_client_secret": "",
+            "outlook_client_id": "",
+            "microsoft_tenant_id": "",
+        },
+        "github_oauth": {
+            "client_id": "",
+        },
     }
 
 
@@ -81,68 +92,8 @@ def config_to_env_vars(config: dict[str, Any]) -> dict[str, str]:
     """Convert config dict to env var names/values for backwards compatibility."""
     env: dict[str, str] = {}
     model = config.get("model", {})
-    provider = model.get("provider", "")
-
-    if provider == "openai":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "openai"
-        if model.get("api_key"):
-            env["OPENAI_API_KEY"] = model["api_key"]
-        if model.get("model"):
-            env["OPENAI_MODEL"] = model["model"]
-        if model.get("base_url"):
-            env["OPENAI_BASE_URL"] = model["base_url"]
-    elif provider == "openrouter":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "openrouter"
-        env["OPENAI_BASE_URL"] = "https://openrouter.ai/api/v1"
-        if model.get("api_key"):
-            env["OPENROUTER_API_KEY"] = model["api_key"]
-        if model.get("model"):
-            env["OPENROUTER_MODEL"] = model["model"]
-    elif provider == "anthropic":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "anthropic"
-        if model.get("api_key"):
-            env["ANTHROPIC_API_KEY"] = model["api_key"]
-        if model.get("model"):
-            env["ANTHROPIC_MODEL"] = model["model"]
-    elif provider == "vultr":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "vultr"
-        if model.get("api_key"):
-            env["VULTR_INFERENCE_API_KEY"] = model["api_key"]
-        if model.get("model"):
-            env["VULTR_INFERENCE_MODEL"] = model["model"]
-        if model.get("base_url"):
-            env["VULTR_INFERENCE_BASE_URL"] = model["base_url"]
-    elif provider == "huggingface":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "huggingface"
-        if model.get("api_key"):
-            env["HF_TOKEN"] = model["api_key"]
-        if model.get("model"):
-            env["HUGGINGFACE_MODEL"] = model["model"]
-        if model.get("base_url"):
-            env["HUGGINGFACE_BASE_URL"] = model["base_url"]
-    elif provider == "ollama":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "ollama"
-        if model.get("model"):
-            env["OLLAMA_MODEL"] = model["model"]
-        if model.get("base_url"):
-            env["OLLAMA_BASE_URL"] = model["base_url"]
-    elif provider == "lmstudio":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "lmstudio"
-        if model.get("model"):
-            env["LMSTUDIO_MODEL"] = model["model"]
-        if model.get("base_url"):
-            env["LMSTUDIO_BASE_URL"] = model["base_url"]
-    elif provider == "custom":
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "custom"
-        if model.get("api_key"):
-            env["OPENAI_API_KEY"] = model["api_key"]
-        if model.get("base_url"):
-            env["OPENAI_BASE_URL"] = model["base_url"]
-        if model.get("model"):
-            env["CUSTOM_MODEL"] = model["model"]
-    elif provider in {"local", "minimind"}:
-        env["GHOSTCHIMERA_MODEL_PROVIDER"] = "minimind"
-        env["MINIMIND_MODEL_PROFILE"] = model.get("model", "tiny")
+    if isinstance(model, dict):
+        env.update(config_to_provider_env(model))
 
     safety = config.get("safety", {})
     env["GHOSTCHIMERA_ALLOW_SHELL"] = "1" if safety.get("allow_shell") else "0"
@@ -155,6 +106,27 @@ def config_to_env_vars(config: dict[str, Any]) -> dict[str, str]:
         env["GHOSTCHIMERA_AUTONOMY_LEVEL"] = str(autonomy["level"])
     if autonomy.get("local_model_profile"):
         env["GHOSTCHIMERA_LOCAL_MODEL_PROFILE"] = str(autonomy["local_model_profile"])
+
+    email_oauth = config.get("email_oauth", {})
+    if isinstance(email_oauth, dict):
+        gmail_client_id = str(email_oauth.get("gmail_client_id") or "").strip()
+        gmail_client_secret = str(email_oauth.get("gmail_client_secret") or "").strip()
+        outlook_client_id = str(email_oauth.get("outlook_client_id") or "").strip()
+        microsoft_tenant_id = str(email_oauth.get("microsoft_tenant_id") or "").strip()
+        if gmail_client_id:
+            env["GMAIL_OAUTH_CLIENT_ID"] = gmail_client_id
+        if gmail_client_secret:
+            env["GMAIL_OAUTH_CLIENT_SECRET"] = gmail_client_secret
+        if outlook_client_id:
+            env["OUTLOOK_OAUTH_CLIENT_ID"] = outlook_client_id
+        if microsoft_tenant_id:
+            env["MICROSOFT_TENANT_ID"] = microsoft_tenant_id
+
+    github_oauth = config.get("github_oauth", {})
+    if isinstance(github_oauth, dict):
+        github_client_id = str(github_oauth.get("client_id") or "").strip()
+        if github_client_id:
+            env["GHOSTCHIMERA_GITHUB_CLIENT_ID"] = github_client_id
 
     return env
 
