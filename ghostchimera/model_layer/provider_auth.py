@@ -69,6 +69,7 @@ class ProviderAuthSpec:
             "oauth_supported": any(choice.method == "oauth" for choice in self.auth_choices),
             "capability_badges": self.capability_badges,
             "docs_url": self.docs_url,
+            "setup_url": provider_auth_setup_url(self.id),
         }
         return {key: value for key, value in payload.items() if value not in ("", [], None)}
 
@@ -93,16 +94,16 @@ LOCAL = ProviderAuthChoice(
 OPENAI_CODEX_OAUTH = ProviderAuthChoice(
     method="oauth",
     label="ChatGPT/Codex OAuth",
-    status="connector_required",
+    status="codex_cli_bridge",
     description=(
-        "OpenClaw-style subscription auth can be modeled as an external auth provider, "
-        "but Ghost Chimera does not treat it as a normal OpenAI API key."
+        "Use the official local Codex CLI OAuth session as a Ghost model bridge without "
+        "reading or copying Codex token files."
     ),
     setup_hint=(
-        "Use API key for production OpenAI API calls today. A future external-auth connector "
-        "can plug into this slot without changing provider routing."
+        "Click Connect to check Codex login status. If needed, run the official Codex login flow, "
+        "then activate the Codex CLI bridge."
     ),
-    supports_runtime_activation=False,
+    supports_runtime_activation=True,
     scopes=["codex", "chatgpt-subscription"],
 )
 
@@ -125,6 +126,43 @@ GENERIC_OAUTH_CONNECTOR = ProviderAuthChoice(
     supports_runtime_activation=False,
 )
 
+OPENROUTER_PKCE_OAUTH = ProviderAuthChoice(
+    method="oauth",
+    label="OpenRouter OAuth PKCE",
+    status="ready",
+    description=(
+        "Redirect to OpenRouter, then exchange the authorization code for a user-controlled API key."
+    ),
+    setup_hint="Click Connect to open the OpenRouter authorization page.",
+    supports_runtime_activation=True,
+    scopes=["openrouter-api-key"],
+)
+
+HUGGINGFACE_DEVICE_OAUTH = ProviderAuthChoice(
+    method="oauth",
+    label="Hugging Face device OAuth",
+    status="client_id_required",
+    description=(
+        "Use Hugging Face's official device-code OAuth flow for Inference Providers when an OAuth client ID is configured."
+    ),
+    setup_hint="Set HUGGINGFACE_OAUTH_CLIENT_ID, then click Connect to get a browser code.",
+    supports_runtime_activation=True,
+    scopes=["openid", "profile", "inference-api"],
+)
+
+GOOGLE_ADC_OAUTH = ProviderAuthChoice(
+    method="oauth",
+    label="Google OAuth / ADC",
+    status="adc_setup",
+    description=(
+        "Launch Google's official application-default credentials flow. Runtime activation needs Gemini ADC support."
+    ),
+    setup_hint="Click Connect to launch gcloud auth application-default login if gcloud is installed.",
+    supports_runtime_activation=False,
+    requires_secret=False,
+    scopes=["cloud-platform", "generative-language"],
+)
+
 
 _SPECS: dict[str, ProviderAuthSpec] = {
     "openai": ProviderAuthSpec(
@@ -139,6 +177,16 @@ _SPECS: dict[str, ProviderAuthSpec] = {
         auth_choices=[API_KEY, OPENAI_CODEX_OAUTH],
         capability_badges=["reasoning", "vision", "tool-calling"],
         docs_url="https://platform.openai.com/docs",
+    ),
+    "codex_cli": ProviderAuthSpec(
+        id="codex_cli",
+        name="Codex CLI OAuth Bridge",
+        description="Local bridge to an already-authenticated Codex CLI ChatGPT/Codex session.",
+        models=["gpt-5.4-mini", "gpt-5.4", "gpt-5.3-codex", "gpt-5.2"],
+        model_env="CODEX_MODEL",
+        auth_choices=[OPENAI_CODEX_OAUTH],
+        capability_badges=["oauth", "chatgpt-subscription", "local-bridge"],
+        docs_url="https://developers.openai.com/codex/",
     ),
     "anthropic": ProviderAuthSpec(
         id="anthropic",
@@ -160,7 +208,7 @@ _SPECS: dict[str, ProviderAuthSpec] = {
         api_key_env="GOOGLE_API_KEY",
         model_env="GEMINI_MODEL",
         api_key_label="Google/Gemini API key",
-        auth_choices=[API_KEY, GENERIC_OAUTH_CONNECTOR],
+        auth_choices=[API_KEY, GOOGLE_ADC_OAUTH],
         capability_badges=["vision", "long-context", "multimodal"],
         docs_url="https://ai.google.dev/",
     ),
@@ -173,7 +221,7 @@ _SPECS: dict[str, ProviderAuthSpec] = {
         model_env="OPENROUTER_MODEL",
         default_base_url="https://openrouter.ai/api/v1",
         api_key_label="OpenRouter API key",
-        auth_choices=[API_KEY],
+        auth_choices=[API_KEY, OPENROUTER_PKCE_OAUTH],
         capability_badges=["model-router", "discovery", "fallbacks"],
         docs_url="https://openrouter.ai/docs",
     ),
@@ -286,7 +334,19 @@ _add_openai_compatible("perplexity", name="Perplexity", description="Search-augm
 _add_openai_compatible("fireworks", name="Fireworks AI", description="Fast open-weight model inference.", models=["accounts/fireworks/models/llama-v3p1-70b-instruct", "accounts/fireworks/models/deepseek-r1"], api_key_env="FIREWORKS_API_KEY", model_env="FIREWORKS_MODEL", badges=["fast", "open-weight"])
 _add_openai_compatible("cerebras", name="Cerebras", description="Ultra-fast inference on Cerebras Cloud.", models=["llama3.1-70b", "llama3.1-8b"], api_key_env="CEREBRAS_API_KEY", model_env="CEREBRAS_MODEL", badges=["fast"])
 _add_openai_compatible("ai21", name="AI21 Labs", description="Jamba model family.", models=["jamba-1.5-mini", "jamba-1.5-large"], api_key_env="AI21_API_KEY", model_env="AI21_MODEL", badges=["enterprise"])
-_add_openai_compatible("huggingface", name="Hugging Face", description="Hugging Face Inference API for compatible open models.", models=["meta-llama/Llama-3.3-70B-Instruct", "Qwen/Qwen2.5-72B-Instruct"], api_key_env="HF_TOKEN", model_env="HUGGINGFACE_MODEL", default_base_url="https://api-inference.huggingface.co/v1/chat/completions", badges=["open-weight", "model-hub"])
+_SPECS["huggingface"] = ProviderAuthSpec(
+    id="huggingface",
+    name="Hugging Face",
+    description="Hugging Face Inference API for compatible open models.",
+    models=["meta-llama/Llama-3.3-70B-Instruct", "Qwen/Qwen2.5-72B-Instruct"],
+    api_key_env="HF_TOKEN",
+    model_env="HUGGINGFACE_MODEL",
+    default_base_url="https://api-inference.huggingface.co/v1/chat/completions",
+    api_key_label="Hugging Face token",
+    auth_choices=[API_KEY, HUGGINGFACE_DEVICE_OAUTH],
+    capability_badges=["open-weight", "model-hub"],
+    docs_url="https://huggingface.co/docs/hub/oauth",
+)
 _add_openai_compatible("nvidia", name="NVIDIA NIM", description="NVIDIA hosted NIM inference.", models=["meta/llama-3.1-70b-instruct", "nvidia/llama-3.1-nemotron-70b-instruct"], api_key_env="NVIDIA_API_KEY", model_env="NVIDIA_MODEL", badges=["gpu", "open-weight"])
 _add_openai_compatible("moonshot", name="Moonshot Kimi", description="Moonshot Kimi long-context models.", models=["moonshot-v1-8k", "moonshot-v1-128k"], api_key_env="MOONSHOT_API_KEY", model_env="MOONSHOT_MODEL", badges=["long-context"])
 _add_openai_compatible("deepinfra", name="DeepInfra", description="Affordable hosted open-weight inference.", models=["meta-llama/Meta-Llama-3.1-70B-Instruct", "deepseek-ai/DeepSeek-R1"], api_key_env="DEEPINFRA_API_KEY", model_env="DEEPINFRA_MODEL", badges=["open-weight", "low-cost"])
@@ -295,6 +355,46 @@ _add_openai_compatible("volcengine", name="Volcengine Doubao", description="Byte
 _add_openai_compatible("stepfun", name="StepFun", description="Step model family.", models=["step-1-8k", "step-1-200k"], api_key_env="STEPFUN_API_KEY", model_env="STEPFUN_MODEL", badges=["long-context"])
 _add_openai_compatible("glm", name="ZhipuAI GLM", description="GLM-4 model family.", models=["glm-4-flash", "glm-4", "glm-4-long"], api_key_env="ZHIPUAI_API_KEY", model_env="GLM_MODEL", badges=["long-context"])
 _add_openai_compatible("venice", name="Venice AI", description="Privacy-oriented open-weight inference.", models=["llama-3.3-70b", "deepseek-r1-671b"], api_key_env="VENICE_API_KEY", model_env="VENICE_MODEL", badges=["private", "open-weight"])
+
+
+_PROVIDER_SETUP_URLS: dict[str, str] = {
+    "ai21": "https://studio.ai21.com/account/api-key",
+    "anthropic": "https://console.anthropic.com/settings/keys",
+    "cerebras": "https://cloud.cerebras.ai/platform",
+    "codex_cli": "https://developers.openai.com/codex/",
+    "cohere": "https://dashboard.cohere.com/api-keys",
+    "custom": "https://platform.openai.com/docs/api-reference",
+    "deepinfra": "https://deepinfra.com/dash/api_keys",
+    "deepseek": "https://platform.deepseek.com/api_keys",
+    "fireworks": "https://fireworks.ai/api-keys",
+    "gemini": "https://ai.google.dev/gemini-api/docs/oauth",
+    "glm": "https://bigmodel.cn/usercenter/proj-mgmt/apikeys",
+    "groq": "https://console.groq.com/keys",
+    "huggingface": "https://huggingface.co/settings/tokens",
+    "llamacpp": "https://github.com/abetlen/llama-cpp-python",
+    "lmstudio": "https://lmstudio.ai/docs/app/api/endpoints/openai",
+    "minimind": "https://github.com/jingyaogong/minimind",
+    "mistral": "https://console.mistral.ai/api-keys",
+    "moonshot": "https://platform.moonshot.ai/console/api-keys",
+    "nvidia": "https://build.nvidia.com/api-keys",
+    "ollama": "https://ollama.com/download",
+    "openai": "https://platform.openai.com/api-keys",
+    "openrouter": "https://openrouter.ai/settings/keys",
+    "perplexity": "https://www.perplexity.ai/settings/api",
+    "qwen": "https://bailian.console.aliyun.com/?tab=model#/api-key",
+    "stepfun": "https://platform.stepfun.com/account/api-key",
+    "together": "https://api.together.ai/settings/api-keys",
+    "venice": "https://venice.ai/settings/api",
+    "volcengine": "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey",
+    "vultr": "https://my.vultr.com/settings/#settingsapi",
+    "xai": "https://console.x.ai/",
+}
+
+
+def provider_auth_setup_url(provider_id: str) -> str:
+    """Return the safest official setup URL for a provider."""
+
+    return _PROVIDER_SETUP_URLS.get(provider_id.strip().lower(), "")
 
 
 def get_provider_auth_spec(provider_id: str) -> ProviderAuthSpec | None:
@@ -338,6 +438,8 @@ def config_to_provider_env(model: dict[str, Any]) -> dict[str, str]:
         env.setdefault("OPENAI_BASE_URL", spec.default_base_url)
     if provider == "minimind" and not model_id:
         env["MINIMIND_MODEL_PROFILE"] = "tiny"
+    if provider == "codex_cli" and model_id:
+        env["CODEX_MODEL"] = model_id
     return {key: value for key, value in env.items() if value}
 
 
@@ -350,7 +452,12 @@ def provider_auth_summary(config: dict[str, Any]) -> dict[str, Any]:
         record = saved_auth.get(spec.id, {}) if isinstance(saved_auth.get(spec.id, {}), dict) else {}
         is_active = spec.id == active_provider
         api_key_configured = bool(record.get("api_key")) or (is_active and bool(model.get("api_key")))
-        oauth_configured = bool(record.get("oauth_token")) or (is_active and bool(model.get("oauth_token")))
+        oauth_configured = (
+            bool(record.get("oauth_token"))
+            or bool(record.get("oauth_connector"))
+            or (is_active and bool(model.get("oauth_token")))
+            or (spec.id == "openai" and active_provider == "codex_cli")
+        )
         providers.append(
             {
                 **spec.to_console_option(),
@@ -390,5 +497,6 @@ __all__ = [
     "list_provider_auth_specs",
     "list_provider_options",
     "provider_auth_summary",
+    "provider_auth_setup_url",
     "provider_env_keys",
 ]

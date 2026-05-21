@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import html
 import importlib.util
 import json
 import os
@@ -32,9 +33,18 @@ from ..chimera_pilot.pr_review import run_pr_review
 from ..cognition_layer.trust import GhostBelief, guard_belief, summarize_operational_trace
 from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 from ..config import GhostChimeraConfig
+from ..integrations.email_oauth import (
+    crawl_email_provider,
+    email_oauth_status,
+    finish_gmail_browser_oauth,
+    poll_email_oauth,
+    start_email_oauth,
+    start_gmail_browser_oauth,
+)
 from ..integrations.remote_control import RemoteControlStore, normalize_remote_payload, verify_remote_webhook_signature
 from ..memory_layer.store import MemoryStore
 from ..model_layer.auth_profiles import AuthProfile
+from ..model_layer.codex_cli_provider import codex_login_command, get_codex_cli_status, launch_codex_login_flow
 from ..model_layer.local_model_inventory import discover_local_model_inventory, resolve_model_source
 from ..model_layer.minimind_lifecycle import MiniMindLifecycle
 from ..model_layer.minimind_personal_agent import MiniMindPersonalAgent
@@ -42,8 +52,16 @@ from ..model_layer.model_discovery import get_model_discovery, refresh_model_dis
 from ..model_layer.provider_auth import (
     get_provider_auth_spec,
     list_provider_options,
+    provider_auth_setup_url,
     provider_auth_summary,
     provider_env_keys,
+)
+from ..model_layer.provider_oauth_connectors import (
+    exchange_openrouter_code,
+    poll_huggingface_device_flow,
+    start_google_adc_flow,
+    start_huggingface_device_flow,
+    start_openrouter_pkce,
 )
 from ..model_layer.providers import get_provider
 from ..sandbox.journey import run_sandbox_journey
@@ -217,6 +235,18 @@ CONSOLE_HTML = "<!-- Ghost Console -- served by static/index.html -->"
 PROVIDER_OPTIONS: list[dict[str, Any]] = list_provider_options()
 
 _MODEL_ENV_KEYS = provider_env_keys()
+_EMAIL_OAUTH_ENV_KEYS = {
+    "GMAIL_OAUTH_CLIENT_ID",
+    "GMAIL_OAUTH_CLIENT_SECRET",
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "OUTLOOK_OAUTH_CLIENT_ID",
+    "MS_GRAPH_CLIENT_ID",
+    "OUTLOOK_TENANT_ID",
+    "MICROSOFT_TENANT_ID",
+}
+_GITHUB_OAUTH_ENV_KEYS = {"GHOSTCHIMERA_GITHUB_CLIENT_ID", "GITHUB_CLIENT_ID"}
+_CONFIG_ENV_KEYS = _MODEL_ENV_KEYS | _EMAIL_OAUTH_ENV_KEYS | _GITHUB_OAUTH_ENV_KEYS
 
 
 def _redact_secret(value: str) -> str:
@@ -261,7 +291,7 @@ def _write_env_file(config_file: Path, env_vars: dict[str, str]) -> Path:
 
 def _apply_model_env(env_vars: dict[str, str], *, overwrite: bool) -> None:
     if overwrite:
-        for key in _MODEL_ENV_KEYS:
+        for key in _CONFIG_ENV_KEYS:
             os.environ.pop(key, None)
     for key, value in env_vars.items():
         if value and (overwrite or not os.environ.get(key)):
@@ -278,6 +308,8 @@ def _apply_saved_config_env(config_path: str | Path | None = None, *, overwrite:
 
 def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str, Any]:
     model = config.get("model", {}) if isinstance(config.get("model"), dict) else {}
+    email_oauth = config.get("email_oauth", {}) if isinstance(config.get("email_oauth"), dict) else {}
+    github_oauth = config.get("github_oauth", {}) if isinstance(config.get("github_oauth"), dict) else {}
     env_vars = config_to_env_vars(config)
     provider = str(model.get("provider") or os.environ.get("GHOSTCHIMERA_MODEL_PROVIDER") or "").strip()
     runtime = GhostChimeraConfig.from_env().to_dict()
@@ -300,6 +332,30 @@ def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str,
             if value
         },
         "provider_auth": provider_auth_summary(config),
+        "email_oauth": {
+            "gmail_client_id_configured": bool(email_oauth.get("gmail_client_id"))
+            or bool(os.environ.get("GMAIL_OAUTH_CLIENT_ID") or os.environ.get("GOOGLE_OAUTH_CLIENT_ID")),
+            "gmail_client_secret_configured": bool(email_oauth.get("gmail_client_secret"))
+            or bool(os.environ.get("GMAIL_OAUTH_CLIENT_SECRET") or os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")),
+            "outlook_client_id_configured": bool(email_oauth.get("outlook_client_id"))
+            or bool(os.environ.get("OUTLOOK_OAUTH_CLIENT_ID") or os.environ.get("MS_GRAPH_CLIENT_ID")),
+            "microsoft_tenant_id_configured": bool(email_oauth.get("microsoft_tenant_id"))
+            or bool(os.environ.get("MICROSOFT_TENANT_ID") or os.environ.get("OUTLOOK_TENANT_ID")),
+            "gmail_client_id_preview": _redact_secret(str(email_oauth.get("gmail_client_id") or "")),
+            "gmail_client_secret_preview": _redact_secret(str(email_oauth.get("gmail_client_secret") or "")),
+            "outlook_client_id_preview": _redact_secret(str(email_oauth.get("outlook_client_id") or "")),
+            "microsoft_tenant_id_preview": _redact_secret(str(email_oauth.get("microsoft_tenant_id") or "")),
+            "read_only_scopes": True,
+            "tokens_are_write_only": True,
+        },
+        "github_oauth": {
+            "client_id_configured": bool(github_oauth.get("client_id"))
+            or bool(os.environ.get("GHOSTCHIMERA_GITHUB_CLIENT_ID") or os.environ.get("GITHUB_CLIENT_ID")),
+            "client_id_preview": _redact_secret(str(github_oauth.get("client_id") or "")),
+            "device_flow_enabled": bool(github_oauth.get("client_id"))
+            or bool(os.environ.get("GHOSTCHIMERA_GITHUB_CLIENT_ID") or os.environ.get("GITHUB_CLIENT_ID")),
+            "tokens_are_write_only": True,
+        },
         "runtime": runtime,
         "modules": [
             {"id": "path", "label": "Ghost Paths", "tab": "path", "enabled": True},
@@ -778,6 +834,43 @@ def register_console_routes(
         return None
 
     def console_page(ctx: dict[str, Any]) -> HttpResponse:
+        query = ctx.get("query") or {}
+        state = str(query.get("state") or "").strip()
+        code = str(query.get("code") or "").strip()
+        provider_error = str(query.get("error") or "").strip()
+        provider_error_description = str(query.get("error_description") or "").strip()
+        if state and (code or provider_error):
+            if provider_error:
+                safe_error = html.escape(provider_error_description or provider_error)
+                return HttpResponse(
+                    body=(
+                        "<html><body><h1>Gmail connection failed</h1>"
+                        f"<p>{safe_error}</p><p>You can close this tab and return to Ghost Console.</p>"
+                        "</body></html>"
+                    ),
+                    status=400,
+                    content_type="text/html",
+                )
+            result = finish_gmail_browser_oauth(server.config.state_dir, state, code)
+            if result.get("ok"):
+                return HttpResponse(
+                    body=(
+                        "<html><body><h1>Gmail connected</h1>"
+                        "<p>Read-only Gmail OAuth is connected. You can close this tab and return to Ghost Console.</p>"
+                        "</body></html>"
+                    ),
+                    content_type="text/html",
+                )
+            safe_error = html.escape(str(result.get("error") or "OAuth callback failed."))
+            return HttpResponse(
+                body=(
+                    "<html><body><h1>Gmail connection failed</h1>"
+                    f"<p>{safe_error}</p><p>You can close this tab and return to Ghost Console.</p>"
+                    "</body></html>"
+                ),
+                status=400,
+                content_type="text/html",
+            )
         return HttpResponse(body=CONSOLE_HTML, content_type="text/html; charset=utf-8")
 
     def status(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -799,6 +892,16 @@ def register_console_routes(
         base_url = str(body.get("base_url") or "").strip()
         api_key = str(body.get("api_key") or "").strip()
         clear_api_key = _as_bool(body.get("clear_api_key"), default=False)
+        gmail_client_id = str(body.get("gmail_client_id") or "").strip()
+        gmail_client_secret = str(body.get("gmail_client_secret") or "").strip()
+        outlook_client_id = str(body.get("outlook_client_id") or "").strip()
+        microsoft_tenant_id = str(body.get("microsoft_tenant_id") or "").strip()
+        github_client_id = str(body.get("github_client_id") or "").strip()
+        clear_gmail_client_id = _as_bool(body.get("clear_gmail_client_id"), default=False)
+        clear_gmail_client_secret = _as_bool(body.get("clear_gmail_client_secret"), default=False)
+        clear_outlook_client_id = _as_bool(body.get("clear_outlook_client_id"), default=False)
+        clear_microsoft_tenant_id = _as_bool(body.get("clear_microsoft_tenant_id"), default=False)
+        clear_github_client_id = _as_bool(body.get("clear_github_client_id"), default=False)
 
         if base_url and not (base_url.startswith("https://") or base_url.startswith("http://")):
             return {"ok": False, "error": "Base URL must start with http:// or https://."}
@@ -808,6 +911,15 @@ def register_console_routes(
             return {"ok": False, "error": "Base URL is too long."}
         if len(api_key) > 2000:
             return {"ok": False, "error": "API key is too long."}
+        for label, value in (
+            ("Gmail OAuth client ID", gmail_client_id),
+            ("Gmail OAuth client secret", gmail_client_secret),
+            ("Outlook OAuth client ID", outlook_client_id),
+            ("Microsoft tenant ID", microsoft_tenant_id),
+            ("GitHub OAuth client ID", github_client_id),
+        ):
+            if len(value) > 500:
+                return {"ok": False, "error": f"{label} is too long."}
 
         option = next(item for item in PROVIDER_OPTIONS if item["id"] == provider)
         model["provider"] = provider
@@ -841,6 +953,35 @@ def register_console_routes(
                     auth_record.pop("api_key", None)
                 elif api_key:
                     auth_record["api_key"] = api_key
+        email_oauth = config.setdefault("email_oauth", {})
+        if not isinstance(email_oauth, dict):
+            email_oauth = {}
+            config["email_oauth"] = email_oauth
+        if clear_gmail_client_id:
+            email_oauth.pop("gmail_client_id", None)
+        elif gmail_client_id:
+            email_oauth["gmail_client_id"] = gmail_client_id
+        if clear_gmail_client_secret:
+            email_oauth.pop("gmail_client_secret", None)
+        elif gmail_client_secret:
+            email_oauth["gmail_client_secret"] = gmail_client_secret
+        if clear_outlook_client_id:
+            email_oauth.pop("outlook_client_id", None)
+        elif outlook_client_id:
+            email_oauth["outlook_client_id"] = outlook_client_id
+        if clear_microsoft_tenant_id:
+            email_oauth.pop("microsoft_tenant_id", None)
+        elif microsoft_tenant_id:
+            email_oauth["microsoft_tenant_id"] = microsoft_tenant_id
+        github_oauth = config.setdefault("github_oauth", {})
+        if not isinstance(github_oauth, dict):
+            github_oauth = {}
+            config["github_oauth"] = github_oauth
+        if clear_github_client_id:
+            github_oauth.pop("client_id", None)
+        elif github_client_id:
+            github_oauth["client_id"] = github_client_id
+
         save_config(config, console_config_file)
         env_vars = config_to_env_vars(config)
         env_file = _write_env_file(console_config_file, env_vars)
@@ -848,7 +989,16 @@ def register_console_routes(
         record_timeline_event(
             console_state_dir,
             "config_saved",
-            {"provider": provider, "model": model.get("model", ""), "api_key_configured": bool(model.get("api_key"))},
+            {
+                "provider": provider,
+                "model": model.get("model", ""),
+                "api_key_configured": bool(model.get("api_key")),
+                "email_oauth_configured": {
+                    "gmail": bool(email_oauth.get("gmail_client_id")),
+                    "outlook": bool(email_oauth.get("outlook_client_id")),
+                },
+                "github_oauth_configured": bool(github_oauth.get("client_id")),
+            },
         )
         payload = _safe_config_payload(config, console_config_file)
         payload.update({"saved": True, "env_file": str(env_file)})
@@ -882,6 +1032,15 @@ def register_console_routes(
                 "ok": False,
                 "error": "This OAuth method needs an ExternalAuthProvider connector before it can run models.",
             }
+        codex_oauth = method == "oauth" and provider in {"openai", "codex_cli"}
+        codex_status = get_codex_cli_status() if codex_oauth else None
+        if make_active and codex_oauth and (not codex_status or not codex_status.logged_in):
+            return {
+                "ok": False,
+                "error": f"Codex CLI is not logged in. Run: {codex_login_command()}",
+                "login_command": codex_login_command(),
+                "connector_status": codex_status.to_dict() if codex_status else {},
+            }
         if len(api_key) > 2000 or len(oauth_token) > 4000:
             return {"ok": False, "error": "Credential is too long."}
         if len(model_name) > 300 or len(base_url) > 500:
@@ -906,6 +1065,10 @@ def register_console_routes(
                 "updated_at": time.time(),
             }
         )
+        if codex_oauth:
+            record["oauth_connector"] = "codex_cli"
+            record["connector_status"] = "connected" if codex_status and codex_status.logged_in else "needs_login"
+            record["login_command"] = codex_login_command()
         if clear_secret:
             record.pop("api_key", None)
             record.pop("oauth_token", None)
@@ -915,23 +1078,28 @@ def register_console_routes(
             record["oauth_token"] = oauth_token
 
         if make_active:
+            active_provider = "codex_cli" if codex_oauth else provider
+            active_spec = get_provider_auth_spec(active_provider) or spec
             model = config.setdefault("model", {})
             if not isinstance(model, dict):
                 model = {}
                 config["model"] = model
-            model["provider"] = provider
+            model["provider"] = active_provider
+            model["auth_method"] = method
+            if codex_oauth:
+                model["oauth_connector"] = "codex_cli"
             if model_name:
                 model["model"] = model_name
             elif record.get("model"):
                 model["model"] = record["model"]
-            elif spec.models and spec.models[0]:
-                model["model"] = spec.models[0]
+            elif active_spec.models and active_spec.models[0]:
+                model["model"] = active_spec.models[0]
             if base_url:
                 model["base_url"] = base_url
             elif record.get("base_url"):
                 model["base_url"] = record["base_url"]
-            elif spec.default_base_url:
-                model["base_url"] = spec.default_base_url
+            elif active_spec.default_base_url:
+                model["base_url"] = active_spec.default_base_url
             if clear_secret:
                 model.pop("api_key", None)
                 model.pop("oauth_token", None)
@@ -951,7 +1119,14 @@ def register_console_routes(
                 "provider": provider,
                 "method": method,
                 "make_active": make_active,
-                "secret_configured": bool(api_key or oauth_token or record.get("api_key") or record.get("oauth_token")),
+                "oauth_connector": "codex_cli" if codex_oauth else "",
+                "secret_configured": bool(
+                    api_key
+                    or oauth_token
+                    or record.get("api_key")
+                    or record.get("oauth_token")
+                    or record.get("oauth_connector")
+                ),
             },
         )
         payload = _safe_config_payload(config, console_config_file)
@@ -962,6 +1137,7 @@ def register_console_routes(
         body = _json_body(ctx)
         provider = str(body.get("provider") or "").strip().lower()
         method = str(body.get("method") or "oauth").strip().lower()
+        launch = bool(body.get("launch"))
         spec = get_provider_auth_spec(provider)
         if not spec:
             return {"ok": False, "error": "Provider metadata is not available."}
@@ -969,14 +1145,113 @@ def register_console_routes(
         if not choice:
             return {"ok": False, "error": "This auth method is not offered for the selected provider."}
         if choice.method != "oauth":
+            setup_url = provider_auth_setup_url(provider) or spec.docs_url
             return {
                 "ok": True,
                 "provider": provider,
                 "method": method,
                 "status": "manual_secret_entry",
-                "message": "Use the write-only secret field in Config to connect this provider.",
+                "message": (
+                    "Open the provider setup page, create or copy the supported credential, then paste it into "
+                    "Ghost's write-only Config field."
+                    if choice.method in {"api_key", "token", "custom"}
+                    else choice.setup_hint or "Start the local provider runtime, then save this provider in Config."
+                ),
+                "auth_url": setup_url,
+                "setup_url": setup_url,
+                "login_launched": False,
+                "runtime_activation_supported": choice.supports_runtime_activation,
+                "activation_provider": provider,
                 "raw_secret_returned": False,
+                "policy": {
+                    "secrets_are_write_only": True,
+                    "oauth_requires_provider_connector": False,
+                    "no_browser_cookie_scraping": True,
+                    "token_files_read": False,
+                    "api_key_only_provider": choice.method in {"api_key", "token", "custom"},
+                },
             }
+        if provider in {"openai", "codex_cli"}:
+            status = get_codex_cli_status()
+            connected = status.available and status.logged_in
+            login_launch = None if connected or not launch else launch_codex_login_flow()
+            return {
+                "ok": True,
+                "provider": provider,
+                "method": method,
+                "status": "connected" if connected else "needs_login",
+                "runtime_activation_supported": connected,
+                "activation_provider": "codex_cli",
+                "message": (
+                    "Codex CLI is logged in with ChatGPT/Codex and can be activated as a Ghost model bridge."
+                    if connected
+                    else (
+                        login_launch.detail
+                        if login_launch is not None
+                        else f"Open a terminal and run the official Codex login flow: {codex_login_command()}"
+                    )
+                ),
+                "auth_url": "",
+                "login_command": codex_login_command(),
+                "login_launched": bool(login_launch and login_launch.launched),
+                "login_launch": login_launch.to_dict() if login_launch is not None else None,
+                "manual_required": not connected,
+                "raw_secret_returned": False,
+                "connector_status": status.to_dict(),
+                "policy": {
+                    "secrets_are_write_only": True,
+                    "oauth_requires_provider_connector": False,
+                    "no_browser_cookie_scraping": True,
+                    "token_files_read": False,
+                },
+            }
+        if provider == "openrouter":
+            payload = start_openrouter_pkce(ctx, console_state_dir, launch=launch).to_dict()
+            payload.update(
+                {
+                    "method": method,
+                    "raw_secret_returned": False,
+                    "policy": {
+                        "secrets_are_write_only": True,
+                        "oauth_requires_provider_connector": False,
+                        "no_browser_cookie_scraping": True,
+                        "token_files_read": False,
+                    },
+                }
+            )
+            return payload
+        if provider == "huggingface":
+            payload = start_huggingface_device_flow(console_state_dir, launch=launch).to_dict()
+            payload.update(
+                {
+                    "method": method,
+                    "raw_secret_returned": False,
+                    "poll_supported": bool(payload.get("pending_id")),
+                    "policy": {
+                        "secrets_are_write_only": True,
+                        "oauth_requires_provider_connector": False,
+                        "no_browser_cookie_scraping": True,
+                        "token_files_read": False,
+                    },
+                }
+            )
+            return payload
+        if provider == "gemini":
+            payload = start_google_adc_flow(launch=launch).to_dict()
+            payload.update(
+                {
+                    "method": method,
+                    "raw_secret_returned": False,
+                    "policy": {
+                        "secrets_are_write_only": True,
+                        "oauth_requires_provider_connector": False,
+                        "no_browser_cookie_scraping": True,
+                        "token_files_read": False,
+                        "runtime_requires_adc_provider_support": True,
+                    },
+                }
+            )
+            return payload
         return {
             "ok": True,
             "provider": provider,
@@ -984,15 +1259,112 @@ def register_console_routes(
             "status": choice.status,
             "runtime_activation_supported": choice.supports_runtime_activation,
             "message": choice.setup_hint or choice.description,
-            "auth_url": "",
+            "auth_url": provider_auth_setup_url(provider) or spec.docs_url,
+            "setup_url": provider_auth_setup_url(provider) or spec.docs_url,
             "manual_required": True,
             "raw_secret_returned": False,
             "policy": {
                 "secrets_are_write_only": True,
                 "oauth_requires_provider_connector": True,
                 "no_browser_cookie_scraping": True,
+                "token_files_read": False,
             },
         }
+
+    def _save_oauth_api_key(
+        *,
+        provider: str,
+        api_key: str,
+        model: str = "",
+        base_url: str = "",
+        make_active: bool = True,
+    ) -> dict[str, Any]:
+        config = _load_console_config(console_config_file)
+        provider_auth = config.setdefault("provider_auth", {})
+        provider_auth[provider] = {
+            "provider": provider,
+            "method": "oauth",
+            "api_key": api_key,
+            "model": model,
+            "base_url": base_url,
+            "updated_at": time.time(),
+            "oauth_connector": f"{provider}_oauth",
+        }
+        if make_active:
+            spec = get_provider_auth_spec(provider)
+            config["model"] = {
+                "provider": provider,
+                "model": model or (spec.models[0] if spec and spec.models else ""),
+                "base_url": base_url,
+                "api_key": api_key,
+                "api_key_configured": True,
+                "oauth_connector": f"{provider}_oauth",
+            }
+        save_config(config, console_config_file)
+        env_vars = config_to_env_vars(config)
+        env_file = _write_env_file(console_config_file, env_vars)
+        _apply_model_env(env_vars, overwrite=True)
+        record_timeline_event(
+            console_state_dir,
+            "provider_oauth_connected",
+            {"provider": provider, "method": "oauth", "secret_configured": bool(api_key)},
+        )
+        payload = _safe_config_payload(config, console_config_file)
+        payload.update({"saved": True, "env_file": str(env_file), "provider_auth": provider_auth_summary(config)})
+        return payload
+
+    def provider_auth_openrouter_callback(ctx: dict[str, Any]) -> HttpResponse:
+        query = ctx.get("query") or {}
+        state = str(query.get("state") or "").strip()
+        code = str(query.get("code") or "").strip()
+        result = exchange_openrouter_code(console_state_dir, state=state, code=code)
+        if result.ok:
+            payload = _save_oauth_api_key(
+                provider="openrouter",
+                api_key=result.api_key,
+                model="openai/gpt-5.2",
+                make_active=True,
+            )
+            status = "connected"
+            body = (
+                "<html><body><h1>OpenRouter connected</h1>"
+                "<p>Ghost Chimera stored the returned API key write-only and activated OpenRouter.</p>"
+                "<p>You can close this tab and return to Ghost Console.</p>"
+                f"<pre>{json.dumps({'ok': True, 'status': status, 'active_provider': payload.get('model', {}).get('provider')}, indent=2)}</pre>"
+                "</body></html>"
+            )
+            return HttpResponse(body=body, content_type="text/html")
+        body = (
+            "<html><body><h1>OpenRouter connection failed</h1>"
+            f"<p>{json.dumps(result.error)}</p>"
+            "<p>Return to Ghost Console and try Connect again.</p>"
+            "</body></html>"
+        )
+        return HttpResponse(body=body, status=400, content_type="text/html")
+
+    def provider_auth_oauth_poll(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "").strip().lower()
+        pending_id = str(body.get("pending_id") or "").strip()
+        if provider != "huggingface":
+            return {"ok": False, "error": "OAuth polling is currently available for Hugging Face device flow only."}
+        result = poll_huggingface_device_flow(console_state_dir, pending_id)
+        if not result.ok:
+            return {
+                "ok": False,
+                "provider": provider,
+                "status": result.status or "pending",
+                "error": result.error,
+                "raw_secret_returned": False,
+            }
+        payload = _save_oauth_api_key(
+            provider="huggingface",
+            api_key=result.api_key,
+            model="meta-llama/Llama-3.3-70B-Instruct",
+            make_active=bool(body.get("make_active", True)),
+        )
+        payload.update({"ok": True, "provider": provider, "status": "connected", "raw_secret_returned": False})
+        return payload
 
     def model_discovery(ctx: dict[str, Any]) -> dict[str, Any]:
         query = ctx.get("query") or {}
@@ -1519,6 +1891,229 @@ def register_console_routes(
         if not objective:
             return {"ok": False, "error": "Missing objective"}
         return personal_minimind().build_handoff(objective)
+
+    def minimind_post_training_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        objective = str(body.get("objective") or "").strip() or (
+            "Use the current Personal MiniMind dataset and memory handoff to identify the next safe Ghost improvement."
+        )
+        status = personal_minimind().status()
+        readiness = status.get("readiness") if isinstance(status.get("readiness"), dict) else {}
+        autonomy_cfg = get_autonomy_config(load_config())
+        lifecycle = MiniMindLifecycle(
+            profile_name=str(autonomy_cfg.get("local_model_profile") or server.config.local_model_profile or "tiny"),
+            state_dir=server.config.state_dir,
+        )
+        lifecycle.generate_dataset(
+            [
+                {
+                    "prompt": objective,
+                    "response": (
+                        "Summarize learned context, run safe readiness checks, stage one reviewed "
+                        "Self-Evolution candidate, and require explicit approval before promotion."
+                    ),
+                }
+            ]
+        )
+        local_adapter = lifecycle.train_local_adapter()
+        local_inference = lifecycle.infer(objective) if local_adapter.get("ok") else {"ok": False, "answer": ""}
+        training = training_status({"method": "GET", "path": "/api/console/training/status", "headers": {}, "body": "", "query": {}})
+        training_state = training.get("status") if isinstance(training.get("status"), dict) else {}
+        status = personal_minimind().status()
+        readiness = status.get("readiness") if isinstance(status.get("readiness"), dict) else readiness
+        handoff = personal_minimind().build_handoff(objective)
+        source = create_learning_source(
+            console_state_dir,
+            {
+                "source_type": "manual_note",
+                "label": "Personal MiniMind post-training review",
+                "scope": "global",
+                "consent_status": "approved" if readiness.get("consent_ready") else "pending",
+                "risk_level": "low",
+                "provenance": {
+                    "dataset_count": training_state.get("dataset_count", 0),
+                    "memory_count": status.get("memory_count", 0),
+                    "handoff_ready": bool(readiness.get("primary_model_handoff_ready")),
+                    "inference_ready": bool(readiness.get("inference_ready")),
+                },
+                "notes": "Generated from explicit operator post-training action.",
+            },
+        )
+        candidate = upsert_candidate(
+            console_state_dir,
+            {
+                "candidate_type": "config_improvement",
+                "title": "Post-training Ghost readiness improvement",
+                "source_id": source["id"],
+                "status": "reviewed",
+                "required_permissions": ["operator_review", "readiness_check"],
+                "safety_notes": [
+                    "Review candidate before promotion.",
+                    "No email scraping, file mutation, MCP enablement, skill activation, or model switching was performed.",
+                    "Local MiniMind inference uses the Ghost-native dataset adapter; neural weight fine-tuning remains optional future work.",
+                ],
+                "metadata": {
+                    "objective": objective,
+                    "dataset_count": training_state.get("dataset_count", 0),
+                    "memory_count": status.get("memory_count", 0),
+                    "readiness": readiness,
+                    "handoff_context_chars": len(str(handoff.get("personal_context") or "")),
+                    "handoff_sources": len(handoff.get("sources") or []) if isinstance(handoff.get("sources"), list) else 0,
+                    "local_adapter": local_adapter.get("adapter", {}),
+                    "local_inference": {
+                        "ok": bool(local_inference.get("ok")),
+                        "confidence": local_inference.get("confidence", 0.0),
+                        "record_id": local_inference.get("record_id", ""),
+                    },
+                },
+            },
+        )
+        jobs: list[dict[str, Any]] = []
+        for job_name in ("self-audit", "model-health-check", "memory-refresh"):
+            with contextlib.suppress(Exception):
+                jobs.append(queue.enqueue(job_name, profile="supervised", execute=False, run_now=True))
+        summary = _operator_summary_payload()
+        record_timeline_event(
+            console_state_dir,
+            "minimind_post_training_action_run",
+            {
+                "candidate_id": candidate.get("id"),
+                "dataset_count": training_state.get("dataset_count", 0),
+                "jobs": [job.get("name") for job in jobs],
+                "handoff_ready": bool(readiness.get("primary_model_handoff_ready")),
+            },
+        )
+        return {
+            "ok": True,
+            "objective": objective,
+            "mode": "review_then_activate",
+            "status": status,
+            "training": training_state,
+            "handoff": {
+                "ok": bool(handoff.get("ok")),
+                "personal_context_chars": len(str(handoff.get("personal_context") or "")),
+                "source_count": len(handoff.get("sources") or []) if isinstance(handoff.get("sources"), list) else 0,
+                "primary_model_prompt_chars": len(str(handoff.get("primary_model_prompt") or "")),
+            },
+            "local_adapter": local_adapter,
+            "local_inference": local_inference,
+            "learning_source": source,
+            "candidate": candidate,
+            "jobs": jobs,
+            "summary": summary,
+            "next_approvals": [
+                "Review the Self-Evolution candidate.",
+                "Promote only after checking the safety notes and required permissions.",
+                (
+                    "Optional: install MiniMind weights and training dependencies only if you need neural fine-tuning beyond the local dataset adapter."
+                    if local_adapter.get("ok")
+                    else "Train or configure a local MiniMind adapter before expecting local inference."
+                ),
+            ],
+        }
+
+    def email_oauth_status_route(ctx: dict[str, Any]) -> dict[str, Any]:
+        return email_oauth_status(server.config.state_dir)
+
+    def email_oauth_start_route(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "").strip().lower()
+        return start_email_oauth(provider, server.config.state_dir)
+
+    def _console_redirect_uri(ctx: dict[str, Any]) -> str:
+        headers = {str(k).lower(): str(v) for k, v in dict(ctx.get("headers") or {}).items()}
+        host = headers.get("host") or f"127.0.0.1:{server.http_port}"
+        scheme = headers.get("x-forwarded-proto") or ("https" if headers.get("x-forwarded-ssl") == "on" else "http")
+        return f"{scheme}://{host}"
+
+    def email_oauth_browser_start_route(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "gmail").strip().lower()
+        if provider != "gmail":
+            return {
+                "ok": False,
+                "provider": provider,
+                "status": "unsupported_browser_flow",
+                "error": "Browser OAuth is currently available for Gmail. Use device login for Outlook.",
+            }
+        return start_gmail_browser_oauth(server.config.state_dir, _console_redirect_uri(ctx))
+
+    def email_oauth_browser_callback_route(ctx: dict[str, Any]) -> HttpResponse:
+        query = ctx.get("query") or {}
+        state = str(query.get("state") or "").strip()
+        code = str(query.get("code") or "").strip()
+        provider_error = str(query.get("error") or "").strip()
+        provider_error_description = str(query.get("error_description") or "").strip()
+        if provider_error:
+            safe_error = html.escape(provider_error_description or provider_error)
+            return HttpResponse(
+                body=(
+                    "<html><body><h1>Gmail connection failed</h1>"
+                    f"<p>{safe_error}</p><p>You can close this tab and return to Ghost Console.</p>"
+                    "</body></html>"
+                ),
+                status=400,
+                content_type="text/html",
+            )
+        result = finish_gmail_browser_oauth(server.config.state_dir, state, code)
+        if result.get("ok"):
+            return HttpResponse(
+                body=(
+                    "<html><body><h1>Gmail connected</h1>"
+                    "<p>Read-only Gmail OAuth is connected. You can close this tab and return to Ghost Console.</p>"
+                    "</body></html>"
+                ),
+                content_type="text/html",
+            )
+        safe_error = html.escape(str(result.get("error") or "OAuth callback failed."))
+        return HttpResponse(
+            body=(
+                "<html><body><h1>Gmail connection failed</h1>"
+                f"<p>{safe_error}</p><p>You can close this tab and return to Ghost Console.</p>"
+                "</body></html>"
+            ),
+            status=400,
+            content_type="text/html",
+        )
+
+    def email_oauth_poll_route(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "").strip().lower()
+        pending_id = str(body.get("pending_id") or "").strip()
+        return poll_email_oauth(provider, server.config.state_dir, pending_id)
+
+    def email_oauth_crawl_route(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        provider = str(body.get("provider") or "").strip().lower()
+        max_messages = int(body.get("max_messages") or 10)
+        query = str(body.get("query") or "")
+        consent = personal_minimind().load_consent()
+        if not consent.enabled or not consent.allow_email_crawl:
+            return {
+                "ok": False,
+                "type": "consent_required",
+                "error": "Enable Personal MiniMind admin controls and email crawl consent before OAuth email crawling.",
+            }
+        result = crawl_email_provider(
+            provider,
+            server.config.state_dir,
+            memory_db=server.config.memory_db,
+            max_messages=max_messages,
+            query=query,
+            generate_training=consent.allow_training,
+        )
+        if result.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "email_oauth_crawl_run",
+                {
+                    "provider": provider,
+                    "messages_seen": result.get("messages_seen", 0),
+                    "ingested": result.get("ingested", 0),
+                    "raw_secret_returned": False,
+                },
+            )
+        return result
 
     def capabilities(ctx: dict[str, Any]) -> dict[str, Any]:
         return inspect_capabilities()
@@ -3416,6 +4011,18 @@ def register_console_routes(
         description="Prepare provider-specific auth connection flow",
     )
     _api_register(
+        "/api/console/provider-auth/openrouter/callback",
+        provider_auth_openrouter_callback,
+        method="GET",
+        description="Complete OpenRouter OAuth PKCE callback",
+    )
+    _api_register(
+        "/api/console/provider-auth/oauth/poll",
+        provider_auth_oauth_poll,
+        method="POST",
+        description="Poll a pending provider OAuth device flow",
+    )
+    _api_register(
         "/api/console/models/discovery",
         model_discovery,
         method="GET",
@@ -3538,6 +4145,48 @@ def register_console_routes(
         minimind_personal_handoff,
         method="POST",
         description="Build Personal MiniMind RAG handoff for the primary model",
+    )
+    _api_register(
+        "/api/console/minimind/personal/post-training-action",
+        minimind_post_training_action,
+        method="POST",
+        description="Run a consent-gated post-training MiniMind workflow and stage a Self-Evolution candidate",
+    )
+    _api_register(
+        "/api/console/email/oauth/status",
+        email_oauth_status_route,
+        method="GET",
+        description="Inspect Gmail and Outlook OAuth email crawl status without exposing tokens",
+    )
+    _api_register(
+        "/api/console/email/oauth/start",
+        email_oauth_start_route,
+        method="POST",
+        description="Start Gmail or Outlook read-only OAuth device flow",
+    )
+    _api_register(
+        "/api/console/email/oauth/browser/start",
+        email_oauth_browser_start_route,
+        method="POST",
+        description="Start Gmail read-only browser OAuth flow with PKCE",
+    )
+    _api_register(
+        "/api/console/email/oauth/browser/callback",
+        email_oauth_browser_callback_route,
+        method="GET",
+        description="Complete Gmail read-only browser OAuth callback",
+    )
+    _api_register(
+        "/api/console/email/oauth/poll",
+        email_oauth_poll_route,
+        method="POST",
+        description="Poll Gmail or Outlook OAuth device flow and store token write-only",
+    )
+    _api_register(
+        "/api/console/email/oauth/crawl",
+        email_oauth_crawl_route,
+        method="POST",
+        description="Crawl bounded Gmail or Outlook messages into Personal MiniMind after consent",
     )
     _api_register("/api/console/paths", role_profiles, method="GET", description="List multi-purpose Ghost paths")
     _api_register(

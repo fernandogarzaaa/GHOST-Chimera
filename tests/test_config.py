@@ -152,6 +152,28 @@ class GhostChimeraConfigTests(unittest.TestCase):
                 for key, value in case["expected"].items():
                     self.assertEqual(env[key], value)
 
+    def test_config_to_env_vars_maps_email_oauth_clients(self) -> None:
+        env = config_to_env_vars(
+            {
+                "email_oauth": {
+                    "gmail_client_id": "gmail-client-id",
+                    "gmail_client_secret": "gmail-client-secret",
+                    "outlook_client_id": "outlook-client-id",
+                    "microsoft_tenant_id": "tenant-id",
+                }
+            }
+        )
+
+        self.assertEqual(env["GMAIL_OAUTH_CLIENT_ID"], "gmail-client-id")
+        self.assertEqual(env["GMAIL_OAUTH_CLIENT_SECRET"], "gmail-client-secret")
+        self.assertEqual(env["OUTLOOK_OAUTH_CLIENT_ID"], "outlook-client-id")
+        self.assertEqual(env["MICROSOFT_TENANT_ID"], "tenant-id")
+
+    def test_config_to_env_vars_maps_github_oauth_client(self) -> None:
+        env = config_to_env_vars({"github_oauth": {"client_id": "github-client-id"}})
+
+        self.assertEqual(env["GHOSTCHIMERA_GITHUB_CLIENT_ID"], "github-client-id")
+
     def test_control_plane_can_show_resolved_config(self) -> None:
         completed = subprocess.run(
             [sys.executable, "-m", "ghostchimera.control_plane.cli", "--config-show"],

@@ -76,6 +76,15 @@ def get_default_config() -> dict[str, Any]:
             "desktop_max_live_actions": 25,
             "desktop_max_session_seconds": 300.0,
         },
+        "email_oauth": {
+            "gmail_client_id": "",
+            "gmail_client_secret": "",
+            "outlook_client_id": "",
+            "microsoft_tenant_id": "",
+        },
+        "github_oauth": {
+            "client_id": "",
+        },
     }
 
 
@@ -97,6 +106,27 @@ def config_to_env_vars(config: dict[str, Any]) -> dict[str, str]:
         env["GHOSTCHIMERA_AUTONOMY_LEVEL"] = str(autonomy["level"])
     if autonomy.get("local_model_profile"):
         env["GHOSTCHIMERA_LOCAL_MODEL_PROFILE"] = str(autonomy["local_model_profile"])
+
+    email_oauth = config.get("email_oauth", {})
+    if isinstance(email_oauth, dict):
+        gmail_client_id = str(email_oauth.get("gmail_client_id") or "").strip()
+        gmail_client_secret = str(email_oauth.get("gmail_client_secret") or "").strip()
+        outlook_client_id = str(email_oauth.get("outlook_client_id") or "").strip()
+        microsoft_tenant_id = str(email_oauth.get("microsoft_tenant_id") or "").strip()
+        if gmail_client_id:
+            env["GMAIL_OAUTH_CLIENT_ID"] = gmail_client_id
+        if gmail_client_secret:
+            env["GMAIL_OAUTH_CLIENT_SECRET"] = gmail_client_secret
+        if outlook_client_id:
+            env["OUTLOOK_OAUTH_CLIENT_ID"] = outlook_client_id
+        if microsoft_tenant_id:
+            env["MICROSOFT_TENANT_ID"] = microsoft_tenant_id
+
+    github_oauth = config.get("github_oauth", {})
+    if isinstance(github_oauth, dict):
+        github_client_id = str(github_oauth.get("client_id") or "").strip()
+        if github_client_id:
+            env["GHOSTCHIMERA_GITHUB_CLIENT_ID"] = github_client_id
 
     return env
 

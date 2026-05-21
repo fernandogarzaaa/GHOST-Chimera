@@ -128,6 +128,33 @@ class AutonomyProfileTests(unittest.TestCase):
             self.assertTrue(logged)
             self.assertTrue((Path(tmp) / "minimind" / "low_confidence.jsonl").exists())
 
+    def test_minimind_lifecycle_trains_local_adapter_and_infers_from_dataset(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-minimind-adapter-") as tmp:
+            lifecycle = MiniMindLifecycle(profile_name="tiny", state_dir=tmp)
+            lifecycle.generate_dataset(
+                [
+                    {
+                        "prompt": "What should Ghost do after training?",
+                        "response": "Run a readiness check and stage a reviewed self-evolution candidate.",
+                    },
+                    {
+                        "prompt": "How should email be handled?",
+                        "response": "Do not scrape email unless the user explicitly connects and approves it.",
+                    },
+                ]
+            )
+
+            trained = lifecycle.train_local_adapter()
+            status = lifecycle.status().to_dict()
+            inferred = lifecycle.infer("After training, what should Ghost do?")
+
+            self.assertTrue(trained["ok"])
+            self.assertEqual(trained["adapter"]["kind"], "dataset-retrieval-adapter")
+            self.assertTrue(status["inference_available"])
+            self.assertEqual(status["runtime_hint"], "dataset-adapter")
+            self.assertIn("self-evolution candidate", inferred["answer"])
+            self.assertGreater(inferred["confidence"], 0.0)
+
     def test_minimind_bootstrap_personal_ingests_files_with_explicit_opt_in(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-minimind-bootstrap-") as tmp:
             base = Path(tmp)

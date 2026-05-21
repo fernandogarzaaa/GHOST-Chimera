@@ -34,6 +34,7 @@
     <button class="tab active" data-tab="operator">Home</button>
     <button class="tab" data-tab="status">Status</button>
     <button class="tab" data-tab="config">Config</button>
+    <button class="tab" data-tab="connections">Connections</button>
     <button class="tab" data-tab="path">Path</button>
     <button class="tab" data-tab="github">GitHub</button>
     <button class="tab" data-tab="remote">Remote Control</button>
@@ -64,6 +65,23 @@
 
   <!-- ── OPERATOR HOME ─────────────────────────────────────────────────── -->
   <div class="tab-content active" id="tab-operator">
+    <div class="section-hdr" style="margin-top:0;">Ask Ghost</div>
+    <div class="home-command-panel">
+      <div class="home-command-copy">
+        <strong>Tell Ghost Chimera what to do.</strong>
+        <span>Runs use the same Trust Runtime, MiniMind handoff, policy checks, and audit trail as the full Run tab.</span>
+      </div>
+      <div class="form-group">
+        <label>Objective</label>
+        <textarea id="homeObjective" rows="3" placeholder="Example: Use my MiniMind context to review readiness, suggest one self-evolution candidate, and do not modify files without approval."></textarea>
+      </div>
+      <div class="row">
+        <button id="homeRunObjective" class="primary">Run Ghost</button>
+        <button id="homePostTrainingAction">After Training: Self-Evolution Check</button>
+        <button id="homeOpenRun">Open Full Run Tab</button>
+      </div>
+      <pre class="output compact-output" id="homeRunOutput">Ready. MiniMind-trained context is used when Personal MiniMind consent and handoff are ready.</pre>
+    </div>
     <div class="section-hdr" style="margin-top:0;">Ghost Readiness</div>
     <div class="grid" id="operatorCards"></div>
     <div class="section-hdr">Guided Setup</div>
@@ -76,6 +94,23 @@
       <button data-step="review_mcp" data-target="mcp">6. Review MCP</button>
       <button data-step="review_skills" data-target="skills">7. Review Skills</button>
       <button data-step="run_readiness" data-target="activity">8. Run Readiness</button>
+      <button data-step="connect_email" data-target="connections">9. Connect Gmail/Outlook</button>
+    </div>
+    <div class="section-hdr">Email Sign-In</div>
+    <div class="home-email-panel">
+      <div class="home-email-copy">
+        <strong>Connect Personal MiniMind to Gmail or Outlook</strong>
+        <span>Read-only OAuth. Client IDs and tokens stay local and write-only.</span>
+      </div>
+      <div class="home-email-actions">
+        <button id="homeEmailOpenConnections" class="primary">Open Connections</button>
+        <button id="homeGmailBrowserStart" class="primary">Authorize Gmail</button>
+        <button id="homeGmailStart">Gmail Device Code</button>
+        <button id="homeOutlookStart">Connect Outlook</button>
+        <button id="homeEmailPoll">Poll Approval</button>
+      </div>
+      <div id="homeEmailStatus"></div>
+      <pre class="output compact-output" id="homeEmailOutput">Save Gmail or Outlook client IDs in Connections, then start OAuth here.</pre>
     </div>
     <div class="section-hdr">Warnings</div>
     <div id="operatorWarnings" class="list"></div>
@@ -122,6 +157,39 @@
           <button id="providerAuthConnect">Connect / Sign In</button>
         </div>
         <div class="hint" id="providerAuthHint">OAuth is provider-specific. Ghost never scrapes browser cookies and never returns raw tokens.</div>
+        <div class="section-hdr">GitHub OAuth</div>
+        <div class="form-group">
+          <label>GitHub OAuth Client ID</label>
+          <input id="configGithubClientId" type="password" autocomplete="off" placeholder="leave blank to keep existing GitHub client ID">
+        </div>
+        <div class="row">
+          <button id="githubOAuthConfigClearClient" class="danger">Clear GitHub Client</button>
+        </div>
+        <div class="hint" id="githubOAuthConfigHint">GitHub device sign-in requires a public GitHub OAuth app client ID. Tokens stay local and write-only.</div>
+        <div class="section-hdr">Email OAuth For MiniMind</div>
+        <div class="form-group">
+          <label>Gmail OAuth Client ID</label>
+          <input id="configGmailClientId" type="password" autocomplete="off" placeholder="leave blank to keep existing Gmail client ID">
+        </div>
+        <div class="form-group">
+          <label>Gmail OAuth Client Secret</label>
+          <input id="configGmailClientSecret" type="password" autocomplete="off" placeholder="optional; needed for some Google web clients">
+        </div>
+        <div class="form-group">
+          <label>Outlook OAuth Client ID</label>
+          <input id="configOutlookClientId" type="password" autocomplete="off" placeholder="leave blank to keep existing Outlook client ID">
+        </div>
+        <div class="form-group">
+          <label>Microsoft Tenant ID</label>
+          <input id="configMicrosoftTenantId" type="password" autocomplete="off" placeholder="optional; default is common">
+        </div>
+        <div class="row">
+          <button id="emailOAuthConfigClearGmail" class="danger">Clear Gmail Client</button>
+          <button id="emailOAuthConfigClearGmailSecret" class="danger">Clear Gmail Secret</button>
+          <button id="emailOAuthConfigClearOutlook" class="danger">Clear Outlook Client</button>
+          <button id="emailOAuthConfigClearTenant">Clear Tenant</button>
+        </div>
+        <div class="hint" id="emailOAuthConfigHint">Read-only Gmail/Outlook OAuth uses user consent. Client IDs are local config values; access tokens stay write-only.</div>
       </div>
       <div>
         <div class="section-hdr" style="margin-top:0;">Production Posture</div>
@@ -154,6 +222,61 @@
     <div id="modelDiscoveryGrid" class="model-grid"></div>
     <div class="section-hdr">Saved Environment</div>
     <pre class="output compact-output" id="configOutput">Config is local to this machine. Raw secret values are never displayed here.</pre>
+  </div>
+
+  <div class="tab-content" id="tab-connections">
+    <div class="section-hdr" style="margin-top:0;">Account Connections</div>
+    <div class="grid" id="connectionsSummary"></div>
+
+    <div class="section-hdr">GitHub OAuth</div>
+    <p class="hint" style="margin-bottom:10px;">Connect GitHub for repo-aware planning, verified skill discovery, and self-evolution source review.</p>
+    <div class="form-group">
+      <label>GitHub OAuth Client ID</label>
+      <input id="connectionsGithubClientId" type="password" autocomplete="off" placeholder="paste GitHub OAuth client ID">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="connectionsGithubSave" class="primary">Save GitHub OAuth Config</button>
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <input id="connectionsGithubScopes" value="read:user repo" placeholder="OAuth scopes" style="flex:2;min-width:220px;">
+      <button id="connectionsGithubStart" class="primary">Connect GitHub</button>
+      <button id="connectionsGithubPoll">I Approved GitHub</button>
+      <button id="connectionsGithubLogout" class="danger">Logout GitHub</button>
+    </div>
+    <pre class="output compact-output" id="connectionsGithubOutput">GitHub OAuth opens a browser/device approval flow. Tokens stay local and are never shown.</pre>
+
+    <div class="section-hdr">Gmail And Outlook OAuth</div>
+    <p class="hint" style="margin-bottom:10px;">Use read-only email OAuth for Personal MiniMind. Save client IDs here, then connect Gmail or Outlook.</p>
+    <div class="form-group">
+      <label>Gmail OAuth Client ID</label>
+      <input id="connectionsGmailClientId" type="password" autocomplete="off" placeholder="paste Gmail OAuth client ID">
+    </div>
+    <div class="form-group">
+      <label>Gmail OAuth Client Secret</label>
+      <input id="connectionsGmailClientSecret" type="password" autocomplete="off" placeholder="optional; needed for some Google web clients">
+    </div>
+    <div class="form-group">
+      <label>Outlook OAuth Client ID</label>
+      <input id="connectionsOutlookClientId" type="password" autocomplete="off" placeholder="paste Outlook OAuth client ID">
+    </div>
+    <div class="form-group">
+      <label>Microsoft Tenant ID</label>
+      <input id="connectionsMicrosoftTenantId" type="password" autocomplete="off" placeholder="optional; default is common">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="connectionsEmailSave" class="primary">Save Email OAuth Config</button>
+      <button id="connectionsGmailBrowserStart" class="primary">Authorize Gmail In Browser</button>
+      <button id="connectionsGmailStart">Gmail Device Code</button>
+      <button id="connectionsOutlookStart" class="primary">Connect Outlook</button>
+      <button id="connectionsEmailPoll">Poll Approval</button>
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <input id="connectionsEmailPending" placeholder="pending id appears here after Connect Gmail/Outlook" style="flex:2;min-width:260px;">
+      <input id="connectionsEmailQuery" placeholder="optional Gmail search query" style="flex:2;min-width:220px;">
+      <button id="connectionsEmailCrawl" class="primary">Crawl 10 Emails</button>
+    </div>
+    <div id="connectionsEmailStatus"></div>
+    <pre class="output compact-output" id="connectionsEmailOutput">Email crawling requires MiniMind email-crawl consent and a completed provider login.</pre>
   </div>
 
   <div class="tab-content" id="tab-path">
@@ -377,8 +500,13 @@
     <div class="section-hdr" style="margin-top:0;">GitHub Autopilot</div>
     <div class="grid" id="githubSummary"></div>
     <div class="section-hdr">Sign In</div>
+    <div class="form-group">
+      <label>GitHub OAuth Client ID</label>
+      <input id="githubClientId" type="password" autocomplete="off" placeholder="paste GitHub OAuth client ID, then Save GitHub Client">
+    </div>
     <div class="row" style="margin-bottom:12px;">
       <input id="githubDeviceScopes" value="read:user repo" placeholder="OAuth scopes" style="flex:2;min-width:220px;">
+      <button id="githubClientSave">Save GitHub Client</button>
       <button id="githubDeviceStart" class="primary">Start GitHub Sign-In</button>
       <button id="githubDevicePoll">I Approved It</button>
       <button id="githubLogout" class="danger">Logout</button>
@@ -630,6 +758,22 @@
       <button id="pmSaveConsent" class="primary">Save Consent</button>
       <button id="pmRevokeConsent" class="danger">Revoke</button>
       <button id="pmBootstrap" class="primary">Bootstrap Personal Model</button>
+    </div>
+
+    <div class="section-hdr">Email OAuth Crawling</div>
+    <p class="hint" style="margin-bottom:10px;">Gmail and Outlook use read-only OAuth scopes. Tokens stay local and are never shown in API responses.</p>
+    <div id="emailOAuthStatus"></div>
+    <div class="row" style="margin-bottom:10px;">
+      <select id="emailOAuthProvider" style="flex:1;min-width:160px;">
+        <option value="gmail">Gmail</option>
+        <option value="outlook">Outlook</option>
+      </select>
+      <input id="emailOAuthPending" placeholder="pending id after Start" style="flex:2;min-width:220px;">
+      <input id="emailOAuthQuery" placeholder="optional Gmail search query" style="flex:2;min-width:220px;">
+      <button id="emailOAuthBrowserStart" class="primary">Browser OAuth</button>
+      <button id="emailOAuthStart">Device OAuth</button>
+      <button id="emailOAuthPoll">Poll</button>
+      <button id="emailOAuthCrawl" class="primary">Crawl 10</button>
     </div>
 
     <div class="section-hdr">Primary Model Handoff</div>

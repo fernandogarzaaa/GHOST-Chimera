@@ -378,7 +378,7 @@ store = client.memory    # MemoryStore instance
 
 Ghost Chimera supports **27 model providers** plus a custom OpenAI-compatible endpoint. All are optional. Non-technical users can connect providers from the Ghost Console **Config -> Provider Auth Vault** without editing `.env`; developers can still set environment variables directly.
 
-OAuth is modular. The dashboard shows OAuth-capable connector slots when a provider has a plausible OpenClaw-style flow, but Ghost Chimera does not scrape browser sessions or treat ChatGPT subscriptions as OpenAI API keys. See [Provider Auth Vault](docs/PROVIDER_AUTH_VAULT.md).
+OAuth is modular. The dashboard shows OAuth-capable connector slots when a provider has an official flow: OpenAI ChatGPT/Codex can use the local `codex` CLI OAuth session through the `codex_cli` bridge, OpenRouter can complete PKCE into a write-only user API key, Hugging Face can use device-code OAuth with a configured OAuth client ID, and Google/Gemini can launch ADC setup. Ghost Chimera does not scrape browser sessions or treat subscriptions as API keys. See [Provider Auth Vault](docs/PROVIDER_AUTH_VAULT.md).
 
 | Provider | Env var | Default model |
 |---|---|---|
