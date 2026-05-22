@@ -38,6 +38,8 @@ If you are new to Ghost Chimera, use the tutorial first:
 
 - [User Tutorial](#start-here)
 - [Architecture](#architecture)
+- [One-Line Install](#one-line-install)
+- [Runtime Specs](#runtime-specs)
 - [Quick Start â€” Docker](#quick-start--docker)
 - [Developer Install](#developer-install)
 - [Ghost Console â€” Browser UI](#ghost-console--browser-ui)
@@ -96,6 +98,81 @@ Objective
 ```
 
 **Safety boundary:** the scheduler decides *where* to run; the policy decides *whether* it is allowed. `PilotPolicy` (Chimera Pilot layer) and `ExecutionPolicy` (tool layer) are separate gates.
+
+---
+
+## One-Line Install
+
+The user-facing install path creates a local checkout, builds a virtual environment, installs the Ghost Console dependencies (`gateway,mcp`), verifies the CLI, and prints the launch command.
+
+**Windows PowerShell:**
+
+```powershell
+irm https://raw.githubusercontent.com/fernandogarzaaa/GHOST-Chimera/main/scripts/install.ps1 | iex
+```
+
+**macOS / Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/GHOST-Chimera/main/scripts/install.sh | bash
+```
+
+Then launch:
+
+```bash
+cd ~/ghost-chimera
+.venv/bin/ghostchimera console
+```
+
+On Windows, the installed launcher is:
+
+```powershell
+cd "$HOME\ghost-chimera"
+.\.venv\Scripts\ghostchimera.exe console
+```
+
+Installer options are environment variables so the one-line command stays copy/paste friendly:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GHOSTCHIMERA_INSTALL_DIR` | `~/ghost-chimera` | Install/update directory. |
+| `GHOSTCHIMERA_EXTRAS` | `gateway,mcp` | Optional dependency groups to install. Use `gateway,mcp,minimind` for MiniMind inference dependencies or `all` for every optional runtime. |
+| `GHOSTCHIMERA_REF` | `main` | GitHub branch or ref to install. |
+| `GHOSTCHIMERA_DRY_RUN` | `0` | Bash dry run when set to `1`. |
+
+PowerShell also supports:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -InstallDir D:\GhostChimera -Extras gateway,mcp,minimind
+```
+
+---
+
+## Runtime Specs
+
+**Minimum for Ghost Console and local orchestration:**
+
+| Component | Minimum | Recommended |
+|---|---:|---:|
+| OS | Windows 10/11, macOS 13+, Ubuntu 22.04+ | Windows 11, macOS 14+, Ubuntu 24.04+ |
+| Python | 3.11 | 3.12 or 3.13 |
+| RAM | 4 GB | 8-16 GB |
+| Disk | 2 GB free | 10+ GB if storing memory, traces, datasets, and local models |
+| CPU | 2 cores | 4+ cores |
+| Browser | Current Chrome, Edge, Firefox, or Safari | Current Chrome or Edge |
+
+**Optional local AI/model runtimes:**
+
+| Capability | Extra | Practical spec |
+|---|---|---|
+| Ghost Console, cron, WebSocket gateway | `gateway` | Included in the one-line install. |
+| MCP package integration | `mcp` | Included in the one-line install. |
+| Personal MiniMind PyTorch/Transformers inference | `minimind` | 8+ GB RAM for small models; GPU optional. |
+| GGUF / llama.cpp local model runtime | `local` | 8+ GB RAM for small quantized models; more for larger models. |
+| Quantum simulator backend | `quantum` | CPU-only is fine for small simulator cases. |
+| NVIDIA CuTe DSL detection | `cute` | Linux + Python 3.12 + compatible NVIDIA stack. |
+
+Provider API keys and OAuth connections are optional. Without provider credentials, Ghost Chimera still runs the console, local policy gates, memory tools, capability pack, trust runtime, evals, and deterministic backends.
 
 ---
 
