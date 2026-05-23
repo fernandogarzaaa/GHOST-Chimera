@@ -10,12 +10,14 @@ def test_one_line_install_scripts_exist() -> None:
     assert (ROOT / "scripts" / "install.sh").is_file()
 
 
-def test_install_scripts_default_to_console_dependencies() -> None:
+def test_install_scripts_default_to_full_runtime_profile() -> None:
     powershell = (ROOT / "scripts" / "install.ps1").read_text(encoding="utf-8")
     bash = (ROOT / "scripts" / "install.sh").read_text(encoding="utf-8")
 
-    assert '"gateway,mcp"' in powershell
-    assert "gateway,mcp" in bash
+    assert '"all"' in powershell
+    assert "GHOSTCHIMERA_EXTRAS:-all" in bash
+    assert "Installing full Python runtime dependencies" in powershell
+    assert "Installing full Python runtime dependencies" in bash
     assert "ghostchimera.exe console" in powershell
     assert "ghostchimera console" in bash
 
@@ -29,3 +31,4 @@ def test_readme_documents_one_line_install_and_specs() -> None:
     assert "## Runtime Specs" in readme
     assert "Python | 3.11" in readme
     assert "GHOSTCHIMERA_EXTRAS" in readme
+    assert "full Ghost Chimera runtime" in readme

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 INSTALL_DIR="${GHOSTCHIMERA_INSTALL_DIR:-"$HOME/ghost-chimera"}"
-EXTRAS="${GHOSTCHIMERA_EXTRAS:-gateway,mcp}"
+EXTRAS="${GHOSTCHIMERA_EXTRAS:-all}"
 REF="${GHOSTCHIMERA_REF:-main}"
 DRY_RUN="${GHOSTCHIMERA_DRY_RUN:-0}"
 
@@ -39,7 +39,7 @@ PY
 )"
 
 step "Install directory: $INSTALL_DIR"
-step "Optional extras: $EXTRAS"
+step "Runtime profile: $EXTRAS"
 step "GitHub ref: $REF"
 
 if [ "$DRY_RUN" = "1" ]; then
@@ -101,7 +101,7 @@ step "Creating virtual environment."
 VENV_PYTHON="$INSTALL_DIR/.venv/bin/python"
 VENV_GHOST="$INSTALL_DIR/.venv/bin/ghostchimera"
 
-step "Installing Python package dependencies."
+step "Installing full Python runtime dependencies."
 "$VENV_PYTHON" -m pip install --upgrade pip
 "$VENV_PYTHON" -m pip install -e ".[${EXTRAS}]"
 

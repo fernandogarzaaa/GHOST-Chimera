@@ -103,7 +103,7 @@ Objective
 
 ## One-Line Install
 
-The user-facing install path creates a local checkout, builds a virtual environment, installs the Ghost Console dependencies (`gateway,mcp`), verifies the CLI, and prints the launch command.
+The user-facing install path creates a local checkout, builds a virtual environment, installs the full Ghost Chimera runtime profile (`.[all]`), verifies the CLI, and prints the launch command. This includes Ghost Console, MCP, local GGUF/llama.cpp support, MiniMind PyTorch/Transformers support, quantum simulator support, and platform-compatible specialization helpers.
 
 **Windows PowerShell:**
 
@@ -131,19 +131,19 @@ cd "$HOME\ghost-chimera"
 .\.venv\Scripts\ghostchimera.exe console
 ```
 
-Installer options are environment variables so the one-line command stays copy/paste friendly:
+Installer options are environment variables so the one-line command stays copy/paste friendly. Normal users should keep the default full install.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `GHOSTCHIMERA_INSTALL_DIR` | `~/ghost-chimera` | Install/update directory. |
-| `GHOSTCHIMERA_EXTRAS` | `gateway,mcp` | Optional dependency groups to install. Use `gateway,mcp,minimind` for MiniMind inference dependencies or `all` for every optional runtime. |
+| `GHOSTCHIMERA_EXTRAS` | `all` | Runtime profile to install. Defaults to the full Ghost Chimera runtime; advanced users may override this only for constrained development installs. |
 | `GHOSTCHIMERA_REF` | `main` | GitHub branch or ref to install. |
 | `GHOSTCHIMERA_DRY_RUN` | `0` | Bash dry run when set to `1`. |
 
 PowerShell also supports:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -InstallDir D:\GhostChimera -Extras gateway,mcp,minimind
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -InstallDir D:\GhostChimera -Extras all
 ```
 
 ---
@@ -161,16 +161,18 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -InstallDir D:\Gh
 | CPU | 2 cores | 4+ cores |
 | Browser | Current Chrome, Edge, Firefox, or Safari | Current Chrome or Edge |
 
-**Optional local AI/model runtimes:**
+**Included by the full one-line install:**
 
 | Capability | Extra | Practical spec |
 |---|---|---|
-| Ghost Console, cron, WebSocket gateway | `gateway` | Included in the one-line install. |
-| MCP package integration | `mcp` | Included in the one-line install. |
-| Personal MiniMind PyTorch/Transformers inference | `minimind` | 8+ GB RAM for small models; GPU optional. |
-| GGUF / llama.cpp local model runtime | `local` | 8+ GB RAM for small quantized models; more for larger models. |
-| Quantum simulator backend | `quantum` | CPU-only is fine for small simulator cases. |
-| NVIDIA CuTe DSL detection | `cute` | Linux + Python 3.12 + compatible NVIDIA stack. |
+| Ghost Console, cron, WebSocket gateway | `gateway` | Installed by default. |
+| MCP package integration | `mcp` | Installed by default. |
+| Personal MiniMind PyTorch/Transformers inference | `minimind` | Installed by default where Python version markers allow it; 8+ GB RAM recommended. |
+| GGUF / llama.cpp local model runtime | `local` | Installed by default; 8+ GB RAM for small quantized models, more for larger models. |
+| Quantum simulator backend | `quantum` | Installed by default; CPU-only is fine for small simulator cases. |
+| NVIDIA CuTe DSL detection | `cute` | Installed by default only on compatible Linux + Python 3.12 systems. |
+
+The full install covers Python package dependencies. It does not bundle model weights, API keys, provider accounts, GPU drivers, CUDA, Visual Studio Build Tools, Xcode Command Line Tools, or system package managers. Those remain machine-specific prerequisites when a selected local runtime needs native compilation or external credentials.
 
 Provider API keys and OAuth connections are optional. Without provider credentials, Ghost Chimera still runs the console, local policy gates, memory tools, capability pack, trust runtime, evals, and deterministic backends.
 

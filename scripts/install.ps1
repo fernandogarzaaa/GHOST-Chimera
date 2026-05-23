@@ -1,6 +1,6 @@
 param(
     [string]$InstallDir = $(if ($env:GHOSTCHIMERA_INSTALL_DIR) { $env:GHOSTCHIMERA_INSTALL_DIR } else { Join-Path $HOME "ghost-chimera" }),
-    [string]$Extras = $(if ($env:GHOSTCHIMERA_EXTRAS) { $env:GHOSTCHIMERA_EXTRAS } else { "gateway,mcp" }),
+    [string]$Extras = $(if ($env:GHOSTCHIMERA_EXTRAS) { $env:GHOSTCHIMERA_EXTRAS } else { "all" }),
     [string]$Ref = $(if ($env:GHOSTCHIMERA_REF) { $env:GHOSTCHIMERA_REF } else { "main" }),
     [switch]$DryRun
 )
@@ -59,7 +59,7 @@ function Invoke-Python {
 
 $installPath = [System.IO.Path]::GetFullPath($InstallDir)
 Write-Step "Install directory: $installPath"
-Write-Step "Optional extras: $Extras"
+Write-Step "Runtime profile: $Extras"
 Write-Step "GitHub ref: $Ref"
 
 if ($DryRun) {
@@ -115,7 +115,7 @@ try {
     $venvPython = Join-Path $installPath ".venv\Scripts\python.exe"
     $venvGhost = Join-Path $installPath ".venv\Scripts\ghostchimera.exe"
 
-    Write-Step "Installing Python package dependencies."
+    Write-Step "Installing full Python runtime dependencies."
     & $venvPython -m pip install --upgrade pip
     if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
     & $venvPython -m pip install -e ".[${Extras}]"
