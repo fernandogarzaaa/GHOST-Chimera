@@ -24,6 +24,7 @@
     recognition: null,
     listening: false,
     voiceRestartBlocked: false,
+    localVoiceRecording: false,
   };
 
   function $(sel) { return document.querySelector(sel); }
@@ -196,10 +197,12 @@
     if (session && session.session_id) state.conversationSessionId = session.session_id;
     var always = $("#conversationAlwaysListening");
     var bypass = $("#conversationFullBypass");
+    var localFallback = $("#conversationLocalFallback");
     var banner = $("#conversationBypassBanner");
     var voiceSelect = $("#conversationVoiceSelect");
     if (always) always.checked = !!settings.always_listening;
     if (bypass) bypass.checked = !!settings.full_bypass;
+    if (localFallback) localFallback.checked = settings.local_fallback !== false;
     if (banner) banner.style.display = settings.full_bypass ? "block" : "none";
     if (voiceSelect) {
       var selected = settings.voice_id || "browser-default";
@@ -280,10 +283,109 @@
     return ["network", "not-allowed", "service-not-allowed", "audio-capture"].indexOf(String(error || "")) >= 0;
   }
 
+  function localVoiceEnabled() {
+    var settings = (state.conversation && state.conversation.settings) || {};
+    var checkbox = $("#conversationLocalFallback");
+    return settings.local_fallback !== false && (!checkbox || checkbox.checked !== false);
+  }
+
+  function mediaRecorderMimeType() {
+    var candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
+    if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return "";
+    for (var i = 0; i < candidates.length; i++) {
+      if (MediaRecorder.isTypeSupported(candidates[i])) return candidates[i];
+    }
+    return "";
+  }
+
+  function blobToBase64(blob) {
+    return new Promise(function(resolve, reject) {
+      var reader = new FileReader();
+      reader.onloadend = function() {
+        var value = String(reader.result || "");
+        resolve(value.indexOf(",") >= 0 ? value.split(",").pop() : value);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function startLocalVoiceFallback(reason) {
+    if (state.localVoiceRecording) return;
+    if (!localVoiceEnabled()) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+      toast("Local voice fallback needs browser microphone recording support. Type your message instead.", "warn", 7000);
+      return;
+    }
+    state.localVoiceRecording = true;
+    state.voiceRestartBlocked = true;
+    setConversationMicState("Local Voice Listening", "warn");
+    if ($("#conversationReply")) {
+      $("#conversationReply").textContent = "Browser speech recognition failed" + (reason ? " (" + reason + ")" : "") + ". I am recording a short local fallback clip now.";
+    }
+    try {
+      var localStatus = await api("/api/console/conversation/local-voice/status");
+      if (localStatus && localStatus.ready === false) {
+        toast("Local voice fallback is enabled, but no local STT provider is ready yet.", "warn", 7000);
+      }
+      var sessionId = await ensureConversationSession();
+      var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      var mimeType = mediaRecorderMimeType();
+      var options = mimeType ? { mimeType: mimeType } : {};
+      var recorder = new MediaRecorder(stream, options);
+      var chunks = [];
+      recorder.ondataavailable = function(event) {
+        if (event.data && event.data.size) chunks.push(event.data);
+      };
+      var stopped = new Promise(function(resolve) {
+        recorder.onstop = resolve;
+      });
+      recorder.start();
+      setTimeout(function() {
+        try { recorder.stop(); } catch (_) {}
+      }, 5500);
+      await stopped;
+      stream.getTracks().forEach(function(track) { track.stop(); });
+      var blob = new Blob(chunks, { type: mimeType || "audio/webm" });
+      if (!blob.size) throw new Error("No local audio was captured.");
+      setConversationMicState("Local Voice Transcribing", "warn");
+      var audioBase64 = await blobToBase64(blob);
+      var data = await api("/api/console/conversation/sessions/" + encodeURIComponent(sessionId) + "/local-voice-turn", {
+        method: "POST",
+        body: {
+          audio_base64: audioBase64,
+          mime_type: blob.type || mimeType || "audio/webm",
+          provider: "auto",
+        },
+      });
+      if (!data.ok) {
+        var providerErrors = (data.provider_errors || []).slice(0, 3).join("; ");
+        throw new Error(data.error || providerErrors || "Local voice transcription failed.");
+      }
+      renderConversationStatus({ ok: true, settings: ((state.conversation || {}).settings || {}), active_session: data.session, voice_catalog: ((state.conversation || {}).voice_catalog || []) });
+      if (data.reply) {
+        $("#conversationReply").textContent = data.reply;
+        speakGhost(data.reply);
+      }
+      toast("Local voice fallback handled the message.", "ok");
+      await refreshConversationStatus();
+      await refreshTimeline();
+      await refreshTrust();
+    } catch (e) {
+      if ($("#conversationReply")) $("#conversationReply").textContent = e.message;
+      toast(e.message + " Install/configure a local STT provider or use text input.", "warn", 9000);
+      setConversationMicState("Local Voice Unavailable", "error");
+      if ($("#conversationTextInput")) $("#conversationTextInput").focus();
+    } finally {
+      state.localVoiceRecording = false;
+    }
+  }
+
   function persistConversationSettingsNoRestart(alwaysListening) {
     var body = {
       always_listening: !!alwaysListening,
       full_bypass: $("#conversationFullBypass") ? $("#conversationFullBypass").checked : false,
+      local_fallback: $("#conversationLocalFallback") ? $("#conversationLocalFallback").checked : true,
       voice_id: $("#conversationVoiceSelect") ? $("#conversationVoiceSelect").value : "browser-default",
     };
     api("/api/console/conversation/settings", { method: "POST", body: body }).catch(function() {});
@@ -318,6 +420,7 @@
     var body = {
       always_listening: $("#conversationAlwaysListening") ? $("#conversationAlwaysListening").checked : false,
       full_bypass: $("#conversationFullBypass") ? $("#conversationFullBypass").checked : false,
+      local_fallback: $("#conversationLocalFallback") ? $("#conversationLocalFallback").checked : true,
       voice_id: $("#conversationVoiceSelect") ? $("#conversationVoiceSelect").value : "browser-default",
     };
     Object.keys(extra || {}).forEach(function(k) { body[k] = extra[k]; });
@@ -334,9 +437,15 @@
 
   function startConversationListening() {
     state.voiceRestartBlocked = false;
+    var selectedVoice = $("#conversationVoiceSelect") ? $("#conversationVoiceSelect").value : "browser-default";
+    if (selectedVoice && selectedVoice !== "browser-default" && selectedVoice.indexOf("local") >= 0) {
+      startLocalVoiceFallback("local voice selected");
+      return;
+    }
     var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      toast("Browser speech recognition is not available. Use text or a local voice provider.", "warn");
+      toast("Browser speech recognition is not available. Trying local voice fallback.", "warn");
+      startLocalVoiceFallback("browser speech unavailable");
       return;
     }
     if (state.listening) return;
@@ -368,6 +477,7 @@
           if ($("#conversationReply")) $("#conversationReply").textContent = guidance;
           persistConversationSettingsNoRestart(false);
           if ($("#conversationTextInput")) $("#conversationTextInput").focus();
+          if (error === "network") startLocalVoiceFallback(error);
         } else {
           setConversationMicState("Muted", "warn");
         }
@@ -2465,6 +2575,7 @@
   });
   $("#conversationAlwaysListening").addEventListener("change", function() { updateConversationSettings({ always_listening: $("#conversationAlwaysListening").checked }); });
   $("#conversationFullBypass").addEventListener("change", function() { updateConversationSettings({ full_bypass: $("#conversationFullBypass").checked }); });
+  $("#conversationLocalFallback").addEventListener("change", function() { updateConversationSettings({ local_fallback: $("#conversationLocalFallback").checked }); });
   $("#conversationVoiceSelect").addEventListener("change", function() { updateConversationSettings({ voice_id: $("#conversationVoiceSelect").value }); });
 
   // ── Jobs ─────────────────────────────────────────────────────────────────

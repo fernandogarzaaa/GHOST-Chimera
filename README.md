@@ -112,7 +112,7 @@ Objective
 
 ## One-Line Install
 
-The user-facing install path creates a local checkout, builds a virtual environment, installs the full Ghost Chimera runtime profile (`.[all]`), verifies the CLI, and prints the launch command. This includes Ghost Console, MCP, local GGUF/llama.cpp support, MiniMind PyTorch/Transformers support, quantum simulator support, and platform-compatible specialization helpers.
+The user-facing install path creates a local checkout, builds a virtual environment, installs the full Ghost Chimera runtime profile (`.[all]`), verifies the CLI, and prints the launch command. This includes Ghost Console, MCP, desktop control dependencies, browser/local voice dependencies, local GGUF/llama.cpp support, MiniMind PyTorch/Transformers support, quantum simulator support, and platform-compatible specialization helpers.
 
 **Windows PowerShell:**
 
@@ -175,6 +175,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -InstallDir D:\Gh
 | Capability | Extra | Practical spec |
 |---|---|---|
 | Ghost Console, cron, WebSocket gateway | `gateway` | Installed by default. |
+| Live desktop control runtime | base install | Installed by default through `pyautogui`; live control is still blocked unless explicitly enabled. |
+| Browser/local voice fallback | `voice` | Installed by default where Python version markers allow local STT engines; browser speech still works without local engines. |
 | MCP package integration | `mcp` | Installed by default. |
 | Personal MiniMind PyTorch/Transformers inference | `minimind` | Installed by default where Python version markers allow it; 8+ GB RAM recommended. |
 | GGUF / llama.cpp local model runtime | `local` | Installed by default; 8+ GB RAM for small quantized models, more for larger models. |
@@ -214,6 +216,7 @@ python -m pip install -e .
 
 ```bash
 python -m pip install -e ".[gateway]"   # WebSocket gateway + cron scheduling (required for console)
+python -m pip install -e ".[voice]"     # Local speech-to-text fallback providers
 python -m pip install -e ".[mcp]"       # MCP package integration
 python -m pip install -e ".[local]"     # llama.cpp / GGUF local model runtime
 python -m pip install -e ".[minimind]"  # MiniMind PyTorch/Transformers inference adapter
@@ -223,7 +226,7 @@ python -m pip install -e ".[dev]"       # ruff, pytest, build tools
 python -m pip install -e ".[all]"       # everything
 ```
 
-The base package is stdlib-first with zero mandatory dependencies. Heavy runtimes (`llama-cpp-python`, PyTorch, `nvidia-cutlass-dsl`, `pyqpanda3`) are opt-in.
+The base package installs the lightweight runtime dependencies needed for Ghost Console, gateway scheduling, desktop control, certificate fallback, and plugin validation. Heavy runtimes (`llama-cpp-python`, PyTorch, `nvidia-cutlass-dsl`, `pyqpanda3`) remain opt-in through extras or the default one-line `.[all]` install.
 
 ---
 

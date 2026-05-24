@@ -186,6 +186,8 @@ class ConversationConsoleRouteTests(unittest.TestCase):
                 ("GET", "/api/console/conversation/sessions"),
                 ("GET", "/api/console/conversation/status"),
                 ("POST", "/api/console/conversation/settings"),
+                ("GET", "/api/console/conversation/local-voice/status"),
+                ("POST", "/api/console/conversation/local-voice/transcribe"),
             ]:
                 with self.subTest(path=path):
                     self.assertIsNotNone(server.routes.find(method, path))
@@ -264,6 +266,7 @@ class ConversationUiStaticTests(unittest.TestCase):
             "conversationStopAll",
             "conversationAlwaysListening",
             "conversationFullBypass",
+            "conversationLocalFallback",
             "conversationVoiceSelect",
         ]:
             with self.subTest(marker=marker):
@@ -273,6 +276,9 @@ class ConversationUiStaticTests(unittest.TestCase):
             "/api/console/conversation/status",
             "/api/console/conversation/settings",
             "SpeechRecognition",
+            "MediaRecorder",
+            "local-voice-turn",
+            "/api/console/conversation/local-voice/status",
             "speechSynthesis",
             "speechErrorGuidance",
             "voiceRestartBlocked",

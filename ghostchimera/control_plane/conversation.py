@@ -219,6 +219,7 @@ class ConversationStore:
                 "always_listening": False,
                 "hands_free": False,
                 "full_bypass": False,
+                "local_fallback": True,
                 "voice_provider": "browser",
                 "voice_id": "browser-default",
                 "raw_audio_stored": False,
@@ -252,7 +253,7 @@ class ConversationStore:
     def update_settings(self, **updates: Any) -> dict[str, Any]:
         data = self._load()
         settings = dict(data.get("settings") or {})
-        for key in ("always_listening", "hands_free", "full_bypass"):
+        for key in ("always_listening", "hands_free", "full_bypass", "local_fallback"):
             if key in updates:
                 settings[key] = bool(updates[key])
         for key in ("voice_provider", "voice_id"):

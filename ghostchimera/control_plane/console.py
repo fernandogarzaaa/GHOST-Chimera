@@ -83,6 +83,7 @@ from .evolution import (
     upsert_candidate,
 )
 from .latency import latency_summary, record_latency_event
+from .local_voice import LocalVoiceTranscriber
 
 RunObjective = Callable[[str], dict[str, Any]]
 FetchUrl = Callable[[str], str]
@@ -700,6 +701,7 @@ def register_console_routes(
     trust_store = TrustRuntimeStore(console_state_dir)
     admission_store = CapabilityAdmissionStore(console_state_dir)
     conversation_store = ConversationStore(console_state_dir)
+    local_voice = LocalVoiceTranscriber(console_state_dir / "local_voice")
     conversation_controller = ConversationalLoopController(
         state_dir=console_state_dir,
         store=conversation_store,
@@ -1741,6 +1743,27 @@ def register_console_routes(
                 message,
                 input_mode="voice" if action == "voice-turn" else str(body.get("input_mode") or "text"),
             )
+        if action == "local-voice-turn":
+            transcribed = local_voice.transcribe_base64(
+                str(body.get("audio_base64") or body.get("audio") or "").strip(),
+                mime_type=str(body.get("mime_type") or ""),
+                filename=str(body.get("filename") or ""),
+                provider=str(body.get("provider") or "auto"),
+            )
+            if not transcribed.get("ok"):
+                return transcribed
+            result = conversation_controller.handle_turn(
+                session_id,
+                str(transcribed.get("transcript") or "").strip(),
+                input_mode="local_voice",
+            )
+            result["local_voice"] = {
+                "ok": True,
+                "provider": transcribed.get("provider", ""),
+                "raw_audio_stored": False,
+                "transcript_chars": len(str(transcribed.get("transcript") or "")),
+            }
+            return result
         if action == "approve":
             return conversation_controller.handle_turn(
                 session_id,
@@ -1754,13 +1777,15 @@ def register_console_routes(
         return {"ok": False, "error": f"Unsupported conversation action: {action}"}
 
     def conversation_status(ctx: dict[str, Any]) -> dict[str, Any]:
-        return conversation_controller.status()
+        payload = conversation_controller.status()
+        payload["local_voice"] = local_voice.status()
+        return payload
 
     def conversation_settings(ctx: dict[str, Any]) -> dict[str, Any]:
         body = _json_body(ctx)
         allowed = {
             key: body[key]
-            for key in ("always_listening", "hands_free", "full_bypass", "voice_provider", "voice_id")
+            for key in ("always_listening", "hands_free", "full_bypass", "local_fallback", "voice_provider", "voice_id")
             if key in body
         }
         payload = conversation_controller.update_settings(**allowed)
@@ -1771,6 +1796,18 @@ def register_console_routes(
                 {"enabled": bool(payload.get("settings", {}).get("full_bypass"))},
             )
         return payload
+
+    def conversation_local_voice_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        return local_voice.status()
+
+    def conversation_local_voice_transcribe(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        return local_voice.transcribe_base64(
+            str(body.get("audio_base64") or body.get("audio") or "").strip(),
+            mime_type=str(body.get("mime_type") or ""),
+            filename=str(body.get("filename") or ""),
+            provider=str(body.get("provider") or "auto"),
+        )
 
     def browser_fetch(ctx: dict[str, Any]) -> dict[str, Any]:
         body = _json_body(ctx)
@@ -4018,6 +4055,18 @@ def register_console_routes(
         conversation_settings,
         method="POST",
         description="Update conversation voice and bypass settings",
+    )
+    _api_register(
+        "/api/console/conversation/local-voice/status",
+        conversation_local_voice_status,
+        method="GET",
+        description="Inspect local machine speech-to-text fallback readiness",
+    )
+    _api_register(
+        "/api/console/conversation/local-voice/transcribe",
+        conversation_local_voice_transcribe,
+        method="POST",
+        description="Transcribe a short local voice audio clip without storing raw audio",
     )
     _api_register("/api/console/remote/status", remote_status, method="GET", description="Inspect remote control status")
     _api_register("/api/console/remote/policy", remote_policy, method="POST", description="Update remote control policy")
