@@ -28,6 +28,8 @@ REQUIRED_FILES = [
     "CHANGES.md",
     "pyproject.toml",
     "MANIFEST.in",
+    ".env.saas.example",
+    "docker-compose.saas.yml",
     "docs/ARCHITECTURE.md",
     "docs/CLEAN_ROOM.md",
     "docs/BOB_OPTIONAL_TOOLING.md",
@@ -37,6 +39,7 @@ REQUIRED_FILES = [
     "docs/TRUST_RUNTIME.md",
     "docs/CAPABILITY_ADMISSION.md",
     "docs/PRODUCTION_DEPLOYMENT.md",
+    "docs/PUBLIC_LAUNCH_SAAS.md",
     "docs/RELEASE_CHECKLIST.md",
     "docs/model_provider_catalog.json",
     "docs/model_provider_catalog.md",
@@ -149,6 +152,9 @@ def check_imports() -> dict[str, Any]:
         "ghostchimera.sandbox.journey",
         "ghostchimera.chimera_pilot.backends.mcp",
         "ghostchimera.trust_runtime",
+        "ghostchimera.saas",
+        "ghostchimera.saas.cli",
+        "ghostchimera.saas.store",
     ]
     imported: list[str] = []
     for module in modules:
@@ -505,6 +511,70 @@ def check_production_maintenance_artifacts() -> dict[str, Any]:
     return {"ok": not errors, "errors": errors}
 
 
+def check_public_launch_saas_artifacts() -> dict[str, Any]:
+    """Check that the public-branch SaaS foundation remains wired and documented."""
+
+    errors: list[str] = []
+    doc = (ROOT / "docs" / "PUBLIC_LAUNCH_SAAS.md").read_text(encoding="utf-8")
+    for token in (
+        "generic OIDC",
+        "organizations own workspaces",
+        "Postgres is the SaaS source of truth",
+        "ghostchimera saas status",
+        "ghostchimera worker status",
+        "docker-compose.saas.yml",
+        "approval-first",
+    ):
+        if token not in doc:
+            errors.append(f"public launch SaaS doc missing {token!r}")
+
+    cli = (ROOT / "ghostchimera" / "control_plane" / "cli.py").read_text(encoding="utf-8")
+    for token in ("sub.add_parser(\"saas\"", "sub.add_parser(\"worker\"", "run_saas_cli", "run_worker_cli"):
+        if token not in cli:
+            errors.append(f"CLI missing SaaS/worker surface {token!r}")
+
+    schema = (ROOT / "ghostchimera" / "saas" / "store.py").read_text(encoding="utf-8")
+    for table in (
+        "organizations",
+        "user_accounts",
+        "memberships",
+        "workspaces",
+        "ghost_profiles",
+        "tenant_secret_refs",
+        "saas_runs",
+        "saas_approvals",
+        "audit_events",
+        "worker_leases",
+        "eval_baselines",
+    ):
+        if table not in schema:
+            errors.append(f"SaaS schema missing {table!r}")
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    for token in ("Public Launch SaaS", "ghostchimera saas status", "ghostchimera worker status", "docker-compose.saas.yml"):
+        if token not in readme:
+            errors.append(f"README missing SaaS launch reference {token!r}")
+
+    compose = (ROOT / "docker-compose.saas.yml").read_text(encoding="utf-8")
+    for token in ("postgres:", "console:", "worker:", "no-new-privileges:true", "cap_drop:"):
+        if token not in compose:
+            errors.append(f"SaaS compose missing {token!r}")
+
+    env_example = (ROOT / ".env.saas.example").read_text(encoding="utf-8")
+    for token in (
+        "GHOSTCHIMERA_DEPLOYMENT_TARGET=saas",
+        "GHOSTCHIMERA_DATABASE_URL=",
+        "GHOSTCHIMERA_OIDC_ISSUER=",
+        "GHOSTCHIMERA_SESSION_SECRET=",
+        "GHOSTCHIMERA_SECRETS_ENCRYPTION_KEY=",
+        "GHOSTCHIMERA_WORKER_TOKEN=",
+    ):
+        if token not in env_example:
+            errors.append(f"SaaS env example missing {token!r}")
+
+    return {"ok": not errors, "errors": errors}
+
+
 def check_unittest() -> dict[str, Any]:
     stream = io.StringIO()
     suite = unittest.defaultTestLoader.loadTestsFromNames(
@@ -544,6 +614,7 @@ def main() -> int:
         "optional_tooling_boundary": check_optional_tooling_boundary(),
         "bob_tooling_artifacts": check_bob_tooling_artifacts(),
         "production_maintenance_artifacts": check_production_maintenance_artifacts(),
+        "public_launch_saas_artifacts": check_public_launch_saas_artifacts(),
         "policy_defaults": check_policy_defaults(),
         "compileall": check_compileall(),
         "unittest": check_unittest(),

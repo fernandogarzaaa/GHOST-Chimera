@@ -16,6 +16,7 @@ Key capabilities:
 - **Native Chimera capability pack** - built-in cognition guardrails, tamper-evident handoffs, query-aware context compression, local model inventory/resolution, MCP normalization, and sandbox journeys with no external project dependency. [Details](docs/NATIVE_ABSORPTION.md)
 - **Trust Runtime** - durable local run journals, resumable approval checkpoints, MCP zero-trust envelopes, explicit capability admission, eval flywheels, and OTel-compatible JSON trace exports. [Details](docs/TRUST_RUNTIME.md) | [Capability Admission](docs/CAPABILITY_ADMISSION.md)
 - **Daily production maintenance** - scheduled GitHub automation refreshes dependency audits and the compatible model-provider catalog, then opens a review PR without activating models automatically.
+- **Public Launch SaaS foundation** - OIDC-ready organizations, users, roles, workspaces, Postgres schema, approval-first runs, worker leases, and audit-safe tenant primitives on the `public` branch. [Details](docs/PUBLIC_LAUNCH_SAAS.md)
 
 - **Competitive capability intelligence** - CLI, console, docs, and eval gates compare Ghost Chimera against Codex, Claude Code, LangGraph, CrewAI, Hermes-style tool gateways, and OpenClaw-style local autonomy patterns.
 - **Automated PR review** - deterministic `ghostchimera review-pr` checks for secrets, destructive commands, missing tests, release-checklist drift, generated artifacts, and unfinished beta code.
@@ -33,6 +34,7 @@ If you are new to Ghost Chimera, use the tutorial first:
 - [Remote Control](docs/REMOTE_CONTROL.md) - paired mobile/messaging commands with dashboard-controlled direct execution
 - [GitHub-Connected Workflow](docs/GITHUB_CONNECTED_AUTONOMOUS_ENGINEER.md) - optional GitHub planning and issue-to-objective flow
 - [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) - final deployment guardrails, smoke tests, and production blockers
+- [Public Launch SaaS](docs/PUBLIC_LAUNCH_SAAS.md) - Enterprise SaaS launch-mode foundation for organizations, OIDC, Postgres, and workers
 - [Model Provider Catalog](docs/model_provider_catalog.md) - generated compatible/candidate model catalog
 - [Dependency Audit](docs/dependency_audit.md) - generated dependency-specification risk report
 
@@ -56,6 +58,7 @@ If you are new to Ghost Chimera, use the tutorial first:
 - [Desktop Control](#desktop-control)
 - [Execution Safety](#execution-safety)
 - [Production Mode](#production-mode)
+- [Public Launch SaaS](#public-launch-saas)
 - [Daily Production Maintenance](#daily-production-maintenance)
 - [Local Models](#local-models)
 - [Ghost MiniMind](#ghost-minimind)
@@ -642,6 +645,35 @@ python scripts/validate_release.py
 ```
 
 See [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) for the env-file flow, Docker smoke tests, and production blockers.
+
+---
+
+## Public Launch SaaS
+
+The `public` branch adds a SaaS launch foundation while preserving local-first mode. SaaS mode is designed around OIDC identity, organization/user/role tenancy, Postgres as source of truth, queued worker execution, approval-first governance, and Docker Compose VPS deployment.
+
+Inspect readiness:
+
+```bash
+ghostchimera saas status
+ghostchimera saas init-db --print-sql
+ghostchimera worker status
+```
+
+Render the Docker Compose VPS launch shape:
+
+```bash
+cp .env.saas.example .env.saas
+docker compose --env-file .env.saas -f docker-compose.saas.yml config
+```
+
+Create a local bootstrap owner record for smoke testing:
+
+```bash
+ghostchimera saas create-admin --email owner@example.com --org "Acme"
+```
+
+Set `GHOSTCHIMERA_DEPLOYMENT_TARGET=saas` only when Postgres, OIDC, session secret, secrets encryption key, and worker token are configured. See [Public Launch SaaS](docs/PUBLIC_LAUNCH_SAAS.md).
 
 ---
 

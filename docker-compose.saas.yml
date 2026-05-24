@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - ghostchimera-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  console:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env.saas
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8766:8766"
+    command: ["ghostchimera", "console", "--host", "0.0.0.0", "--http-port", "8766", "--no-open"]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env.saas
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["ghostchimera", "worker", "start", "--worker-id", "compose-worker-1"]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  ghostchimera-postgres:

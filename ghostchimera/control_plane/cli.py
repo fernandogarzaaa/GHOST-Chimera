@@ -171,6 +171,14 @@ def _main(argv: list[str] | None = None) -> int:
     conversation_parser.add_argument("--voice", action="store_true", help="Treat send input as a voice turn.")
     conversation_parser.add_argument("--full-bypass", action="store_true", help="Arm Full Bypass before sending.")
     conversation_parser.add_argument("--no-listen", action="store_true", help="Start without always-listening mode.")
+    saas_parser = sub.add_parser("saas", help="Inspect Enterprise SaaS launch-mode readiness")
+    saas_parser.add_argument("saas_action", choices=["status", "init-db", "create-admin"], nargs="?", default="status")
+    saas_parser.add_argument("--print-sql", action="store_true", help="Print the initial Postgres schema for init-db.")
+    saas_parser.add_argument("--email", default="", help="Owner email for create-admin.")
+    saas_parser.add_argument("--org", default="Ghost Chimera", help="Organization name for create-admin.")
+    worker_parser = sub.add_parser("worker", help="Run or inspect SaaS queued worker primitives")
+    worker_parser.add_argument("worker_action", choices=["status", "start"], nargs="?", default="status")
+    worker_parser.add_argument("--worker-id", default="local-worker", help="Worker id for start/status output.")
     trust_parser = sub.add_parser("trust", help="Inspect durable Trust Runtime runs, traces, approvals, and evals")
     trust_sub = trust_parser.add_subparsers(dest="trust_command")
     trust_sub.add_parser("status", help="Show Trust Runtime readiness")
@@ -526,6 +534,16 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "conversation":
         return _run_conversation_cli(args)
+
+    if args.command == "saas":
+        from ..saas.cli import run_saas_cli
+
+        return run_saas_cli(args)
+
+    if args.command == "worker":
+        from ..saas.cli import run_worker_cli
+
+        return run_worker_cli(args)
 
     if args.command == "trust":
         return _run_trust_cli(args)
