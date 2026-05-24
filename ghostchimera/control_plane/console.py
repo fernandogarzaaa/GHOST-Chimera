@@ -69,7 +69,7 @@ from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
 from ..trust_runtime import TrustRuntimeStore
 from .config import CONFIG_FILE, config_to_env_vars, get_autonomy_config, get_default_config, load_config, save_config
-from .conversation import ConversationStore, ConversationalLoopController
+from .conversation import ConversationalLoopController, ConversationStore
 from .evolution import (
     create_learning_source,
     list_candidates,

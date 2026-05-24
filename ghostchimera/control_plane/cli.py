@@ -867,7 +867,7 @@ def _run_remote_cli(args: argparse.Namespace) -> int:
 
 
 def _run_conversation_cli(args: argparse.Namespace) -> int:
-    from .conversation import ConversationStore, ConversationalLoopController
+    from .conversation import ConversationalLoopController, ConversationStore
 
     state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
     store = ConversationStore(state_dir)
