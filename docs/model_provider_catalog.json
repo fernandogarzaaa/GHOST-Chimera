@@ -1,0 +1,4072 @@
+{
+  "generated_at": 1779607021.7800865,
+  "generated_at_iso": "2026-05-24T07:17:01Z",
+  "model_count": 125,
+  "models": [
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "base_model:google/gemma-3-1b-it",
+        "base_model:quantized:google/gemma-3-1b-it",
+        "conversational",
+        "en",
+        "endpoints_compatible",
+        "gguf",
+        "instruction-tuned",
+        "license:gemma",
+        "lightweight",
+        "open-weight",
+        "reasoning",
+        "region:us",
+        "text-generation",
+        "uncensored"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Andycurrent/Gemma-3-1B-it-GLM-4.7-Flash-Heretic-Uncensored-Thinking_GGUF",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Andycurrent/Gemma-3-1B-it-GLM-4.7-Flash-Heretic-Uncensored-Thinking_GGUF",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "self-evolution"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2101.00027",
+        "arxiv:2201.07311",
+        "arxiv:2304.01373",
+        "causal-lm",
+        "dataset:eleutherai/pile",
+        "deploy:azure",
+        "en",
+        "endpoints_compatible",
+        "gpt_neox",
+        "license:apache-2.0",
+        "open-weight",
+        "pythia",
+        "pytorch",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "EleutherAI/pythia-160m",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "EleutherAI/pythia-160m",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "chat",
+        "conversational",
+        "deploy:azure",
+        "en",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen2",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen2-1.5B-Instruct",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen2-1.5B-Instruct",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2407.10671",
+        "conversational",
+        "deploy:azure",
+        "en",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen2",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen2.5-0.5B",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen2.5-0.5B",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2407.10671",
+        "base_model:finetune:qwen/qwen2.5-0.5b",
+        "base_model:qwen/qwen2.5-0.5b",
+        "chat",
+        "conversational",
+        "deploy:azure",
+        "en",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen2",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen2.5-0.5B-Instruct",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2407.10671",
+        "base_model:finetune:qwen/qwen2.5-1.5b",
+        "base_model:qwen/qwen2.5-1.5b",
+        "chat",
+        "conversational",
+        "deploy:azure",
+        "en",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen2",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen2.5-1.5B-Instruct",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen2.5-1.5B-Instruct",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2309.00071",
+        "arxiv:2407.10671",
+        "base_model:finetune:qwen/qwen2.5-14b",
+        "base_model:qwen/qwen2.5-14b",
+        "chat",
+        "conversational",
+        "deploy:azure",
+        "en",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen2",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen2.5-14B-Instruct",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen2.5-14B-Instruct",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2407.10671",
+        "base_model:finetune:qwen/qwen2.5-3b",
+        "base_model:qwen/qwen2.5-3b",
+        "chat",
+        "conversational",
+        "deploy:azure",
+        "en",
+        "endpoints_compatible",
+        "license:other",
+        "open-weight",
+        "qwen2",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen2.5-3B-Instruct",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen2.5-3B-Instruct",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2309.00071",
+        "arxiv:2407.10671",
+        "base_model:finetune:qwen/qwen2.5-7b",
+        "base_model:qwen/qwen2.5-7b",
+        "chat",
+        "conversational",
+        "deploy:azure",
+        "en",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen2",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen2.5-7B-Instruct",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen2.5-7B-Instruct",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "4-bit",
+        "arxiv:2309.00071",
+        "arxiv:2407.10671",
+        "awq",
+        "base_model:quantized:qwen/qwen2.5-7b-instruct",
+        "base_model:qwen/qwen2.5-7b-instruct",
+        "chat",
+        "conversational",
+        "en",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen2",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen2.5-7B-Instruct-AWQ",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen2.5-7B-Instruct-AWQ",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2309.00071",
+        "arxiv:2407.10671",
+        "arxiv:2409.12186",
+        "base_model:finetune:qwen/qwen2.5-coder-7b",
+        "base_model:qwen/qwen2.5-coder-7b",
+        "chat",
+        "code",
+        "codeqwen",
+        "conversational",
+        "deploy:azure",
+        "en",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen",
+        "qwen-coder",
+        "qwen2",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen2.5-Coder-7B-Instruct",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen2.5-Coder-7B-Instruct",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "self-evolution"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2505.09388",
+        "base_model:finetune:qwen/qwen3-0.6b-base",
+        "base_model:qwen/qwen3-0.6b-base",
+        "conversational",
+        "deploy:azure",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen3",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen3-0.6B",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen3-0.6B",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2505.09388",
+        "base_model:quantized:qwen/qwen3-0.6b",
+        "base_model:qwen/qwen3-0.6b",
+        "conversational",
+        "endpoints_compatible",
+        "fp8",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen3",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen3-0.6B-FP8",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen3-0.6B-FP8",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2505.09388",
+        "base_model:finetune:qwen/qwen3-1.7b-base",
+        "base_model:qwen/qwen3-1.7b-base",
+        "conversational",
+        "deploy:azure",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen3",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen3-1.7B",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen3-1.7B",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2309.00071",
+        "arxiv:2505.09388",
+        "base_model:finetune:qwen/qwen3-14b-base",
+        "base_model:qwen/qwen3-14b-base",
+        "conversational",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen3",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen3-14B",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen3-14B",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2309.00071",
+        "arxiv:2505.09388",
+        "conversational",
+        "deploy:azure",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen3",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen3-32B",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen3-32B",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2309.00071",
+        "arxiv:2505.09388",
+        "base_model:finetune:qwen/qwen3-4b-base",
+        "base_model:qwen/qwen3-4b-base",
+        "conversational",
+        "deploy:azure",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen3",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen3-4B",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen3-4B",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2505.09388",
+        "conversational",
+        "deploy:azure",
+        "endpoints_compatible",
+        "eval-results",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen3",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen3-4B-Instruct-2507",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2309.00071",
+        "arxiv:2505.09388",
+        "base_model:finetune:qwen/qwen3-8b-base",
+        "base_model:qwen/qwen3-8b-base",
+        "conversational",
+        "deploy:azure",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen3",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen3-8B",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen3-8B",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "4-bit",
+        "arxiv:2309.00071",
+        "arxiv:2505.09388",
+        "awq",
+        "base_model:quantized:qwen/qwen3-8b",
+        "base_model:qwen/qwen3-8b",
+        "conversational",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen3",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen3-8B-AWQ",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen3-8B-AWQ",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2506.05176",
+        "base_model:finetune:qwen/qwen3-0.6b-base",
+        "base_model:qwen/qwen3-0.6b-base",
+        "deploy:azure",
+        "endpoints_compatible",
+        "feature-extraction",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen3",
+        "region:us",
+        "safetensors",
+        "sentence-similarity",
+        "sentence-transformers",
+        "text-embeddings-inference",
+        "text-generation",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen3-Embedding-0.6B",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen3-Embedding-0.6B",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2506.05176",
+        "base_model:finetune:qwen/qwen3-4b-base",
+        "base_model:qwen/qwen3-4b-base",
+        "endpoints_compatible",
+        "feature-extraction",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen3",
+        "region:us",
+        "safetensors",
+        "sentence-similarity",
+        "sentence-transformers",
+        "text-embeddings-inference",
+        "text-generation",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen3-Embedding-4B",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen3-Embedding-4B",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2510.14276",
+        "base_model:finetune:qwen/qwen3-0.6b",
+        "base_model:qwen/qwen3-0.6b",
+        "conversational",
+        "deploy:azure",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen3",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen3Guard-Gen-0.6B",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen3Guard-Gen-0.6B",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "base_model:meta-llama/llama-3.2-1b-instruct",
+        "base_model:quantized:meta-llama/llama-3.2-1b-instruct",
+        "compressed-tensors",
+        "conversational",
+        "de",
+        "en",
+        "es",
+        "fp8",
+        "fr",
+        "hi",
+        "it",
+        "license:llama3.2",
+        "llama",
+        "open-weight",
+        "pt",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "th",
+        "vllm"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "RedHatAI/Llama-3.2-1B-Instruct-FP8-dynamic",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "RedHatAI/Llama-3.2-1B-Instruct-FP8-dynamic",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "conversational",
+        "dataset:bigcode/starcoderdata",
+        "dataset:cerebras/slimpajama-627b",
+        "dataset:huggingfaceh4/ultrachat_200k",
+        "dataset:huggingfaceh4/ultrafeedback_binarized",
+        "deploy:azure",
+        "en",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "llama",
+        "open-weight",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2501.12948",
+        "conversational",
+        "custom_code",
+        "deepseek_v3",
+        "endpoints_compatible",
+        "eval-results",
+        "fp8",
+        "license:mit",
+        "open-weight",
+        "reasoning",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "deepseek-ai/DeepSeek-R1",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "deepseek-ai/DeepSeek-R1",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "self-evolution"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2501.12948",
+        "conversational",
+        "custom_code",
+        "deepseek_v3",
+        "endpoints_compatible",
+        "eval-results",
+        "fp8",
+        "license:mit",
+        "open-weight",
+        "reasoning",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "deepseek-ai/DeepSeek-R1-0528",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "deepseek-ai/DeepSeek-R1-0528",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "self-evolution"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "base_model:deepseek-ai/deepseek-v3.2-exp-base",
+        "base_model:finetune:deepseek-ai/deepseek-v3.2-exp-base",
+        "conversational",
+        "deepseek_v32",
+        "endpoints_compatible",
+        "eval-results",
+        "fp8",
+        "license:mit",
+        "open-weight",
+        "reasoning",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "deepseek-ai/DeepSeek-V3.2",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "deepseek-ai/DeepSeek-V3.2",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "self-evolution"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "8-bit",
+        "conversational",
+        "deepseek_v4",
+        "endpoints_compatible",
+        "eval-results",
+        "fp8",
+        "license:mit",
+        "open-weight",
+        "reasoning",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "deepseek-ai/DeepSeek-V4-Flash",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "deepseek-ai/DeepSeek-V4-Flash",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "self-evolution"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "8-bit",
+        "conversational",
+        "deepseek_v4",
+        "endpoints_compatible",
+        "eval-results",
+        "fp8",
+        "license:mit",
+        "open-weight",
+        "reasoning",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "deepseek-ai/DeepSeek-V4-Pro",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "deepseek-ai/DeepSeek-V4-Pro",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "self-evolution"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:1503.02531",
+        "arxiv:1910.01108",
+        "arxiv:1910.09700",
+        "arxiv:2201.08542",
+        "arxiv:2203.12574",
+        "co2_eq_emissions",
+        "coreml",
+        "dataset:openwebtext",
+        "deploy:azure",
+        "en",
+        "endpoints_compatible",
+        "exbert",
+        "gpt2",
+        "jax",
+        "license:apache-2.0",
+        "model-index",
+        "open-weight",
+        "pytorch",
+        "region:us",
+        "rust",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "tf",
+        "tflite",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "distilbert/distilgpt2",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "distilbert/distilgpt2",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "axolotl",
+        "base_model:01-ai/yi-1.5-34b",
+        "base_model:finetune:01-ai/yi-1.5-34b",
+        "conversational",
+        "dataset:cognitivecomputations/dolphin-2.9",
+        "dataset:cognitivecomputations/dolphin-coder",
+        "dataset:cognitivecomputations/samantha-data",
+        "dataset:internlm/agent-flan",
+        "dataset:locutusque/function-calling-chatml",
+        "dataset:m-a-p/codefeedback-filtered-instruction",
+        "dataset:microsoft/orca-math-word-problems-200k",
+        "dataset:teknium/openhermes-2.5",
+        "endpoints_compatible",
+        "generated_from_trainer",
+        "license:apache-2.0",
+        "llama",
+        "open-weight",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "dphn/dolphin-2.9.1-yi-1.5-34b",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "dphn/dolphin-2.9.1-yi-1.5-34b",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2005.14165",
+        "arxiv:2205.01068",
+        "deploy:azure",
+        "en",
+        "jax",
+        "license:other",
+        "open-weight",
+        "opt",
+        "pytorch",
+        "region:us",
+        "text-generation",
+        "text-generation-inference",
+        "tf",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "facebook/opt-125m",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "facebook/opt-125m",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:1705.03551",
+        "arxiv:1810.12440",
+        "arxiv:1903.00161",
+        "arxiv:1904.09728",
+        "arxiv:1905.07830",
+        "arxiv:1905.10044",
+        "arxiv:1907.10641",
+        "arxiv:1908.02660",
+        "arxiv:1910.11856",
+        "arxiv:1911.01547",
+        "arxiv:1911.11641",
+        "arxiv:2009.03300",
+        "arxiv:2103.03874",
+        "arxiv:2104.12756",
+        "arxiv:2106.03193",
+        "arxiv:2107.03374",
+        "arxiv:2108.07732",
+        "arxiv:2110.14168",
+        "arxiv:2203.10244",
+        "arxiv:2210.03057",
+        "arxiv:2304.06364",
+        "arxiv:2305.03111",
+        "arxiv:2310.02255",
+        "arxiv:2311.07911",
+        "arxiv:2311.12022",
+        "arxiv:2311.16502",
+        "arxiv:2312.11805",
+        "arxiv:2403.07974",
+        "arxiv:2404.12390",
+        "arxiv:2404.16816",
+        "arxiv:2405.04520",
+        "arxiv:2411.04368",
+        "arxiv:2502.12404",
+        "arxiv:2502.21228",
+        "arxiv:2503.19786",
+        "endpoints_compatible",
+        "gemma",
+        "gemma3",
+        "gemma3_text",
+        "google",
+        "license:gemma",
+        "open-weight",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "google/gemma-3-270m",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "google/gemma-3-270m",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:1910.09700",
+        "conversational",
+        "endpoints_compatible",
+        "llama",
+        "open-weight",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "hmellor/tiny-random-LlamaForCausalLM",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "hmellor/tiny-random-LlamaForCausalLM",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2204.05149",
+        "base_model:finetune:meta-llama/llama-3.1-8b",
+        "base_model:meta-llama/llama-3.1-8b",
+        "conversational",
+        "de",
+        "en",
+        "endpoints_compatible",
+        "es",
+        "eval-results",
+        "facebook",
+        "fr",
+        "hi",
+        "it",
+        "license:llama3.1",
+        "llama",
+        "llama-3",
+        "meta",
+        "open-weight",
+        "pt",
+        "pytorch",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "th",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "meta-llama/Llama-3.1-8B-Instruct",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "meta-llama/Llama-3.1-8B-Instruct",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2204.05149",
+        "arxiv:2405.16406",
+        "de",
+        "en",
+        "endpoints_compatible",
+        "es",
+        "facebook",
+        "fr",
+        "hi",
+        "it",
+        "license:llama3.2",
+        "llama",
+        "llama-3",
+        "meta",
+        "open-weight",
+        "pt",
+        "pytorch",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "th",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "meta-llama/Llama-3.2-1B",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "meta-llama/Llama-3.2-1B",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2204.05149",
+        "arxiv:2405.16406",
+        "conversational",
+        "de",
+        "en",
+        "endpoints_compatible",
+        "es",
+        "facebook",
+        "fr",
+        "hi",
+        "it",
+        "license:llama3.2",
+        "llama",
+        "llama-3",
+        "meta",
+        "open-weight",
+        "pt",
+        "pytorch",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "th",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "meta-llama/Llama-3.2-1B-Instruct",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "meta-llama/Llama-3.2-1B-Instruct",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2204.05149",
+        "arxiv:2405.16406",
+        "conversational",
+        "de",
+        "en",
+        "endpoints_compatible",
+        "es",
+        "facebook",
+        "fr",
+        "hi",
+        "it",
+        "license:llama3.2",
+        "llama",
+        "llama-3",
+        "meta",
+        "open-weight",
+        "pt",
+        "pytorch",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "th",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "meta-llama/Llama-3.2-3B-Instruct",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "meta-llama/Llama-3.2-3B-Instruct",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "en",
+        "endpoints_compatible",
+        "facebook",
+        "license:llama3",
+        "llama",
+        "llama-3",
+        "meta",
+        "open-weight",
+        "pytorch",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "meta-llama/Meta-Llama-3-8B",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "meta-llama/Meta-Llama-3-8B",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2404.14219",
+        "code",
+        "conversational",
+        "custom_code",
+        "image-text-to-text",
+        "license:mit",
+        "multilingual",
+        "nlp",
+        "open-weight",
+        "phi3_v",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "transformers",
+        "vision"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "microsoft/Phi-3.5-vision-instruct",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "microsoft/Phi-3.5-vision-instruct",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "analyst",
+        "multimodal-review"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2310.06825",
+        "conversational",
+        "deploy:azure",
+        "finetuned",
+        "license:apache-2.0",
+        "mistral",
+        "mistral-common",
+        "open-weight",
+        "pytorch",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "mistralai/Mistral-7B-Instruct-v0.2",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "mistralai/Mistral-7B-Instruct-v0.2",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "conversational",
+        "custom_code",
+        "endpoints_compatible",
+        "eval-results",
+        "fp8",
+        "kimi_k2",
+        "license:other",
+        "open-weight",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "moonshotai/Kimi-K2-Instruct-0905",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "moonshotai/Kimi-K2-Instruct-0905",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "base_model:google/gemma-4-31b-it",
+        "base_model:quantized:google/gemma-4-31b-it",
+        "conversational",
+        "deploy:azure",
+        "gemma-4-31b-it",
+        "gemma4",
+        "license:other",
+        "lighthouse",
+        "model optimizer",
+        "modelopt",
+        "nvfp4",
+        "nvidia",
+        "open-weight",
+        "quantized",
+        "region:us",
+        "safetensors",
+        "text-generation"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "nvidia/Gemma-4-31B-IT-NVFP4",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "nvidia/Gemma-4-31B-IT-NVFP4",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "deploy:azure",
+        "doi:10.57967/hf/0039",
+        "en",
+        "endpoints_compatible",
+        "exbert",
+        "gpt2",
+        "jax",
+        "license:mit",
+        "onnx",
+        "open-weight",
+        "pytorch",
+        "region:us",
+        "rust",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "tf",
+        "tflite",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "openai-community/gpt2",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "openai-community/gpt2",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "8-bit",
+        "arxiv:2508.10925",
+        "conversational",
+        "deploy:azure",
+        "endpoints_compatible",
+        "eval-results",
+        "gpt_oss",
+        "license:apache-2.0",
+        "mxfp4",
+        "open-weight",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "transformers",
+        "vllm"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "openai/gpt-oss-120b",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "openai/gpt-oss-120b",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "8-bit",
+        "arxiv:2508.10925",
+        "conversational",
+        "deploy:azure",
+        "endpoints_compatible",
+        "eval-results",
+        "gpt_oss",
+        "license:apache-2.0",
+        "mxfp4",
+        "open-weight",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "transformers",
+        "vllm"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "openai/gpt-oss-20b",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "openai/gpt-oss-20b",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "conversational",
+        "endpoints_compatible",
+        "open-weight",
+        "qwen2",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers",
+        "trl"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "trl-internal-testing/tiny-Qwen2ForCausalLM-2.5",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "trl-internal-testing/tiny-Qwen2ForCausalLM-2.5",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "base_model:quantized:qwen/qwen3-coder-next",
+        "base_model:qwen/qwen3-coder-next",
+        "conversational",
+        "endpoints_compatible",
+        "gguf",
+        "imatrix",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen",
+        "qwen3",
+        "qwen3_next",
+        "region:us",
+        "text-generation",
+        "unsloth"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "unsloth/Qwen3-Coder-Next-GGUF",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "unsloth/Qwen3-Coder-Next-GGUF",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "self-evolution"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "custom_code",
+        "doi:10.57967/hf/6762",
+        "endpoints_compatible",
+        "eval-results",
+        "image-text-to-text",
+        "license:apache-2.0",
+        "moondream1",
+        "open-weight",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "vikhyatk/moondream2",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "vikhyatk/moondream2",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "image",
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 10000000,
+      "cost_class": "low",
+      "display_name": "Meta: Llama 4 Scout",
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "model_id": "meta-llama/llama-4-scout",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 2000000,
+      "cost_class": "low",
+      "display_name": "Auto Router",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "openrouter/auto",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "text"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 2000000,
+      "cost_class": "low",
+      "display_name": "Pareto Code Router",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "openrouter/pareto-code",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "self-evolution",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 2000000,
+      "cost_class": "low",
+      "display_name": "xAI: Grok 4.20",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "x-ai/grok-4.20",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 2000000,
+      "cost_class": "low",
+      "display_name": "xAI: Grok 4.20 Multi-Agent",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "x-ai/grok-4.20-multi-agent",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1050000,
+      "cost_class": "medium",
+      "display_name": "OpenAI: GPT-5.4",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-5.4",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1050000,
+      "cost_class": "high",
+      "display_name": "OpenAI: GPT-5.4 Pro",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-5.4-pro",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1050000,
+      "cost_class": "medium",
+      "display_name": "OpenAI: GPT-5.5",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-5.5",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1050000,
+      "cost_class": "high",
+      "display_name": "OpenAI: GPT-5.5 Pro",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-5.5-pro",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1050000,
+      "cost_class": "medium",
+      "display_name": "OpenAI GPT Latest",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "~openai/gpt-latest",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048756,
+      "cost_class": "medium",
+      "display_name": "Google: Gemini 3.1 Pro Preview Custom Tools",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "google/gemini-3.1-pro-preview-customtools",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048756,
+      "cost_class": "free",
+      "display_name": "Owl Alpha",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "openrouter/owl-alpha",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "reasoning",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "DeepSeek: DeepSeek V4 Flash",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "deepseek/deepseek-v4-flash",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "self-evolution",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "reasoning",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "free",
+      "display_name": "DeepSeek: DeepSeek V4 Flash (free)",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "deepseek/deepseek-v4-flash:free",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "self-evolution",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "reasoning",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "DeepSeek: DeepSeek V4 Pro",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "deepseek/deepseek-v4-pro",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "self-evolution",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Google: Gemini 2.0 Flash Lite",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "google/gemini-2.0-flash-lite-001",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Google: Gemini 2.5 Flash",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "google/gemini-2.5-flash",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Google: Gemini 2.5 Flash Lite",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "google/gemini-2.5-flash-lite",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Google: Gemini 2.5 Flash Lite Preview 09-2025",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "google/gemini-2.5-flash-lite-preview-09-2025",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Google: Gemini 2.5 Pro",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "google/gemini-2.5-pro",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Google: Gemini 2.5 Pro Preview 06-05",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "google/gemini-2.5-pro-preview",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Google: Gemini 2.5 Pro Preview 05-06",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "google/gemini-2.5-pro-preview-05-06",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Google: Gemini 3 Flash Preview",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "google/gemini-3-flash-preview",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Google: Gemini 3.1 Flash Lite",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "google/gemini-3.1-flash-lite",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Google: Gemini 3.1 Flash Lite Preview",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "google/gemini-3.1-flash-lite-preview",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "medium",
+      "display_name": "Google: Gemini 3.1 Pro Preview",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "google/gemini-3.1-pro-preview",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Google: Gemini 3.5 Flash",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "google/gemini-3.5-flash",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "free",
+      "display_name": "Google: Lyria 3 Clip Preview",
+      "modalities": [
+        "audio",
+        "image",
+        "text"
+      ],
+      "model_id": "google/lyria-3-clip-preview",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "free",
+      "display_name": "Google: Lyria 3 Pro Preview",
+      "modalities": [
+        "audio",
+        "image",
+        "text"
+      ],
+      "model_id": "google/lyria-3-pro-preview",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "image",
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "text",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Meta: Llama 4 Maverick",
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "model_id": "meta-llama/llama-4-maverick",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Qwen: Qwen3 Coder 480B A35B",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "qwen/qwen3-coder",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "self-evolution",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "free",
+      "display_name": "Qwen: Qwen3 Coder 480B A35B (free)",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "qwen/qwen3-coder:free",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "self-evolution",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Xiaomi: MiMo-V2-Pro",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "xiaomi/mimo-v2-pro",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Xiaomi: MiMo-V2.5",
+      "modalities": [
+        "audio",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "xiaomi/mimo-v2.5",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Xiaomi: MiMo-V2.5-Pro",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "xiaomi/mimo-v2.5-pro",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "Google Gemini Flash Latest",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "~google/gemini-flash-latest",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "medium",
+      "display_name": "Google Gemini Pro Latest",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "~google/gemini-pro-latest",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1047576,
+      "cost_class": "low",
+      "display_name": "OpenAI: GPT-4.1",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-4.1",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1047576,
+      "cost_class": "low",
+      "display_name": "OpenAI: GPT-4.1 Mini",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-4.1-mini",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1047576,
+      "cost_class": "low",
+      "display_name": "OpenAI: GPT-4.1 Nano",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-4.1-nano",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "text"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1040000,
+      "cost_class": "low",
+      "display_name": "Writer: Palmyra X5",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "writer/palmyra-x5",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000192,
+      "cost_class": "low",
+      "display_name": "MiniMax: MiniMax-01",
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "model_id": "minimax/minimax-01",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "Amazon: Nova 2 Lite",
+      "modalities": [
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "amazon/nova-2-lite-v1",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "medium",
+      "display_name": "Amazon: Nova Premier 1.0",
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "model_id": "amazon/nova-premier-v1",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "medium",
+      "display_name": "Anthropic: Claude Opus 4.6",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "anthropic/claude-opus-4.6",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "high",
+      "display_name": "Anthropic: Claude Opus 4.6 (Fast)",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "anthropic/claude-opus-4.6-fast",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "medium",
+      "display_name": "Anthropic: Claude Opus 4.7",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "anthropic/claude-opus-4.7",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "high",
+      "display_name": "Anthropic: Claude Opus 4.7 (Fast)",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "anthropic/claude-opus-4.7-fast",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "medium",
+      "display_name": "Anthropic: Claude Sonnet 4",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "anthropic/claude-sonnet-4",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "medium",
+      "display_name": "Anthropic: Claude Sonnet 4.5",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "anthropic/claude-sonnet-4.5",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "medium",
+      "display_name": "Anthropic: Claude Sonnet 4.6",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "anthropic/claude-sonnet-4.6",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "audio",
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "Google: Gemini 2.0 Flash",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "google/gemini-2.0-flash-001",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "MiniMax: MiniMax M1",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "minimax/minimax-m1",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "NVIDIA: Nemotron 3 Super",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "nvidia/nemotron-3-super-120b-a12b",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "free",
+      "display_name": "NVIDIA: Nemotron 3 Super (free)",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "nvidia/nemotron-3-super-120b-a12b:free",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "Qwen: Qwen-Plus",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "qwen/qwen-plus",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "Qwen: Qwen Plus 0728",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "qwen/qwen-plus-2025-07-28",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "Qwen: Qwen Plus 0728 (thinking)",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "qwen/qwen-plus-2025-07-28:thinking",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "Qwen: Qwen3 Coder Flash",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "qwen/qwen3-coder-flash",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "self-evolution",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "Qwen: Qwen3 Coder Plus",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "qwen/qwen3-coder-plus",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "self-evolution",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "image",
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "Qwen: Qwen3.5-Flash",
+      "modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "qwen/qwen3.5-flash-02-23",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "image",
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "Qwen: Qwen3.5 Plus 2026-02-15",
+      "modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "qwen/qwen3.5-plus-02-15",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "image",
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "Qwen: Qwen3.5 Plus 2026-04-20",
+      "modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "qwen/qwen3.5-plus-20260420",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "image",
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "Qwen: Qwen3.6 Flash",
+      "modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "qwen/qwen3.6-flash",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "image",
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "Qwen: Qwen3.6 Plus",
+      "modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "qwen/qwen3.6-plus",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "Qwen: Qwen3.7 Max",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "qwen/qwen3.7-max",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "low",
+      "display_name": "xAI: Grok 4.3",
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "model_id": "x-ai/grok-4.3",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "medium",
+      "display_name": "Anthropic: Claude Opus Latest",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "~anthropic/claude-opus-latest",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1000000,
+      "cost_class": "medium",
+      "display_name": "Anthropic Claude Sonnet Latest",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "~anthropic/claude-sonnet-latest",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 400000,
+      "cost_class": "low",
+      "display_name": "OpenAI: GPT-5",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-5",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 400000,
+      "cost_class": "low",
+      "display_name": "OpenAI: GPT-5 Codex",
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-5-codex",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "self-evolution",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 400000,
+      "cost_class": "low",
+      "display_name": "OpenAI: GPT-5 Image",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-5-image",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 400000,
+      "cost_class": "low",
+      "display_name": "OpenAI: GPT-5 Image Mini",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-5-image-mini",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 400000,
+      "cost_class": "low",
+      "display_name": "OpenAI: GPT-5 Mini",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-5-mini",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 400000,
+      "cost_class": "low",
+      "display_name": "OpenAI: GPT-5 Nano",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-5-nano",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    }
+  ],
+  "policy": {
+    "activation": "review_then_activate",
+    "automatic_model_switching": false,
+    "purpose": "daily_provider_catalog_snapshot",
+    "secrets_included": false
+  },
+  "schema_version": 1,
+  "sources": {
+    "huggingface": {
+      "count": 50,
+      "error": "",
+      "included_count": 50,
+      "last_refreshed": 1779607020.5707788,
+      "ok": true
+    },
+    "openrouter": {
+      "count": 358,
+      "error": "",
+      "included_count": 75,
+      "last_refreshed": 1779607020.5707788,
+      "ok": true
+    },
+    "vultr": {
+      "count": 0,
+      "error": "Vultr inference API key is not configured.",
+      "included_count": 0,
+      "last_refreshed": 0.0,
+      "ok": false
+    }
+  }
+}

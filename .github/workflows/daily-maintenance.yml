@@ -1,0 +1,66 @@
+name: Daily Dependency and Model Provider Refresh
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install maintenance dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[gateway,dev]"
+
+      - name: Refresh model provider catalog
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
+          VULTR_INFERENCE_API_KEY: ${{ secrets.VULTR_INFERENCE_API_KEY }}
+        run: |
+          python scripts/update_model_provider_catalog.py \
+            --sources openrouter,huggingface,vultr \
+            --output-json docs/model_provider_catalog.json \
+            --output-markdown docs/model_provider_catalog.md
+
+      - name: Refresh dependency audit
+        run: python scripts/audit_dependencies.py --format markdown --output docs/dependency_audit.md
+
+      - name: Verify maintenance outputs
+        run: |
+          python -m ruff check scripts/update_model_provider_catalog.py tests/test_update_model_provider_catalog.py
+          python -m pytest tests/test_update_model_provider_catalog.py tests/test_model_discovery.py -q
+
+      - name: Create maintenance pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: automation/daily-dependency-model-refresh
+          delete-branch: true
+          title: "chore: refresh dependencies and model provider catalog"
+          commit-message: "chore: refresh dependency audit and model provider catalog"
+          body: |
+            Automated daily maintenance refresh.
+
+            This PR updates:
+            - `docs/model_provider_catalog.json`
+            - `docs/model_provider_catalog.md`
+            - `docs/dependency_audit.md`
+
+            Model activation remains review-then-activate. No secrets are committed.
+          labels: |
+            automation
+            dependencies
+            model-providers

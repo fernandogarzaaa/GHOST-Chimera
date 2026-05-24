@@ -32,3 +32,33 @@ def test_pull_request_template_has_bob_and_safety_sections():
     assert "Bob Checks" in content
     assert "Safety and Production Impact" in content
     assert "python -m pytest -q" in content
+
+
+def test_daily_maintenance_workflow_refreshes_catalog_and_dependency_audit():
+    workflow = ROOT / ".github" / "workflows" / "daily-maintenance.yml"
+    assert workflow.exists()
+    content = workflow.read_text(encoding="utf-8")
+
+    for item in [
+        "schedule:",
+        "workflow_dispatch:",
+        "python scripts/update_model_provider_catalog.py",
+        "--sources openrouter,huggingface,vultr",
+        "docs/model_provider_catalog.json",
+        "docs/model_provider_catalog.md",
+        "python scripts/audit_dependencies.py --format markdown --output docs/dependency_audit.md",
+        "python -m pytest tests/test_update_model_provider_catalog.py tests/test_model_discovery.py -q",
+        "peter-evans/create-pull-request@v6",
+        "No secrets are committed.",
+    ]:
+        assert item in content
+
+
+def test_dependabot_runs_daily_for_python_and_github_actions():
+    config = ROOT / ".github" / "dependabot.yml"
+    assert config.exists()
+    content = config.read_text(encoding="utf-8")
+
+    assert "package-ecosystem: pip" in content
+    assert "package-ecosystem: github-actions" in content
+    assert content.count("interval: daily") >= 2

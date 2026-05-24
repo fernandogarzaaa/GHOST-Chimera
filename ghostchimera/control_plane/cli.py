@@ -162,6 +162,15 @@ def _main(argv: list[str] | None = None) -> int:
     remote_parser.add_argument("--clear-secrets", action="store_true", help="Clear stored channel secrets.")
     remote_parser.add_argument("--direct-execution", action="store_true", help="Enable global direct execution policy.")
     remote_parser.add_argument("--no-direct-execution", action="store_true", help="Disable global direct execution policy.")
+    conversation_parser = sub.add_parser("conversation", help="Run the always-on Ghost conversation loop")
+    conversation_parser.add_argument("action", choices=["start", "send", "status", "stop"], nargs="?", default="status")
+    conversation_parser.add_argument("message", nargs="*", help="Message for the send action.")
+    conversation_parser.add_argument("--state-dir", default="", help="Optional conversation state directory.")
+    conversation_parser.add_argument("--session-id", default="", help="Conversation session id.")
+    conversation_parser.add_argument("--title", default="Ghost Conversation", help="Title for start.")
+    conversation_parser.add_argument("--voice", action="store_true", help="Treat send input as a voice turn.")
+    conversation_parser.add_argument("--full-bypass", action="store_true", help="Arm Full Bypass before sending.")
+    conversation_parser.add_argument("--no-listen", action="store_true", help="Start without always-listening mode.")
     trust_parser = sub.add_parser("trust", help="Inspect durable Trust Runtime runs, traces, approvals, and evals")
     trust_sub = trust_parser.add_subparsers(dest="trust_command")
     trust_sub.add_parser("status", help="Show Trust Runtime readiness")
@@ -515,6 +524,9 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "remote":
         return _run_remote_cli(args)
 
+    if args.command == "conversation":
+        return _run_conversation_cli(args)
+
     if args.command == "trust":
         return _run_trust_cli(args)
 
@@ -848,6 +860,49 @@ def _run_remote_cli(args: argparse.Namespace) -> int:
             print(json.dumps({"ok": False, "error": "--reply-target or --peer is required"}, indent=2, sort_keys=True))
             return 2
         payload = store.send_reply(channel=args.channel, reply_target=reply_target, text=args.text)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
+    return 2
+
+
+def _run_conversation_cli(args: argparse.Namespace) -> int:
+    from .conversation import ConversationStore, ConversationalLoopController
+
+    state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
+    store = ConversationStore(state_dir)
+    controller = ConversationalLoopController(state_dir=state_dir, store=store)
+    if args.full_bypass:
+        controller.update_settings(full_bypass=True)
+
+    if args.action == "start":
+        payload = controller.create_session(
+            session_id=args.session_id,
+            title=args.title,
+            always_listening=not args.no_listen,
+        )
+        print(json.dumps({"ok": True, "session": payload, "settings": store.settings()}, indent=2, sort_keys=True))
+        return 0
+
+    if args.action == "status":
+        print(json.dumps(controller.status(), indent=2, sort_keys=True))
+        return 0
+
+    active = store.active_session()
+    session_id = args.session_id or (str(active.get("session_id") or "") if isinstance(active, dict) else "")
+    if not session_id:
+        session_id = controller.create_session(always_listening=not args.no_listen)["session_id"]
+
+    if args.action == "stop":
+        print(json.dumps(controller.stop(session_id), indent=2, sort_keys=True))
+        return 0
+
+    if args.action == "send":
+        message = " ".join(args.message or []).strip()
+        if not message:
+            print(json.dumps({"ok": False, "error": "message is required"}, indent=2, sort_keys=True))
+            return 2
+        payload = controller.handle_turn(session_id, message, input_mode="voice" if args.voice else "text")
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0 if payload.get("ok") else 1
 

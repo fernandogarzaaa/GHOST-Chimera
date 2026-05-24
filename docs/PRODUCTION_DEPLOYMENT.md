@@ -2,6 +2,18 @@
 
 This is the generic production deployment path for Ghost Chimera outside the hackathon-specific Vultr runbook.
 
+## 0. Run the repository release gate
+
+Before packaging or deploying, refresh production support artifacts and run the release gate:
+
+```bash
+python scripts/update_model_provider_catalog.py --sources openrouter,huggingface,vultr --output-json docs/model_provider_catalog.json --output-markdown docs/model_provider_catalog.md
+python scripts/audit_dependencies.py --format markdown --output docs/dependency_audit.md
+python scripts/validate_release.py
+```
+
+The model catalog is advisory. It never stores secrets and never changes the active model automatically.
+
 ## 1. Create the production env file
 
 ```bash
@@ -87,6 +99,24 @@ docker compose --env-file .env.production -f docker-compose.yml exec ghost-chime
   python -m ghostchimera.control_plane.cli doctor --production
 ```
 
+## 7. Enable daily production maintenance
+
+The repository includes two maintenance automations:
+
+- `.github/dependabot.yml` opens daily PRs for Python dependency and GitHub Actions updates.
+- `.github/workflows/daily-maintenance.yml` refreshes the generated model-provider catalog and dependency audit, then opens a review PR.
+
+Optional GitHub secrets for richer catalog refreshes:
+
+```text
+OPENROUTER_API_KEY
+HF_TOKEN
+HUGGINGFACE_API_KEY
+VULTR_INFERENCE_API_KEY
+```
+
+The automation must remain review-only: no model activation, provider switching, or secret output is allowed from scheduled jobs.
+
 ## Production blockers
 
 Do not call the deployment ready until these are true:
@@ -96,3 +126,9 @@ Do not call the deployment ready until these are true:
 - a real model provider is configured
 - the console token is not a placeholder
 - the running service responds on `/api/console/status`
+- `python scripts/validate_release.py` passes
+- daily maintenance and Dependabot workflows are present
+- the generated model-provider catalog declares no secrets and no automatic model switching
+- Trust Runtime has a fresh eval baseline with no P0 safety failures
+- no unreviewed high-risk MCP servers, capability admissions, or Self-Evolution candidates are active
+- True Autonomy / Full Bypass is disabled unless the deployment is externally isolated and explicitly approved

@@ -36,8 +36,15 @@ REQUIRED_FILES = [
     "docs/REMOTE_CONTROL.md",
     "docs/TRUST_RUNTIME.md",
     "docs/CAPABILITY_ADMISSION.md",
+    "docs/PRODUCTION_DEPLOYMENT.md",
     "docs/RELEASE_CHECKLIST.md",
+    "docs/model_provider_catalog.json",
+    "docs/model_provider_catalog.md",
+    "docs/dependency_audit.md",
     "scripts/smoke_installed_wheel.py",
+    "scripts/update_model_provider_catalog.py",
+    ".github/dependabot.yml",
+    ".github/workflows/daily-maintenance.yml",
 ]
 
 BOB_RUNTIME_MARKERS = (
@@ -433,6 +440,71 @@ def check_bob_tooling_artifacts() -> dict[str, Any]:
     return {"ok": not errors, "errors": errors, "artifact_count": len(BOB_TOOLING_FILES)}
 
 
+def check_production_maintenance_artifacts() -> dict[str, Any]:
+    """Check that production maintenance automation and generated reports are intact."""
+
+    errors: list[str] = []
+
+    daily_workflow = (ROOT / ".github" / "workflows" / "daily-maintenance.yml").read_text(encoding="utf-8")
+    for token in (
+        "schedule:",
+        "workflow_dispatch:",
+        "scripts/update_model_provider_catalog.py",
+        "scripts/audit_dependencies.py --format markdown --output docs/dependency_audit.md",
+        "tests/test_update_model_provider_catalog.py tests/test_model_discovery.py -q",
+        "peter-evans/create-pull-request@v6",
+        "No secrets are committed.",
+    ):
+        if token not in daily_workflow:
+            errors.append(f"daily maintenance workflow missing {token!r}")
+
+    dependabot = (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+    for token in ("package-ecosystem: pip", "package-ecosystem: github-actions", "interval: daily"):
+        if token not in dependabot:
+            errors.append(f"dependabot config missing {token!r}")
+
+    provider_catalog_path = ROOT / "docs" / "model_provider_catalog.json"
+    try:
+        provider_catalog = json.loads(provider_catalog_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        errors.append(f"model provider catalog is invalid JSON: {exc}")
+        provider_catalog = {}
+
+    if provider_catalog:
+        policy = provider_catalog.get("policy", {})
+        if policy.get("secrets_included") is not False:
+            errors.append("model provider catalog policy must declare secrets_included=false")
+        if policy.get("automatic_model_switching") is not False:
+            errors.append("model provider catalog policy must declare automatic_model_switching=false")
+        if not isinstance(provider_catalog.get("sources"), dict):
+            errors.append("model provider catalog missing sources mapping")
+        if not isinstance(provider_catalog.get("models"), list):
+            errors.append("model provider catalog missing models list")
+        if not provider_catalog.get("generated_at"):
+            errors.append("model provider catalog missing generated_at")
+
+    provider_catalog_md = (ROOT / "docs" / "model_provider_catalog.md").read_text(encoding="utf-8")
+    for token in ("# Model Provider Catalog", "daily maintenance workflow", "never switches active models"):
+        if token not in provider_catalog_md:
+            errors.append(f"model provider catalog markdown missing {token!r}")
+
+    dependency_audit = (ROOT / "docs" / "dependency_audit.md").read_text(encoding="utf-8")
+    if "Ghost Chimera Dependency Specification Audit" not in dependency_audit:
+        errors.append("dependency audit markdown missing expected title")
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    for token in (
+        "Daily Production Maintenance",
+        "docs/model_provider_catalog.md",
+        "docs/dependency_audit.md",
+        "scripts/update_model_provider_catalog.py",
+    ):
+        if token not in readme:
+            errors.append(f"README missing production maintenance reference {token!r}")
+
+    return {"ok": not errors, "errors": errors}
+
+
 def check_unittest() -> dict[str, Any]:
     stream = io.StringIO()
     suite = unittest.defaultTestLoader.loadTestsFromNames(
@@ -471,6 +543,7 @@ def main() -> int:
         "release_hardening": check_release_hardening(),
         "optional_tooling_boundary": check_optional_tooling_boundary(),
         "bob_tooling_artifacts": check_bob_tooling_artifacts(),
+        "production_maintenance_artifacts": check_production_maintenance_artifacts(),
         "policy_defaults": check_policy_defaults(),
         "compileall": check_compileall(),
         "unittest": check_unittest(),

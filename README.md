@@ -10,11 +10,12 @@ Ghost Chimera is a **local-first agent orchestration runtime** built around **Ch
 Key capabilities:
 - **27 model providers** (OpenAI, Anthropic, Gemini, Groq, Mistral, Ollama, and 21 more) â€” swap or chain them without rewriting code.
 - **10 Chimera Pilot backends** â€” deterministic, Python, memory retrieval, Gemini reasoning, local GGUF, analytics, simulation, desktop control, MCP, and quantum simulator.
-- **Browser console (Ghost Console)** â€” full point-and-click UI with Quick Actions, Skills browser, Run history, live security monitor, cron scheduler, and provider visibility. No terminal needed for day-to-day use.
+- **Browser console (Ghost Console)** - full no-code operator dashboard with guided setup, provider/model configuration, RAG Builder, Self-Evolution, Trust Runtime, remote control, conversational loop, local models, and production readiness. No terminal needed for day-to-day use.
 - **Conservative safety defaults** â€” Python, shell, network, and desktop execution are all off by default. Production mode adds deployment-level guardrails.
 - **Personal MiniMind** â€” consent-gated local memory bootstrap with system specs, approved files/email exports, optional whole-machine/email-artifact crawling, MiniMind JSONL dataset generation, and primary-model RAG handoff.
 - **Native Chimera capability pack** - built-in cognition guardrails, tamper-evident handoffs, query-aware context compression, local model inventory/resolution, MCP normalization, and sandbox journeys with no external project dependency. [Details](docs/NATIVE_ABSORPTION.md)
 - **Trust Runtime** - durable local run journals, resumable approval checkpoints, MCP zero-trust envelopes, explicit capability admission, eval flywheels, and OTel-compatible JSON trace exports. [Details](docs/TRUST_RUNTIME.md) | [Capability Admission](docs/CAPABILITY_ADMISSION.md)
+- **Daily production maintenance** - scheduled GitHub automation refreshes dependency audits and the compatible model-provider catalog, then opens a review PR without activating models automatically.
 
 - **Competitive capability intelligence** - CLI, console, docs, and eval gates compare Ghost Chimera against Codex, Claude Code, LangGraph, CrewAI, Hermes-style tool gateways, and OpenClaw-style local autonomy patterns.
 - **Automated PR review** - deterministic `ghostchimera review-pr` checks for secrets, destructive commands, missing tests, release-checklist drift, generated artifacts, and unfinished beta code.
@@ -31,6 +32,9 @@ If you are new to Ghost Chimera, use the tutorial first:
 - [Provider Auth Vault](docs/PROVIDER_AUTH_VAULT.md) - dashboard-based provider setup, OAuth connector slots, and local Ollama/LM Studio auth posture
 - [Remote Control](docs/REMOTE_CONTROL.md) - paired mobile/messaging commands with dashboard-controlled direct execution
 - [GitHub-Connected Workflow](docs/GITHUB_CONNECTED_AUTONOMOUS_ENGINEER.md) - optional GitHub planning and issue-to-objective flow
+- [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) - final deployment guardrails, smoke tests, and production blockers
+- [Model Provider Catalog](docs/model_provider_catalog.md) - generated compatible/candidate model catalog
+- [Dependency Audit](docs/dependency_audit.md) - generated dependency-specification risk report
 
 ---
 
@@ -52,6 +56,7 @@ If you are new to Ghost Chimera, use the tutorial first:
 - [Desktop Control](#desktop-control)
 - [Execution Safety](#execution-safety)
 - [Production Mode](#production-mode)
+- [Daily Production Maintenance](#daily-production-maintenance)
 - [Local Models](#local-models)
 - [Ghost MiniMind](#ghost-minimind)
 - [Competitive Capability Matrix](#competitive-capability-matrix)
@@ -239,23 +244,26 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 
 | Tab | What you can do |
 |---|---|
-| **Status** | System health metrics, autonomy profile selector, personal context toggle, True Autonomy (live desktop) toggle, active model provider, registered backends. |
-| **Run** | Quick Actions (8 pre-built objectives), custom objective box with **Ctrl+Enter / âŒ˜+Enter** shortcut, run button (disabled while running), output panel, and last-20-run history persisted in localStorage â€” click any entry to reload it. |
-| **Jobs** | Run profile-aware autonomy jobs (`self-audit`, `dependency-scan`, `test-regression`, `memory-refresh`, `model-health-check`, `repair-preview`) and view their durable history. |
-| **Workspace** | Set goals, add evidence, add reflections, view full workspace state, sync high-confidence evidence into CWR memory. |
-| **Memory** | Ingest emails (`.eml` / `.mbox` files or pasted raw RFC 2822 text), ingest files/directories, ingest plain text, search memory, teach Ghost by recording prompt/response training pairs, export MiniMind JSONL datasets, view MiniMind status. |
-| **MiniMind** | Grant or revoke Personal MiniMind admin consent, configure approved local/email source paths, toggle whole-machine and email-artifact crawling, bootstrap personal memory and datasets, and build the RAG handoff prompt for the configured primary model. |
-| **Skills** | Browse all registered skills (bundled + workspace) with domain and description, select a skill and optional input, run it directly from the browser. Backed by `GET /api/console/skills`. |
+| **Home** | Operator readiness cards, active Ghost Path, active model/provider, config health, MiniMind/RAG, MCP, skills, Self-Evolution, Trust Runtime, production warnings, and Guided Setup entry points. |
+| **Ghost Conversation** | Always-available text/voice conversation panel with transcript, operational trace, hands-free mode, approval prompts, Stop All, and explicit True Autonomy / Full Bypass controls. |
+| **Setup Ghost** | No-code setup wizard: choose path, configure provider/model, confirm MiniMind permissions, select learning sources, generate RAG plan, review MCP/tools, review skills, and run readiness checks. |
+| **Run** | Quick Actions, custom objective box with **Ctrl+Enter / Cmd+Enter**, run output, durable run history, and sandbox-safe execution previews. |
+| **Jobs** | Profile-aware autonomy jobs (`self-audit`, `dependency-scan`, `test-regression`, `memory-refresh`, `model-health-check`, `repair-preview`) with durable history. |
+| **Config** | Provider Auth Vault, write-only secrets, OAuth connector slots, environment-free provider setup, production guardrails, and modular runtime settings. |
+| **Models** | Model discovery, provider catalog filters, compatibility pings, model recommendations by Ghost Path, primary/fallback selections, and local Ollama/LM Studio posture. |
+| **RAG Builder / MiniMind** | Consent-gated source selection, dataset preview, local file/email-artifact import, MiniMind bootstrap, RAG plan generation, provenance, and revocable permissions. |
+| **MCP** | MCP server review, capability normalization, zero-trust status, approval boundaries, health checks, and enable/disable controls. |
+| **Skills** | Bundled/workspace skill browser, GitHub skill discovery queue, compatibility notes, generated skill previews, and approval-before-activation controls. |
+| **Self-Evolution** | Learning sources, evolution candidates, lifecycle status, review/promote/reject actions, model recommendations, RAG updates, skill candidates, and activity provenance. |
 | **Remote Control** | Pair mobile or messaging senders, review safe slash commands, toggle global direct-execution policy, enable direct execution per paired admin, and approve or deny remote `/run` requests. |
-| **Trust Runtime** | Inspect durable run journals, pending approvals, MCP trust, promoted eval cases, capability admission records, and redacted local trace exports. |
-| **Browser** | Fetch a URL (content scraping), open a URL in the agent browser workspace, take a DOM snapshot. |
-| **Security** | Security metric cards, HMAC audit chain status, recent LobsterTrap/DPI threat events. |
-| **Schedules** | Create cron schedules (start disabled for review), enable/disable/delete existing schedules, see next-run times. |
-| **Review** | Run deterministic PR/diff review against a base/head ref and inspect blocking findings. Backed by `POST /api/console/review-pr`. |
-| **Capabilities** | Competitive matrix with score, benchmark coverage, release-gate commands, and top gaps. Backed by `GET /api/console/capabilities`. |
-| **Readiness** | Release-readiness checklist with the exact commands to run before tagging a release. |
+| **Trust Runtime** | Durable run journals, pending approvals, resumable checkpoints, MCP trust registry, eval baselines, capability admission records, and redacted OTel-style trace exports. |
+| **Latency** | Cost/latency posture, context-compression recommendations, provider timing, model health, and slow-path diagnostics. |
+| **Cognitive Guardrails** | Belief confidence, variance guards, provenance handoff verification, hallucination risk signals, and safe operational trace nodes. |
+| **Capability Pack** | Built-in deterministic tools for compression, claim extraction, local model inspection, MCP normalization, sandbox journeys, and trust checks. |
+| **Sandbox / Local Models** | User-journey sandbox reports, local hardware profile, GGUF/SafeTensors discovery, Hugging Face model resolver, license posture, and quantization recommendations. |
+| **Security / Schedules / Review / Capabilities / Readiness** | Security metrics, HMAC audit chain, cron schedules, deterministic PR review, competitive matrix, and final release-readiness commands. |
 
-**All actions produce toast notifications** (green ok / yellow warn / red error) â€” no need to watch the terminal for confirmation.
+**All actions produce toast notifications** (green ok / yellow warn / red error), activity timeline entries, and trust/runtime records where relevant. You should not need to watch the terminal for normal operation.
 
 ### Multi-Purpose Ghost Paths
 
@@ -626,6 +634,39 @@ GHOSTCHIMERA_HUMAN_APPROVAL_REQUIRED=1
 ```
 
 Shell execution, local Python/test execution, file writes, network execution, and live desktop control are blocked in production mode unless all guardrails are declared. Setting `GHOSTCHIMERA_ALLOW_UNTRUSTED_INPUTS=1` also fails the production gate.
+
+Before deploying, run the repository release gate and review the production runbook:
+
+```bash
+python scripts/validate_release.py
+```
+
+See [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) for the env-file flow, Docker smoke tests, and production blockers.
+
+---
+
+## Daily Production Maintenance
+
+Ghost Chimera includes GitHub automation for keeping production support files current without silently changing runtime behavior:
+
+- `.github/dependabot.yml` opens daily dependency update PRs for Python packages and GitHub Actions.
+- `.github/workflows/daily-maintenance.yml` refreshes `docs/model_provider_catalog.json`, `docs/model_provider_catalog.md`, and `docs/dependency_audit.md`, then opens a review PR.
+- `scripts/update_model_provider_catalog.py` refreshes OpenRouter and Hugging Face candidates by default, and adds Vultr models when `VULTR_INFERENCE_API_KEY` is configured as a GitHub secret.
+- Model changes are review-then-activate. The maintenance job never writes API keys, never commits secrets, and never switches the active provider/model.
+
+Run the same maintenance locally before a release:
+
+```bash
+python scripts/update_model_provider_catalog.py --sources openrouter,huggingface,vultr --output-json docs/model_provider_catalog.json --output-markdown docs/model_provider_catalog.md
+python scripts/audit_dependencies.py --format markdown --output docs/dependency_audit.md
+python -m pytest tests/test_update_model_provider_catalog.py tests/test_model_discovery.py -q
+```
+
+The release gate verifies these artifacts are present and secret-safe:
+
+```bash
+python scripts/validate_release.py
+```
 
 ---
 

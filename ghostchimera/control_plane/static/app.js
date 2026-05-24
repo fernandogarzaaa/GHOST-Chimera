@@ -18,6 +18,10 @@
     localModels: null,
     remote: null,
     trust: null,
+    conversation: null,
+    conversationSessionId: "",
+    recognition: null,
+    listening: false,
   };
 
   function $(sel) { return document.querySelector(sel); }
@@ -174,6 +178,180 @@
   function openTab(name) {
     var tab = $(".tab[data-tab='" + name + "']");
     if (tab) tab.click();
+  }
+
+  function setConversationMicState(text, cls) {
+    var mic = $("#conversationMicState");
+    if (!mic) return;
+    mic.textContent = text;
+    mic.className = "badge " + (cls || "warn");
+  }
+
+  function renderConversationStatus(data) {
+    state.conversation = data;
+    var session = data && data.active_session;
+    var settings = (data && data.settings) || {};
+    if (session && session.session_id) state.conversationSessionId = session.session_id;
+    var always = $("#conversationAlwaysListening");
+    var bypass = $("#conversationFullBypass");
+    var banner = $("#conversationBypassBanner");
+    var voiceSelect = $("#conversationVoiceSelect");
+    if (always) always.checked = !!settings.always_listening;
+    if (bypass) bypass.checked = !!settings.full_bypass;
+    if (banner) banner.style.display = settings.full_bypass ? "block" : "none";
+    if (voiceSelect) {
+      var selected = settings.voice_id || "browser-default";
+      voiceSelect.innerHTML = "";
+      ((data && data.voice_catalog) || []).forEach(function(v) {
+        var opt = el("option", { value: v.id });
+        opt.textContent = v.label + " - " + v.privacy + (v.installed ? "" : " (not installed)");
+        voiceSelect.appendChild(opt);
+      });
+      voiceSelect.value = selected;
+    }
+    var transcript = $("#conversationTranscript");
+    if (transcript && session) {
+      var turns = session.turns || [];
+      transcript.textContent = turns.slice(-8).map(function(t) {
+        return (t.role === "ghost" ? "Ghost: " : "You: ") + (t.content || "");
+      }).join("\n") || "Transcript will appear here after Ghost hears you.";
+    }
+    var reply = $("#conversationReply");
+    if (reply && session) reply.textContent = session.last_reply || "Ghost is listening for your next instruction.";
+    var mode = session && session.mode ? session.mode : (settings.always_listening ? "listening" : "muted");
+    if (settings.full_bypass) setConversationMicState("Bypass Armed", "error");
+    else if (mode === "listening") setConversationMicState("Listening", "ok");
+    else if (mode === "executing" || mode === "thinking") setConversationMicState("Processing", "warn");
+    else if (mode === "sleeping") setConversationMicState("Sleeping", "warn");
+    else setConversationMicState("Muted", "warn");
+  }
+
+  async function refreshConversationStatus() {
+    try {
+      renderConversationStatus(await api("/api/console/conversation/status"));
+    } catch (e) {
+      setConversationMicState("Unavailable", "error");
+    }
+  }
+
+  async function ensureConversationSession() {
+    if (state.conversationSessionId) return state.conversationSessionId;
+    var data = await api("/api/console/conversation/sessions", {
+      method: "POST",
+      body: { title: "Ghost Conversation", always_listening: $("#conversationAlwaysListening") ? $("#conversationAlwaysListening").checked : true },
+    });
+    state.conversationSessionId = data.session.session_id;
+    await refreshConversationStatus();
+    return state.conversationSessionId;
+  }
+
+  function speakGhost(text) {
+    if (!text || !("speechSynthesis" in window)) return;
+    var settings = (state.conversation && state.conversation.settings) || {};
+    if (!settings.hands_free && !($("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked)) return;
+    try {
+      window.speechSynthesis.cancel();
+      var utterance = new SpeechSynthesisUtterance(String(text).slice(0, 900));
+      utterance.onstart = function() { setConversationMicState("Speaking", "ok"); };
+      utterance.onend = function() {
+        if ($("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked) startConversationListening();
+      };
+      window.speechSynthesis.speak(utterance);
+    } catch (_) {}
+  }
+
+  async function sendConversationMessage(message, inputMode) {
+    message = (message || "").trim();
+    if (!message) return;
+    var sessionId = await ensureConversationSession();
+    setConversationMicState("Processing", "warn");
+    var path = "/api/console/conversation/sessions/" + encodeURIComponent(sessionId) + (inputMode === "voice" ? "/voice-turn" : "/turn");
+    try {
+      var data = await api(path, { method: "POST", body: { message: message } });
+      renderConversationStatus({ ok: true, settings: ((state.conversation || {}).settings || {}), active_session: data.session, voice_catalog: ((state.conversation || {}).voice_catalog || []) });
+      if (data.reply) {
+        $("#conversationReply").textContent = data.reply;
+        speakGhost(data.reply);
+      }
+      if (data.ok) toast("Ghost conversation updated.", "ok");
+      else toast(data.reply || data.error || "Conversation action blocked.", "warn");
+      await refreshConversationStatus();
+      await refreshTimeline();
+      await refreshTrust();
+    } catch (e) {
+      $("#conversationReply").textContent = e.message;
+      toast(e.message, "error");
+      setConversationMicState("Error", "error");
+    }
+  }
+
+  async function updateConversationSettings(extra) {
+    var body = {
+      always_listening: $("#conversationAlwaysListening") ? $("#conversationAlwaysListening").checked : false,
+      full_bypass: $("#conversationFullBypass") ? $("#conversationFullBypass").checked : false,
+      voice_id: $("#conversationVoiceSelect") ? $("#conversationVoiceSelect").value : "browser-default",
+    };
+    Object.keys(extra || {}).forEach(function(k) { body[k] = extra[k]; });
+    try {
+      var data = await api("/api/console/conversation/settings", { method: "POST", body: body });
+      await refreshConversationStatus();
+      toast(data.settings && data.settings.full_bypass ? "Full Bypass armed." : "Conversation settings saved.", data.settings && data.settings.full_bypass ? "warn" : "ok");
+      if (body.always_listening) startConversationListening();
+      else stopConversationListening();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  function startConversationListening() {
+    var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast("Browser speech recognition is not available. Use text or a local voice provider.", "warn");
+      return;
+    }
+    if (state.listening) return;
+    try {
+      var recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = navigator.language || "en-US";
+      recognition.onstart = function() {
+        state.listening = true;
+        setConversationMicState(($("#conversationFullBypass") && $("#conversationFullBypass").checked) ? "Bypass Armed" : "Listening", ($("#conversationFullBypass") && $("#conversationFullBypass").checked) ? "error" : "ok");
+      };
+      recognition.onresult = function(event) {
+        var text = "";
+        for (var i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) text += event.results[i][0].transcript + " ";
+        }
+        text = text.trim();
+        if (text) sendConversationMessage(text, "voice");
+      };
+      recognition.onerror = function(event) {
+        state.listening = false;
+        setConversationMicState("Muted", "warn");
+        if (event.error !== "no-speech") toast("Voice input: " + event.error, "warn");
+      };
+      recognition.onend = function() {
+        state.listening = false;
+        var shouldRestart = $("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked;
+        if (shouldRestart) setTimeout(startConversationListening, 700);
+        else setConversationMicState("Muted", "warn");
+      };
+      state.recognition = recognition;
+      recognition.start();
+    } catch (e) {
+      state.listening = false;
+      toast(e.message, "error");
+    }
+  }
+
+  function stopConversationListening() {
+    try {
+      if (state.recognition) state.recognition.stop();
+    } catch (_) {}
+    state.listening = false;
+    setConversationMicState("Muted", "warn");
   }
 
   function renderOperatorSummary(data) {
@@ -2142,6 +2320,44 @@
       .finally(function() { $("#homePostTrainingAction").disabled = false; });
   });
   $("#homeOpenRun").addEventListener("click", function() { openTab("run"); $("#objective").focus(); });
+  $("#conversationSend").addEventListener("click", function() {
+    var input = $("#conversationTextInput");
+    var text = (input.value || "").trim();
+    if (!text) { toast("Enter a message for Ghost.", "warn"); return; }
+    input.value = "";
+    sendConversationMessage(text, "text");
+  });
+  $("#conversationTextInput").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      $("#conversationSend").click();
+    }
+  });
+  $("#conversationStartListening").addEventListener("click", async function() {
+    $("#conversationAlwaysListening").checked = true;
+    await updateConversationSettings({ always_listening: true });
+    startConversationListening();
+  });
+  $("#conversationMute").addEventListener("click", async function() {
+    $("#conversationAlwaysListening").checked = false;
+    await updateConversationSettings({ always_listening: false });
+    stopConversationListening();
+  });
+  $("#conversationWake").addEventListener("click", function() { sendConversationMessage("Hey Ghost wake up", "text"); });
+  $("#conversationStopAll").addEventListener("click", async function() {
+    try {
+      stopConversationListening();
+      var sessionId = await ensureConversationSession();
+      var data = await api("/api/console/conversation/sessions/" + encodeURIComponent(sessionId) + "/stop", { method: "POST", body: {} });
+      renderConversationStatus({ ok: true, settings: ((state.conversation || {}).settings || {}), active_session: data.session, voice_catalog: ((state.conversation || {}).voice_catalog || []) });
+      toast("Ghost stopped.", "warn");
+      await refreshConversationStatus();
+      await refreshTimeline();
+    } catch (e) { toast(e.message, "error"); }
+  });
+  $("#conversationAlwaysListening").addEventListener("change", function() { updateConversationSettings({ always_listening: $("#conversationAlwaysListening").checked }); });
+  $("#conversationFullBypass").addEventListener("change", function() { updateConversationSettings({ full_bypass: $("#conversationFullBypass").checked }); });
+  $("#conversationVoiceSelect").addEventListener("change", function() { updateConversationSettings({ voice_id: $("#conversationVoiceSelect").value }); });
 
   // ── Jobs ─────────────────────────────────────────────────────────────────
   async function refreshJobs() {
@@ -3230,6 +3446,7 @@
     refreshCapabilityPack();
     refreshCognitionTrace();
     refreshTrust();
+    refreshConversationStatus();
   });
   setInterval(refreshStatus, 30000);
 })();

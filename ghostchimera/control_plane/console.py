@@ -69,6 +69,7 @@ from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
 from ..trust_runtime import TrustRuntimeStore
 from .config import CONFIG_FILE, config_to_env_vars, get_autonomy_config, get_default_config, load_config, save_config
+from .conversation import ConversationStore, ConversationalLoopController
 from .evolution import (
     create_learning_source,
     list_candidates,
@@ -607,6 +608,14 @@ def register_console_routes(
     remote_store = RemoteControlStore(console_state_dir)
     trust_store = TrustRuntimeStore(console_state_dir)
     admission_store = CapabilityAdmissionStore(console_state_dir)
+    conversation_store = ConversationStore(console_state_dir)
+    conversation_controller = ConversationalLoopController(
+        state_dir=console_state_dir,
+        store=conversation_store,
+        trust_store=trust_store,
+        objective_runner=objective_runner,
+        timeline_recorder=lambda event_type, detail: record_timeline_event(console_state_dir, event_type, detail),
+    )
     path_config_file = Path(config_path).expanduser() if config_path else None
     console_config_file = _config_file_for_console(config_path)
     scheduler = cron_scheduler
@@ -1603,6 +1612,70 @@ def register_console_routes(
                 os.environ.pop("GHOSTCHIMERA_TRUST_RUN_ID", None)
             else:
                 os.environ["GHOSTCHIMERA_TRUST_RUN_ID"] = previous_trust_run_id
+
+    def conversation_sessions(ctx: dict[str, Any]) -> dict[str, Any]:
+        if ctx.get("method") == "GET":
+            return conversation_store.list_sessions()
+        body = _json_body(ctx)
+        session = conversation_controller.create_session(
+            session_id=str(body.get("session_id") or ""),
+            title=str(body.get("title") or "Ghost Conversation"),
+            always_listening=_as_bool(body.get("always_listening"), default=True),
+        )
+        return {"ok": True, "session": session, "settings": conversation_store.settings()}
+
+    def conversation_session_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/conversation/sessions/")
+        parts = [part for part in suffix.split("/") if part]
+        if not parts:
+            return {"ok": False, "error": "session_id is required"}
+        session_id = parts[0]
+        if len(parts) == 1 and ctx.get("method") == "GET":
+            try:
+                return {"ok": True, "session": conversation_store.get_session(session_id)}
+            except KeyError:
+                return {"ok": False, "error": "Conversation session not found"}
+        if len(parts) != 2:
+            return {"ok": False, "error": "Expected /api/console/conversation/sessions/{id}/{action}"}
+        action = parts[1]
+        body = _json_body(ctx)
+        if action in {"turn", "voice-turn"}:
+            message = str(body.get("message") or body.get("text") or body.get("objective") or "").strip()
+            return conversation_controller.handle_turn(
+                session_id,
+                message,
+                input_mode="voice" if action == "voice-turn" else str(body.get("input_mode") or "text"),
+            )
+        if action == "approve":
+            return conversation_controller.handle_turn(
+                session_id,
+                "approve",
+                input_mode=str(body.get("input_mode") or "text"),
+            )
+        if action == "deny":
+            return conversation_controller.handle_turn(session_id, "deny", input_mode=str(body.get("input_mode") or "text"))
+        if action == "stop":
+            return conversation_controller.stop(session_id)
+        return {"ok": False, "error": f"Unsupported conversation action: {action}"}
+
+    def conversation_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        return conversation_controller.status()
+
+    def conversation_settings(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        allowed = {
+            key: body[key]
+            for key in ("always_listening", "hands_free", "full_bypass", "voice_provider", "voice_id")
+            if key in body
+        }
+        payload = conversation_controller.update_settings(**allowed)
+        if "full_bypass" in allowed:
+            record_timeline_event(
+                console_state_dir,
+                "conversation_full_bypass_changed",
+                {"enabled": bool(payload.get("settings", {}).get("full_bypass"))},
+            )
+        return payload
 
     def browser_fetch(ctx: dict[str, Any]) -> dict[str, Any]:
         body = _json_body(ctx)
@@ -2832,6 +2905,7 @@ def register_console_routes(
         remote_payload = remote_store.status()
         trust_payload = trust_store.trust_status()
         admission_payload = admission_store.summary()
+        conversation_payload = conversation_controller.status()
         combined_warnings = list(summary.get("warnings") or [])
         combined_warnings.extend(str(item) for item in trust_payload.get("warnings", []) if str(item).strip())
         combined_warnings.extend(str(item) for item in admission_payload.get("warnings", []) if str(item).strip())
@@ -2847,6 +2921,18 @@ def register_console_routes(
             },
         }
         if isinstance(summary.get("cards"), list):
+            summary["cards"].append(
+                {
+                    "id": "conversation",
+                    "label": "Conversation",
+                    "status": (
+                        "bypass"
+                        if conversation_payload.get("settings", {}).get("full_bypass")
+                        else str((conversation_payload.get("active_session") or {}).get("mode") or "ready")
+                    ),
+                    "action": "operator",
+                }
+            )
             summary["cards"].append(
                 {
                     "id": "remote",
@@ -2890,6 +2976,7 @@ def register_console_routes(
                 },
                 "trust": trust_payload,
                 "capability_admission": admission_payload,
+                "conversation": conversation_payload,
             }
         )
         return summary
@@ -3761,6 +3848,44 @@ def register_console_routes(
     _api_register("/api/console/operator/latency", operator_latency, method="GET", description="Operator latency telemetry")
     _api_register("/api/console/operator/readiness", operator_readiness, method="POST", description="Run operator readiness check")
     _api_register("/api/console/operator/setup-step", operator_setup_step, method="POST", description="Record guided setup step")
+    _api_register(
+        "/api/console/conversation/sessions",
+        conversation_sessions,
+        method="GET",
+        description="List Ghost conversation sessions",
+    )
+    _api_register(
+        "/api/console/conversation/sessions",
+        conversation_sessions,
+        method="POST",
+        description="Create a Ghost conversation session",
+    )
+    _api_register(
+        "/api/console/conversation/sessions/",
+        conversation_session_action,
+        method="GET",
+        prefix=True,
+        description="Inspect a Ghost conversation session",
+    )
+    _api_register(
+        "/api/console/conversation/sessions/",
+        conversation_session_action,
+        method="POST",
+        prefix=True,
+        description="Send, approve, deny, or stop a Ghost conversation",
+    )
+    _api_register(
+        "/api/console/conversation/status",
+        conversation_status,
+        method="GET",
+        description="Inspect the always-on conversation loop",
+    )
+    _api_register(
+        "/api/console/conversation/settings",
+        conversation_settings,
+        method="POST",
+        description="Update conversation voice and bypass settings",
+    )
     _api_register("/api/console/remote/status", remote_status, method="GET", description="Inspect remote control status")
     _api_register("/api/console/remote/policy", remote_policy, method="POST", description="Update remote control policy")
     _api_register(

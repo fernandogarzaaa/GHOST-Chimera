@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import time
@@ -130,6 +131,14 @@ class AutonomyJobRunner:
         method = getattr(self, f"_run_{key.replace('-', '_')}")
         return method(execute=execute).finish()
 
+    def _regression_timeout_seconds(self) -> int:
+        raw = os.environ.get("GHOSTCHIMERA_AUTONOMY_TEST_TIMEOUT", "").strip()
+        try:
+            timeout = int(raw) if raw else 300
+        except ValueError:
+            timeout = 300
+        return max(60, min(timeout, 1800))
+
     def _run_self_audit(self, *, execute: bool = False) -> AutonomyJobResult:
         status = self.kernel.status()
         findings: list[dict[str, Any]] = []
@@ -190,7 +199,29 @@ class AutonomyJobRunner:
                 summary="Regression command prepared but not executed by this profile/run.",
                 artifacts={"command": command, "requires_execute": True},
             )
-        completed = subprocess.run(command, text=True, capture_output=True, check=False, timeout=180)
+        timeout = self._regression_timeout_seconds()
+        try:
+            completed = subprocess.run(command, text=True, capture_output=True, check=False, timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            return AutonomyJobResult(
+                job="test-regression",
+                status="error",
+                profile=self.profile.name,
+                summary=f"Regression suite timed out after {timeout} seconds.",
+                findings=[
+                    {
+                        "severity": "error",
+                        "area": "test-regression",
+                        "detail": "Increase GHOSTCHIMERA_AUTONOMY_TEST_TIMEOUT or run a narrower focused suite.",
+                    }
+                ],
+                artifacts={
+                    "command": command,
+                    "timeout_seconds": timeout,
+                    "stdout_tail": (exc.stdout or "")[-4000:] if isinstance(exc.stdout, str) else "",
+                    "stderr_tail": (exc.stderr or "")[-4000:] if isinstance(exc.stderr, str) else "",
+                },
+            )
         return AutonomyJobResult(
             job="test-regression",
             status="ok" if completed.returncode == 0 else "error",
@@ -198,6 +229,7 @@ class AutonomyJobRunner:
             summary="Regression suite executed.",
             artifacts={
                 "command": command,
+                "timeout_seconds": timeout,
                 "returncode": completed.returncode,
                 "stdout_tail": completed.stdout[-4000:],
                 "stderr_tail": completed.stderr[-4000:],

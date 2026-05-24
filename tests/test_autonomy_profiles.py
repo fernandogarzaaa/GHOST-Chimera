@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from ghostchimera.chimera_pilot import ChimeraPilotKernel, ChimeraScheduler, TaskKind, TaskSpec, get_autonomy_profile
 from ghostchimera.chimera_pilot.agent_loop import AIAgent
@@ -97,6 +98,37 @@ class AutonomyProfileTests(unittest.TestCase):
 
         self.assertEqual(result.status, "preview")
         self.assertTrue(result.artifacts["requires_execute"])
+
+    def test_autonomy_runner_uses_configurable_regression_timeout(self) -> None:
+        runner = AutonomyJobRunner(profile="generalist")
+        completed = subprocess.CompletedProcess(
+            args=[sys.executable, "-m", "pytest", "-q"],
+            returncode=0,
+            stdout="ok",
+            stderr="",
+        )
+
+        with mock.patch.dict(os.environ, {"GHOSTCHIMERA_AUTONOMY_TEST_TIMEOUT": "420"}), mock.patch(
+            "ghostchimera.chimera_pilot.autonomy_jobs.subprocess.run", return_value=completed
+        ) as run_mock:
+            result = runner.run("test-regression", execute=True)
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.artifacts["timeout_seconds"], 420)
+        self.assertEqual(run_mock.call_args.kwargs["timeout"], 420)
+
+    def test_autonomy_runner_reports_regression_timeout_cleanly(self) -> None:
+        runner = AutonomyJobRunner(profile="generalist")
+        timeout = subprocess.TimeoutExpired(cmd=[sys.executable, "-m", "pytest", "-q"], timeout=60)
+
+        with mock.patch.dict(os.environ, {"GHOSTCHIMERA_AUTONOMY_TEST_TIMEOUT": "10"}), mock.patch(
+            "ghostchimera.chimera_pilot.autonomy_jobs.subprocess.run", side_effect=timeout
+        ):
+            result = runner.run("test-regression", execute=True)
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("timed out", result.summary)
+        self.assertEqual(result.artifacts["timeout_seconds"], 60)
 
     def test_dependency_scan_distinguishes_minimind_architecture_from_inference(self) -> None:
         runner = AutonomyJobRunner(profile="supervised")

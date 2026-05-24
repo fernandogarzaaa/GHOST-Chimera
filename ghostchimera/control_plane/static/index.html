@@ -63,6 +63,34 @@
     <button class="tab" data-tab="readiness">Readiness</button>
   </nav>
 
+  <aside id="ghostConversationPanel" class="ghost-conversation-panel" aria-live="polite">
+    <div id="conversationBypassBanner" class="conversation-bypass-banner" style="display:none;">Full Bypass Armed</div>
+    <div class="conversation-head">
+      <div>
+        <strong>Ghost Conversation</strong>
+        <span class="hint">Always-on natural loop</span>
+      </div>
+      <span id="conversationMicState" class="badge warn">Muted</span>
+    </div>
+    <div class="conversation-controls">
+      <label class="inline-check"><input id="conversationAlwaysListening" type="checkbox"> Always Listening</label>
+      <label class="inline-check danger-check"><input id="conversationFullBypass" type="checkbox"> Full Bypass</label>
+      <select id="conversationVoiceSelect" title="Voice runtime"></select>
+    </div>
+    <div id="conversationTranscript" class="conversation-transcript">Transcript will appear here after Ghost hears you.</div>
+    <div id="conversationReply" class="conversation-reply">Ghost is ready. Say “Hey Ghost” or type below.</div>
+    <div class="conversation-input-row">
+      <input id="conversationTextInput" placeholder="Talk to Ghost or type a message">
+      <button id="conversationSend" class="primary">Send</button>
+    </div>
+    <div class="conversation-actions">
+      <button id="conversationStartListening" class="primary">Start Listening</button>
+      <button id="conversationMute">Mute</button>
+      <button id="conversationWake">Wake</button>
+      <button id="conversationStopAll" class="danger">Stop All</button>
+    </div>
+  </aside>
+
   <!-- ── OPERATOR HOME ─────────────────────────────────────────────────── -->
   <div class="tab-content active" id="tab-operator">
     <div class="section-hdr" style="margin-top:0;">Ask Ghost</div>

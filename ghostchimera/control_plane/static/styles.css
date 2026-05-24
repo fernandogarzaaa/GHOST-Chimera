@@ -114,6 +114,32 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 }
 .home-email-copy span { color: var(--muted); font-size: 12px; }
 .home-email-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ghost-conversation-panel {
+  position: fixed; right: 18px; bottom: 18px; z-index: 60;
+  width: min(420px, calc(100vw - 28px)); max-height: calc(100vh - 120px);
+  overflow: auto; padding: 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: rgba(16,20,25,.97); box-shadow: 0 14px 40px rgba(0,0,0,.35);
+}
+.conversation-bypass-banner {
+  margin: -12px -12px 10px; padding: 8px 12px; background: #321210;
+  color: var(--danger); border-bottom: 1px solid #7f1d1d; font-weight: 700;
+}
+.conversation-head, .conversation-controls, .conversation-actions, .conversation-input-row {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
+.conversation-head { justify-content: space-between; margin-bottom: 8px; }
+.conversation-head .hint { display: block; font-size: 11px; color: var(--muted); }
+.conversation-controls { margin-bottom: 8px; }
+.conversation-controls select { flex: 1; min-width: 160px; }
+.danger-check { color: var(--danger); }
+.conversation-transcript, .conversation-reply {
+  padding: 10px; border: 1px solid var(--line); border-radius: 6px;
+  background: #0a0c0e; color: var(--muted); font-size: 12px; margin-bottom: 8px;
+  max-height: 120px; overflow: auto; white-space: pre-wrap;
+}
+.conversation-reply { color: var(--text); }
+.conversation-input-row input { flex: 1; min-width: 170px; }
+.conversation-actions { margin-top: 8px; }
 .discovery-toolbar {
   display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 8px;
 }
@@ -225,6 +251,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   .tab { padding: 6px 9px; font-size: 12px; }
   .tab-content { padding: 16px; }
   header { padding: 0 16px; }
+  .ghost-conversation-panel { position: static; width: auto; margin: 12px; max-height: none; }
   #toastContainer { bottom: 12px; right: 12px; left: 12px; }
   .qa-grid { gap: 6px; }
 }
