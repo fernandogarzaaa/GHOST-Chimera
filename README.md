@@ -145,14 +145,14 @@ Installer options are environment variables so the one-line command stays copy/p
 | Variable | Default | Purpose |
 |---|---|---|
 | `GHOSTCHIMERA_INSTALL_DIR` | `~/ghost-chimera` | Install/update directory. |
-| `GHOSTCHIMERA_EXTRAS` | `all` | Runtime profile to install. Defaults to the full Ghost Chimera runtime; advanced users may override this only for constrained development installs. |
+| `GHOSTCHIMERA_EXTRAS` | `all,dev` | Runtime profile to install. Defaults to the full Ghost Chimera runtime plus verification tools; advanced users may override this only for constrained development installs. |
 | `GHOSTCHIMERA_REF` | `main` | GitHub branch or ref to install. |
 | `GHOSTCHIMERA_DRY_RUN` | `0` | Bash dry run when set to `1`. |
 
 PowerShell also supports:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -InstallDir D:\GhostChimera -Extras all
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -InstallDir D:\GhostChimera -Extras all,dev
 ```
 
 ---

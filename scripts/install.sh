@@ -2,7 +2,7 @@
 set -euo pipefail
 
 INSTALL_DIR="${GHOSTCHIMERA_INSTALL_DIR:-"$HOME/ghost-chimera"}"
-EXTRAS="${GHOSTCHIMERA_EXTRAS:-all}"
+EXTRAS="${GHOSTCHIMERA_EXTRAS:-all,dev}"
 REF="${GHOSTCHIMERA_REF:-main}"
 DRY_RUN="${GHOSTCHIMERA_DRY_RUN:-0}"
 
@@ -101,9 +101,21 @@ step "Creating virtual environment."
 VENV_PYTHON="$INSTALL_DIR/.venv/bin/python"
 VENV_GHOST="$INSTALL_DIR/.venv/bin/ghostchimera"
 
-step "Installing full Python runtime dependencies."
+step "Installing full Python runtime dependencies, optional extras, and developer verification tools."
 "$VENV_PYTHON" -m pip install --upgrade pip
 "$VENV_PYTHON" -m pip install -e ".[${EXTRAS}]"
+
+step "Verifying installed dependency surface."
+"$VENV_PYTHON" - <<'PY'
+import importlib.util
+
+required = ["certifi", "croniter", "jsonschema", "pyautogui", "websockets"]
+missing = [name for name in required if importlib.util.find_spec(name) is None]
+if missing:
+    raise SystemExit("Missing installed runtime dependencies: " + ", ".join(missing))
+print("runtime dependency surface ok: " + ", ".join(required))
+PY
+"$VENV_PYTHON" -m pip check
 
 step "Verifying CLI entrypoint."
 "$VENV_GHOST" doctor
