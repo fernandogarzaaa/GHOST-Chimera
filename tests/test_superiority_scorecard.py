@@ -8,6 +8,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from ghostchimera.chimera_pilot.gateway_server import GatewayServer
 from ghostchimera.control_plane.console import register_console_routes
@@ -115,6 +117,26 @@ class SuperiorityScorecardTests(unittest.TestCase):
         self.assertEqual(summary["counts"]["approved_sources"], 1)
         self.assertEqual(summary["active_path"]["profile_id"], "manager-operator")
         self.assertNotIn("sk-local-secret", serialized)
+
+    def test_local_operator_summary_treats_codex_cli_login_as_auth(self) -> None:
+        from ghostchimera.control_plane.config import save_config
+        from ghostchimera.superiority import build_local_operator_summary
+
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-codex-summary-") as tmp:
+            state_dir = Path(tmp) / "state"
+            config_path = Path(tmp) / "config.json"
+            save_config({"model": {"provider": "codex_cli", "model": "gpt-5.4-mini"}}, config_path)
+
+            with patch(
+                "ghostchimera.model_layer.codex_cli_provider.get_codex_cli_status",
+                return_value=SimpleNamespace(available=True, logged_in=True, detail="Logged in using ChatGPT"),
+            ):
+                summary = build_local_operator_summary(state_dir=state_dir, config_path=config_path)
+
+        self.assertEqual(summary["model"]["provider"], "codex_cli")
+        self.assertTrue(summary["model"]["api_key_configured"])
+        self.assertTrue(summary["model"]["auth_configured"])
+        self.assertEqual(summary["model"]["auth_detail"], "Logged in using ChatGPT")
 
     def test_console_exposes_superiority_route_and_operator_summary_embeds_scorecard(self) -> None:
         server = GatewayServer()

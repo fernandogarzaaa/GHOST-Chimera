@@ -12,7 +12,14 @@ from unittest.mock import patch
 from ghostchimera.chimera_pilot.gateway_server import GatewayServer, HttpResponse
 from ghostchimera.config import GhostChimeraConfig
 from ghostchimera.control_plane.cli import _main
-from ghostchimera.control_plane.console import _default_run_objective, register_console_routes, run_console
+from ghostchimera.control_plane.console import (
+    _compact_operator_context,
+    _default_run_objective,
+    _objective_with_operator_context,
+    _safe_config_payload,
+    register_console_routes,
+    run_console,
+)
 from ghostchimera.memory_layer.store import MemoryStore
 from ghostchimera.model_layer.model_discovery import save_model_discovery_cache
 from ghostchimera.tool_layer.browser_workspace import AgentBrowserWorkspace
@@ -43,6 +50,58 @@ class FakeModelProvider:
 
 
 class ConsoleRouteTests(unittest.TestCase):
+    def test_operator_context_for_model_is_human_readable_and_redacted(self) -> None:
+        summary = {
+            "active_path": {"label": "Manager Operator", "profile_id": "manager"},
+            "model": {
+                "provider": "codex_cli",
+                "model": "gpt-5.4-mini",
+                "api_key_configured": True,
+                "api_key": "sk-secret",
+            },
+            "counts": {
+                "learning_sources": 3,
+                "approved_sources": 2,
+                "candidates": 4,
+                "pending_candidates": 1,
+            },
+            "trust": {"ready": True},
+            "production_readiness": {"status": "review", "ready": False},
+            "capability_admission": {"production_ready": True},
+            "remote": {"counts": {"paired_peers": 1}},
+            "warnings": ["Review MCP trust registry."],
+        }
+
+        context = _compact_operator_context(summary)
+        enriched = _objective_with_operator_context("Tell me what you can do.", summary)
+
+        self.assertIn("Manager Operator", context)
+        self.assertIn("codex_cli / gpt-5.4-mini", context)
+        self.assertIn("2 approved of 3 total", context)
+        self.assertIn("Tell me what you can do.", enriched)
+        self.assertNotIn("sk-secret", context)
+        self.assertNotIn("sk-secret", enriched)
+
+    def test_safe_config_payload_treats_codex_cli_login_as_auth(self) -> None:
+        with (
+            tempfile.TemporaryDirectory(prefix="ghostchimera-codex-safe-config-") as tmp,
+            patch("ghostchimera.control_plane.console.get_codex_cli_status") as status_mock,
+        ):
+            status_mock.return_value = type(
+                "Status",
+                (),
+                {"available": True, "logged_in": True, "detail": "Logged in using ChatGPT"},
+            )()
+
+            payload = _safe_config_payload(
+                {"model": {"provider": "codex_cli", "model": "gpt-5.4-mini"}},
+                Path(tmp) / "config.json",
+            )
+
+        self.assertTrue(payload["model"]["api_key_configured"])
+        self.assertTrue(payload["model"]["auth_configured"])
+        self.assertEqual(payload["model"]["auth_detail"], "Logged in using ChatGPT")
+
     def test_console_registers_browser_ui_and_status_routes(self) -> None:
         server = GatewayServer()
         register_console_routes(server)
@@ -1093,6 +1152,8 @@ class ConsoleRouteTests(unittest.TestCase):
                 result = _default_run_objective("open settings and configure sync")
                 self.assertTrue(result["ok"])
                 kwargs = factory.call_args.kwargs
+                self.assertTrue(kwargs["include_model_provider_backend"])
+                self.assertFalse(kwargs["include_deterministic_backend"])
                 self.assertTrue(kwargs["allow_desktop_control"])
                 self.assertTrue(kwargs["enable_live_desktop"])
                 self.assertEqual(kwargs["ghost_mode"], "possess")

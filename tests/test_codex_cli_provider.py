@@ -58,6 +58,78 @@ class CodexCliProviderTests(unittest.TestCase):
         self.assertIn("read-only", args)
         self.assertIn("--skip-git-repo-check", args)
 
+    @mock.patch("ghostchimera.model_layer.codex_cli_provider.get_codex_cli_status")
+    @mock.patch("ghostchimera.model_layer.codex_cli_provider.subprocess.run")
+    def test_provider_uses_last_message_even_when_cli_emits_plugin_warning_exit(
+        self, run_mock: mock.Mock, status_mock: mock.Mock
+    ) -> None:
+        status_mock.return_value = mock.Mock(available=True, logged_in=True, to_dict=lambda: {})
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            output_path = Path(args[args.index("--output-last-message") + 1])
+            output_path.write_text("usable final answer", encoding="utf-8")
+            return subprocess.CompletedProcess(
+                args=args,
+                returncode=1,
+                stdout="",
+                stderr="WARN codex_core::plugins::manager: failed to refresh plugin cache",
+            )
+
+        run_mock.side_effect = fake_run
+        provider = CodexCliProvider()
+
+        self.assertEqual(provider.chat("system", "user"), "usable final answer")
+
+    @mock.patch("ghostchimera.model_layer.codex_cli_provider.get_codex_cli_status")
+    @mock.patch("ghostchimera.model_layer.codex_cli_provider.subprocess.run")
+    def test_provider_error_strips_codex_plugin_warning_noise(self, run_mock: mock.Mock, status_mock: mock.Mock) -> None:
+        status_mock.return_value = mock.Mock(available=True, logged_in=True, to_dict=lambda: {})
+        run_mock.return_value = subprocess.CompletedProcess(
+            args=["codex"],
+            returncode=1,
+            stdout="",
+            stderr=(
+                "WARN codex_core::plugins::manager: failed to refresh plugin cache\n"
+                "OpenAI Codex v0.120.0\n"
+                "actual provider failure"
+            ),
+        )
+        provider = CodexCliProvider()
+
+        with self.assertRaises(RuntimeError) as exc:
+            provider.chat("system", "user")
+
+        message = str(exc.exception)
+        self.assertIn("actual provider failure", message)
+        self.assertNotIn("plugins::manager", message)
+
+    @mock.patch("ghostchimera.model_layer.codex_cli_provider.get_codex_cli_status")
+    @mock.patch("ghostchimera.model_layer.codex_cli_provider.subprocess.run")
+    def test_provider_error_prefers_actionable_error_without_prompt_echo(
+        self, run_mock: mock.Mock, status_mock: mock.Mock
+    ) -> None:
+        status_mock.return_value = mock.Mock(available=True, logged_in=True, to_dict=lambda: {})
+        run_mock.return_value = subprocess.CompletedProcess(
+            args=["codex"],
+            returncode=1,
+            stdout="",
+            stderr=(
+                "<user>\n"
+                "Operator context snapshot (redacted, current best effort):\n"
+                "- Active Ghost path: autonomous-engineer\n"
+                "ERROR: You've hit your usage limit. Try again later.\n"
+            ),
+        )
+        provider = CodexCliProvider()
+
+        with self.assertRaises(RuntimeError) as exc:
+            provider.chat("system", "user")
+
+        message = str(exc.exception)
+        self.assertIn("usage limit", message)
+        self.assertNotIn("Operator context snapshot", message)
+        self.assertNotIn("autonomous-engineer", message)
+
 
 if __name__ == "__main__":
     unittest.main()

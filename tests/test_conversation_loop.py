@@ -12,6 +12,7 @@ from ghostchimera.control_plane.conversation import (
     ConversationalLoopController,
     ConversationStore,
     classify_conversation_intent,
+    summarize_run_result,
 )
 from ghostchimera.trust_runtime import TrustRuntimeStore
 
@@ -97,13 +98,77 @@ class ConversationRuntimeTests(unittest.TestCase):
                 objective_runner=lambda objective: {"ok": True, "result": "done"},
             )
             session = controller.create_session(always_listening=True)
-            result = controller.handle_turn(session["session_id"], "inspect status")
+            result = controller.handle_turn(session["session_id"], "inspect runtime")
 
             runs = trust.list_runs()["runs"]
             self.assertTrue(result["ok"])
             self.assertEqual(len(runs), 1)
             self.assertEqual(runs[0]["source"], "conversation")
             self.assertIn("trust_run", result)
+
+    def test_successful_run_reply_is_operator_report_not_generic_placeholder(self) -> None:
+        result = {
+            "ok": True,
+            "executions": [
+                {"ok": True, "backend_id": "deterministic.local", "output": "workspace status inspected"}
+            ],
+            "trust_run": {"run": {"run_id": "run-123"}, "tool_calls": [], "approvals": []},
+        }
+
+        reply = summarize_run_result(result, ok=True, objective="inspect status")
+
+        self.assertIn("1/1 task", reply)
+        self.assertIn("deterministic.local", reply)
+        self.assertIn("run-123", reply)
+        self.assertNotIn("Done. I recorded the run in Trust Runtime and I am listening for the next step.", reply)
+
+    def test_failed_execution_reply_includes_backend_error(self) -> None:
+        result = {"ok": False, "executions": [{"ok": False, "backend_id": "codex_cli", "error": "provider failed"}]}
+
+        reply = summarize_run_result(result, ok=False, objective="run status")
+
+        self.assertIn("provider failed", reply)
+        self.assertNotEqual(reply, "I could not complete that. Check Trust Runtime for details.")
+
+    def test_show_evidence_returns_recent_trust_runs(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-conversation-evidence-") as tmp:
+            trust = TrustRuntimeStore(tmp)
+            trust.create_run(
+                agent_name="ghost_conversation",
+                objective="inspect live status",
+                source="conversation",
+            )
+            controller = ConversationalLoopController(state_dir=tmp, trust_store=trust)
+            session = controller.create_session(session_id="demo", always_listening=False)
+
+            result = controller.handle_turn(session["session_id"], "show evidence")
+
+            self.assertTrue(result["ok"])
+            self.assertIn("Recent Trust Runtime evidence", result["reply"])
+            self.assertIn("inspect live status", result["reply"])
+            self.assertNotIn("Evidence is available in the Trust Runtime", result["reply"])
+
+    def test_readiness_intent_returns_status_provider_summary(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-conversation-readiness-") as tmp:
+            controller = ConversationalLoopController(
+                state_dir=tmp,
+                status_provider=lambda: {
+                    "active_path": {"profile_id": "autonomous-engineer"},
+                    "model": {"provider": "codex_cli", "model": "gpt-5.4-mini", "auth_configured": True},
+                    "production_readiness": {"status": "ready", "ready": True},
+                    "counts": {"approved_sources": 5, "learning_sources": 5, "pending_candidates": 1},
+                    "warnings": [],
+                },
+            )
+            session = controller.create_session(session_id="demo", always_listening=False)
+
+            result = controller.handle_turn(session["session_id"], "run readiness check")
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["intent"], "readiness")
+            self.assertIn("Readiness check", result["reply"])
+            self.assertIn("codex_cli / gpt-5.4-mini", result["reply"])
+            self.assertIn("Pending evolution candidates: 1", result["reply"])
 
 
 class ConversationConsoleRouteTests(unittest.TestCase):
@@ -163,6 +228,7 @@ class ConversationConsoleRouteTests(unittest.TestCase):
 
             serialized = json.dumps(result) + json.dumps(status)
             self.assertTrue(result["ok"])
+            self.assertIn("operator_report", result)
             self.assertNotIn("sk-testsecret123456", serialized)
             self.assertIn("[redacted]", serialized)
             self.assertEqual(status["active_session"]["session_id"], "demo")
@@ -208,6 +274,9 @@ class ConversationUiStaticTests(unittest.TestCase):
             "/api/console/conversation/settings",
             "SpeechRecognition",
             "speechSynthesis",
+            "speechErrorGuidance",
+            "voiceRestartBlocked",
+            "Voice Network Unavailable",
         ]:
             with self.subTest(marker=marker):
                 self.assertIn(marker, js)

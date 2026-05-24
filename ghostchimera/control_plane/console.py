@@ -65,12 +65,12 @@ from ..model_layer.provider_oauth_connectors import (
 )
 from ..model_layer.providers import get_provider
 from ..sandbox.journey import run_sandbox_journey
-from ..superiority import build_superiority_scorecard
+from ..superiority import build_local_operator_summary, build_superiority_scorecard
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
 from ..trust_runtime import TrustRuntimeStore
 from .config import CONFIG_FILE, config_to_env_vars, get_autonomy_config, get_default_config, load_config, save_config
-from .conversation import ConversationalLoopController, ConversationStore
+from .conversation import ConversationalLoopController, ConversationStore, summarize_run_result
 from .evolution import (
     create_learning_source,
     list_candidates,
@@ -324,6 +324,14 @@ def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str,
     github_oauth = config.get("github_oauth", {}) if isinstance(config.get("github_oauth"), dict) else {}
     env_vars = config_to_env_vars(config)
     provider = str(model.get("provider") or os.environ.get("GHOSTCHIMERA_MODEL_PROVIDER") or "").strip()
+    model_api_key_configured = bool(model.get("api_key"))
+    model_oauth_configured = bool(model.get("oauth_token"))
+    model_auth_detail = "api_key_or_oauth_token" if model_api_key_configured or model_oauth_configured else ""
+    if provider == "codex_cli":
+        with contextlib.suppress(Exception):
+            codex_status = get_codex_cli_status(timeout=3)
+            model_api_key_configured = bool(codex_status.available and codex_status.logged_in)
+            model_auth_detail = codex_status.detail
     runtime = GhostChimeraConfig.from_env().to_dict()
     return {
         "ok": True,
@@ -334,8 +342,10 @@ def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str,
             "provider": provider,
             "model": str(model.get("model") or ""),
             "base_url": str(model.get("base_url") or ""),
-            "api_key_configured": bool(model.get("api_key")),
-            "oauth_token_configured": bool(model.get("oauth_token")),
+            "api_key_configured": model_api_key_configured,
+            "oauth_token_configured": model_oauth_configured,
+            "auth_configured": model_api_key_configured or model_oauth_configured,
+            "auth_detail": model_auth_detail,
             "api_key_preview": _redact_secret(str(model.get("api_key") or "")),
         },
         "env_preview": {
@@ -435,7 +445,53 @@ def _suffix(ctx: dict[str, Any], prefix: str) -> str:
     return str(ctx.get("path") or "")[len(prefix) :].strip("/")
 
 
-def _default_run_objective(objective: str) -> dict[str, Any]:
+def _compact_operator_context(summary: dict[str, Any]) -> str:
+    """Return a redacted status snapshot for live model-backed operator runs."""
+
+    model = summary.get("model") if isinstance(summary.get("model"), dict) else {}
+    active_path = summary.get("active_path") if isinstance(summary.get("active_path"), dict) else {}
+    counts = summary.get("counts") if isinstance(summary.get("counts"), dict) else {}
+    trust = summary.get("trust") if isinstance(summary.get("trust"), dict) else {}
+    production = summary.get("production_readiness") if isinstance(summary.get("production_readiness"), dict) else {}
+    remote = summary.get("remote") if isinstance(summary.get("remote"), dict) else {}
+    admission = summary.get("capability_admission") if isinstance(summary.get("capability_admission"), dict) else {}
+    warnings = [str(item) for item in (summary.get("warnings") or []) if str(item).strip()]
+    lines = [
+        "Operator context snapshot (redacted, current best effort):",
+        f"- Active Ghost path: {active_path.get('label') or active_path.get('profile_id') or 'not selected'}",
+        f"- Model provider/model: {model.get('provider') or 'not configured'} / {model.get('model') or 'default'}",
+        f"- Model auth configured: {bool(model.get('api_key_configured'))}",
+        f"- Learning sources: {counts.get('approved_sources', 0)} approved of {counts.get('learning_sources', 0)} total",
+        f"- Evolution candidates: {counts.get('pending_candidates', 0)} pending of {counts.get('candidates', 0)} total",
+        f"- Trust Runtime ready: {bool(trust.get('ready'))}",
+        f"- Production readiness: {production.get('status') or ('ready' if production.get('ready') else 'review')}",
+        f"- Capability admission production ready: {bool(admission.get('production_ready'))}",
+        f"- Remote paired peers: {(remote.get('counts') or {}).get('paired_peers', 0) if isinstance(remote.get('counts'), dict) else 0}",
+    ]
+    if warnings:
+        lines.append("- Current warnings: " + "; ".join(warnings[:5]))
+    else:
+        lines.append("- Current warnings: none reported")
+    return "\n".join(lines)
+
+
+def _objective_with_operator_context(objective: str, summary: dict[str, Any]) -> str:
+    context = _compact_operator_context(summary)
+    return (
+        f"{context}\n\n"
+        f"User objective:\n{objective.strip()}\n\n"
+        "Answer as Ghost Chimera's operator runtime. Use the context above as evidence, clearly state what actually ran, "
+        "what is only configured, what is blocked, and the smallest next action. Do not claim hidden work, scraping, "
+        "training, tool use, or desktop control unless it appears in the provided execution result or context."
+    )
+
+
+def _default_run_objective(
+    objective: str,
+    *,
+    state_dir: str | Path | None = None,
+    config_path: str | Path | None = None,
+) -> dict[str, Any]:
     autonomy = get_autonomy_config(load_config())
     true_autonomy_desktop = _as_bool(autonomy.get("true_autonomy_desktop"), default=False)
     enable_personal_context = _as_bool(autonomy.get("personal_context"), default=True)
@@ -451,7 +507,8 @@ def _default_run_objective(objective: str) -> dict[str, Any]:
     memory_store = MemoryStore(runtime.memory_db)
     if true_autonomy_desktop:
         kernel = ChimeraPilotKernel.default(
-            include_deterministic_backend=True,
+            include_deterministic_backend=False,
+            include_model_provider_backend=True,
             allow_network=True,
             allow_python_execution=True,
             allow_desktop_control=True,
@@ -468,14 +525,31 @@ def _default_run_objective(objective: str) -> dict[str, Any]:
         )
     else:
         kernel = ChimeraPilotKernel.default(
-            include_deterministic_backend=True,
+            include_deterministic_backend=False,
+            include_model_provider_backend=True,
             autonomy_level=str(autonomy.get("level") or "supervised"),
             memory_store=memory_store,
             enable_personal_context=enable_personal_context,
         )
-    executions = kernel.run(objective)
+    summary = build_local_operator_summary(state_dir=state_dir or runtime.state_dir, config_path=config_path)
+    enriched_objective = _objective_with_operator_context(objective, summary)
+    try:
+        executions = kernel.run(enriched_objective)
+    except RuntimeError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+            "operator_report": (
+                "I could not run the objective with a live model/tool backend. "
+                f"Reason: {exc}. Configure a model provider or local model before treating this as production execution."
+            ),
+        }
     payload = [execution.to_dict() for execution in executions]
-    return {"ok": all(item.get("ok") for item in payload), "executions": payload}
+    return {
+        "ok": all(item.get("ok") for item in payload),
+        "executions": payload,
+        "operator_context": _compact_operator_context(summary),
+    }
 
 
 def _status_payload(server: GatewayServer) -> dict[str, Any]:
@@ -610,7 +684,13 @@ def register_console_routes(
 ) -> None:
     """Register browser console routes on an existing GatewayServer."""
 
-    objective_runner = run_objective or _default_run_objective
+    objective_runner = run_objective or (
+        lambda objective: _default_run_objective(
+            objective,
+            state_dir=state_dir or server.config.state_dir,
+            config_path=config_path,
+        )
+    )
     url_fetcher = fetch_url or http_get
     workspace = browser_workspace or AgentBrowserWorkspace()
     queue = autonomy_queue or AutonomyJobQueue(state_dir=state_dir or server.config.state_dir)
@@ -625,6 +705,7 @@ def register_console_routes(
         store=conversation_store,
         trust_store=trust_store,
         objective_runner=objective_runner,
+        status_provider=lambda: _operator_summary_payload(include_superiority=False),
         timeline_recorder=lambda event_type, detail: record_timeline_event(console_state_dir, event_type, detail),
     )
     path_config_file = Path(config_path).expanduser() if config_path else None
@@ -1597,8 +1678,11 @@ def register_console_routes(
             )
             if isinstance(result, dict):
                 result.setdefault("trust_run", trust_store.get_run(trust_run["run_id"]))
+                result.setdefault("operator_report", summarize_run_result(result, ok=ok, objective=objective))
                 return result
-            return {"ok": True, "result": result, "trust_run": trust_store.get_run(trust_run["run_id"])}
+            payload = {"ok": True, "result": result, "trust_run": trust_store.get_run(trust_run["run_id"])}
+            payload["operator_report"] = summarize_run_result(payload, ok=True, objective=objective)
+            return payload
         except PermissionError as exc:
             trust_store.record_step(
                 trust_run["run_id"],

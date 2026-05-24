@@ -934,11 +934,18 @@ def _run_remote_cli(args: argparse.Namespace) -> int:
 
 
 def _run_conversation_cli(args: argparse.Namespace) -> int:
+    from ..superiority import build_local_operator_summary
+    from .console import _default_run_objective
     from .conversation import ConversationalLoopController, ConversationStore
 
     state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
     store = ConversationStore(state_dir)
-    controller = ConversationalLoopController(state_dir=state_dir, store=store)
+    controller = ConversationalLoopController(
+        state_dir=state_dir,
+        store=store,
+        objective_runner=lambda objective: _default_run_objective(objective, state_dir=state_dir),
+        status_provider=lambda: build_local_operator_summary(state_dir=state_dir),
+    )
     if args.full_bypass:
         controller.update_settings(full_bypass=True)
 

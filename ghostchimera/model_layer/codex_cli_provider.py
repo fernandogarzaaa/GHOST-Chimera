@@ -156,6 +156,43 @@ def launch_codex_login_flow() -> CodexCliLoginLaunch:
     )
 
 
+def _compact_codex_error(text: str, *, limit: int = 1200) -> str:
+    """Return a short, operator-safe Codex CLI error without startup log spam."""
+
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    error_lines = [line for line in lines if line.startswith("ERROR:")]
+    if error_lines:
+        compact_error = "\n".join(dict.fromkeys(error_lines[-4:]))
+        return compact_error[-limit:]
+    useful = [
+        line
+        for line in lines
+        if not (
+            "WARN codex_core::plugins::manager" in line
+            or "WARN codex_core::plugins::startup_sync" in line
+            or "WARN codex_core::shell_snapshot" in line
+            or "OpenAI Codex v" in line
+            or line.startswith("--------")
+            or line.startswith("workdir:")
+            or line.startswith("model:")
+            or line.startswith("provider:")
+            or line.startswith("approval:")
+            or line.startswith("sandbox:")
+            or line.startswith("reasoning ")
+            or line.startswith("session id:")
+            or line.startswith("<")
+            or line.startswith("- ")
+            or line.startswith("User objective:")
+            or line.startswith("Operator context snapshot")
+            or line.startswith("Answer as Ghost Chimera")
+        )
+    ]
+    compact = "\n".join(useful[-12:] if useful else lines[-12:]).strip()
+    if len(compact) > limit:
+        compact = compact[-limit:]
+    return compact or "Codex CLI exited without a final message."
+
+
 class CodexCliProvider(BaseProvider):
     """Provider that delegates one model turn to ``codex exec``."""
 
@@ -225,13 +262,13 @@ class CodexCliProvider(BaseProvider):
                 cwd=tmp,
                 env=env,
             )
-            if result.returncode != 0:
-                detail = (result.stderr or result.stdout or "").strip()
-                raise RuntimeError(f"Codex CLI provider failed: {detail}")
             if output_path.exists():
                 message = output_path.read_text(encoding="utf-8", errors="replace").strip()
                 if message:
                     return message
+            if result.returncode != 0:
+                detail = _compact_codex_error("\n".join(part for part in (result.stderr, result.stdout) if part))
+                raise RuntimeError(f"Codex CLI provider failed: {detail}")
             return (result.stdout or "").strip()
 
 

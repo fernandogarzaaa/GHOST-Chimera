@@ -185,6 +185,7 @@ def build_local_operator_summary(
     from .control_plane.config import CONFIG_FILE, load_config
     from .control_plane.evolution import list_candidates, list_sources
     from .integrations.remote_control import RemoteControlStore
+    from .model_layer.codex_cli_provider import get_codex_cli_status
     from .personalization.path_state import get_active_ghost_path
     from .trust_runtime import TrustRuntimeStore
 
@@ -193,6 +194,14 @@ def build_local_operator_summary(
     resolved_config_path = Path(config_path).expanduser() if config_path else CONFIG_FILE
     config = load_config(resolved_config_path)
     model_config = config.get("model", {}) if isinstance(config.get("model"), dict) else {}
+    provider_name = str(model_config.get("provider") or "").strip()
+    provider_auth_configured = bool(model_config.get("api_key") or model_config.get("oauth_token"))
+    provider_auth_detail = "api_key_or_oauth_token" if provider_auth_configured else ""
+    if provider_name == "codex_cli":
+        with contextlib.suppress(Exception):
+            codex_status = get_codex_cli_status(timeout=3)
+            provider_auth_configured = bool(codex_status.available and codex_status.logged_in)
+            provider_auth_detail = codex_status.detail
     sources: list[dict[str, Any]] = []
     candidates: list[dict[str, Any]] = []
     trust_payload: dict[str, Any] = {"ready": False, "warnings": ["Trust Runtime status unavailable."]}
@@ -224,10 +233,12 @@ def build_local_operator_summary(
         "config_path_configured": bool(resolved_config_path),
         "active_path": get_active_ghost_path(config=config),
         "model": {
-            "provider": str(model_config.get("provider") or ""),
+            "provider": provider_name,
             "model": str(model_config.get("model") or ""),
             "base_url": str(model_config.get("base_url") or ""),
-            "api_key_configured": bool(model_config.get("api_key") or model_config.get("oauth_token")),
+            "api_key_configured": provider_auth_configured,
+            "auth_configured": provider_auth_configured,
+            "auth_detail": provider_auth_detail,
         },
         "counts": {
             "learning_sources": len(sources),

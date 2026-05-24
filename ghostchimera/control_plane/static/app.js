@@ -23,6 +23,7 @@
     conversationSessionId: "",
     recognition: null,
     listening: false,
+    voiceRestartBlocked: false,
   };
 
   function $(sel) { return document.querySelector(sel); }
@@ -255,10 +256,37 @@
       var utterance = new SpeechSynthesisUtterance(String(text).slice(0, 900));
       utterance.onstart = function() { setConversationMicState("Speaking", "ok"); };
       utterance.onend = function() {
-        if ($("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked) startConversationListening();
+        if ($("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked && !state.voiceRestartBlocked) startConversationListening();
       };
       window.speechSynthesis.speak(utterance);
     } catch (_) {}
+  }
+
+  function speechErrorGuidance(error) {
+    var code = String(error || "unknown");
+    if (code === "network") {
+      return "Browser voice input is unavailable because the browser speech service reported a network error. Text input and Ghost speaking still work. Try Edge/Chrome online, allow microphone access, disable VPN/proxy blockers, or choose a local voice provider when installed.";
+    }
+    if (code === "not-allowed" || code === "service-not-allowed") {
+      return "Microphone or browser speech service permission was denied. Allow microphone access for localhost, then click Start Listening again.";
+    }
+    if (code === "audio-capture") {
+      return "No microphone input was captured. Check the selected system microphone and browser site permissions.";
+    }
+    return "Voice input stopped: " + code + ". Text input and Ghost speaking are still available.";
+  }
+
+  function isFatalSpeechError(error) {
+    return ["network", "not-allowed", "service-not-allowed", "audio-capture"].indexOf(String(error || "")) >= 0;
+  }
+
+  function persistConversationSettingsNoRestart(alwaysListening) {
+    var body = {
+      always_listening: !!alwaysListening,
+      full_bypass: $("#conversationFullBypass") ? $("#conversationFullBypass").checked : false,
+      voice_id: $("#conversationVoiceSelect") ? $("#conversationVoiceSelect").value : "browser-default",
+    };
+    api("/api/console/conversation/settings", { method: "POST", body: body }).catch(function() {});
   }
 
   async function sendConversationMessage(message, inputMode) {
@@ -305,6 +333,7 @@
   }
 
   function startConversationListening() {
+    state.voiceRestartBlocked = false;
     var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       toast("Browser speech recognition is not available. Use text or a local voice provider.", "warn");
@@ -330,13 +359,24 @@
       };
       recognition.onerror = function(event) {
         state.listening = false;
-        setConversationMicState("Muted", "warn");
-        if (event.error !== "no-speech") toast("Voice input: " + event.error, "warn");
+        var error = event && event.error ? event.error : "unknown";
+        var guidance = speechErrorGuidance(error);
+        if (isFatalSpeechError(error)) {
+          state.voiceRestartBlocked = true;
+          if ($("#conversationAlwaysListening")) $("#conversationAlwaysListening").checked = false;
+          setConversationMicState(error === "network" ? "Voice Network Unavailable" : "Voice Unavailable", "error");
+          if ($("#conversationReply")) $("#conversationReply").textContent = guidance;
+          persistConversationSettingsNoRestart(false);
+          if ($("#conversationTextInput")) $("#conversationTextInput").focus();
+        } else {
+          setConversationMicState("Muted", "warn");
+        }
+        if (error !== "no-speech") toast(guidance, "warn", isFatalSpeechError(error) ? 9000 : 3500);
       };
       recognition.onend = function() {
         state.listening = false;
         var shouldRestart = $("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked;
-        if (shouldRestart) setTimeout(startConversationListening, 700);
+        if (shouldRestart && !state.voiceRestartBlocked) setTimeout(startConversationListening, 700);
         else setConversationMicState("Muted", "warn");
       };
       state.recognition = recognition;
@@ -2306,6 +2346,12 @@
     overall.appendChild(statusBadge);
     if (r.error) overall.appendChild(el("span", { class: "meta" }, r.error));
     summaryEl.appendChild(overall);
+    if (r.operator_report) {
+      var report = el("div", { class: "list-item" });
+      report.appendChild(el("span", { class: "badge ok" }, "report"));
+      report.appendChild(el("span", { class: "meta" }, String(r.operator_report).slice(0, 3000)));
+      summaryEl.appendChild(report);
+    }
     if (Array.isArray(r.executions)) {
       r.executions.forEach(function(e) {
         var item = el("div", { class: "list-item" });

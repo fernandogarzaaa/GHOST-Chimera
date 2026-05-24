@@ -13,6 +13,7 @@ from .backends.cwr import CWRBackend
 from .backends.desktop_runtime import DesktopRuntimeBackend
 from .backends.deterministic import DeterministicBackend
 from .backends.llamacpp import LlamaCppBackend
+from .backends.model_provider import ModelProviderBackend
 from .backends.pyqpanda3_backend import PyQPanda3Backend
 from .backends.python_runtime import PythonRuntimeBackend
 from .calibration import CalibrationStore, ChimeraCalibrator
@@ -72,6 +73,7 @@ class ChimeraPilotKernel:
         cls,
         *,
         include_deterministic_backend: bool = False,
+        include_model_provider_backend: bool = True,
         include_quantum_backend: bool = False,
         cwd: str | None = None,
         allow_python_execution: bool = False,
@@ -133,6 +135,8 @@ class ChimeraPilotKernel:
         )
         kernel.registry.register(PythonRuntimeBackend(cwd=cwd, allowed_roots=[cwd] if cwd else None))
         kernel.registry.register(CWRBackend(store=memory_store))
+        if include_model_provider_backend:
+            kernel.registry.register(ModelProviderBackend())
         if enable_desktop_backend:
             kernel.registry.register(
                 DesktopRuntimeBackend(
