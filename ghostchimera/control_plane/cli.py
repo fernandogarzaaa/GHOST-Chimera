@@ -121,6 +121,12 @@ def _main(argv: list[str] | None = None) -> int:
     )
     capabilities_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
     capabilities_parser.add_argument("--save", default="", help="Optional path to write the report.")
+    superiority_parser = sub.add_parser("superiority", help="Measure public operator-platform superiority")
+    superiority_parser.add_argument("superiority_action", choices=["score"], nargs="?", default="score")
+    superiority_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
+    superiority_parser.add_argument("--save", default="", help="Optional path to write the scorecard.")
+    superiority_parser.add_argument("--state-dir", default="", help="Optional Ghost state directory to inspect.")
+    superiority_parser.add_argument("--config", default="", help="Optional dashboard config path to inspect.")
     review_parser = sub.add_parser("review-pr", help="Run deterministic PR/diff review checks")
     review_parser.add_argument("--base", default="origin/main", help="Base ref for review, default origin/main.")
     review_parser.add_argument(
@@ -523,6 +529,9 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "capabilities":
         return _run_capabilities_cli(args)
 
+    if args.command == "superiority":
+        return _run_superiority_cli(args)
+
     if args.command == "review-pr":
         return _run_review_pr_cli(args)
 
@@ -739,6 +748,46 @@ def _run_capabilities_cli(args: argparse.Namespace) -> int:
         output = format_capability_report(payload)
     else:
         output = json.dumps(payload, indent=2, sort_keys=True)
+    if args.save:
+        Path(args.save).expanduser().write_text(output, encoding="utf-8")
+    print(output, end="" if output.endswith("\n") else "\n")
+    return 0 if payload.get("ok") else 1
+
+
+def _run_superiority_cli(args: argparse.Namespace) -> int:
+    from ..chimera_pilot.capability_intelligence import inspect_capabilities
+    from ..superiority import build_local_operator_summary, build_superiority_scorecard, format_superiority_markdown
+
+    root = Path(__file__).resolve().parents[2]
+    html = (root / "ghostchimera" / "control_plane" / "static" / "index.html").read_text(encoding="utf-8")
+    app = (root / "ghostchimera" / "control_plane" / "static" / "app.js").read_text(encoding="utf-8")
+    routes = [
+        "/api/console/operator/summary",
+        "/api/console/models/discovery",
+        "/api/console/trust/summary",
+        "/api/console/trust/runs",
+        "/api/console/trust/approvals",
+        "/api/console/trust/evals",
+        "/api/console/evolution/candidates",
+        "/api/console/remote/status",
+        "/api/console/conversation/status",
+        "/api/console/sandbox/journey",
+        "/api/console/local-models/inventory",
+        "/api/console/capability-pack",
+        "/api/console/mcp/trust",
+        "/api/console/autonomy/jobs",
+        "/api/console/autonomy/schedules",
+    ]
+    state_dir = Path(args.state_dir).expanduser() if args.state_dir else None
+    config_path = Path(args.config).expanduser() if args.config else None
+    payload = build_superiority_scorecard(
+        operator_summary=build_local_operator_summary(state_dir=state_dir, config_path=config_path),
+        capabilities=inspect_capabilities(root),
+        routes=routes,
+        static_html=html,
+        static_app=app,
+    ).to_dict()
+    output = format_superiority_markdown(payload) if args.format == "markdown" else json.dumps(payload, indent=2, sort_keys=True)
     if args.save:
         Path(args.save).expanduser().write_text(output, encoding="utf-8")
     print(output, end="" if output.endswith("\n") else "\n")

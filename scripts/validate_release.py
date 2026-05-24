@@ -155,6 +155,7 @@ def check_imports() -> dict[str, Any]:
         "ghostchimera.saas",
         "ghostchimera.saas.cli",
         "ghostchimera.saas.store",
+        "ghostchimera.superiority",
     ]
     imported: list[str] = []
     for module in modules:
@@ -575,6 +576,74 @@ def check_public_launch_saas_artifacts() -> dict[str, Any]:
     return {"ok": not errors, "errors": errors}
 
 
+def check_public_superiority_artifacts() -> dict[str, Any]:
+    """Check that the public superiority scorecard and Workbench proof are wired."""
+
+    from ghostchimera.control_plane.console import RELEASE_CHECKS
+    from ghostchimera.evals.runner import EVAL_SUITES
+    from ghostchimera.superiority import build_superiority_scorecard
+
+    errors: list[str] = []
+    if "superiority" not in EVAL_SUITES:
+        errors.append("superiority eval suite missing")
+
+    commands = [check["command"] for check in RELEASE_CHECKS]
+    for command in (
+        "python -m ghostchimera.evals run --suite superiority",
+        "ghostchimera superiority score --format json",
+    ):
+        if command not in commands:
+            errors.append(f"console readiness missing {command!r}")
+
+    html = (ROOT / "ghostchimera" / "control_plane" / "static" / "index.html").read_text(encoding="utf-8")
+    app = (ROOT / "ghostchimera" / "control_plane" / "static" / "app.js").read_text(encoding="utf-8")
+    for token in (
+        "operatorWorkbench",
+        "operatorCommandSearch",
+        "nextBestActions",
+        "superiorityScorecards",
+        "browserE2EStatus",
+        "/api/console/superiority",
+        "renderSuperiorityScorecard",
+    ):
+        if token not in html + app:
+            errors.append(f"Operator Workbench missing {token!r}")
+
+    if not (ROOT / "scripts" / "run_operator_workbench_e2e.py").exists():
+        errors.append("operator workbench browser E2E script missing")
+
+    payload = build_superiority_scorecard(
+        operator_summary={"ok": True, "warnings": [], "trust": {"ready": True}, "counts": {"approved_sources": 1}},
+        capabilities={"ok": True, "score_ratio": 1.0, "capability_count": 14, "top_gaps": []},
+        routes=[
+            "/api/console/operator/summary",
+            "/api/console/models/discovery",
+            "/api/console/trust/summary",
+            "/api/console/trust/runs",
+            "/api/console/trust/approvals",
+            "/api/console/trust/evals",
+            "/api/console/evolution/candidates",
+            "/api/console/remote/status",
+            "/api/console/conversation/status",
+            "/api/console/sandbox/journey",
+            "/api/console/local-models/inventory",
+            "/api/console/capability-pack",
+            "/api/console/mcp/trust",
+            "/api/console/autonomy/jobs",
+            "/api/console/autonomy/schedules",
+        ],
+        static_html=html,
+        static_app=app,
+    ).to_dict()
+    if payload.get("score_ratio", 0) < 0.85:
+        errors.append(f"superiority score below launch threshold: {payload.get('score_ratio')}")
+    serialized = json.dumps(payload)
+    if "sk-" in serialized or "ghp_" in serialized:
+        errors.append("superiority payload appears to expose raw secret-like content")
+
+    return {"ok": not errors, "errors": errors, "score_ratio": payload.get("score_ratio")}
+
+
 def check_unittest() -> dict[str, Any]:
     stream = io.StringIO()
     suite = unittest.defaultTestLoader.loadTestsFromNames(
@@ -615,6 +684,7 @@ def main() -> int:
         "bob_tooling_artifacts": check_bob_tooling_artifacts(),
         "production_maintenance_artifacts": check_production_maintenance_artifacts(),
         "public_launch_saas_artifacts": check_public_launch_saas_artifacts(),
+        "public_superiority_artifacts": check_public_superiority_artifacts(),
         "policy_defaults": check_policy_defaults(),
         "compileall": check_compileall(),
         "unittest": check_unittest(),

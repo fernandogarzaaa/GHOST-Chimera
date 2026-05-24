@@ -19,6 +19,7 @@ Key capabilities:
 - **Public Launch SaaS foundation** - OIDC-ready organizations, users, roles, workspaces, Postgres schema, approval-first runs, worker leases, and audit-safe tenant primitives on the `public` branch. [Details](docs/PUBLIC_LAUNCH_SAAS.md)
 
 - **Competitive capability intelligence** - CLI, console, docs, and eval gates compare Ghost Chimera against Codex, Claude Code, LangGraph, CrewAI, Hermes-style tool gateways, and OpenClaw-style local autonomy patterns.
+- **Public superiority scorecard** - bounded proof across Operator UX, platform breadth, and autonomy depth through `ghostchimera superiority score`, `GET /api/console/superiority`, and the Operator Workbench browser E2E proof.
 - **Automated PR review** - deterministic `ghostchimera review-pr` checks for secrets, destructive commands, missing tests, release-checklist drift, generated artifacts, and unfinished beta code.
 - **Optional IBM Bob Developer Accelerator** - repo-aware hackathon/developer tools that analyze codebase health, test coverage, documentation completeness, and onboarding guidance without being required by the Ghost Chimera runtime. **[Boundary](docs/BOB_OPTIONAL_TOOLING.md)** | **[Hackathon Submission](docs/IBM_BOB_SUBMISSION.md)** | [Workflow Guide](docs/IBM_BOB_WORKFLOW.md)
 
@@ -82,7 +83,7 @@ Ghost Chimera is organized into independent layers. Each layer has a narrow cont
 | **Chimera Pilot** | `chimera_pilot` | Task IR (`TaskSpec`, `TaskKind`), rule-based compiler, backend registry, weighted scheduler, policy gate, fallback executor, verifier, telemetry, checkpointing, batch orchestration, subagent pool, Mixture-of-Agents, credential pool, context compressor, gateway server, cron scheduler, toolsets, lifecycle hooks, tool middleware, plugin manifests, and service registry. |
 | **Cognition Layer** | `cognition_layer` | Confidence values, hallucination flags, task ordering, self-model, working memory, attention, reflection primitives, and durable operator workspace state. |
 | **Control Plane** | `control_plane` | User-facing CLIs (`ghostchimera`, `chimera-pilot`, `ghostchimera-parallel`, `ghostchimera-eval`), setup wizard, doctor/health checks, model picker, policy management, parallel execution, and the Ghost Console gateway server + static UI. |
-| **Evals** | `evals` | 11 built-in evaluation suites: `smoke`, `safety`, `autonomy`, `user-journey`, `workspace`, `competitive`, `coverage`, `redteam`, `track2`, `track3`, `track4`. |
+| **Evals** | `evals` | 12 built-in evaluation suites: `smoke`, `safety`, `autonomy`, `user-journey`, `workspace`, `competitive`, `superiority`, `coverage`, `redteam`, `track2`, `track3`, `track4`. |
 | **Harness** | `harness` | Offline-first regression harness for deterministic case runs. Emits structured JSONL artifacts with compile events, execution traces, fallback records, and pass/fail metadata. |
 | **MCP** | `mcp` | Lightweight JSON-RPC MCP server/client surfaces and the `MCPBackend` Chimera Pilot backend. |
 | **Memory Layer** | `memory_layer` | SQLite FTS5 local memory store. Namespaced documents, freshness scoring (exponential decay), citation quality, `stale_after_days` filter, and `count()`. |
@@ -266,6 +267,8 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 | **Sandbox / Local Models** | User-journey sandbox reports, local hardware profile, GGUF/SafeTensors discovery, Hugging Face model resolver, license posture, and quantization recommendations. |
 | **Security / Schedules / Review / Capabilities / Readiness** | Security metrics, HMAC audit chain, cron schedules, deterministic PR review, competitive matrix, and final release-readiness commands. |
 
+The **Home** tab is the Operator Workbench: command search, next best actions, superiority scorecards, browser E2E status, guided setup, and the conversational loop are surfaced before the advanced tabs.
+
 **All actions produce toast notifications** (green ok / yellow warn / red error), activity timeline entries, and trust/runtime records where relevant. You should not need to watch the terminal for normal operation.
 
 ### Multi-Purpose Ghost Paths
@@ -367,6 +370,11 @@ ghostchimera minimind personal-handoff --objective "What should Ghost do next?"
 ghostchimera capabilities --format json
 ghostchimera capabilities --format markdown --save docs/capability-report.md
 
+# Public superiority scorecard
+ghostchimera superiority score --format json
+ghostchimera superiority score --format markdown --save docs/superiority-scorecard.md
+python scripts/run_operator_workbench_e2e.py --no-screenshot
+
 # PR / diff review
 ghostchimera review-pr --base origin/main --head HEAD
 ghostchimera review-pr --base origin/main --head WORKTREE  # include staged/unstaged changes
@@ -416,6 +424,7 @@ ghostchimera-eval run --suite autonomy
 ghostchimera-eval run --suite user-journey
 ghostchimera-eval run --suite workspace
 ghostchimera-eval run --suite competitive
+ghostchimera-eval run --suite superiority
 ghostchimera-eval run --suite coverage
 ghostchimera-eval run --suite redteam
 ghostchimera-eval run --suite track2   # Gemini integration
@@ -805,6 +814,18 @@ pushing a beta branch:
 ghostchimera review-pr --base origin/main --head HEAD
 ```
 
+## Public Superiority Scorecard
+
+Ghost Chimera uses a bounded scorecard instead of vague claims. It measures Operator UX, platform breadth, and autonomy depth from real Console, CLI, eval, and browser-facing surfaces.
+
+```bash
+ghostchimera superiority score --format json
+python -m ghostchimera.evals run --suite superiority
+python scripts/run_operator_workbench_e2e.py --no-screenshot
+```
+
+The same scorecard is available through `GET /api/console/superiority` and the Home tab Operator Workbench. It does not claim sentience, consciousness, AGI, or universal superiority over every AI system.
+
 ---
 
 ## Extension Surfaces
@@ -856,6 +877,7 @@ python -m ghostchimera.evals run --suite autonomy
 python -m ghostchimera.evals run --suite user-journey
 python -m ghostchimera.evals run --suite workspace
 python -m ghostchimera.evals run --suite competitive
+python -m ghostchimera.evals run --suite superiority
 python -m ghostchimera.evals run --suite coverage
 python -m ghostchimera.evals run --suite redteam
 python -m ghostchimera.evals run --suite track2
@@ -864,6 +886,8 @@ python -m ghostchimera.evals run --suite track4
 python scripts/smoke_installed_wheel.py
 python scripts/smoke_installed_wheel.py --extras gateway
 ghostchimera capabilities --format json
+ghostchimera superiority score --format json
+python scripts/run_operator_workbench_e2e.py --no-screenshot
 ghostchimera review-pr --base HEAD --head HEAD
 ```
 
@@ -877,6 +901,7 @@ ghostchimera review-pr --base HEAD --head HEAD
 | `user-journey` | End-to-end workspace evidence â†’ CWR retrieval â†’ task context injection. |
 | `workspace` | Workspace context injection, freshness scoring, citation quality, count(). |
 | `competitive` | Capability matrix score, console route, and CLI report against Codex/Claude/LangGraph/CrewAI/Hermes/OpenClaw-style benchmarks. |
+| `superiority` | Operator Workbench, scorecard CLI/API, platform breadth, autonomy-depth proof, and browser-facing E2E contract. |
 | `github-connected` | GitHub auth detection, issue planning, console routes, and policy simulation. |
 | `path-synthesis` | Role profiles, path synthesis, active path console route, path CLI, and source licensing policy. |
 | `coverage` | SSRF policy, approval token, material policy, error classifier, MoA scoring, context compressor, autonomy queue, checkpoint save/restore, telemetry export. |

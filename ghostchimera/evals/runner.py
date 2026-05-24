@@ -82,6 +82,8 @@ def _suite_kpis(name: str, cases: list[dict[str, object]]) -> dict[str, float]:
         kpis["workspace_contract_pass_rate"] = round(pass_rate, 3)
     if name == "competitive":
         kpis["competitive_capability_pass_rate"] = round(pass_rate, 3)
+    if name == "superiority":
+        kpis["superiority_pass_rate"] = round(pass_rate, 3)
     if name == "github-connected":
         kpis["github_connected_pass_rate"] = round(pass_rate, 3)
     if name == "path-synthesis":
@@ -111,6 +113,8 @@ def _suite_gates(name: str, kpis: dict[str, float]) -> dict[str, bool]:
         return {"workspace_contract_gate": kpis.get("workspace_contract_pass_rate", 0.0) >= 1.0}
     if name == "competitive":
         return {"competitive_capability_gate": kpis.get("competitive_capability_pass_rate", 0.0) >= 1.0}
+    if name == "superiority":
+        return {"superiority_gate": kpis.get("superiority_pass_rate", 0.0) >= 1.0}
     if name == "github-connected":
         return {"github_connected_gate": kpis.get("github_connected_pass_rate", 0.0) >= 1.0}
     if name == "path-synthesis":
@@ -476,6 +480,67 @@ def _case_competitive_pr_review_cli() -> tuple[bool, str]:
     payload = json.loads(completed.stdout)
     ok = payload.get("ok") is True and payload.get("file_count") == 0
     return ok, json.dumps({"ok": payload.get("ok"), "file_count": payload.get("file_count")}, sort_keys=True)
+
+
+def _case_superiority_scorecard_cli() -> tuple[bool, str]:
+    completed = _run_python_module(["ghostchimera", "superiority", "score"])
+    if completed.returncode != 0:
+        return False, completed.stderr or completed.stdout
+    payload = json.loads(completed.stdout)
+    ok = payload.get("ok") is True and payload.get("score_ratio", 0.0) >= 0.85
+    detail = {
+        "score_ratio": payload.get("score_ratio"),
+        "dimensions": [item.get("id") for item in payload.get("dimensions", [])],
+        "next_best_actions": len(payload.get("next_best_actions", [])),
+    }
+    return ok, json.dumps(detail, sort_keys=True)
+
+
+def _case_superiority_console_route() -> tuple[bool, str]:
+    server = GatewayServer()
+    register_console_routes(server)
+    route = server.routes.find("GET", "/api/console/superiority")
+    if route is None:
+        return False, "superiority route missing"
+    payload = route.handler(_route_ctx("GET", "/api/console/superiority"))
+    ok = payload.get("ok") is True and {item.get("id") for item in payload.get("dimensions", [])} == {
+        "operator_ux",
+        "platform_breadth",
+        "autonomy_depth",
+    }
+    return ok, json.dumps({"score_ratio": payload.get("score_ratio"), "ok": payload.get("ok")}, sort_keys=True)
+
+
+def _case_superiority_operator_workbench_static() -> tuple[bool, str]:
+    html = (ROOT / "ghostchimera" / "control_plane" / "static" / "index.html").read_text(encoding="utf-8")
+    app = (ROOT / "ghostchimera" / "control_plane" / "static" / "app.js").read_text(encoding="utf-8")
+    required = [
+        "operatorWorkbench",
+        "operatorCommandSearch",
+        "nextBestActions",
+        "superiorityScorecards",
+        "browserE2EStatus",
+        "renderSuperiorityScorecard",
+        "/api/console/superiority",
+    ]
+    missing = [token for token in required if token not in html + app]
+    return not missing, "missing=" + ", ".join(missing)
+
+
+def _case_superiority_browser_e2e_script() -> tuple[bool, str]:
+    completed = subprocess.run(
+        [sys.executable, "scripts/run_operator_workbench_e2e.py", "--no-screenshot"],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if completed.returncode != 0:
+        return False, completed.stderr or completed.stdout
+    payload = json.loads(completed.stdout)
+    ok = payload.get("ok") is True and payload.get("checks", {}).get("operator_workbench") is True
+    return ok, json.dumps(payload, sort_keys=True)
 
 
 def _case_github_cli_status() -> tuple[bool, str]:
@@ -1750,6 +1815,12 @@ EVAL_SUITES: dict[str, list[tuple[str, CaseFn]]] = {
         ("competitive_console_route", _case_competitive_console_route),
         ("competitive_cli_json", _case_competitive_cli_json),
         ("competitive_pr_review_cli", _case_competitive_pr_review_cli),
+    ],
+    "superiority": [
+        ("superiority_scorecard_cli", _case_superiority_scorecard_cli),
+        ("superiority_console_route", _case_superiority_console_route),
+        ("superiority_operator_workbench_static", _case_superiority_operator_workbench_static),
+        ("superiority_browser_e2e_script", _case_superiority_browser_e2e_script),
     ],
     "github-connected": [
         ("github_cli_status", _case_github_cli_status),

@@ -65,6 +65,7 @@ from ..model_layer.provider_oauth_connectors import (
 )
 from ..model_layer.providers import get_provider
 from ..sandbox.journey import run_sandbox_journey
+from ..superiority import build_superiority_scorecard
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
 from ..trust_runtime import TrustRuntimeStore
@@ -134,6 +135,11 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "purpose": "Checks Ghost Chimera against current agent-orchestration capability benchmarks.",
     },
     {
+        "name": "public superiority eval",
+        "command": "python -m ghostchimera.evals run --suite superiority",
+        "purpose": "Measures operator UX, platform breadth, and autonomy-depth proof surfaces.",
+    },
+    {
         "name": "GitHub-connected eval",
         "command": "python -m ghostchimera.evals run --suite github-connected",
         "purpose": "Checks GitHub status, issue planning, and console route contracts.",
@@ -192,6 +198,11 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "name": "competitive capability smoke",
         "command": "ghostchimera capabilities --format json",
         "purpose": "Verifies the competitive capability matrix is reachable from the CLI.",
+    },
+    {
+        "name": "public superiority smoke",
+        "command": "ghostchimera superiority score --format json",
+        "purpose": "Verifies the bounded public superiority scorecard is reachable from the CLI.",
     },
     {
         "name": "native capability pack smoke",
@@ -2879,7 +2890,25 @@ def register_console_routes(
             "skills_dir": str(_workspace_skills_dir()),
         }
 
-    def _operator_summary_payload() -> dict[str, Any]:
+    def _superiority_payload(summary: dict[str, Any]) -> dict[str, Any]:
+        static_dir = Path(__file__).resolve().parent / "static"
+        html_text = ""
+        app_text = ""
+        with contextlib.suppress(OSError):
+            html_text = (static_dir / "index.html").read_text(encoding="utf-8")
+        with contextlib.suppress(OSError):
+            app_text = (static_dir / "app.js").read_text(encoding="utf-8")
+        capability_payload = inspect_capabilities(Path(__file__).resolve().parents[2])
+        routes = [str(route.get("path") or "") for route in server.routes.list_all()]
+        return build_superiority_scorecard(
+            operator_summary=summary,
+            capabilities=capability_payload,
+            routes=routes,
+            static_html=html_text,
+            static_app=app_text,
+        ).to_dict()
+
+    def _operator_summary_payload(*, include_superiority: bool = True) -> dict[str, Any]:
         from ..personalization.path_state import get_active_ghost_path
 
         config = _load_console_config(console_config_file)
@@ -2979,10 +3008,24 @@ def register_console_routes(
                 "conversation": conversation_payload,
             }
         )
+        if include_superiority:
+            superiority = _superiority_payload(summary)
+            summary["superiority"] = superiority
+            summary["next_best_actions"] = superiority.get("next_best_actions", [])
         return summary
 
     def operator_summary(ctx: dict[str, Any]) -> dict[str, Any]:
         return _operator_summary_payload()
+
+    def superiority_scorecard(ctx: dict[str, Any]) -> dict[str, Any]:
+        summary = _operator_summary_payload(include_superiority=False)
+        payload = _superiority_payload(summary)
+        record_timeline_event(
+            console_state_dir,
+            "superiority_scorecard_viewed",
+            {"score_ratio": payload.get("score_ratio")},
+        )
+        return payload
 
     def operator_timeline(ctx: dict[str, Any]) -> dict[str, Any]:
         query = ctx.get("query") or {}
@@ -3844,6 +3887,12 @@ def register_console_routes(
     )
     _api_register("/api/console/status", status, method="GET", description="Ghost Console status")
     _api_register("/api/console/operator/summary", operator_summary, method="GET", description="Operator home summary")
+    _api_register(
+        "/api/console/superiority",
+        superiority_scorecard,
+        method="GET",
+        description="Measured public superiority scorecard",
+    )
     _api_register("/api/console/operator/timeline", operator_timeline, method="GET", description="Operator activity timeline")
     _api_register("/api/console/operator/latency", operator_latency, method="GET", description="Operator latency telemetry")
     _api_register("/api/console/operator/readiness", operator_readiness, method="POST", description="Run operator readiness check")

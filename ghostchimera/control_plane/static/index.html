@@ -93,7 +93,29 @@
 
   <!-- ── OPERATOR HOME ─────────────────────────────────────────────────── -->
   <div class="tab-content active" id="tab-operator">
-    <div class="section-hdr" style="margin-top:0;">Ask Ghost</div>
+    <section id="operatorWorkbench" class="operator-workbench">
+      <div class="workbench-hero">
+        <div>
+          <div class="section-hdr" style="margin-top:0;">Operator Workbench</div>
+          <h2>Command Ghost from one place</h2>
+          <p class="hint">Setup, connect, train, run, approve, review, and evolve without editing files or environment variables.</p>
+        </div>
+        <div class="workbench-search">
+          <label for="operatorCommandSearch">Command or next action</label>
+          <input id="operatorCommandSearch" placeholder="Search actions, tabs, providers, trust, MiniMind, MCP">
+        </div>
+      </div>
+      <div class="grid compact-grid" id="superiorityScorecards"></div>
+      <div class="section-hdr">Next Best Actions</div>
+      <div id="nextBestActions" class="next-actions"></div>
+      <div class="section-hdr">Browser E2E Proof</div>
+      <div id="browserE2EStatus" class="list-item">
+        <span class="badge warn">not run</span>
+        <span class="name">Operator Workbench E2E</span>
+        <span class="meta">Run scripts/run_operator_workbench_e2e.py to launch the Console, verify this workbench, and capture proof.</span>
+      </div>
+    </section>
+    <div class="section-hdr">Ask Ghost</div>
     <div class="home-command-panel">
       <div class="home-command-copy">
         <strong>Tell Ghost Chimera what to do.</strong>

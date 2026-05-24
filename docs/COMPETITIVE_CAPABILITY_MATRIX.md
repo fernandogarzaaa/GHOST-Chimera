@@ -11,12 +11,18 @@ ghostchimera capabilities --format markdown --save docs/capability-report.md
 ghostchimera review-pr --base origin/main --head HEAD
 ghostchimera review-pr --base origin/main --head WORKTREE
 python -m ghostchimera.evals run --suite competitive
+python -m ghostchimera.evals run --suite superiority
 python -m ghostchimera.evals run --suite github-connected
 python -m ghostchimera.evals run --suite path-synthesis
 ```
 
 The matrix is also available in Ghost Console through
 `GET /api/console/capabilities` and the **Capabilities** tab.
+
+The public superiority scorecard is available through
+`ghostchimera superiority score --format json`, `GET /api/console/superiority`,
+and `python scripts/run_operator_workbench_e2e.py --no-screenshot`. It measures
+Operator UX, platform breadth, and autonomy depth from executable evidence.
 
 ## Benchmarks
 
@@ -48,6 +54,7 @@ The competitive eval currently checks these capability families:
 - Multi-purpose Ghost path synthesis
 - Automated code review
 - Trust Runtime durable journals, approval checkpoints, MCP zero-trust controls, eval baselines, and trace exports
+- Public superiority scorecard with Operator Workbench, next-best-action guidance, and browser E2E proof
 
 Each capability must map to real files and symbols. Missing surfaces lower the
 score and appear as `top_gaps` in `ghostchimera capabilities --format json`.
@@ -64,7 +71,8 @@ Ghost Chimera can be positioned as a local-first agent orchestration runtime
 that combines policy-gated autonomy, personal local context, MCP tool gateways,
 browser/desktop actions, release evals, and optional local inference.
 
-Do not claim complete superiority over cloud coding agents. The honest beta
-claim is stronger: Ghost Chimera exposes a broader local orchestration surface,
-and the competitive matrix shows exactly which surfaces exist and what optional
-integrations can be built next.
+Do not claim sentience, consciousness, AGI, or universal superiority over every
+AI system. The defensible public claim is measured: Ghost Chimera exposes a
+broad local-first operator platform, and the superiority scorecard proves the
+current Operator UX, platform breadth, and autonomy-depth surfaces through
+CLI/API/browser evidence.

@@ -18,6 +18,7 @@
     localModels: null,
     remote: null,
     trust: null,
+    superiority: null,
     conversation: null,
     conversationSessionId: "",
     recognition: null,
@@ -356,6 +357,7 @@
 
   function renderOperatorSummary(data) {
     state.operator = data;
+    if (data && data.superiority) renderSuperiorityScorecard(data.superiority);
     var cards = $("#operatorCards");
     var warnings = $("#operatorWarnings");
     if (!cards || !warnings) return;
@@ -382,12 +384,72 @@
     }
   }
 
+  function renderSuperiorityScorecard(data) {
+    state.superiority = data;
+    var cards = $("#superiorityScorecards");
+    var actions = $("#nextBestActions");
+    var e2e = $("#browserE2EStatus");
+    if (cards) {
+      cards.innerHTML = "";
+      [
+        ["Overall", data && data.score_ratio != null ? String(data.score_ratio) : "review"],
+        ["Grade", (data && data.grade) || "review"],
+        ["Operator UX", dimensionScore(data, "operator_ux")],
+        ["Platform", dimensionScore(data, "platform_breadth")],
+        ["Autonomy", dimensionScore(data, "autonomy_depth")],
+      ].forEach(function(row) {
+        var card = el("div", { class: "card" });
+        card.appendChild(el("h3", null, row[0]));
+        card.appendChild(el("div", { class: "value" }, row[1]));
+        cards.appendChild(card);
+      });
+    }
+    if (actions) {
+      actions.innerHTML = "";
+      ((data && data.next_best_actions) || []).slice(0, 6).forEach(function(action) {
+        var item = el("div", { class: "next-action" });
+        var main = el("div", { class: "next-action-main" });
+        main.appendChild(el("div", { class: "next-action-title" }, action.label || action.id));
+        main.appendChild(el("div", { class: "next-action-reason" }, action.reason || ""));
+        item.appendChild(main);
+        var btn = el("button", { type: "button", "data-target": action.tab || "operator" }, "Open " + (action.tab || "Home"));
+        btn.addEventListener("click", function() { openTab(action.tab || "operator"); });
+        item.appendChild(btn);
+        actions.appendChild(item);
+      });
+      if (!((data && data.next_best_actions) || []).length) {
+        actions.appendChild(el("div", { class: "empty" }, "No next actions yet."));
+      }
+    }
+    if (e2e) {
+      var cases = (data && data.journey_cases) || [];
+      var passed = cases.filter(function(item) { return item.status === "passed"; }).length;
+      e2e.innerHTML = "";
+      e2e.appendChild(el("span", { class: "badge " + (passed === cases.length ? "ok" : "warn") }, passed + "/" + cases.length));
+      e2e.appendChild(el("span", { class: "name" }, "Operator Workbench E2E"));
+      e2e.appendChild(el("span", { class: "meta" }, "Run scripts/run_operator_workbench_e2e.py for the live browser proof contract."));
+    }
+  }
+
+  function dimensionScore(data, id) {
+    var found = ((data && data.dimensions) || []).find(function(item) { return item.id === id; });
+    return found ? String(found.score) : "review";
+  }
+
   async function refreshOperatorSummary() {
     try {
       var data = await api("/api/console/operator/summary");
       renderOperatorSummary(data);
     } catch (e) {
       empty("#operatorWarnings", "Operator summary unavailable: " + e.message);
+    }
+  }
+
+  async function refreshSuperiorityScorecard() {
+    try {
+      renderSuperiorityScorecard(await api("/api/console/superiority"));
+    } catch (e) {
+      empty("#nextBestActions", "Superiority scorecard unavailable: " + e.message);
     }
   }
 
@@ -3408,6 +3470,19 @@
       recordSetupStep(btn.getAttribute("data-step"), btn.getAttribute("data-target"));
     });
   });
+  $("#operatorCommandSearch").addEventListener("keydown", function(e) {
+    if (e.key !== "Enter") return;
+    var q = ($("#operatorCommandSearch").value || "").toLowerCase();
+    var targets = [
+      ["model", "config"], ["provider", "config"], ["config", "config"],
+      ["trust", "trust"], ["approval", "trust"], ["rag", "rag-builder"],
+      ["minimind", "minimind"], ["mcp", "mcp"], ["skill", "skills"],
+      ["evolution", "evolution"], ["remote", "remote"], ["sandbox", "sandbox"],
+      ["run", "run"], ["latency", "latency"], ["local", "local-models"]
+    ];
+    var hit = targets.find(function(item) { return q.indexOf(item[0]) !== -1; });
+    openTab(hit ? hit[1] : "operator");
+  });
   $("#addEvolutionSource").addEventListener("click", addLearningSource);
   $("#refreshActivity").addEventListener("click", refreshTimeline);
   $("#refreshLatency").addEventListener("click", refreshLatency);
@@ -3439,6 +3514,7 @@
     refreshThinking();
     refreshMcpStatus();
     refreshOperatorSummary();
+    refreshSuperiorityScorecard();
     refreshEvolution();
     refreshTimeline();
     refreshLatency();
