@@ -5,9 +5,10 @@ Ghost Chimera includes a native remote-control layer inspired by OpenClaw and He
 Remote control is built around pairing, explicit policy, and auditability:
 
 - Unknown senders receive a pairing challenge and no command is processed.
-- Paired peers can run safe slash commands such as `/status`, `/readiness`, `/paths`, `/jobs`, `/help`, and `/stop`.
+- Paired peers can run safe slash commands such as `/status`, `/readiness`, `/paths`, `/jobs`, `/channels`, `/policy`, `/help`, and `/stop`.
 - `/run <objective>` creates a pending approval by default.
 - The dashboard can enable global direct execution and then enable direct execution for specific paired admin peers.
+- Paired admin peers can use `/direct on` or `/direct off` to toggle their own direct-execution permission only after the global dashboard policy permits it.
 - Direct execution is never enabled by default.
 - Provider adapters for Telegram, Discord, Slack, WhatsApp, Signal, SMS, and email remain optional. The built-in webhook/test channel works without external services.
 
@@ -34,10 +35,14 @@ Remote control is built around pairing, explicit policy, and auditability:
 7. To prepare real provider adapters, use **Adapter Configuration**:
    - Choose the channel.
    - Paste the bot/API token, webhook URL, phone number ID, or signing secret.
+   - For WhatsApp Cloud API, paste the access token into **Bot/API Token**, the WhatsApp Business phone number ID into **Phone Number ID / Sender ID**, and a private callback verification value into **Webhook Verify Token**.
    - Save the channel.
    - Ghost only reports `configured`, `secret_fields_configured`, and `send_enabled`; raw values are never returned.
+   - Use **Channel Health** to see missing inbound fields, missing outbound fields, webhook paths, and next setup steps.
    - Outbound sending remains disabled until **Enable outbound sending for this channel** is checked.
    - If a `signing_secret` is configured, provider webhook endpoints require a matching HMAC SHA-256 signature in `X-Ghost-Signature`, `X-Hub-Signature-256`, or `X-Signature`.
+   - Slack Events API requests can use Slack's native `X-Slack-Signature` and `X-Slack-Request-Timestamp` verification.
+   - Telegram webhooks can use `X-Telegram-Bot-Api-Secret-Token` when a channel `verify_token` is saved.
 
 ## CLI Flow
 
@@ -72,7 +77,23 @@ POST /api/console/remote/webhook/webhook
 
 Those endpoints normalize each provider payload into the same paired command path used by the dashboard simulation. A Telegram `message.text`, Discord `content`, Slack `event.text`, WhatsApp Cloud API text message, Signal envelope message, or generic `{ "peer_id": "...", "text": "/status" }` body all become a `RemoteInboundMessage`.
 
+WhatsApp Cloud API callback verification is supported through the same endpoint:
+
+```text
+GET /api/console/remote/webhook/whatsapp?hub.mode=subscribe&hub.verify_token=<VERIFY_TOKEN>&hub.challenge=<CHALLENGE>
+```
+
+The saved write-only `verify_token` must match `hub.verify_token`. On success, Ghost returns the raw challenge as `text/plain`, which is what the WhatsApp Cloud API webhook setup flow expects.
+
 Webhook signatures are optional until a channel has a saved signing secret. After that, the provider endpoint fails closed unless the raw request body matches `sha256=<hmac>` using the stored secret. The local **Simulate Inbound Message** dashboard action is intentionally unsigned so operators can test pairing and command flow without provider setup.
+
+Channel health is available in the dashboard and at:
+
+```text
+GET /api/console/remote/health
+```
+
+It reports each channel's inbound readiness, outbound readiness, delivery-target posture, required missing fields, optional fields, and provider webhook path. This is the fastest way to diagnose why a channel cannot receive, send, or verify messages.
 
 Every inbound response also includes a `reply_preview` object. This is a provider-shaped outbound payload preview, not a network send. It includes the method, endpoint hint, body, and whether auth is required. Raw provider tokens are never returned.
 
@@ -109,6 +130,7 @@ Provider credentials are stored separately in `remote_control_secrets.json`. The
 - Status responses show only configured field names, never token values.
 - Enabling outbound sending requires stored credentials and a separate channel-level toggle.
 - **Send Test Reply** performs an actual outbound POST only when the channel is configured and `send_enabled` is true. Provider failures are returned as redacted status/error data.
+- WhatsApp outbound sending uses `https://graph.facebook.com/v20.0/<PHONE_NUMBER_ID>/messages` with the saved API token and phone number ID.
 - Provider webhook signatures are enforced only when a signing secret is stored for that channel. This keeps the default local flow low-friction while letting production adapters fail closed.
 
 Direct execution has two gates:
@@ -117,3 +139,5 @@ Direct execution has two gates:
 2. The specific paired admin peer must allow direct execution.
 
 If either gate is closed, `/run <objective>` becomes a pending approval instead of executing.
+
+Remote admin commands intentionally cannot enable the global direct-execution switch. The dashboard owner must first enable the global policy; only then can a paired admin use `/direct on` for that sender.

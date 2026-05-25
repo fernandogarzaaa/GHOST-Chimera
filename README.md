@@ -16,6 +16,8 @@ Key capabilities:
 - **Personal MiniMind** â€” consent-gated local memory bootstrap with system specs, approved files/email exports, optional whole-machine/email-artifact crawling, MiniMind JSONL dataset generation, and primary-model RAG handoff.
 - **Native Chimera capability pack** - built-in cognition guardrails, tamper-evident handoffs, query-aware context compression, local model inventory/resolution, MCP normalization, and sandbox journeys with no external project dependency. [Details](docs/NATIVE_ABSORPTION.md)
 - **Trust Runtime** - durable local run journals, resumable approval checkpoints, MCP zero-trust envelopes, explicit capability admission, eval flywheels, and OTel-compatible JSON trace exports. [Details](docs/TRUST_RUNTIME.md) | [Capability Admission](docs/CAPABILITY_ADMISSION.md)
+- **Standing Orders** - scoped, reusable operator authority programs that can be enabled, disabled, run, and audited from Ghost Console. [Details](docs/STANDING_ORDERS.md)
+- **Production gap scanner** - local CLI and Console audit for scaffold, placeholder, stub, TODO, and demo-runtime markers before release. [Details](docs/PRODUCTION_GAPS.md)
 - **Daily production maintenance** - scheduled GitHub automation refreshes dependency audits and the compatible model-provider catalog, then opens a review PR without activating models automatically.
 - **Public Launch SaaS foundation** - OIDC-ready organizations, users, roles, workspaces, Postgres schema, approval-first runs, worker leases, and audit-safe tenant primitives on the `public` branch. [Details](docs/PUBLIC_LAUNCH_SAAS.md)
 
@@ -34,8 +36,10 @@ If you are new to Ghost Chimera, use the tutorial first:
 - [Quick Start](docs/quick-start.md) - fastest install and launch path
 - [Provider Auth Vault](docs/PROVIDER_AUTH_VAULT.md) - dashboard-based provider setup, OAuth connector slots, and local Ollama/LM Studio auth posture
 - [Remote Control](docs/REMOTE_CONTROL.md) - paired mobile/messaging commands with dashboard-controlled direct execution
+- [Standing Orders](docs/STANDING_ORDERS.md) - bounded reusable autonomy programs with explicit enable/run controls
 - [GitHub-Connected Workflow](docs/GITHUB_CONNECTED_AUTONOMOUS_ENGINEER.md) - optional GitHub planning and issue-to-objective flow
 - [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) - final deployment guardrails, smoke tests, and production blockers
+- [Production Gap Scanner](docs/PRODUCTION_GAPS.md) - local scanner for scaffold/demo placeholders before release
 - [Public Launch SaaS](docs/PUBLIC_LAUNCH_SAAS.md) - Enterprise SaaS launch-mode foundation for organizations, OIDC, Postgres, and workers
 - [Model Provider Catalog](docs/model_provider_catalog.md) - generated compatible/candidate model catalog
 - [Dependency Audit](docs/dependency_audit.md) - generated dependency-specification risk report
@@ -264,7 +268,7 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 | **MCP** | MCP server review, capability normalization, zero-trust status, approval boundaries, health checks, and enable/disable controls. |
 | **Skills** | Bundled/workspace skill browser, GitHub skill discovery queue, compatibility notes, generated skill previews, and approval-before-activation controls. |
 | **Self-Evolution** | Learning sources, evolution candidates, lifecycle status, review/promote/reject actions, model recommendations, RAG updates, skill candidates, and activity provenance. |
-| **Remote Control** | Pair mobile or messaging senders, review safe slash commands, toggle global direct-execution policy, enable direct execution per paired admin, and approve or deny remote `/run` requests. |
+| **Remote Control** | Pair mobile or messaging senders, review safe slash commands, inspect channel health, verify provider webhooks, toggle global direct-execution policy, enable direct execution per paired admin, and approve or deny remote `/run` requests. |
 | **Unrestricted Host Execution** | Explicitly arm host command execution and source self-editing from the Status tab. Default is OFF; arming requires the exact phrase `I ACCEPT HOST EXECUTION RISK`, an allowed root, and an audit directory. Every self-edit writes the requested patch, applied patch, and revert patch. |
 | **Trust Runtime** | Durable run journals, pending approvals, resumable checkpoints, MCP trust registry, eval baselines, capability admission records, and redacted OTel-style trace exports. |
 | **Latency** | Cost/latency posture, context-compression recommendations, provider timing, model health, and slow-path diagnostics. |
@@ -388,6 +392,7 @@ ghostchimera capabilities --format markdown --save docs/capability-report.md
 ghostchimera superiority score --format json
 ghostchimera superiority score --format markdown --save docs/superiority-scorecard.md
 python scripts/run_operator_workbench_e2e.py --no-screenshot
+ghostchimera production-gaps --format markdown --limit 50
 
 # PR / diff review
 ghostchimera review-pr --base origin/main --head HEAD

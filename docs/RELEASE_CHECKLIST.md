@@ -30,6 +30,8 @@ ghostchimera context compress --text "latency latency matters" --focus latency
 ghostchimera capability-pack list
 ghostchimera sandbox journey
 ghostchimera remote status
+ghostchimera remote health
+ghostchimera production-gaps --format markdown --limit 50
 ghostchimera trust status
 ghostchimera trust eval baseline
 ghostchimera trust eval-cases list
@@ -107,6 +109,8 @@ environment.
 - [ ] `ghostchimera capability-pack list` reports built-in tools without requiring an external MCP server.
 - [ ] `ghostchimera sandbox journey` emits a local operator journey report and preserves findings.
 - [ ] `ghostchimera remote status` reports disabled-by-default remote control state, no paired peers unless intentionally configured, and no raw channel secrets.
+- [ ] `ghostchimera remote health` reports inbound/outbound channel readiness, missing setup fields, and no raw channel secrets.
+- [ ] `ghostchimera production-gaps --format markdown --limit 50` has no unexplained `action_required` runtime markers.
 - [ ] `ghostchimera trust status` reports durable journal readiness, pending approvals, MCP trust posture, trace health, and eval baseline status without raw secrets.
 - [ ] `ghostchimera trust eval baseline` creates a fresh local trust baseline before production deployment, and `ghostchimera trust status` reports the latest baseline as `fresh` with zero P0 failures.
 - [ ] `ghostchimera trust eval-cases list` lists promoted regression cases or returns an empty local-first case list without failing.

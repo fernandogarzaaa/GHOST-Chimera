@@ -150,7 +150,7 @@ def _main(argv: list[str] | None = None) -> int:
     remote_parser = sub.add_parser("remote", help="Manage Ghost-native mobile/messaging remote control")
     remote_parser.add_argument(
         "action",
-        choices=["status", "pair-code", "peers", "simulate", "policy", "channel-config", "send-test"],
+        choices=["status", "health", "pair-code", "peers", "simulate", "policy", "channel-config", "send-test"],
         nargs="?",
         default="status",
     )
@@ -165,10 +165,15 @@ def _main(argv: list[str] | None = None) -> int:
     remote_parser.add_argument("--webhook-url", default="", help="Write-only provider endpoint/webhook URL.")
     remote_parser.add_argument("--phone-number-id", default="", help="Write-only WhatsApp phone number id.")
     remote_parser.add_argument("--signing-secret", default="", help="Write-only provider signing secret.")
+    remote_parser.add_argument("--verify-token", default="", help="Write-only provider webhook verification token.")
     remote_parser.add_argument("--send-enabled", action="store_true", help="Enable outbound sending for channel-config.")
     remote_parser.add_argument("--clear-secrets", action="store_true", help="Clear stored channel secrets.")
     remote_parser.add_argument("--direct-execution", action="store_true", help="Enable global direct execution policy.")
     remote_parser.add_argument("--no-direct-execution", action="store_true", help="Disable global direct execution policy.")
+    production_gaps_parser = sub.add_parser("production-gaps", help="Scan for scaffold/demo markers before production")
+    production_gaps_parser.add_argument("--root", default="", help="Checkout root to scan.")
+    production_gaps_parser.add_argument("--limit", type=int, default=200, help="Maximum findings to return.")
+    production_gaps_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
     conversation_parser = sub.add_parser("conversation", help="Run the always-on Ghost conversation loop")
     conversation_parser.add_argument("action", choices=["start", "send", "status", "stop"], nargs="?", default="status")
     conversation_parser.add_argument("message", nargs="*", help="Message for the send action.")
@@ -596,6 +601,9 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "remote":
         return _run_remote_cli(args)
 
+    if args.command == "production-gaps":
+        return _run_production_gaps_cli(args)
+
     if args.command == "conversation":
         return _run_conversation_cli(args)
 
@@ -828,6 +836,9 @@ def _run_superiority_cli(args: argparse.Namespace) -> int:
         "/api/console/trust/evals",
         "/api/console/evolution/candidates",
         "/api/console/remote/status",
+        "/api/console/remote/health",
+        "/api/console/production/gaps",
+        "/api/console/standing-orders",
         "/api/console/conversation/status",
         "/api/console/sandbox/journey",
         "/api/console/local-models/inventory",
@@ -905,6 +916,10 @@ def _run_remote_cli(args: argparse.Namespace) -> int:
         print(json.dumps(store.status(), indent=2, sort_keys=True))
         return 0
 
+    if args.action == "health":
+        print(json.dumps(store.channel_health(), indent=2, sort_keys=True))
+        return 0
+
     if args.action == "peers":
         payload = store.status()
         print(
@@ -971,6 +986,7 @@ def _run_remote_cli(args: argparse.Namespace) -> int:
                     "webhook_url": args.webhook_url,
                     "phone_number_id": args.phone_number_id,
                     "signing_secret": args.signing_secret,
+                    "verify_token": args.verify_token,
                 },
             )
         except ValueError as exc:
@@ -1039,6 +1055,27 @@ def _run_conversation_cli(args: argparse.Namespace) -> int:
         return 0 if payload.get("ok") else 1
 
     return 2
+
+
+def _run_production_gaps_cli(args: argparse.Namespace) -> int:
+    from ..production_gaps import scan_production_gaps
+
+    payload = scan_production_gaps(args.root or None, limit=max(1, int(args.limit)))
+    if args.format == "markdown":
+        print("# Ghost Chimera Production Gap Scan")
+        print()
+        print(f"- Files scanned: {payload['counts']['files_scanned']}")
+        print(f"- Action required: {payload['counts']['action_required']}")
+        print(f"- Non-blocking: {payload['counts']['non_blocking']}")
+        print()
+        for gap in payload.get("gaps", [])[: max(1, int(args.limit))]:
+            print(
+                f"- [{gap['severity']}] `{gap['path']}:{gap['line']}` "
+                f"{gap['marker']} - {gap['snippet']}"
+            )
+    else:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if payload.get("ok") else 1
 
 
 def _run_live_presence_cli(args: argparse.Namespace) -> int:

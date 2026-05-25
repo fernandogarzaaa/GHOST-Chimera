@@ -519,6 +519,27 @@
   <div class="tab-content" id="tab-remote">
     <div class="section-hdr" style="margin-top:0;">Remote Control Center</div>
     <div class="grid" id="remoteSummary"></div>
+    <div class="section-hdr">Standing Orders</div>
+    <div class="remote-layout">
+      <div>
+        <div class="form-group">
+          <label>Title</label>
+          <input id="standingOrderTitle" placeholder="Daily repo health">
+        </div>
+        <div class="form-group">
+          <label>Scope</label>
+          <input id="standingOrderScope" placeholder="engineering, ops, marketing">
+        </div>
+      </div>
+      <div>
+        <div class="form-group">
+          <label>Objective</label>
+          <textarea id="standingOrderObjective" rows="3" placeholder="What Ghost is authorized to do when this order runs."></textarea>
+        </div>
+        <button id="standingOrderCreate" class="primary">Create Standing Order</button>
+      </div>
+    </div>
+    <div id="standingOrders" class="list"></div>
     <div class="remote-layout">
       <div>
         <div class="section-hdr" style="margin-top:0;">Policy</div>
@@ -599,6 +620,11 @@
           <input id="remoteConfigSigning" type="password" autocomplete="off" placeholder="write-only optional HMAC secret">
           <small>When saved, provider webhooks must include a matching SHA-256 signature. Local simulation remains unsigned.</small>
         </div>
+        <div class="form-group">
+          <label>Webhook Verify Token</label>
+          <input id="remoteConfigVerifyToken" type="password" autocomplete="off" placeholder="write-only WhatsApp verify token">
+          <small>For WhatsApp Cloud API callback verification at /api/console/remote/webhook/whatsapp.</small>
+        </div>
         <label class="inline-check"><input id="remoteConfigEnabled" type="checkbox" checked> Enable inbound adapter metadata</label>
         <label class="inline-check"><input id="remoteConfigSendEnabled" type="checkbox"> Enable outbound sending for this channel</label>
         <div class="row">
@@ -608,6 +634,8 @@
       </div>
     </div>
     <div id="remoteChannels" class="list"></div>
+    <div class="section-hdr">Channel Health</div>
+    <div id="remoteChannelHealth" class="list"></div>
     <div class="section-hdr">Send Test Reply</div>
     <div class="row">
       <select id="remoteSendChannel" style="max-width:180px;">

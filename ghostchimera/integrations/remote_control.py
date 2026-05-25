@@ -24,11 +24,19 @@ RemoteObjectiveRunner = Callable[[str], dict[str, Any]]
 RemoteStatusProvider = Callable[[], dict[str, Any]]
 RemoteSendTransport = Callable[[str, dict[str, str], dict[str, Any]], dict[str, Any]]
 
-SAFE_COMMANDS = {"/help", "/status", "/readiness", "/paths", "/jobs", "/stop"}
-ACTION_COMMANDS = {"/run", "/approve", "/deny"}
+SAFE_COMMANDS = {"/help", "/status", "/readiness", "/paths", "/jobs", "/channels", "/policy", "/stop"}
+ACTION_COMMANDS = {"/run", "/approve", "/deny", "/direct"}
 DEFAULT_CHANNELS = ("telegram", "discord", "slack", "whatsapp", "signal", "sms", "email", "webhook")
 SECRET_MARKERS = ("token", "secret", "api_key", "apikey", "password", "credential", "authorization", "webhook")
-REMOTE_SECRET_FIELDS = ("bot_token", "api_token", "webhook_url", "signing_secret", "phone_number_id", "smtp_password")
+REMOTE_SECRET_FIELDS = (
+    "bot_token",
+    "api_token",
+    "webhook_url",
+    "signing_secret",
+    "verify_token",
+    "phone_number_id",
+    "smtp_password",
+)
 
 
 @dataclass
@@ -142,7 +150,7 @@ def _redact_value(value: Any) -> Any:
         redacted: dict[str, Any] = {}
         for key, item in value.items():
             lowered = str(key).lower()
-            if lowered in {"secret_fields_configured"}:
+            if lowered in {"secret_fields_configured", "raw_secret_values_returned", "webhook_path"}:
                 redacted[str(key)] = _redact_value(item)
             elif any(marker in lowered for marker in SECRET_MARKERS):
                 redacted[str(key)] = "[redacted]" if item else ""
@@ -313,11 +321,49 @@ def verify_remote_webhook_signature(
     channel = channel.strip().lower() or "webhook"
     secrets_data = store._load_secrets()
     channel_secrets = secrets_data.get(channel) if isinstance(secrets_data.get(channel), dict) else {}
+    normalized_headers = {str(key).lower(): str(value).strip() for key, value in headers.items()}
+    if channel == "telegram":
+        verify_token = str(channel_secrets.get("verify_token") or "").strip()
+        if verify_token:
+            provided_token = normalized_headers.get("x-telegram-bot-api-secret-token", "")
+            if not provided_token:
+                return {
+                    "ok": False,
+                    "error": "Missing Telegram webhook secret token.",
+                    "signature_status": "missing_telegram_secret_token",
+                }
+            if not hmac.compare_digest(provided_token, verify_token):
+                return {
+                    "ok": False,
+                    "error": "Telegram webhook secret token mismatch.",
+                    "signature_status": "mismatch_telegram_secret_token",
+                }
+            return {"ok": True, "signature_status": "verified_telegram_secret_token"}
     signing_secret = str(channel_secrets.get("signing_secret") or "").strip()
     if not signing_secret:
         return {"ok": True, "signature_status": "not_configured"}
 
-    normalized_headers = {str(key).lower(): str(value).strip() for key, value in headers.items()}
+    if channel == "slack" and (
+        normalized_headers.get("x-slack-signature") or normalized_headers.get("x-slack-request-timestamp")
+    ):
+        slack_signature = normalized_headers.get("x-slack-signature", "")
+        slack_timestamp = normalized_headers.get("x-slack-request-timestamp", "")
+        try:
+            timestamp_value = int(slack_timestamp)
+        except ValueError:
+            return {"ok": False, "error": "Invalid Slack request timestamp.", "signature_status": "invalid_slack_timestamp"}
+        if abs(int(_now()) - timestamp_value) > 300:
+            return {"ok": False, "error": "Slack request timestamp is stale.", "signature_status": "stale_slack_timestamp"}
+        body_text = body.decode("utf-8", errors="replace") if isinstance(body, bytes) else str(body)
+        base = f"v0:{slack_timestamp}:{body_text}".encode()
+        expected = hmac.new(signing_secret.encode(), base, hashlib.sha256).hexdigest()
+        provided_digest = slack_signature.split("=", 1)[1] if slack_signature.startswith("v0=") else slack_signature
+        if not provided_digest:
+            return {"ok": False, "error": "Missing Slack webhook signature.", "signature_status": "missing_slack_signature"}
+        if not hmac.compare_digest(expected, provided_digest):
+            return {"ok": False, "error": "Slack webhook signature mismatch.", "signature_status": "mismatch_slack_signature"}
+        return {"ok": True, "signature_status": "verified_slack_signature"}
+
     provided = (
         normalized_headers.get("x-ghost-signature")
         or normalized_headers.get("x-hub-signature-256")
@@ -332,6 +378,28 @@ def verify_remote_webhook_signature(
     if not hmac.compare_digest(expected, provided_digest):
         return {"ok": False, "error": "Webhook signature mismatch.", "signature_status": "mismatch"}
     return {"ok": True, "signature_status": "verified"}
+
+
+def verify_whatsapp_webhook_challenge(store: RemoteControlStore, query: dict[str, Any]) -> dict[str, Any]:
+    """Validate Meta WhatsApp webhook verification query parameters."""
+
+    secrets_data = store._load_secrets()
+    channel_secrets = secrets_data.get("whatsapp") if isinstance(secrets_data.get("whatsapp"), dict) else {}
+    verify_token = str(channel_secrets.get("verify_token") or "").strip()
+    if not verify_token:
+        return {
+            "ok": False,
+            "error": "WhatsApp verify_token is not configured.",
+            "verification_status": "not_configured",
+        }
+    mode = str(query.get("hub.mode") or query.get("mode") or "").strip()
+    token = str(query.get("hub.verify_token") or query.get("verify_token") or "").strip()
+    challenge = str(query.get("hub.challenge") or query.get("challenge") or "").strip()
+    if mode != "subscribe" or not challenge:
+        return {"ok": False, "error": "Invalid WhatsApp webhook verification request.", "verification_status": "invalid"}
+    if not hmac.compare_digest(token, verify_token):
+        return {"ok": False, "error": "WhatsApp verify token mismatch.", "verification_status": "mismatch"}
+    return {"ok": True, "challenge": challenge, "verification_status": "verified"}
 
 
 def _normalize_telegram(payload: dict[str, Any]) -> RemoteInboundMessage:
@@ -468,7 +536,68 @@ def _summarize_reply(command: str, payload: dict[str, Any]) -> str:
         jobs = payload.get("available_jobs") or payload.get("jobs") or []
         history = payload.get("history") if isinstance(payload.get("history"), list) else []
         return f"Autonomy jobs available: {len(jobs) if isinstance(jobs, list) else 0}. Recent jobs: {len(history)}."
+    if command == "/channels":
+        counts = payload.get("counts") if isinstance(payload.get("counts"), dict) else {}
+        ready = counts.get("ready_outbound_channels", 0)
+        total = counts.get("channels", 0)
+        needs_setup = [
+            str(channel.get("id"))
+            for channel in payload.get("channels", [])
+            if isinstance(channel, dict) and not channel.get("outbound_ready")
+        ][:4]
+        suffix = f" Needs setup: {', '.join(needs_setup)}." if needs_setup else ""
+        return f"Channels ready for outbound delivery: {ready}/{total}.{suffix}"
+    if command == "/policy":
+        policy = payload.get("policy") if isinstance(payload.get("policy"), dict) else {}
+        mode = "enabled" if policy.get("direct_execution_enabled") else "approval-first"
+        return f"Remote policy: {mode}. Allowed commands: {len(policy.get('allowed_commands') or [])}."
     return "Ghost Chimera processed the command."
+
+
+def _required_channel_fields(channel: str) -> tuple[list[str], list[str], list[str]]:
+    inbound: list[str] = []
+    outbound: list[str] = []
+    optional: list[str] = []
+    if channel == "telegram":
+        outbound = ["bot_token"]
+        optional = ["verify_token", "signing_secret"]
+    elif channel == "discord":
+        outbound = ["bot_token"]
+        optional = ["signing_secret"]
+    elif channel == "slack":
+        inbound = ["signing_secret"]
+        outbound = ["bot_token"]
+    elif channel == "whatsapp":
+        inbound = ["verify_token"]
+        outbound = ["api_token", "phone_number_id"]
+        optional = ["signing_secret"]
+    elif channel in {"signal", "sms", "email"}:
+        outbound = ["webhook_url"]
+        optional = ["api_token", "bot_token", "signing_secret"]
+    elif channel == "webhook":
+        optional = ["webhook_url", "signing_secret", "api_token"]
+    return inbound, outbound, optional
+
+
+def _fields_present(secrets_data: dict[str, Any], fields: list[str]) -> list[str]:
+    return [field for field in fields if str(secrets_data.get(field) or "").strip()]
+
+
+def _channel_setup_steps(channel: str, missing_inbound: list[str], missing_outbound: list[str]) -> list[str]:
+    steps: list[str] = []
+    if missing_inbound:
+        steps.append(f"Save inbound verification fields: {', '.join(missing_inbound)}.")
+    if missing_outbound:
+        steps.append(f"Save outbound delivery fields: {', '.join(missing_outbound)}.")
+    if channel == "whatsapp":
+        steps.append("Configure the Meta WhatsApp Cloud API callback URL to /api/console/remote/webhook/whatsapp.")
+    if channel == "slack":
+        steps.append("Configure Slack Events API to sign requests with the app signing secret.")
+    if channel == "telegram":
+        steps.append("Use the bot token for outbound messages; set verify_token for provider-native secret-token checks.")
+    if not steps:
+        steps.append("Channel is ready for the enabled direction.")
+    return steps
 
 
 def _resolve_send_endpoint(reply: RemoteOutboundReply, secrets_data: dict[str, Any]) -> tuple[str, dict[str, str]]:
@@ -611,10 +740,12 @@ class RemoteControlStore:
         peers = list(data["peers"].values())
         pending_pairings = [item for item in data["pairings"].values() if item.get("status") == "pending"]
         pending_approvals = [item for item in data["approvals"].values() if item.get("status") == "pending"]
+        channel_health = self.channel_health(data=data)
         return {
             "ok": True,
             "policy": _redact_value(data["policy"]),
             "channels": list(data["channels"].values()),
+            "channel_health": channel_health["channels"],
             "peers": _redact_value(peers),
             "pairings": _redact_value(pending_pairings),
             "approvals": _redact_value(pending_approvals),
@@ -622,9 +753,67 @@ class RemoteControlStore:
                 "paired_peers": len([peer for peer in peers if peer.get("status") == "paired"]),
                 "pending_pairings": len(pending_pairings),
                 "pending_approvals": len(pending_approvals),
+                "ready_inbound_channels": channel_health["counts"]["ready_inbound_channels"],
+                "ready_outbound_channels": channel_health["counts"]["ready_outbound_channels"],
             },
             "secret_policy": {"secrets_are_write_only": True, "raw_secret_values_returned": False},
             "timeline": self.timeline(limit=20),
+        }
+
+    def channel_health(self, data: dict[str, Any] | None = None) -> dict[str, Any]:
+        data = data or self._load()
+        secrets_data = self._load_secrets()
+        records: list[dict[str, Any]] = []
+        for channel in DEFAULT_CHANNELS:
+            channel_state = data["channels"].get(channel) if isinstance(data.get("channels"), dict) else {}
+            if not isinstance(channel_state, dict):
+                channel_state = {"id": channel}
+            channel_secrets = secrets_data.get(channel) if isinstance(secrets_data.get(channel), dict) else {}
+            inbound_required, outbound_required, optional_fields = _required_channel_fields(channel)
+            inbound_present = _fields_present(channel_secrets, inbound_required)
+            outbound_present = _fields_present(channel_secrets, outbound_required)
+            configured_fields = sorted(key for key, value in channel_secrets.items() if value)
+            missing_inbound = [field for field in inbound_required if field not in inbound_present]
+            missing_outbound = [field for field in outbound_required if field not in outbound_present]
+            send_enabled = bool(channel_state.get("send_enabled"))
+            inbound_ready = not missing_inbound
+            outbound_ready = bool(send_enabled and not missing_outbound)
+            delivery_target_ready = bool(channel_state.get("default_reply_target")) or channel in {"telegram", "discord", "slack"}
+            if channel == "webhook":
+                inbound_ready = True
+                outbound_ready = bool(send_enabled and str(channel_secrets.get("webhook_url") or "").startswith("https://"))
+                delivery_target_ready = outbound_ready or not send_enabled
+            records.append(
+                {
+                    "id": channel,
+                    "enabled": bool(channel_state.get("enabled", channel == "webhook")),
+                    "configured": bool(configured_fields),
+                    "send_enabled": send_enabled,
+                    "inbound_ready": inbound_ready,
+                    "outbound_ready": outbound_ready,
+                    "delivery_target_ready": delivery_target_ready,
+                    "adapter_status": channel_state.get("adapter_status", "metadata_only"),
+                    "configured_fields": configured_fields,
+                    "missing_inbound_fields": missing_inbound,
+                    "missing_outbound_fields": missing_outbound,
+                    "optional_fields": optional_fields,
+                    "setup_steps": _channel_setup_steps(channel, missing_inbound, missing_outbound),
+                    "webhook_path": f"/api/console/remote/webhook/{channel}",
+                    "raw_secret_values_returned": False,
+                }
+            )
+        return {
+            "ok": True,
+            "channels": _redact_value(records),
+            "counts": {
+                "channels": len(records),
+                "ready_inbound_channels": len([item for item in records if item["inbound_ready"]]),
+                "ready_outbound_channels": len([item for item in records if item["outbound_ready"]]),
+                "channels_needing_setup": len(
+                    [item for item in records if item["missing_inbound_fields"] or item["missing_outbound_fields"]]
+                ),
+            },
+            "secret_policy": {"secrets_are_write_only": True, "raw_secret_values_returned": False},
         }
 
     def configure_channel(self, channel: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -851,6 +1040,7 @@ class RemoteControlStore:
         status_provider: RemoteStatusProvider | None = None,
         paths_provider: RemoteStatusProvider | None = None,
         jobs_provider: RemoteStatusProvider | None = None,
+        channels_provider: RemoteStatusProvider | None = None,
     ) -> dict[str, Any]:
         channel = channel.strip().lower() or "webhook"
         peer_id = peer_id.strip()
@@ -919,6 +1109,22 @@ class RemoteControlStore:
                 peer,
                 _summarize_reply(command, payload),
             )
+        if command == "/channels":
+            payload = channels_provider() if channels_provider else self.channel_health(data=data)
+            self._event("remote_channels_requested", {"peer_id": peer_key})
+            return self._with_reply(
+                {"ok": True, "paired": True, "command": command, "response": _redact_value(payload)},
+                peer,
+                _summarize_reply(command, payload),
+            )
+        if command == "/policy":
+            payload = {"ok": True, "policy": policy.to_dict()}
+            self._event("remote_policy_requested", {"peer_id": peer_key})
+            return self._with_reply(
+                {"ok": True, "paired": True, "command": command, "response": _redact_value(payload)},
+                peer,
+                _summarize_reply(command, payload),
+            )
         if command == "/stop":
             self._event("remote_stop_requested", {"peer_id": peer_key, "channel": channel})
             return self._with_reply(
@@ -926,6 +1132,8 @@ class RemoteControlStore:
                 peer,
                 "Stop request recorded.",
             )
+        if command == "/direct":
+            return self._handle_direct_command(data=data, policy=policy, peer=peer, argument=argument)
         if command == "/run":
             if not argument:
                 return self._with_reply(
@@ -958,6 +1166,52 @@ class RemoteControlStore:
             {"ok": False, "paired": True, "error": f"Unsupported command: {command}", "command": command},
             peer,
             f"Unsupported command: {command}",
+        )
+
+    def _handle_direct_command(
+        self,
+        *,
+        data: dict[str, Any],
+        policy: RemotePolicy,
+        peer: dict[str, Any],
+        argument: str,
+    ) -> dict[str, Any]:
+        desired = argument.strip().lower()
+        if desired not in {"on", "off", "enable", "disable", "true", "false"}:
+            return self._with_reply(
+                {"ok": False, "paired": True, "command": "/direct", "error": "Usage: /direct on|off"},
+                peer,
+                "Usage: /direct on|off",
+            )
+        allow = desired in {"on", "enable", "true"}
+        if str(peer.get("role") or "").lower() != "admin":
+            self._event("remote_direct_toggle_rejected", {"peer_id": peer.get("id"), "reason": "not_admin"})
+            return self._with_reply(
+                {"ok": False, "paired": True, "command": "/direct", "error": "Only paired admins can change direct execution."},
+                peer,
+                "Only paired admins can change direct execution.",
+            )
+        if allow and not policy.direct_execution_enabled:
+            self._event("remote_direct_toggle_rejected", {"peer_id": peer.get("id"), "reason": "global_disabled"})
+            return self._with_reply(
+                {
+                    "ok": False,
+                    "paired": True,
+                    "command": "/direct",
+                    "error": "Global direct execution is disabled in the dashboard.",
+                },
+                peer,
+                "Direct execution is disabled in the dashboard. Enable it in Ghost Console first.",
+            )
+        peer["allow_direct_execution"] = allow
+        data["peers"][str(peer.get("id"))] = peer
+        self._save(data)
+        self._event("remote_peer_policy_updated", {"peer_id": peer.get("id"), "allow_direct_execution": allow})
+        message = "Direct execution enabled for this paired admin." if allow else "Direct execution disabled for this sender."
+        return self._with_reply(
+            {"ok": True, "paired": True, "command": "/direct", "peer": _redact_value(peer), "message": message},
+            peer,
+            message,
         )
 
     def _with_reply(self, payload: dict[str, Any], peer: dict[str, Any], text: str) -> dict[str, Any]:

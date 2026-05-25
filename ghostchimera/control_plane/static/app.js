@@ -1670,6 +1670,72 @@
   $("#githubPlan").addEventListener("click", planGithubIssue);
   $("#githubPolicyPreview").addEventListener("click", previewGithubPolicy);
 
+  // Standing Orders
+  function renderStandingOrders(data) {
+    var list = $("#standingOrders");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!Array.isArray(data.orders) || !data.orders.length) {
+      list.appendChild(el("div", { class: "empty" }, "No standing orders yet."));
+      return;
+    }
+    data.orders.forEach(function(order) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "badge " + (order.status === "enabled" ? "ok" : "warn") }, order.status || "order"));
+      item.appendChild(el("span", { class: "name" }, order.title || "Standing order"));
+      item.appendChild(el("span", { class: "meta" }, (order.scope || "general") + " / runs " + (order.run_count || 0)));
+      var actions = el("span", { class: "actions" });
+      var toggle = el("button", null, order.status === "enabled" ? "Disable" : "Enable");
+      toggle.addEventListener("click", function() {
+        updateStandingOrder(order.id, order.status === "enabled" ? "disable" : "enable");
+      });
+      var run = el("button", { class: "primary" }, "Run");
+      run.addEventListener("click", function() { updateStandingOrder(order.id, "run"); });
+      actions.appendChild(toggle);
+      actions.appendChild(run);
+      item.appendChild(actions);
+      list.appendChild(item);
+    });
+  }
+
+  async function refreshStandingOrders() {
+    try {
+      renderStandingOrders(await api("/api/console/standing-orders"));
+    } catch (e) {
+      empty("#standingOrders", "Standing orders unavailable: " + e.message);
+    }
+  }
+
+  async function createStandingOrder() {
+    try {
+      var data = await api("/api/console/standing-orders", {
+        method: "POST",
+        body: JSON.stringify({
+          title: $("#standingOrderTitle").value,
+          scope: $("#standingOrderScope").value,
+          objective: $("#standingOrderObjective").value,
+          approval_gates: ["source edits, outbound messages, and high-impact actions require approval unless explicitly bypassed"],
+        }),
+      });
+      $("#remoteOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshStandingOrders();
+      toast(data.ok ? "Standing order created." : (data.error || "Standing order failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#remoteOutput").textContent = e.message;
+    }
+  }
+
+  async function updateStandingOrder(orderId, action) {
+    try {
+      var data = await api("/api/console/standing-orders/" + encodeURIComponent(orderId) + "/" + action, { method: "POST" });
+      $("#remoteOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshStandingOrders();
+      toast(data.ok ? "Standing order updated." : (data.error || "Standing order action failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#remoteOutput").textContent = e.message;
+    }
+  }
+
   // Remote Control
   function renderRemote(data) {
     state.remote = data;
@@ -1685,6 +1751,8 @@
         ["Paired", data.counts ? data.counts.paired_peers : 0],
         ["Pairings", data.counts ? data.counts.pending_pairings : 0],
         ["Approvals", data.counts ? data.counts.pending_approvals : 0],
+        ["Inbound", data.counts ? (data.counts.ready_inbound_channels || 0) : 0],
+        ["Outbound", data.counts ? (data.counts.ready_outbound_channels || 0) : 0],
         ["Direct", policy.direct_execution_enabled ? "enabled" : "approval-first"],
       ].forEach(function(m) {
         var card = el("div", { class: "card" });
@@ -1752,6 +1820,31 @@
         item.appendChild(el("span", { class: "meta" }, fields + " / outbound " + (channel.send_enabled ? "enabled" : "disabled") + signed + target));
         channels.appendChild(item);
       });
+    }
+
+    var health = $("#remoteChannelHealth");
+    if (health) {
+      health.innerHTML = "";
+      if (!Array.isArray(data.channel_health) || !data.channel_health.length) {
+        health.appendChild(el("div", { class: "empty" }, "No channel health data yet."));
+      } else {
+        data.channel_health.forEach(function(channel) {
+          var item = el("div", { class: "list-item" });
+          var ready = channel.inbound_ready && (!channel.send_enabled || channel.outbound_ready);
+          item.appendChild(el("span", { class: "badge " + (ready ? "ok" : "warn") }, channel.id || "channel"));
+          item.appendChild(el("span", { class: "name" }, ready ? "ready" : "needs setup"));
+          var missing = [];
+          if (Array.isArray(channel.missing_inbound_fields) && channel.missing_inbound_fields.length) {
+            missing.push("inbound: " + channel.missing_inbound_fields.join(", "));
+          }
+          if (Array.isArray(channel.missing_outbound_fields) && channel.missing_outbound_fields.length) {
+            missing.push("outbound: " + channel.missing_outbound_fields.join(", "));
+          }
+          var path = channel.webhook_path ? " / " + channel.webhook_path : "";
+          item.appendChild(el("span", { class: "meta" }, (missing.join(" / ") || "all required fields present") + path));
+          health.appendChild(item);
+        });
+      }
     }
 
     var approvals = $("#remoteApprovals");
@@ -1884,6 +1977,7 @@
         phone_number_id: $("#remoteConfigPhone").value,
         default_reply_target: $("#remoteConfigDefaultTarget").value,
         signing_secret: $("#remoteConfigSigning").value,
+        verify_token: $("#remoteConfigVerifyToken").value,
       };
       var data = await api("/api/console/remote/channels/" + encodeURIComponent(channel), {
         method: "POST",
@@ -1893,6 +1987,7 @@
       $("#remoteConfigWebhook").value = "";
       $("#remoteConfigPhone").value = "";
       $("#remoteConfigSigning").value = "";
+      $("#remoteConfigVerifyToken").value = "";
       $("#remoteOutput").textContent = JSON.stringify(data, null, 2);
       await refreshRemote();
       await refreshTimeline();
@@ -1967,6 +2062,7 @@
   $("#remoteSaveChannel").addEventListener("click", function() { saveRemoteChannel(false); });
   $("#remoteClearChannel").addEventListener("click", function() { saveRemoteChannel(true); });
   $("#remoteSendTest").addEventListener("click", sendRemoteTestReply);
+  $("#standingOrderCreate").addEventListener("click", createStandingOrder);
 
   // Trust Runtime
   function renderTrust(data) {
@@ -2459,6 +2555,7 @@
         refreshOperatorSummary(),
         refreshLatency(),
         refreshRemote(),
+        refreshStandingOrders(),
         refreshTrust(),
       ]);
     } catch (e) {

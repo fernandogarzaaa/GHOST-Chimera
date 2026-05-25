@@ -42,7 +42,12 @@ from ..integrations.email_oauth import (
     start_email_oauth,
     start_gmail_browser_oauth,
 )
-from ..integrations.remote_control import RemoteControlStore, normalize_remote_payload, verify_remote_webhook_signature
+from ..integrations.remote_control import (
+    RemoteControlStore,
+    normalize_remote_payload,
+    verify_remote_webhook_signature,
+    verify_whatsapp_webhook_challenge,
+)
 from ..memory_layer.store import MemoryStore
 from ..model_layer.auth_profiles import AuthProfile
 from ..model_layer.codex_cli_provider import codex_login_command, get_codex_cli_status, launch_codex_login_flow
@@ -65,6 +70,7 @@ from ..model_layer.provider_oauth_connectors import (
     start_openrouter_pkce,
 )
 from ..model_layer.providers import TEXT_PROVIDERS, get_provider
+from ..production_gaps import scan_production_gaps
 from ..sandbox.journey import run_sandbox_journey
 from ..superiority import build_local_operator_summary, build_superiority_scorecard
 from ..tool_layer.browser import http_get
@@ -87,6 +93,7 @@ from .host_execution import CONFIRMATION_PHRASE, HostExecutionStore
 from .latency import latency_summary, record_latency_event
 from .live_presence import LivePresenceStore
 from .local_voice import LocalVoiceTranscriber
+from .standing_orders import StandingOrderStore
 
 RunObjective = Callable[[str], dict[str, Any]]
 FetchUrl = Callable[[str], str]
@@ -232,6 +239,16 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "name": "remote control smoke",
         "command": "ghostchimera remote status",
         "purpose": "Verifies Ghost-native mobile/messaging remote control is reachable without external gateways.",
+    },
+    {
+        "name": "remote channel health smoke",
+        "command": "ghostchimera remote health",
+        "purpose": "Verifies paired channel readiness diagnostics and write-only secret posture.",
+    },
+    {
+        "name": "production gap scan",
+        "command": "ghostchimera production-gaps --format markdown --limit 50",
+        "purpose": "Surfaces placeholder, scaffold, and demo-runtime markers before release.",
     },
     {
         "name": "GitHub connection smoke",
@@ -793,6 +810,7 @@ def register_console_routes(
     workspace_store = operator_workspace or OperatorWorkspaceStore(state_dir=state_dir or server.config.state_dir)
     console_state_dir = Path(state_dir or server.config.state_dir)
     remote_store = RemoteControlStore(console_state_dir)
+    standing_order_store = StandingOrderStore(console_state_dir)
     trust_store = TrustRuntimeStore(console_state_dir)
     admission_store = CapabilityAdmissionStore(console_state_dir)
     conversation_store = ConversationStore(console_state_dir)
@@ -3854,6 +3872,51 @@ def register_console_routes(
     def remote_status(ctx: dict[str, Any]) -> dict[str, Any]:
         return remote_store.status()
 
+    def remote_health(ctx: dict[str, Any]) -> dict[str, Any]:
+        return remote_store.channel_health()
+
+    def production_gaps(ctx: dict[str, Any]) -> dict[str, Any]:
+        return scan_production_gaps(Path(__file__).resolve().parents[2])
+
+    def standing_orders(ctx: dict[str, Any]) -> dict[str, Any]:
+        if ctx.get("method") == "GET":
+            return standing_order_store.list_orders()
+        try:
+            payload = standing_order_store.create_order(_json_body(ctx))
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "standing_order_created",
+                {
+                    "order_id": payload.get("order", {}).get("id"),
+                    "title": payload.get("order", {}).get("title"),
+                    "scope": payload.get("order", {}).get("scope"),
+                },
+            )
+        return payload
+
+    def standing_order_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/standing-orders/")
+        parts = [part for part in suffix.split("/") if part]
+        if len(parts) != 2 or parts[1] not in {"enable", "disable", "run"}:
+            return {"ok": False, "error": "Expected /api/console/standing-orders/{id}/enable, /disable, or /run"}
+        order_id, action = parts
+        if action == "enable":
+            payload = standing_order_store.enable_order(order_id)
+        elif action == "disable":
+            payload = standing_order_store.disable_order(order_id)
+        else:
+            payload = standing_order_store.run_order(order_id, objective_runner=objective_runner)
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "standing_order_" + action,
+                {"order_id": order_id, "ok": bool(payload.get("ok"))},
+            )
+        return payload
+
     def remote_policy(ctx: dict[str, Any]) -> dict[str, Any]:
         try:
             payload = remote_store.update_policy(_json_body(ctx))
@@ -3981,6 +4044,7 @@ def register_console_routes(
             status_provider=_operator_summary_payload,
             paths_provider=paths_provider,
             jobs_provider=lambda: {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()},
+            channels_provider=remote_store.channel_health,
         )
         _record_remote_trust_run(
             payload,
@@ -4026,6 +4090,7 @@ def register_console_routes(
             status_provider=_operator_summary_payload,
             paths_provider=lambda: {"ok": True, "active_path": _operator_summary_payload().get("active_path", {})},
             jobs_provider=lambda: {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()},
+            channels_provider=remote_store.channel_health,
         )
         _record_remote_trust_run(payload, channel=inbound.channel, peer_id=inbound.peer_id, text=inbound.text)
         payload["signature_status"] = signature.get("signature_status", "")
@@ -4042,6 +4107,20 @@ def register_console_routes(
                 "ok": bool(payload.get("ok")),
             },
         )
+        return payload
+
+    def remote_provider_webhook_verify(ctx: dict[str, Any]) -> dict[str, Any] | HttpResponse:
+        channel = _suffix(ctx, "/api/console/remote/webhook/")
+        if channel != "whatsapp":
+            return {"ok": False, "error": "Webhook verification is currently implemented for WhatsApp."}
+        payload = verify_whatsapp_webhook_challenge(remote_store, dict(ctx.get("query") or {}))
+        record_timeline_event(
+            console_state_dir,
+            "remote_provider_webhook_verified",
+            {"channel": channel, "verification_status": payload.get("verification_status", ""), "ok": bool(payload.get("ok"))},
+        )
+        if payload.get("ok"):
+            return HttpResponse(str(payload.get("challenge") or ""), content_type="text/plain")
         return payload
 
     def remote_approval_action(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -4522,6 +4601,12 @@ def register_console_routes(
         description="Apply an explicit audited source patch when unrestricted mode is armed",
     )
     _api_register("/api/console/remote/status", remote_status, method="GET", description="Inspect remote control status")
+    _api_register(
+        "/api/console/remote/health",
+        remote_health,
+        method="GET",
+        description="Inspect remote channel readiness and setup gaps",
+    )
     _api_register("/api/console/remote/policy", remote_policy, method="POST", description="Update remote control policy")
     _api_register(
         "/api/console/remote/pairing/create",
@@ -4567,6 +4652,13 @@ def register_console_routes(
         method="POST",
         prefix=True,
         description="Normalize provider-shaped webhook payloads into remote commands",
+    )
+    _api_register(
+        "/api/console/remote/webhook/",
+        remote_provider_webhook_verify,
+        method="GET",
+        prefix=True,
+        description="Verify provider webhook callbacks such as WhatsApp Cloud API",
     )
     _api_register(
         "/api/console/remote/approvals/",
@@ -5032,6 +5124,31 @@ def register_console_routes(
     )
     _api_register(
         "/api/console/review-pr", review_pr, method="POST", description="Run deterministic PR/diff review automation"
+    )
+    _api_register(
+        "/api/console/production/gaps",
+        production_gaps,
+        method="GET",
+        description="Scan for placeholder, scaffold, and demo-runtime production gaps",
+    )
+    _api_register(
+        "/api/console/standing-orders",
+        standing_orders,
+        method="GET",
+        description="List scoped standing authority programs",
+    )
+    _api_register(
+        "/api/console/standing-orders",
+        standing_orders,
+        method="POST",
+        description="Create a scoped standing authority program",
+    )
+    _api_register(
+        "/api/console/standing-orders/",
+        standing_order_action,
+        method="POST",
+        prefix=True,
+        description="Enable, disable, or run a standing order",
     )
     _api_register(
         "/api/console/readiness", readiness, method="GET", description="Ghost Console release readiness runbook"
