@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import sys
 import textwrap
 import time
@@ -63,7 +64,7 @@ from ..model_layer.provider_oauth_connectors import (
     start_huggingface_device_flow,
     start_openrouter_pkce,
 )
-from ..model_layer.providers import get_provider
+from ..model_layer.providers import TEXT_PROVIDERS, get_provider
 from ..sandbox.journey import run_sandbox_journey
 from ..superiority import build_local_operator_summary, build_superiority_scorecard
 from ..tool_layer.browser import http_get
@@ -403,6 +404,98 @@ def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str,
             "storage": "local Ghost Chimera config directory",
         },
     }
+
+
+def _runtime_dependencies_payload() -> dict[str, Any]:
+    """Return secret-safe runtime dependency readiness for the dashboard."""
+
+    module_checks = [
+        ("mcp", "mcp", "MCP client/server SDK"),
+        ("pyautogui", "pyautogui", "Desktop automation"),
+        ("websockets", "websockets", "Realtime transports"),
+        ("SpeechRecognition", "speech_recognition", "Browser/local voice bridge"),
+        ("vosk", "vosk", "Offline speech recognition"),
+        ("pocketsphinx", "pocketsphinx", "Offline speech recognition fallback"),
+        ("faster-whisper", "faster_whisper", "Local Whisper transcription"),
+        ("llama-cpp-python", "llama_cpp", "Local GGUF inference"),
+        ("pyqpanda3", "pyqpanda3", "Quantum optional runtime"),
+        ("jsonschema", "jsonschema", "Schema validation"),
+    ]
+    tool_checks = [
+        ("ffmpeg", "Audio/video processing"),
+        ("ffprobe", "Audio/video inspection"),
+        ("dot", "Graphviz diagrams"),
+        ("ollama", "Local model server"),
+        ("docker", "Container runtime"),
+        ("git", "Repository operations"),
+        ("gh", "GitHub CLI"),
+    ]
+    modules = [
+        {
+            "id": package,
+            "label": label,
+            "installed": importlib.util.find_spec(module) is not None,
+        }
+        for package, module, label in module_checks
+    ]
+    tools = [
+        {
+            "id": command,
+            "label": label,
+            "installed": _tool_available(command),
+        }
+        for command, label in tool_checks
+    ]
+    missing_modules = [item["id"] for item in modules if not item["installed"]]
+    missing_tools = [item["id"] for item in tools if not item["installed"]]
+    return {
+        "ok": True,
+        "python": {
+            "version": ".".join(str(part) for part in sys.version_info[:3]),
+            "executable_name": Path(sys.executable).name,
+        },
+        "modules": modules,
+        "third_party_tools": tools,
+        "missing_modules": missing_modules,
+        "missing_tools": missing_tools,
+        "ready": not missing_modules and not missing_tools,
+        "provider_catalog": {"count": len(TEXT_PROVIDERS), "providers": sorted(TEXT_PROVIDERS)},
+        "install_profile": "pip install -e .[all,dev]",
+        "notes": [
+            "Secrets and local absolute paths are not returned by this endpoint.",
+            "If newly installed command-line tools are missing, restart the shell so PATH changes load.",
+        ],
+    }
+
+
+def _tool_available(command: str) -> bool:
+    if shutil.which(command):
+        return True
+    local_app_data = Path(os.environ.get("LOCALAPPDATA") or "")
+    fallbacks = {
+        "ffmpeg": [
+            local_app_data
+            / "Microsoft"
+            / "WinGet"
+            / "Packages"
+            / "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
+            / "ffmpeg-8.1.1-full_build"
+            / "bin"
+            / "ffmpeg.exe",
+        ],
+        "ffprobe": [
+            local_app_data
+            / "Microsoft"
+            / "WinGet"
+            / "Packages"
+            / "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
+            / "ffmpeg-8.1.1-full_build"
+            / "bin"
+            / "ffprobe.exe",
+        ],
+        "dot": [Path("C:/Program Files/Graphviz/bin/dot.exe")],
+    }
+    return any(path.exists() for path in fallbacks.get(command, []))
 
 
 def _json_body(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -1790,7 +1883,15 @@ def register_console_routes(
         body = _json_body(ctx)
         allowed = {
             key: body[key]
-            for key in ("always_listening", "hands_free", "full_bypass", "local_fallback", "voice_provider", "voice_id")
+            for key in (
+                "always_listening",
+                "hands_free",
+                "full_bypass",
+                "local_fallback",
+                "presenter_coach_mode",
+                "voice_provider",
+                "voice_id",
+            )
             if key in body
         }
         payload = conversation_controller.update_settings(**allowed)
@@ -3326,6 +3427,7 @@ def register_console_routes(
         trust_payload = trust_store.trust_status()
         admission_payload = admission_store.summary()
         conversation_payload = conversation_controller.status()
+        runtime_dependencies_payload = _runtime_dependencies_payload()
         combined_warnings = list(summary.get("warnings") or [])
         combined_warnings.extend(str(item) for item in trust_payload.get("warnings", []) if str(item).strip())
         combined_warnings.extend(str(item) for item in admission_payload.get("warnings", []) if str(item).strip())
@@ -3377,6 +3479,14 @@ def register_console_routes(
                     "action": "trust",
                 }
             )
+            summary["cards"].append(
+                {
+                    "id": "runtime-dependencies",
+                    "label": "Runtime Dependencies",
+                    "status": "ready" if runtime_dependencies_payload.get("ready") else "review",
+                    "action": "operator",
+                }
+            )
         summary.update(
             {
                 "active_path": active_path,
@@ -3397,6 +3507,7 @@ def register_console_routes(
                 "trust": trust_payload,
                 "capability_admission": admission_payload,
                 "conversation": conversation_payload,
+                "runtime_dependencies": runtime_dependencies_payload,
             }
         )
         if include_superiority:
@@ -3407,6 +3518,9 @@ def register_console_routes(
 
     def operator_summary(ctx: dict[str, Any]) -> dict[str, Any]:
         return _operator_summary_payload()
+
+    def runtime_dependencies(ctx: dict[str, Any]) -> dict[str, Any]:
+        return _runtime_dependencies_payload()
 
     def superiority_scorecard(ctx: dict[str, Any]) -> dict[str, Any]:
         summary = _operator_summary_payload(include_superiority=False)
@@ -3455,6 +3569,7 @@ def register_console_routes(
             "review_mcp",
             "review_skills",
             "run_readiness",
+            "connect_email",
         }
         if step not in allowed:
             return {"ok": False, "error": "Unsupported setup step.", "allowed_steps": sorted(allowed)}
@@ -4278,6 +4393,12 @@ def register_console_routes(
     )
     _api_register("/api/console/status", status, method="GET", description="Ghost Console status")
     _api_register("/api/console/operator/summary", operator_summary, method="GET", description="Operator home summary")
+    _api_register(
+        "/api/console/runtime/dependencies",
+        runtime_dependencies,
+        method="GET",
+        description="Inspect installed runtime dependencies and provider coverage",
+    )
     _api_register(
         "/api/console/superiority",
         superiority_scorecard,

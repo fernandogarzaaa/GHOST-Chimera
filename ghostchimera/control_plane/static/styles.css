@@ -148,18 +148,34 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
 }
 .conversation-head { justify-content: space-between; margin-bottom: 8px; }
+.conversation-head-actions { display: flex; align-items: center; gap: 8px; }
 .conversation-head .hint { display: block; font-size: 11px; color: var(--muted); }
 .conversation-controls { margin-bottom: 8px; }
 .conversation-controls select { flex: 1; min-width: 160px; }
 .danger-check { color: var(--danger); }
+.icon-btn {
+  width: 30px; height: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+}
 .conversation-transcript, .conversation-reply {
   padding: 10px; border: 1px solid var(--line); border-radius: 6px;
   background: #0a0c0e; color: var(--muted); font-size: 12px; margin-bottom: 8px;
   max-height: 120px; overflow: auto; white-space: pre-wrap;
 }
 .conversation-reply { color: var(--text); }
+.conversation-quick-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.conversation-quick-actions button { padding: 6px 9px; font-size: 12px; }
 .conversation-input-row input { flex: 1; min-width: 170px; }
 .conversation-actions { margin-top: 8px; }
+.ghost-conversation-panel.minimized { width: min(280px, calc(100vw - 28px)); overflow: hidden; }
+.ghost-conversation-panel.minimized .conversation-bypass-banner,
+.ghost-conversation-panel.minimized .conversation-controls,
+.ghost-conversation-panel.minimized .conversation-transcript,
+.ghost-conversation-panel.minimized .conversation-reply,
+.ghost-conversation-panel.minimized .conversation-quick-actions,
+.ghost-conversation-panel.minimized .conversation-input-row,
+.ghost-conversation-panel.minimized .conversation-actions {
+  display: none;
+}
 .discovery-toolbar {
   display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 8px;
 }

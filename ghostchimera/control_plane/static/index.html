@@ -71,16 +71,26 @@
         <strong>Ghost Conversation</strong>
         <span class="hint">Always-on natural loop</span>
       </div>
-      <span id="conversationMicState" class="badge warn">Muted</span>
+      <div class="conversation-head-actions">
+        <span id="conversationMicState" class="badge warn">Muted</span>
+        <button id="conversationMinimize" class="icon-btn" type="button" title="Minimize Ghost Conversation">_</button>
+      </div>
     </div>
     <div class="conversation-controls">
       <label class="inline-check"><input id="conversationAlwaysListening" type="checkbox"> Always Listening</label>
       <label class="inline-check"><input id="conversationLocalFallback" type="checkbox" checked> Local fallback</label>
+      <label class="inline-check"><input id="conversationPresenterCoach" type="checkbox"> Presenter Coach</label>
       <label class="inline-check danger-check"><input id="conversationFullBypass" type="checkbox"> Full Bypass</label>
       <select id="conversationVoiceSelect" title="Voice runtime"></select>
     </div>
     <div id="conversationTranscript" class="conversation-transcript">Transcript will appear here after Ghost hears you.</div>
     <div id="conversationReply" class="conversation-reply">Ghost is ready. Say “Hey Ghost” or type below.</div>
+    <div class="conversation-quick-actions">
+      <button type="button" data-conversation-prompt="Run a readiness check">Readiness</button>
+      <button type="button" data-conversation-prompt="Show evidence">Evidence</button>
+      <button type="button" data-conversation-prompt="Coach me through the next step with visible notes only">Coach</button>
+      <button type="button" data-conversation-prompt="Run in sandbox">Sandbox</button>
+    </div>
     <div class="conversation-input-row">
       <input id="conversationTextInput" placeholder="Talk to Ghost or type a message">
       <button id="conversationSend" class="primary">Send</button>
@@ -136,6 +146,8 @@
     </div>
     <div class="section-hdr" style="margin-top:0;">Ghost Readiness</div>
     <div class="grid" id="operatorCards"></div>
+    <div class="section-hdr">Runtime Dependencies</div>
+    <div id="runtimeDependencies" class="list"></div>
     <div class="section-hdr">Guided Setup</div>
     <div class="setup-steps" id="setupSteps">
       <button data-step="choose_path" data-target="path">1. Choose Ghost Path</button>

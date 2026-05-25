@@ -220,6 +220,7 @@ class ConversationStore:
                 "hands_free": False,
                 "full_bypass": False,
                 "local_fallback": True,
+                "presenter_coach_mode": False,
                 "voice_provider": "browser",
                 "voice_id": "browser-default",
                 "raw_audio_stored": False,
@@ -253,7 +254,7 @@ class ConversationStore:
     def update_settings(self, **updates: Any) -> dict[str, Any]:
         data = self._load()
         settings = dict(data.get("settings") or {})
-        for key in ("always_listening", "hands_free", "full_bypass", "local_fallback"):
+        for key in ("always_listening", "hands_free", "full_bypass", "local_fallback", "presenter_coach_mode"):
             if key in updates:
                 settings[key] = bool(updates[key])
         for key in ("voice_provider", "voice_id"):
@@ -411,7 +412,12 @@ class ConversationalLoopController:
             "active_session": self.store.active_session(),
             "sessions": self.store.list_sessions().get("sessions", []),
             "voice_catalog": voice_catalog(),
-            "privacy": {"raw_audio_stored": False, "transcripts_redacted": True},
+            "privacy": {
+                "raw_audio_stored": False,
+                "transcripts_redacted": True,
+                "anti_detection_supported": False,
+                "coaching_requires_visible_console": True,
+            },
         }
 
     def stop(self, session_id: str) -> dict[str, Any]:

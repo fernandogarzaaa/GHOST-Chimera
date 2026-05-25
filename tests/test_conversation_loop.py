@@ -89,6 +89,18 @@ class ConversationRuntimeTests(unittest.TestCase):
             self.assertEqual(status["active_session"]["mode"], "sleeping")
             self.assertFalse(status["settings"]["always_listening"])
 
+    def test_presenter_coach_mode_is_visible_and_not_anti_detection(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-conversation-") as tmp:
+            controller = ConversationalLoopController(state_dir=tmp)
+
+            payload = controller.update_settings(presenter_coach_mode=True)
+            status = controller.status()
+
+            self.assertTrue(payload["settings"]["presenter_coach_mode"])
+            self.assertTrue(status["settings"]["presenter_coach_mode"])
+            self.assertFalse(status["privacy"]["anti_detection_supported"])
+            self.assertTrue(status["privacy"]["coaching_requires_visible_console"])
+
     def test_conversation_turn_creates_trust_run_record(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghost-conversation-") as tmp:
             trust = TrustRuntimeStore(Path(tmp) / "trust")
@@ -188,6 +200,7 @@ class ConversationConsoleRouteTests(unittest.TestCase):
                 ("POST", "/api/console/conversation/settings"),
                 ("GET", "/api/console/conversation/local-voice/status"),
                 ("POST", "/api/console/conversation/local-voice/transcribe"),
+                ("GET", "/api/console/runtime/dependencies"),
             ]:
                 with self.subTest(path=path):
                     self.assertIsNotNone(server.routes.find(method, path))
@@ -195,6 +208,7 @@ class ConversationConsoleRouteTests(unittest.TestCase):
             create_route = server.routes.find("POST", "/api/console/conversation/sessions")
             turn_route = server.routes.find("POST", "/api/console/conversation/sessions/demo/turn")
             status_route = server.routes.find("GET", "/api/console/conversation/status")
+            runtime_route = server.routes.find("GET", "/api/console/runtime/dependencies")
             self.assertIsNotNone(create_route)
             self.assertIsNotNone(turn_route)
 
@@ -227,9 +241,20 @@ class ConversationConsoleRouteTests(unittest.TestCase):
                     "query": {},
                 }
             )
+            runtime = runtime_route.handler(
+                {
+                    "method": "GET",
+                    "path": "/api/console/runtime/dependencies",
+                    "headers": {},
+                    "body": "",
+                    "query": {},
+                }
+            )
 
             serialized = json.dumps(result) + json.dumps(status)
             self.assertTrue(result["ok"])
+            self.assertTrue(runtime["ok"])
+            self.assertIn("provider_catalog", runtime)
             self.assertIn("operator_report", result)
             self.assertNotIn("sk-testsecret123456", serialized)
             self.assertIn("[redacted]", serialized)
@@ -287,7 +312,11 @@ class ConversationUiStaticTests(unittest.TestCase):
             "conversationAlwaysListening",
             "conversationFullBypass",
             "conversationLocalFallback",
+            "conversationPresenterCoach",
             "conversationVoiceSelect",
+            "conversationMinimize",
+            "runtimeDependencies",
+            "data-conversation-prompt",
         ]:
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
@@ -305,6 +334,9 @@ class ConversationUiStaticTests(unittest.TestCase):
             "Voice Network Unavailable",
             "buildLocalVoiceReadinessMessage",
             "Local Voice Provider Needed",
+            "toggleConversationMinimized",
+            "presenter_coach_mode",
+            "renderRuntimeDependencies",
         ]:
             with self.subTest(marker=marker):
                 self.assertIn(marker, js)

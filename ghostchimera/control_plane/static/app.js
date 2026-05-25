@@ -26,6 +26,7 @@
     listening: false,
     voiceRestartBlocked: false,
     localVoiceRecording: false,
+    conversationMinimized: localStorage.getItem("ghostConversationMinimized") === "1",
   };
 
   function $(sel) { return document.querySelector(sel); }
@@ -191,6 +192,23 @@
     mic.className = "badge " + (cls || "warn");
   }
 
+  function applyConversationMinimized() {
+    var panel = $("#ghostConversationPanel");
+    var btn = $("#conversationMinimize");
+    if (!panel) return;
+    panel.classList.toggle("minimized", !!state.conversationMinimized);
+    if (btn) {
+      btn.textContent = state.conversationMinimized ? "+" : "_";
+      btn.title = state.conversationMinimized ? "Expand Ghost Conversation" : "Minimize Ghost Conversation";
+    }
+  }
+
+  function toggleConversationMinimized() {
+    state.conversationMinimized = !state.conversationMinimized;
+    try { localStorage.setItem("ghostConversationMinimized", state.conversationMinimized ? "1" : "0"); } catch (_) {}
+    applyConversationMinimized();
+  }
+
   function renderConversationStatus(data) {
     state.conversation = data;
     var session = data && data.active_session;
@@ -199,11 +217,13 @@
     var always = $("#conversationAlwaysListening");
     var bypass = $("#conversationFullBypass");
     var localFallback = $("#conversationLocalFallback");
+    var presenterCoach = $("#conversationPresenterCoach");
     var banner = $("#conversationBypassBanner");
     var voiceSelect = $("#conversationVoiceSelect");
     if (always) always.checked = !!settings.always_listening;
     if (bypass) bypass.checked = !!settings.full_bypass;
     if (localFallback) localFallback.checked = settings.local_fallback !== false;
+    if (presenterCoach) presenterCoach.checked = !!settings.presenter_coach_mode;
     if (banner) banner.style.display = settings.full_bypass ? "block" : "none";
     if (voiceSelect) {
       var selected = settings.voice_id || "browser-default";
@@ -409,6 +429,7 @@
       always_listening: !!alwaysListening,
       full_bypass: $("#conversationFullBypass") ? $("#conversationFullBypass").checked : false,
       local_fallback: $("#conversationLocalFallback") ? $("#conversationLocalFallback").checked : true,
+      presenter_coach_mode: $("#conversationPresenterCoach") ? $("#conversationPresenterCoach").checked : false,
       voice_id: $("#conversationVoiceSelect") ? $("#conversationVoiceSelect").value : "browser-default",
     };
     api("/api/console/conversation/settings", { method: "POST", body: body }).catch(function() {});
@@ -444,6 +465,7 @@
       always_listening: $("#conversationAlwaysListening") ? $("#conversationAlwaysListening").checked : false,
       full_bypass: $("#conversationFullBypass") ? $("#conversationFullBypass").checked : false,
       local_fallback: $("#conversationLocalFallback") ? $("#conversationLocalFallback").checked : true,
+      presenter_coach_mode: $("#conversationPresenterCoach") ? $("#conversationPresenterCoach").checked : false,
       voice_id: $("#conversationVoiceSelect") ? $("#conversationVoiceSelect").value : "browser-default",
     };
     Object.keys(extra || {}).forEach(function(k) { body[k] = extra[k]; });
@@ -555,6 +577,28 @@
         warnings.appendChild(item);
       });
     }
+    renderRuntimeDependencies(data.runtime_dependencies);
+  }
+
+  function renderRuntimeDependencies(data) {
+    var panel = $("#runtimeDependencies");
+    if (!panel) return;
+    panel.innerHTML = "";
+    if (!data || !data.ok) {
+      panel.appendChild(el("div", { class: "list-item" }, "Runtime dependency status unavailable."));
+      return;
+    }
+    var summary = el("div", { class: "list-item" });
+    summary.appendChild(el("span", { class: "badge " + (data.ready ? "ok" : "warn") }, data.ready ? "ready" : "review"));
+    summary.appendChild(el("span", { class: "name" }, "Full install profile"));
+    summary.appendChild(el("span", { class: "meta" }, (data.install_profile || "pip install -e .[all,dev]") + " | providers=" + ((data.provider_catalog || {}).count || 0)));
+    panel.appendChild(summary);
+    var missing = (data.missing_modules || []).concat(data.missing_tools || []);
+    var detail = el("div", { class: "list-item" });
+    detail.appendChild(el("span", { class: "badge " + (missing.length ? "warn" : "ok") }, missing.length ? String(missing.length) : "0"));
+    detail.appendChild(el("span", { class: "name" }, "Missing dependency checks"));
+    detail.appendChild(el("span", { class: "meta" }, missing.length ? missing.slice(0, 8).join(", ") : "All tracked modules and tools are visible to this shell."));
+    panel.appendChild(detail);
   }
 
   function renderSuperiorityScorecard(data) {
@@ -2634,6 +2678,14 @@
     stopConversationListening();
   });
   $("#conversationWake").addEventListener("click", function() { sendConversationMessage("Hey Ghost wake up", "text"); });
+  $("#conversationMinimize").addEventListener("click", toggleConversationMinimized);
+  $$$("[data-conversation-prompt]").forEach(function(btn) {
+    btn.addEventListener("click", function() {
+      var prompt = btn.getAttribute("data-conversation-prompt") || "";
+      if ($("#conversationTextInput")) $("#conversationTextInput").value = prompt;
+      sendConversationMessage(prompt, "text");
+    });
+  });
   $("#conversationStopAll").addEventListener("click", async function() {
     try {
       stopConversationListening();
@@ -2648,6 +2700,7 @@
   $("#conversationAlwaysListening").addEventListener("change", function() { updateConversationSettings({ always_listening: $("#conversationAlwaysListening").checked }); });
   $("#conversationFullBypass").addEventListener("change", function() { updateConversationSettings({ full_bypass: $("#conversationFullBypass").checked }); });
   $("#conversationLocalFallback").addEventListener("change", function() { updateConversationSettings({ local_fallback: $("#conversationLocalFallback").checked }); });
+  $("#conversationPresenterCoach").addEventListener("change", function() { updateConversationSettings({ presenter_coach_mode: $("#conversationPresenterCoach").checked }); });
   $("#conversationVoiceSelect").addEventListener("change", function() { updateConversationSettings({ voice_id: $("#conversationVoiceSelect").value }); });
 
   // ── Jobs ─────────────────────────────────────────────────────────────────
@@ -3987,6 +4040,7 @@
   });
 
   // ── Boot ──────────────────────────────────────────────────────────────────
+  applyConversationMinimized();
   renderQuickActions();
   renderHistory();
   initAuth().then(function() {
