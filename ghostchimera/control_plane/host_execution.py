@@ -170,8 +170,7 @@ class HostExecutionStore:
                 cwd=str(workdir),
                 input=input_text or None,
                 text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 timeout=int(settings.get("max_command_seconds") or 120),
                 check=False,
             )

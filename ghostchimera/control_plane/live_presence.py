@@ -608,9 +608,7 @@ class LivePresenceStore:
         def mutate(session: dict[str, Any]) -> None:
             shared = session.setdefault("shared_context", {})
             for key, value in context_update.items():
-                if key == "updated_at":
-                    shared[key] = value
-                elif value:
+                if key == "updated_at" or value:
                     shared[key] = value
             if correction:
                 shared.setdefault("user_corrections", []).append({"text": correction[:1000], "timestamp": _now()})

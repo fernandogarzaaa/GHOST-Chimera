@@ -448,20 +448,22 @@ class ConsoleRouteTests(unittest.TestCase):
         route = server.routes.find("POST", "/api/console/github/device/start")
         self.assertIsNotNone(route)
 
-        with patch.dict("os.environ", {"GHOSTCHIMERA_GITHUB_CLIENT_ID": "", "GITHUB_CLIENT_ID": ""}, clear=False):
-            with patch(
+        with (
+            patch.dict("os.environ", {"GHOSTCHIMERA_GITHUB_CLIENT_ID": "", "GITHUB_CLIENT_ID": ""}, clear=False),
+            patch(
                 "ghostchimera.integrations.github_client.GitHubClient.get_json",
                 return_value={"login": "octocat", "name": "Octo Cat", "html_url": "https://github.com/octocat"},
-            ):
-                started = route.handler(
-                    {
-                        "method": "POST",
-                        "path": "/api/console/github/device/start",
-                        "headers": {},
-                        "body": "{}",
-                        "query": {},
-                    }
-                )
+            ),
+        ):
+            started = route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/github/device/start",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
 
         self.assertTrue(started["ok"])
         self.assertEqual(started["auth_mode"], "gh-cli")
