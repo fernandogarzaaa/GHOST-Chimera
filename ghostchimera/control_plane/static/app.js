@@ -18,6 +18,7 @@
     localModels: null,
     remote: null,
     trust: null,
+    livePresence: null,
     superiority: null,
     conversation: null,
     conversationSessionId: "",
@@ -1481,6 +1482,13 @@
       if (!data.ok) {
         writeGithubOutput(JSON.stringify(data, null, 2));
         toast(data.error || "GitHub sign-in unavailable.", "warn");
+        return;
+      }
+      if (data.auth_mode === "gh-cli") {
+        state.githubDevice = null;
+        writeGithubOutput(JSON.stringify(data, null, 2));
+        await refreshGithubStatus();
+        toast("GitHub connected through GitHub CLI.", "ok");
         return;
       }
       state.githubDevice = data;
@@ -3693,6 +3701,130 @@
   $("#runCapabilityTool").addEventListener("click", runCapabilityTool);
   $("#runSandboxJourney").addEventListener("click", runSandboxJourney);
 
+  function selectedLivePresenceSessionId() {
+    var select = $("#livePresenceSessionSelect");
+    return select ? (select.value || "").trim() : "";
+  }
+
+  function renderLivePresence(data) {
+    state.livePresence = data;
+    var status = (data && data.status) || {};
+    var counts = status.counts || {};
+    var cards = $("#livePresenceCards");
+    if (cards) {
+      cards.innerHTML = "";
+      [
+        ["Sessions", counts.sessions || 0, true],
+        ["Active", counts.active_sessions || 0, true],
+        ["Pending Disclosure", counts.pending_disclosures || 0, !(counts.pending_disclosures > 0)],
+        ["Action Items", counts.action_items || 0, true],
+      ].forEach(function(row) {
+        var item = el("div", { class: "card small" });
+        item.appendChild(el("span", { class: "name" }, row[0]));
+        item.appendChild(el("span", { class: "badge " + (row[2] ? "ok" : "warn") }, String(row[1])));
+        cards.appendChild(item);
+      });
+    }
+    var sessions = (data && data.sessions) || [];
+    var select = $("#livePresenceSessionSelect");
+    if (select) {
+      var previous = select.value;
+      select.innerHTML = "";
+      sessions.forEach(function(session) {
+        var opt = el("option", { value: session.session_id });
+        opt.textContent = (session.title || session.session_id) + " - " + (session.mode || "draft");
+        select.appendChild(opt);
+      });
+      if (previous) select.value = previous;
+    }
+    var list = $("#livePresenceSessions");
+    if (list) {
+      list.innerHTML = "";
+      if (!sessions.length) {
+        list.appendChild(el("div", { class: "empty" }, "No Live Presence sessions yet."));
+      } else {
+        sessions.forEach(function(session) {
+          var item = el("div", { class: "list-item" });
+          item.appendChild(el("span", { class: "name" }, session.title || session.session_id));
+          item.appendChild(el("span", { class: "badge " + (session.mode === "active" ? "ok" : "warn") }, session.mode || "draft"));
+          item.appendChild(el("span", { class: "meta" }, (session.session_type || "meeting") + " | disclosure: " + (session.disclosure_status || "unknown")));
+          item.addEventListener("click", function() {
+            if ($("#livePresenceSessionSelect")) $("#livePresenceSessionSelect").value = session.session_id;
+          });
+          list.appendChild(item);
+        });
+      }
+    }
+  }
+
+  async function refreshLivePresence() {
+    try {
+      var status = await api("/api/console/live-presence/status");
+      var sessions = await api("/api/console/live-presence/sessions");
+      renderLivePresence({ status: status, sessions: sessions.sessions || [] });
+    } catch (e) {
+      empty("#livePresenceSessions", "Live Presence unavailable: " + e.message);
+    }
+  }
+
+  async function createLivePresenceSession() {
+    var title = ($("#livePresenceTitle").value || "Live Presence Session").trim();
+    var participant = ($("#livePresenceParticipant").value || "").trim();
+    var participants = participant ? [{ name: participant, role: "participant", external: $("#livePresenceExternal").checked }] : [];
+    try {
+      var data = await api("/api/console/live-presence/sessions", {
+        method: "POST",
+        body: {
+          title: title,
+          session_type: $("#livePresenceType").value || "meeting",
+          participants: participants,
+        },
+      });
+      $("#livePresenceOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshLivePresence();
+      await refreshTimeline();
+      toast("Live Presence session created.", "ok");
+    } catch (e) {
+      $("#livePresenceOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function livePresenceAction(action) {
+    var sessionId = selectedLivePresenceSessionId();
+    if (!sessionId) { toast("Select a Live Presence session first.", "warn"); return; }
+    var body = {};
+    if (action === "transcript") {
+      body = {
+        speaker: ($("#livePresenceSpeaker").value || "Speaker").trim(),
+        content: ($("#livePresenceTranscriptText").value || "").trim(),
+      };
+      if (!body.content) { toast("Enter a transcript turn first.", "warn"); return; }
+    }
+    var pathAction = action === "approve-disclosure" ? "disclosure/approve" : action;
+    try {
+      var data = await api("/api/console/live-presence/sessions/" + encodeURIComponent(sessionId) + "/" + pathAction, {
+        method: "POST",
+        body: body,
+      });
+      $("#livePresenceOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshLivePresence();
+      await refreshTrust();
+      await refreshTimeline();
+      toast(data.ok ? "Live Presence updated." : (data.reply || data.error || "Live Presence action needs review."), data.ok ? "ok" : "warn");
+    } catch (e) {
+      $("#livePresenceOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  if ($("#livePresenceCreate")) $("#livePresenceCreate").addEventListener("click", createLivePresenceSession);
+  if ($("#livePresenceRefresh")) $("#livePresenceRefresh").addEventListener("click", refreshLivePresence);
+  if ($("#livePresenceApproveDisclosure")) $("#livePresenceApproveDisclosure").addEventListener("click", function() { livePresenceAction("approve-disclosure"); });
+  if ($("#livePresenceStart")) $("#livePresenceStart").addEventListener("click", function() { livePresenceAction("start"); });
+  if ($("#livePresenceReport")) $("#livePresenceReport").addEventListener("click", function() { livePresenceAction("report"); });
+  if ($("#livePresenceAddTranscript")) $("#livePresenceAddTranscript").addEventListener("click", function() { livePresenceAction("transcript"); });
+
   async function refreshReadiness() {
     var data = await api("/api/console/readiness");
     var list = $("#readinessList");
@@ -3725,6 +3857,7 @@
       ["trust", "trust"], ["approval", "trust"], ["rag", "rag-builder"],
       ["minimind", "minimind"], ["mcp", "mcp"], ["skill", "skills"],
       ["evolution", "evolution"], ["remote", "remote"], ["sandbox", "sandbox"],
+      ["meeting", "live-presence"], ["interview", "live-presence"], ["presence", "live-presence"],
       ["run", "run"], ["latency", "latency"], ["local", "local-models"]
     ];
     var hit = targets.find(function(item) { return q.indexOf(item[0]) !== -1; });
@@ -3769,6 +3902,7 @@
     refreshCapabilityPack();
     refreshCognitionTrace();
     refreshTrust();
+    refreshLivePresence();
     refreshConversationStatus();
   });
   setInterval(refreshStatus, 30000);

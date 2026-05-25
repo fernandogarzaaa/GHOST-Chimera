@@ -84,6 +84,7 @@ from .evolution import (
 )
 from .host_execution import CONFIRMATION_PHRASE, HostExecutionStore
 from .latency import latency_summary, record_latency_event
+from .live_presence import LivePresenceStore
 from .local_voice import LocalVoiceTranscriber
 
 RunObjective = Callable[[str], dict[str, Any]]
@@ -702,6 +703,7 @@ def register_console_routes(
     trust_store = TrustRuntimeStore(console_state_dir)
     admission_store = CapabilityAdmissionStore(console_state_dir)
     conversation_store = ConversationStore(console_state_dir)
+    live_presence_store = LivePresenceStore(console_state_dir, trust_store=trust_store)
     host_execution_store = HostExecutionStore(console_state_dir)
     local_voice = LocalVoiceTranscriber(console_state_dir / "local_voice")
     conversation_controller = ConversationalLoopController(
@@ -1812,6 +1814,84 @@ def register_console_routes(
             provider=str(body.get("provider") or "auto"),
         )
 
+    def live_presence_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        return live_presence_store.status()
+
+    def live_presence_sessions(ctx: dict[str, Any]) -> dict[str, Any]:
+        if ctx.get("method") == "GET":
+            return live_presence_store.list_sessions()
+        body = _json_body(ctx)
+        payload = live_presence_store.create_session(
+            session_id=str(body.get("session_id") or ""),
+            title=str(body.get("title") or "Live Presence Session"),
+            session_type=str(body.get("session_type") or "meeting"),
+            participants=body.get("participants") if isinstance(body.get("participants"), list) else [],
+            disclosure_text=str(body.get("disclosure_text") or ""),
+            recording_enabled=_as_bool(body.get("recording_enabled"), default=False),
+        )
+        record_timeline_event(
+            console_state_dir,
+            "live_presence_session_created",
+            {
+                "session_id": payload.get("session_id"),
+                "session_type": payload.get("session", {}).get("session_type"),
+                "disclosure_status": payload.get("session", {}).get("disclosure_status"),
+            },
+        )
+        return payload
+
+    def live_presence_session_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/live-presence/sessions/")
+        parts = [part for part in suffix.split("/") if part]
+        if not parts:
+            return {"ok": False, "error": "session_id is required"}
+        session_id = parts[0]
+        if len(parts) == 1 and ctx.get("method") == "GET":
+            try:
+                return {"ok": True, "session": live_presence_store.get_session(session_id)}
+            except KeyError:
+                return {"ok": False, "error": "Live Presence session not found"}
+        body = _json_body(ctx)
+        action_path = "/".join(parts[1:])
+        try:
+            if action_path == "start":
+                payload = live_presence_store.start_session(session_id)
+                record_timeline_event(
+                    console_state_dir,
+                    "live_presence_started" if payload.get("ok") else "live_presence_start_blocked",
+                    {
+                        "session_id": session_id,
+                        "required_action": payload.get("required_action", ""),
+                        "ok": bool(payload.get("ok")),
+                    },
+                )
+                return payload
+            if action_path == "disclosure/approve":
+                payload = live_presence_store.approve_disclosure(session_id, approved_by=str(body.get("approved_by") or "admin"))
+                record_timeline_event(console_state_dir, "live_presence_disclosure_approved", {"session_id": session_id})
+                return payload
+            if action_path == "transcript":
+                return live_presence_store.record_transcript(
+                    session_id,
+                    speaker=str(body.get("speaker") or "Speaker"),
+                    content=str(body.get("content") or body.get("text") or ""),
+                    source=str(body.get("source") or "manual"),
+                )
+            if action_path == "report":
+                payload = live_presence_store.generate_report(session_id)
+                record_timeline_event(
+                    console_state_dir,
+                    "live_presence_report_generated",
+                    {
+                        "session_id": session_id,
+                        "action_items": len(payload.get("report", {}).get("action_items", []) or []),
+                    },
+                )
+                return payload
+        except KeyError:
+            return {"ok": False, "error": "Live Presence session not found"}
+        return {"ok": False, "error": f"Unsupported Live Presence action: {action_path}"}
+
     def host_execution_settings(ctx: dict[str, Any]) -> dict[str, Any]:
         if ctx.get("method") == "GET":
             payload = {"ok": True, "settings": host_execution_store.settings(), "confirmation_phrase": CONFIRMATION_PHRASE}
@@ -2578,22 +2658,36 @@ def register_console_routes(
         }
 
     def github_status(ctx: dict[str, Any]) -> dict[str, Any]:
-        from ..integrations.github_client import GitHubAuth, github_oauth_client_id
+        from ..integrations.github_client import GitHubAuth, GitHubClient, github_oauth_client_id
 
         auth = GitHubAuth.discover()
         stored = _read_github_console_auth()
         has_stored_token = bool(stored.get("token"))
         user = stored.get("user") if isinstance(stored.get("user"), dict) else {}
+        gh_cli_ready = False
+        if not user and auth.mode == "gh-cli":
+            try:
+                gh_user = GitHubClient(auth=auth).get_json("user")
+                if isinstance(gh_user, dict):
+                    user = {
+                        "login": gh_user.get("login", ""),
+                        "name": gh_user.get("name", ""),
+                        "html_url": gh_user.get("html_url", ""),
+                    }
+                    gh_cli_ready = bool(user.get("login"))
+            except Exception:
+                gh_cli_ready = False
         return {
             "ok": True,
             "auth_mode": "console-device-token" if has_stored_token else auth.mode,
-            "has_token": has_stored_token or bool(auth.token),
+            "has_token": has_stored_token or bool(auth.token) or gh_cli_ready,
             "token_source": "console_state" if has_stored_token else ("environment" if auth.token else "gh-cli"),
             "user": {
                 "login": user.get("login", ""),
                 "name": user.get("name", ""),
                 "html_url": user.get("html_url", ""),
             },
+            "gh_cli_ready": gh_cli_ready,
             "device_flow_configured": bool(github_oauth_client_id()),
             "device_flow_required_env": "GHOSTCHIMERA_GITHUB_CLIENT_ID",
             "self_evolution_policy": {
@@ -2612,14 +2706,34 @@ def register_console_routes(
         }
 
     def github_device_start(ctx: dict[str, Any]) -> dict[str, Any]:
-        from ..integrations.github_client import github_oauth_client_id, start_device_flow
+        from ..integrations.github_client import GitHubAuth, GitHubClient, github_oauth_client_id, start_device_flow
 
         client_id = github_oauth_client_id()
         if not client_id:
+            try:
+                auth = GitHubAuth.discover()
+                if auth.mode == "gh-cli":
+                    user = GitHubClient(auth=auth).get_json("user")
+                    if isinstance(user, dict) and user.get("login"):
+                        return {
+                            "ok": True,
+                            "auth_mode": "gh-cli",
+                            "has_token": True,
+                            "token_source": "gh-cli",
+                            "user": {
+                                "login": user.get("login", ""),
+                                "name": user.get("name", ""),
+                                "html_url": user.get("html_url", ""),
+                            },
+                            "message": "GitHub is already connected through the local GitHub CLI account. Device sign-in is not required.",
+                            "setup": "Optional: configure GHOSTCHIMERA_GITHUB_CLIENT_ID only if you want Ghost Console's own device-flow OAuth app.",
+                        }
+            except Exception:
+                pass
             return {
                 "ok": False,
                 "error": "GitHub device sign-in is disabled until GHOSTCHIMERA_GITHUB_CLIENT_ID is configured.",
-                "setup": "Create a GitHub OAuth app with device flow enabled, then set GHOSTCHIMERA_GITHUB_CLIENT_ID.",
+                "setup": "Create a GitHub OAuth app with device flow enabled, set GHOSTCHIMERA_GITHUB_CLIENT_ID, or sign in with GitHub CLI by running: gh auth login",
             }
         body = _json_body(ctx)
         scope = str(body.get("scope") or "read:user repo").strip() or "read:user repo"
@@ -4144,6 +4258,38 @@ def register_console_routes(
         conversation_local_voice_transcribe,
         method="POST",
         description="Transcribe a short local voice audio clip without storing raw audio",
+    )
+    _api_register(
+        "/api/console/live-presence/status",
+        live_presence_status,
+        method="GET",
+        description="Inspect meeting/interview live-presence readiness",
+    )
+    _api_register(
+        "/api/console/live-presence/sessions",
+        live_presence_sessions,
+        method="GET",
+        description="List Live Presence sessions",
+    )
+    _api_register(
+        "/api/console/live-presence/sessions",
+        live_presence_sessions,
+        method="POST",
+        description="Create a disclosure-gated meeting or interview session",
+    )
+    _api_register(
+        "/api/console/live-presence/sessions/",
+        live_presence_session_action,
+        method="GET",
+        prefix=True,
+        description="Inspect a Live Presence session",
+    )
+    _api_register(
+        "/api/console/live-presence/sessions/",
+        live_presence_session_action,
+        method="POST",
+        prefix=True,
+        description="Start, disclose, transcribe, or report a Live Presence session",
     )
     _api_register(
         "/api/console/host-execution/settings",

@@ -39,6 +39,7 @@
     <button class="tab" data-tab="github">GitHub</button>
     <button class="tab" data-tab="remote">Remote Control</button>
     <button class="tab" data-tab="trust">Trust Runtime</button>
+    <button class="tab" data-tab="live-presence">Live Presence</button>
     <button class="tab" data-tab="thinking">Thinking</button>
     <button class="tab" data-tab="run">▶ Run</button>
     <button class="tab" data-tab="jobs">Jobs</button>
@@ -168,6 +169,64 @@
   </div>
 
   <!-- ── STATUS ────────────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-live-presence">
+    <div class="section-hdr" style="margin-top:0;">Live Presence Runtime</div>
+    <div class="grid compact-grid" id="livePresenceCards"></div>
+    <div class="live-presence-layout">
+      <div class="card">
+        <h3>Create Session</h3>
+        <div class="form-group">
+          <label>Title</label>
+          <input id="livePresenceTitle" placeholder="Customer call, hiring interview, daily standup">
+        </div>
+        <div class="form-group">
+          <label>Type</label>
+          <select id="livePresenceType">
+            <option value="meeting">Meeting</option>
+            <option value="interview">Interview</option>
+            <option value="companion">User + Ghost</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Participant</label>
+          <input id="livePresenceParticipant" placeholder="name or role">
+        </div>
+        <label class="inline-check"><input id="livePresenceExternal" type="checkbox" checked> External participant</label>
+        <div class="row">
+          <button id="livePresenceCreate" class="primary">Create</button>
+          <button id="livePresenceRefresh">Refresh</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Session Controls</h3>
+        <div class="form-group">
+          <label>Session</label>
+          <select id="livePresenceSessionSelect"></select>
+        </div>
+        <div class="row">
+          <button id="livePresenceApproveDisclosure">Approve Disclosure</button>
+          <button id="livePresenceStart" class="primary">Start Live</button>
+          <button id="livePresenceReport">Generate Report</button>
+        </div>
+        <div class="form-group">
+          <label>Speaker</label>
+          <input id="livePresenceSpeaker" placeholder="Ghost, User, Candidate, Customer">
+        </div>
+        <div class="form-group">
+          <label>Transcript Turn</label>
+          <textarea id="livePresenceTranscriptText" rows="3" placeholder="Action item: send follow-up notes after the call."></textarea>
+        </div>
+        <div class="row">
+          <button id="livePresenceAddTranscript">Add Transcript</button>
+        </div>
+      </div>
+    </div>
+    <div class="section-hdr">Sessions</div>
+    <div id="livePresenceSessions" class="list"></div>
+    <div class="section-hdr">Report</div>
+    <pre class="output compact-output" id="livePresenceOutput">Create a session to let Ghost join meetings or interviews with disclosure, consent, and Trust Runtime journaling.</pre>
+  </div>
+
   <div class="tab-content" id="tab-config">
     <div class="section-hdr" style="margin-top:0;">Model Provider</div>
     <div class="grid" id="configSummary"></div>

@@ -20,6 +20,7 @@ from ..agent_core.core import AgentCore
 from ..config import GhostChimeraConfig
 from ..logging_config import ensure_configured, get_logger
 from .config import get_autonomy_config, load_config, save_config
+from .live_presence import LivePresenceStore
 
 logger = get_logger("cli")
 
@@ -177,6 +178,16 @@ def _main(argv: list[str] | None = None) -> int:
     conversation_parser.add_argument("--voice", action="store_true", help="Treat send input as a voice turn.")
     conversation_parser.add_argument("--full-bypass", action="store_true", help="Arm Full Bypass before sending.")
     conversation_parser.add_argument("--no-listen", action="store_true", help="Start without always-listening mode.")
+    live_presence_parser = sub.add_parser("live-presence", help="Manage live meetings, interviews, and delegated presence")
+    live_presence_parser.add_argument("action", choices=["status", "create", "start", "approve-disclosure", "transcript", "report"], nargs="?", default="status")
+    live_presence_parser.add_argument("--state-dir", default="", help="Optional Live Presence state directory.")
+    live_presence_parser.add_argument("--session-id", default="", help="Live Presence session id.")
+    live_presence_parser.add_argument("--title", default="Live Presence Session", help="Session title for create.")
+    live_presence_parser.add_argument("--type", choices=["companion", "meeting", "interview"], default="meeting", help="Session type.")
+    live_presence_parser.add_argument("--participant", action="append", default=[], help="Participant name. Repeatable.")
+    live_presence_parser.add_argument("--external", action="store_true", help="Mark participants as external.")
+    live_presence_parser.add_argument("--speaker", default="Speaker", help="Transcript speaker.")
+    live_presence_parser.add_argument("--text", default="", help="Transcript content.")
     saas_parser = sub.add_parser("saas", help="Inspect Enterprise SaaS launch-mode readiness")
     saas_parser.add_argument("saas_action", choices=["status", "init-db", "create-admin"], nargs="?", default="status")
     saas_parser.add_argument("--print-sql", action="store_true", help="Print the initial Postgres schema for init-db.")
@@ -550,6 +561,9 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "conversation":
         return _run_conversation_cli(args)
+
+    if args.command == "live-presence":
+        return _run_live_presence_cli(args)
 
     if args.command == "saas":
         from ..saas.cli import run_saas_cli
@@ -988,6 +1002,43 @@ def _run_conversation_cli(args: argparse.Namespace) -> int:
         return 0 if payload.get("ok") else 1
 
     return 2
+
+
+def _run_live_presence_cli(args: argparse.Namespace) -> int:
+    state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
+    store = LivePresenceStore(state_dir)
+    action = args.action or "status"
+    try:
+        if action == "status":
+            payload = store.status()
+        elif action == "create":
+            participants = [
+                {"name": name, "role": "participant", "external": bool(args.external)}
+                for name in (args.participant or [])
+            ]
+            payload = store.create_session(
+                session_id=args.session_id,
+                title=args.title,
+                session_type=args.type,
+                participants=participants,
+            )
+        else:
+            if not args.session_id:
+                payload = {"ok": False, "error": "--session-id is required"}
+            elif action == "start":
+                payload = store.start_session(args.session_id)
+            elif action == "approve-disclosure":
+                payload = store.approve_disclosure(args.session_id, approved_by="cli")
+            elif action == "transcript":
+                payload = store.record_transcript(args.session_id, speaker=args.speaker, content=args.text)
+            elif action == "report":
+                payload = store.generate_report(args.session_id)
+            else:
+                payload = {"ok": False, "error": f"Unsupported action: {action}"}
+    except KeyError:
+        payload = {"ok": False, "error": "Live Presence session not found"}
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if payload.get("ok") else 1
 
 
 def _run_trust_cli(args: argparse.Namespace) -> int:

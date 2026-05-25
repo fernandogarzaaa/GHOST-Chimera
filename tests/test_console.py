@@ -386,15 +386,19 @@ class ConsoleRouteTests(unittest.TestCase):
             status = status_route.handler(
                 {"method": "GET", "path": "/api/console/github/status", "headers": {}, "body": "", "query": {}}
             )
-            start = device_start_route.handler(
-                {
-                    "method": "POST",
-                    "path": "/api/console/github/device/start",
-                    "headers": {},
-                    "body": "{}",
-                    "query": {},
-                }
-            )
+            with patch(
+                "ghostchimera.integrations.github_client.GitHubClient.get_json",
+                side_effect=RuntimeError("gh auth unavailable"),
+            ):
+                start = device_start_route.handler(
+                    {
+                        "method": "POST",
+                        "path": "/api/console/github/device/start",
+                        "headers": {},
+                        "body": "{}",
+                        "query": {},
+                    }
+                )
         self.assertTrue(status["ok"])
         self.assertIn(status["auth_mode"], {"token", "gh-cli"})
         self.assertIn("self_evolution_policy", status)
@@ -437,6 +441,33 @@ class ConsoleRouteTests(unittest.TestCase):
             }
         )
         self.assertFalse(policy["allowed"])
+
+    def test_github_device_start_uses_gh_cli_when_client_id_is_missing(self) -> None:
+        server = GatewayServer()
+        register_console_routes(server)
+        route = server.routes.find("POST", "/api/console/github/device/start")
+        self.assertIsNotNone(route)
+
+        with patch.dict("os.environ", {"GHOSTCHIMERA_GITHUB_CLIENT_ID": "", "GITHUB_CLIENT_ID": ""}, clear=False):
+            with patch(
+                "ghostchimera.integrations.github_client.GitHubClient.get_json",
+                return_value={"login": "octocat", "name": "Octo Cat", "html_url": "https://github.com/octocat"},
+            ):
+                started = route.handler(
+                    {
+                        "method": "POST",
+                        "path": "/api/console/github/device/start",
+                        "headers": {},
+                        "body": "{}",
+                        "query": {},
+                    }
+                )
+
+        self.assertTrue(started["ok"])
+        self.assertEqual(started["auth_mode"], "gh-cli")
+        self.assertTrue(started["has_token"])
+        self.assertEqual(started["user"]["login"], "octocat")
+        self.assertIn("GitHub CLI", started["message"])
 
     def test_console_config_route_persists_provider_without_echoing_secret(self) -> None:
         server = GatewayServer()

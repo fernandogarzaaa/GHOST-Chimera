@@ -10,7 +10,7 @@ Ghost Chimera is a **local-first agent orchestration runtime** built around **Ch
 Key capabilities:
 - **27 model providers** (OpenAI, Anthropic, Gemini, Groq, Mistral, Ollama, and 21 more) â€” swap or chain them without rewriting code.
 - **10 Chimera Pilot backends** â€” deterministic, Python, memory retrieval, Gemini reasoning, local GGUF, analytics, simulation, desktop control, MCP, and quantum simulator.
-- **Browser console (Ghost Console)** - full no-code operator dashboard with guided setup, provider/model configuration, RAG Builder, Self-Evolution, Trust Runtime, remote control, conversational loop, local models, and production readiness. No terminal needed for day-to-day use.
+- **Browser console (Ghost Console)** - full no-code operator dashboard with guided setup, provider/model configuration, RAG Builder, Self-Evolution, Trust Runtime, Live Presence meetings/interviews, remote control, conversational loop, local models, and production readiness. No terminal needed for day-to-day use.
 - **Opt-in host self-editing** - explicit, audited unrestricted host mode lets trusted admins allow Ghost to run host commands and apply source patches with revert artifacts. It is off by default and requires a visible confirmation phrase.
 - **Conservative safety defaults** â€” Python, shell, network, and desktop execution are all off by default. Production mode adds deployment-level guardrails.
 - **Personal MiniMind** â€” consent-gated local memory bootstrap with system specs, approved files/email exports, optional whole-machine/email-artifact crawling, MiniMind JSONL dataset generation, and primary-model RAG handoff.
@@ -254,6 +254,7 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 |---|---|
 | **Home** | Operator readiness cards, active Ghost Path, active model/provider, config health, MiniMind/RAG, MCP, skills, Self-Evolution, Trust Runtime, production warnings, and Guided Setup entry points. |
 | **Ghost Conversation** | Always-available text/voice conversation panel with transcript, operational trace, hands-free mode, approval prompts, Stop All, and explicit True Autonomy / Full Bypass controls. |
+| **Live Presence** | Disclosure-gated meeting and interview sessions, external participant consent status, transcript turns, action item extraction, post-session reports, and Trust Runtime journaling. |
 | **Setup Ghost** | No-code setup wizard: choose path, configure provider/model, confirm MiniMind permissions, select learning sources, generate RAG plan, review MCP/tools, review skills, and run readiness checks. |
 | **Run** | Quick Actions, custom objective box with **Ctrl+Enter / Cmd+Enter**, run output, durable run history, and sandbox-safe execution previews. |
 | **Jobs** | Profile-aware autonomy jobs (`self-audit`, `dependency-scan`, `test-regression`, `memory-refresh`, `model-health-check`, `repair-preview`) with durable history. |
@@ -785,6 +786,14 @@ ghostchimera minimind personal-bootstrap --include-system-specs
 ghostchimera minimind personal-train-neural --epochs 12 --learning-rate 0.25
 ghostchimera minimind personal-infer --objective "What did my Ghost learn about release readiness?"
 ghostchimera minimind personal-handoff --objective "Review my personal context and identify pending work."
+
+# Live Presence
+ghostchimera live-presence status
+ghostchimera live-presence create --session-id interview-1 --type interview --title "Hiring interview" --participant "Candidate" --external
+ghostchimera live-presence approve-disclosure --session-id interview-1
+ghostchimera live-presence start --session-id interview-1
+ghostchimera live-presence transcript --session-id interview-1 --speaker Ghost --text "Action item: send follow-up notes tomorrow."
+ghostchimera live-presence report --session-id interview-1
 ```
 
 Training data accumulates (append-only) at `~/.ghostchimera/minimind/datasets/dataset.jsonl`. The `personal-train-neural` command trains a local neural Personal MiniMind adapter at `~/.ghostchimera/minimind/adapters/neural_adapter.json` using gradient descent over approved prompt/response records. The adapter stores learned numeric weights, a weight checksum, training metadata, and local inference records. `MINIMIND_ROOT` is optional for users who keep an upstream MiniMind workspace nearby.
