@@ -52,6 +52,7 @@ class LocalVoiceStatus:
     recommended_provider: str = ""
     raw_audio_stored: bool = False
     guidance: list[str] = field(default_factory=list)
+    browser_network_fallback: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -61,6 +62,7 @@ class LocalVoiceStatus:
             "recommended_provider": self.recommended_provider,
             "raw_audio_stored": self.raw_audio_stored,
             "guidance": list(self.guidance),
+            "browser_network_fallback": dict(self.browser_network_fallback),
         }
 
 
@@ -150,6 +152,7 @@ class LocalVoiceTranscriber:
             ),
         ]
         ready = [provider for provider in providers if provider.ready]
+        installed = [provider for provider in providers if provider.installed]
         return LocalVoiceStatus(
             ok=True,
             ready=bool(ready),
@@ -160,6 +163,23 @@ class LocalVoiceTranscriber:
                 "If it fails, Ghost can record a short local audio clip and run an installed local STT provider.",
                 "Raw audio is kept in a temporary file only for transcription and is deleted immediately after use.",
             ],
+            browser_network_fallback={
+                "enabled": True,
+                "reason": "Use local speech-to-text when browser Web Speech reports a network error.",
+                "endpoint": "/api/console/conversation/local-voice/status",
+                "ready_provider_count": len(ready),
+                "installed_provider_count": len(installed),
+                "recommended_provider": ready[0].id if ready else "",
+                "browser_audio_conversion": _module_installed("av"),
+                "install_command": 'python -m pip install -e ".[voice]"',
+                "configuration": [
+                    "PocketSphinx works offline when SpeechRecognition and pocketsphinx are installed.",
+                    "Browser-recorded WebM/Ogg/MP4 audio is converted locally with PyAV when available.",
+                    "Set GHOSTCHIMERA_VOSK_MODEL_PATH for a local Vosk model folder.",
+                    "Set GHOSTCHIMERA_LOCAL_STT_MODEL for a local faster-whisper model path.",
+                    "Set GHOSTCHIMERA_LOCAL_STT_COMMAND with {audio} for a custom local transcriber.",
+                ],
+            },
         ).to_dict()
 
     def transcribe_base64(
@@ -284,31 +304,80 @@ class LocalVoiceTranscriber:
             raise RuntimeError("GHOSTCHIMERA_VOSK_MODEL_PATH must point to a local Vosk model")
         import vosk  # type: ignore
 
-        with wave.open(str(audio_path), "rb") as wav:
-            if wav.getnchannels() != 1 or wav.getsampwidth() != 2:
-                raise RuntimeError("Vosk fallback requires mono 16-bit PCM WAV audio")
-            recognizer = vosk.KaldiRecognizer(vosk.Model(str(model_path)), wav.getframerate())
-            chunks: list[str] = []
-            while True:
-                data = wav.readframes(4000)
-                if not data:
-                    break
-                if recognizer.AcceptWaveform(data):
-                    result = json.loads(recognizer.Result())
-                    if result.get("text"):
-                        chunks.append(str(result["text"]))
-            final = json.loads(recognizer.FinalResult())
-            if final.get("text"):
-                chunks.append(str(final["text"]))
-        return " ".join(chunks)
+        wav_path, cleanup_path = self._ensure_wav(audio_path)
+        try:
+            with wave.open(str(wav_path), "rb") as wav:
+                if wav.getnchannels() != 1 or wav.getsampwidth() != 2:
+                    raise RuntimeError("Vosk fallback requires mono 16-bit PCM WAV audio")
+                recognizer = vosk.KaldiRecognizer(vosk.Model(str(model_path)), wav.getframerate())
+                chunks: list[str] = []
+                while True:
+                    data = wav.readframes(4000)
+                    if not data:
+                        break
+                    if recognizer.AcceptWaveform(data):
+                        result = json.loads(recognizer.Result())
+                        if result.get("text"):
+                            chunks.append(str(result["text"]))
+                final = json.loads(recognizer.FinalResult())
+                if final.get("text"):
+                    chunks.append(str(final["text"]))
+            return " ".join(chunks)
+        finally:
+            if cleanup_path is not None:
+                cleanup_path.unlink(missing_ok=True)
 
     def _transcribe_sphinx(self, audio_path: Path) -> str:
         import speech_recognition as sr  # type: ignore
 
         recognizer = sr.Recognizer()
-        with sr.AudioFile(str(audio_path)) as source:
-            audio = recognizer.record(source)
-        return str(recognizer.recognize_sphinx(audio))
+        wav_path, cleanup_path = self._ensure_wav(audio_path)
+        try:
+            with sr.AudioFile(str(wav_path)) as source:
+                audio = recognizer.record(source)
+            return str(recognizer.recognize_sphinx(audio))
+        finally:
+            if cleanup_path is not None:
+                cleanup_path.unlink(missing_ok=True)
+
+    def _ensure_wav(self, audio_path: Path) -> tuple[Path, Path | None]:
+        try:
+            with wave.open(str(audio_path), "rb"):
+                return audio_path, None
+        except wave.Error:
+            pass
+        if not _module_installed("av"):
+            raise RuntimeError("Browser-recorded audio requires PyAV for local conversion before offline STT")
+
+        import av  # type: ignore
+        from av.audio.resampler import AudioResampler  # type: ignore
+
+        wav_path = audio_path.with_suffix(".converted.wav")
+        frames_written = 0
+        with av.open(str(audio_path)) as container:
+            stream = next((candidate for candidate in container.streams if candidate.type == "audio"), None)
+            if stream is None:
+                raise RuntimeError("No audio stream found in browser recording")
+            resampler = AudioResampler(format="s16", layout="mono", rate=16000)
+            with wave.open(str(wav_path), "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(16000)
+                for frame in container.decode(stream):
+                    for output_frame in resampler.resample(frame):
+                        for plane in output_frame.planes:
+                            data = bytes(plane)
+                            wav.writeframes(data)
+                            frames_written += len(data)
+                for output_frame in resampler.resample(None):
+                    for plane in output_frame.planes:
+                        data = bytes(plane)
+                        wav.writeframes(data)
+                        frames_written += len(data)
+        if frames_written <= 0:
+            wav_path.unlink(missing_ok=True)
+            raise RuntimeError("Browser recording did not contain decodable audio frames")
+        return wav_path, wav_path
 
 
 __all__ = ["LocalVoiceTranscriber"]

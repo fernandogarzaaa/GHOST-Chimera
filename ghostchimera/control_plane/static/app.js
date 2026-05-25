@@ -289,6 +289,20 @@
     return settings.local_fallback !== false && (!checkbox || checkbox.checked !== false);
   }
 
+  function buildLocalVoiceReadinessMessage(status, reason) {
+    var prefix = "Browser speech recognition failed" + (reason ? " (" + reason + ")" : "") + ". ";
+    if (!status || status.ready === false) {
+      var providers = ((status && status.providers) || []).map(function(provider) {
+        var stateText = provider.ready ? "ready" : provider.installed ? "installed, needs setup" : "not installed";
+        return provider.label + ": " + stateText + (provider.reason ? " - " + provider.reason : "");
+      }).join(" | ");
+      return prefix + "Local Voice Provider Needed. Install the voice extra or configure a local provider, then try Start Listening again." + (providers ? " " + providers : "");
+    }
+    var fallback = status.browser_network_fallback || {};
+    var recommended = fallback.recommended_provider || status.recommended_provider || "auto";
+    return prefix + "Switching to local voice fallback now using " + recommended + ".";
+  }
+
   function mediaRecorderMimeType() {
     var candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
     if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return "";
@@ -326,7 +340,15 @@
     try {
       var localStatus = await api("/api/console/conversation/local-voice/status");
       if (localStatus && localStatus.ready === false) {
-        toast("Local voice fallback is enabled, but no local STT provider is ready yet.", "warn", 7000);
+        var readinessMessage = buildLocalVoiceReadinessMessage(localStatus, reason);
+        setConversationMicState("Local Voice Provider Needed", "error");
+        if ($("#conversationReply")) $("#conversationReply").textContent = readinessMessage;
+        toast("Local voice fallback is enabled, but no local STT provider is ready yet.", "warn", 9000);
+        if ($("#conversationTextInput")) $("#conversationTextInput").focus();
+        return;
+      }
+      if ($("#conversationReply")) {
+        $("#conversationReply").textContent = buildLocalVoiceReadinessMessage(localStatus, reason);
       }
       var sessionId = await ensureConversationSession();
       var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1674,7 +1696,8 @@
         item.appendChild(el("span", { class: "name" }, channel.adapter_status || "metadata_only"));
         var fields = (channel.secret_fields_configured || []).join(", ") || "no credentials";
         var signed = (channel.secret_fields_configured || []).indexOf("signing_secret") >= 0 ? " / signed webhooks required" : " / unsigned webhooks allowed";
-        item.appendChild(el("span", { class: "meta" }, fields + " / outbound " + (channel.send_enabled ? "enabled" : "disabled") + signed));
+        var target = channel.default_reply_target ? " / default target set" : " / no default target";
+        item.appendChild(el("span", { class: "meta" }, fields + " / outbound " + (channel.send_enabled ? "enabled" : "disabled") + signed + target));
         channels.appendChild(item);
       });
     }
@@ -1807,6 +1830,7 @@
         api_token: $("#remoteConfigToken").value,
         webhook_url: $("#remoteConfigWebhook").value,
         phone_number_id: $("#remoteConfigPhone").value,
+        default_reply_target: $("#remoteConfigDefaultTarget").value,
         signing_secret: $("#remoteConfigSigning").value,
       };
       var data = await api("/api/console/remote/channels/" + encodeURIComponent(channel), {
@@ -2353,6 +2377,7 @@
       $("#autonomyDesc").textContent = data.autonomy.resolved_profile.description || "";
       $("#trueAutonomyDesktop").checked = !!(data.autonomy.config && data.autonomy.config.true_autonomy_desktop);
       $("#personalContext").checked = !!(data.autonomy.config && data.autonomy.config.personal_context);
+      await refreshHostExecution();
 
       // Job profile selector
       var jSel = $("#jobProfile");
@@ -2447,6 +2472,45 @@
   });
 
   // ── Run ──────────────────────────────────────────────────────────────────
+  async function refreshHostExecution() {
+    var output = $("#hostExecutionOutput");
+    if (!output) return;
+    try {
+      var data = await api("/api/console/host-execution/settings");
+      var settings = data.settings || {};
+      $("#hostUnrestrictedMode").checked = !!settings.unrestricted_host_mode;
+      $("#hostAllowedRoot").value = settings.allowed_root || "";
+      $("#hostAuditDir").value = settings.audit_dir || "";
+      output.textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+      output.textContent = e.message;
+    }
+  }
+
+  $("#refreshHostExecution").addEventListener("click", refreshHostExecution);
+  $("#saveHostExecution").addEventListener("click", async function() {
+    try {
+      var data = await api("/api/console/host-execution/settings", {
+        method: "POST",
+        body: {
+          unrestricted_host_mode: $("#hostUnrestrictedMode").checked,
+          allowed_root: $("#hostAllowedRoot").value,
+          audit_dir: $("#hostAuditDir").value,
+          confirmation_phrase: $("#hostConfirmationPhrase").value,
+          allow_source_mutation: true,
+          allow_network_commands: true,
+          disclaimer_acknowledged: true,
+        },
+      });
+      $("#hostConfirmationPhrase").value = "";
+      $("#hostExecutionOutput").textContent = JSON.stringify(data, null, 2);
+      toast(data.ok ? "Host execution settings saved." : (data.error || "Host mode blocked."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#hostExecutionOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  });
+
   function renderRunSummary(r) {
     var summaryEl = $("#runSummary");
     summaryEl.innerHTML = "";
@@ -2881,6 +2945,7 @@
         ["Enabled", st.enabled ? "yes" : "no", st.enabled ? "ok" : "warn"],
         ["Memory", String(st.memory_count || 0), "ok"],
         ["Dataset", String(st.dataset_count || 0), (st.dataset_count || 0) > 0 ? "ok" : "warn"],
+        ["Neural adapter", st.neural_adapter_trained ? "trained" : "not trained", st.neural_adapter_trained ? "ok" : "warn"],
         ["RAG handoff", st.readiness && st.readiness.primary_model_handoff_ready ? "ready" : "not ready", st.readiness && st.readiness.primary_model_handoff_ready ? "ok" : "warn"],
         ["Machine crawl", st.readiness && st.readiness.whole_machine_crawl_ready ? "on" : "off", st.readiness && st.readiness.whole_machine_crawl_ready ? "warn" : ""],
       ].forEach(function(row) {
@@ -2944,6 +3009,31 @@
       toast(r.ok ? "Personal MiniMind bootstrap complete." : (r.error || "Bootstrap blocked."), r.ok ? "ok" : "error");
       await refreshPersonalMiniMind();
       await refreshMemory();
+    } catch (e) { toast(e.message, "error"); }
+  });
+
+  $("#pmTrainNeural").addEventListener("click", async function() {
+    try {
+      var r = await api("/api/console/minimind/personal/train-neural", {
+        method: "POST",
+        body: {
+          epochs: parseInt($("#pmNeuralEpochs").value || "12", 10),
+          learning_rate: parseFloat($("#pmNeuralLearningRate").value || "0.25"),
+        },
+      });
+      pmOut(r);
+      toast(r.ok ? "Neural MiniMind adapter trained." : (r.error || "Neural training blocked."), r.ok ? "ok" : "error");
+      await refreshPersonalMiniMind();
+    } catch (e) { toast(e.message, "error"); }
+  });
+
+  $("#pmInferNeural").addEventListener("click", async function() {
+    var query = ($("#pmNeuralQuery").value || $("#pmObjective").value || "").trim();
+    if (!query) { toast("Enter a neural adapter test query first.", "warn"); return; }
+    try {
+      var r = await api("/api/console/minimind/personal/infer", { method: "POST", body: { query: query } });
+      pmOut(r);
+      toast(r.ok ? "Neural MiniMind inference complete." : (r.error || "Inference unavailable."), r.ok ? "ok" : "warn");
     } catch (e) { toast(e.message, "error"); }
   });
 

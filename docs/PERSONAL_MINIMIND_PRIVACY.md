@@ -2,8 +2,9 @@
 
 Personal MiniMind is an opt-in local personalization layer. It can index user
 files and email exports into a local SQLite memory store, generate local
-MiniMind JSONL training records, and prepare a RAG handoff prompt for the
-configured primary Ghost model.
+MiniMind JSONL training records, train a small local neural Personal MiniMind
+adapter, and prepare a RAG handoff prompt for the configured primary Ghost
+model.
 
 This document is product documentation, not legal advice.
 
@@ -19,7 +20,7 @@ Personal MiniMind does nothing until admin controls are enabled.
 | `allow_email` | Ingests explicit `.eml`, `.mbox`, or email-export directories. |
 | `allow_machine_crawl` | Discovers supported text files under crawl roots. |
 | `allow_email_crawl` | Discovers `.eml` and `.mbox` files under crawl roots. |
-| `allow_training` | Writes MiniMind JSONL records under the local state directory. |
+| `allow_training` | Writes MiniMind JSONL records and permits local neural adapter training under the local state directory. |
 | `allow_autonomy` | Allows Personal MiniMind output to be used as task hints for autonomous workflows. |
 
 Consent is persisted at:
@@ -85,17 +86,27 @@ Personal MiniMind stores data locally:
 | Consent | `<state_dir>/minimind/personal_consent.json` |
 | Memory | `<state_dir>/memory.sqlite3` |
 | Dataset | `<state_dir>/minimind/datasets/dataset.jsonl` |
+| Neural adapter weights | `<state_dir>/minimind/adapters/neural_adapter.json` |
 
 Operators are responsible for backing up, deleting, encrypting, or excluding
 private data according to their own environment and legal obligations.
 
 ## Local MiniMind Runtime
 
-Personal MiniMind does not require a cloud provider for its local memory and
-dataset workflow. Real MiniMind inference can run on the user's machine when
-model weights and runtime dependencies are installed.
+Personal MiniMind does not require a cloud provider for its local memory,
+dataset, or neural adapter workflow. The built-in neural adapter performs real
+numeric weight updates from approved dataset records and can answer locally
+from those trained weights. It is intentionally small and auditable; it is not
+full upstream MiniMind checkpoint fine-tuning.
 
 Supported local paths:
+
+- Ghost-native neural Personal MiniMind adapter trained with:
+
+  ```bash
+  ghostchimera minimind personal-train-neural --epochs 12 --learning-rate 0.25
+  ghostchimera minimind personal-infer --objective "What did Ghost learn?"
+  ```
 
 - Transformers/PyTorch MiniMind checkpoint through `.[minimind]` and
   `MINIMIND_MODEL_PATH`.

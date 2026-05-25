@@ -130,6 +130,7 @@ class MiniMindPersonalAgent:
         dataset_path = self._dataset_path()
         dataset_count = self._dataset_count(dataset_path)
         runtime = self.lifecycle.status().to_dict()
+        neural_adapter_path = self.lifecycle.neural_adapter_path()
         return {
             "ok": True,
             "version": PERSONAL_MINIMIND_VERSION,
@@ -139,6 +140,8 @@ class MiniMindPersonalAgent:
             "memory_count": MemoryStore(self.memory_db).count(),
             "dataset_path": str(dataset_path),
             "dataset_count": dataset_count,
+            "neural_adapter_path": str(neural_adapter_path),
+            "neural_adapter_trained": neural_adapter_path.exists(),
             "runtime": runtime,
             "readiness": self._readiness(consent, dataset_count, runtime),
         }
@@ -418,6 +421,47 @@ class MiniMindPersonalAgent:
             "primary_model_prompt": "\n".join(part for part in prompt_parts if str(part).strip()),
         }
 
+    def train_neural_adapter(
+        self,
+        *,
+        epochs: int = 12,
+        learning_rate: float = 0.25,
+        max_vocab: int = 512,
+    ) -> dict[str, Any]:
+        consent = self.load_consent()
+        if not consent.enabled or not consent.allow_training:
+            return {
+                "ok": False,
+                "type": "consent_required",
+                "error": "Neural MiniMind training requires admin_controls and training consent.",
+                "status": self.status(),
+            }
+        dataset_path = self._dataset_path()
+        if not dataset_path.exists() or self._dataset_count(dataset_path) <= 0:
+            return {
+                "ok": False,
+                "type": "dataset_required",
+                "error": "Generate or teach MiniMind dataset records before neural training.",
+                "status": self.status(),
+            }
+        trained = self.lifecycle.train_neural_adapter(
+            dataset_path=dataset_path,
+            epochs=epochs,
+            learning_rate=learning_rate,
+            max_vocab=max_vocab,
+        )
+        return {"ok": bool(trained.get("ok")), "training": trained, "status": self.status()}
+
+    def infer_neural_adapter(self, query: str) -> dict[str, Any]:
+        consent = self.load_consent()
+        if not consent.enabled:
+            return {
+                "ok": False,
+                "type": "consent_required",
+                "error": "Personal MiniMind inference requires admin_controls consent.",
+            }
+        return self.lifecycle.infer(query)
+
     def collect_system_profile(self) -> dict[str, Any]:
         home = Path.home()
         cwd = Path.cwd()
@@ -497,6 +541,8 @@ class MiniMindPersonalAgent:
             "dataset_ready": dataset_count > 0,
             "rag_ready": consent.enabled and MemoryStore(self.memory_db).count() > 0,
             "training_ready": consent.allow_training and dataset_count > 0,
+            "neural_training_ready": consent.allow_training and dataset_count > 0,
+            "neural_adapter_ready": self.lifecycle.neural_adapter_path().exists(),
             "inference_ready": bool(runtime.get("inference_available")),
             "primary_model_handoff_ready": consent.enabled and MemoryStore(self.memory_db).count() > 0,
             "whole_machine_crawl_ready": consent.enabled and consent.allow_machine_crawl,

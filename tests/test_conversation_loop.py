@@ -235,6 +235,26 @@ class ConversationConsoleRouteTests(unittest.TestCase):
             self.assertIn("[redacted]", serialized)
             self.assertEqual(status["active_session"]["session_id"], "demo")
 
+    def test_session_create_accepts_label_alias_for_title(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-console-conversation-label-") as tmp:
+            server = GatewayServer()
+            register_console_routes(server, state_dir=tmp)
+            create_route = server.routes.find("POST", "/api/console/conversation/sessions")
+            self.assertIsNotNone(create_route)
+
+            created = create_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/conversation/sessions",
+                    "headers": {},
+                    "body": json.dumps({"label": "Full autonomy live test"}),
+                    "query": {},
+                }
+            )
+
+            self.assertTrue(created["ok"])
+            self.assertEqual(created["session"]["title"], "Full autonomy live test")
+
 
 class ConversationCliTests(unittest.TestCase):
     def test_conversation_cli_start_send_status_and_stop(self) -> None:
@@ -283,6 +303,8 @@ class ConversationUiStaticTests(unittest.TestCase):
             "speechErrorGuidance",
             "voiceRestartBlocked",
             "Voice Network Unavailable",
+            "buildLocalVoiceReadinessMessage",
+            "Local Voice Provider Needed",
         ]:
             with self.subTest(marker=marker):
                 self.assertIn(marker, js)

@@ -86,7 +86,12 @@ class RemoteControlStoreTests(unittest.TestCase):
             store = RemoteControlStore(tmp)
             configured = store.configure_channel(
                 "telegram",
-                {"bot_token": "telegram-secret-token", "webhook_url": "https://example.test/hook", "send_enabled": True},
+                {
+                    "bot_token": "telegram-secret-token",
+                    "webhook_url": "https://example.test/hook",
+                    "send_enabled": True,
+                    "default_reply_target": "operator-chat",
+                },
             )
 
             self.assertTrue(configured["ok"])
@@ -98,11 +103,31 @@ class RemoteControlStoreTests(unittest.TestCase):
             telegram = next(channel for channel in status["channels"] if channel["id"] == "telegram")
             self.assertTrue(telegram["configured"])
             self.assertTrue(telegram["send_enabled"])
+            self.assertEqual(telegram["default_reply_target"], "operator-chat")
             self.assertNotIn("telegram-secret-token", json.dumps(status))
 
             cleared = store.configure_channel("telegram", {"clear_secrets": True, "send_enabled": True})
             self.assertFalse(cleared["channel"]["configured"])
             self.assertFalse(cleared["channel"]["send_enabled"])
+
+    def test_send_reply_can_use_configured_default_recipient(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-remote-default-recipient-") as tmp:
+            store = RemoteControlStore(tmp)
+            store.configure_channel(
+                "telegram",
+                {"bot_token": "telegram-secret-token", "send_enabled": True, "default_reply_target": "operator-chat"},
+            )
+            captured: dict[str, object] = {}
+
+            def fake_transport(endpoint: str, headers: dict[str, str], body: dict[str, object]) -> dict[str, object]:
+                captured["body"] = body
+                return {"ok": True, "status": 200}
+
+            sent = store.send_reply(channel="telegram", reply_target="", text="hello", transport=fake_transport)
+
+            self.assertTrue(sent["ok"])
+            self.assertEqual(captured["body"], {"chat_id": "operator-chat", "text": "hello"})
+            self.assertEqual(sent["reply_preview"]["reply_target"], "operator-chat")
 
     def test_send_reply_is_gated_and_does_not_return_secrets(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghost-remote-send-") as tmp:

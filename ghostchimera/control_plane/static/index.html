@@ -428,6 +428,11 @@
           <input id="remoteConfigPhone" type="password" autocomplete="off" placeholder="write-only optional id">
         </div>
         <div class="form-group">
+          <label>Default Reply Target</label>
+          <input id="remoteConfigDefaultTarget" autocomplete="off" placeholder="chat id, channel id, email, or phone">
+          <small>Used when a message send does not provide an explicit target.</small>
+        </div>
+        <div class="form-group">
           <label>Signing Secret</label>
           <input id="remoteConfigSigning" type="password" autocomplete="off" placeholder="write-only optional HMAC secret">
           <small>When saved, provider webhooks must include a matching SHA-256 signature. Local simulation remains unsigned.</small>
@@ -630,6 +635,25 @@
     </div>
     <div class="row"><button id="saveAutonomy" class="primary">Save Profile</button></div>
 
+    <div class="section-hdr" style="margin-top:24px;">Unrestricted Host Execution</div>
+    <div class="form-group">
+      <div class="inline-check danger-check">
+        <input id="hostUnrestrictedMode" type="checkbox">
+        <label for="hostUnrestrictedMode">Allow Ghost to run host commands and self-edit source</label>
+      </div>
+      <label class="hint">Default is OFF. When armed, Ghost can run local commands and apply source patches inside the configured root. Every run writes an audit record and revert patch.</label>
+    </div>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="hostAllowedRoot" placeholder="allowed root path" style="flex:2;min-width:260px;">
+      <input id="hostAuditDir" placeholder="audit directory" style="flex:2;min-width:260px;">
+    </div>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="hostConfirmationPhrase" placeholder="type: I ACCEPT HOST EXECUTION RISK" style="flex:2;min-width:320px;">
+      <button id="saveHostExecution" class="danger">Save Host Mode</button>
+      <button id="refreshHostExecution">Refresh Host Mode</button>
+    </div>
+    <pre class="output compact-output" id="hostExecutionOutput">Host execution is off by default. Arm it only for trusted local work you are willing to audit and revert.</pre>
+
     <div class="section-hdr" style="margin-top:24px;">Active Provider &amp; Model</div>
     <div id="providerStatus"></div>
 
@@ -809,6 +833,16 @@
       <button id="pmSaveConsent" class="primary">Save Consent</button>
       <button id="pmRevokeConsent" class="danger">Revoke</button>
       <button id="pmBootstrap" class="primary">Bootstrap Personal Model</button>
+    </div>
+
+    <div class="section-hdr">Neural MiniMind Training</div>
+    <p class="hint" style="margin-bottom:10px;">Train a local neural personal adapter from approved MiniMind dataset records. This updates local adapter weights; it does not upload data or mutate upstream model weights.</p>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="pmNeuralEpochs" value="12" placeholder="epochs" style="flex:1;min-width:120px;">
+      <input id="pmNeuralLearningRate" value="0.25" placeholder="learning rate" style="flex:1;min-width:120px;">
+      <input id="pmNeuralQuery" placeholder="test query after training" style="flex:2;min-width:220px;">
+      <button id="pmTrainNeural" class="primary">Train Neural Adapter</button>
+      <button id="pmInferNeural">Test Neural Adapter</button>
     </div>
 
     <div class="section-hdr">Email OAuth Crawling</div>

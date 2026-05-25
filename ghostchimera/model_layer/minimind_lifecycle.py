@@ -15,9 +15,11 @@ from ..personalization.email_ingester import EmailIngester
 from .local_profiles import get_local_model_profile, list_local_model_profiles
 from .minimind_runtime import (
     infer_from_dataset_adapter,
+    infer_from_neural_adapter,
     inspect_minimind_runtime,
     minimind_source_metadata,
     train_dataset_adapter,
+    train_neural_adapter,
 )
 
 
@@ -139,6 +141,9 @@ class MiniMindLifecycle:
     def adapter_path(self) -> Path:
         return self.state_dir / "minimind" / "adapters" / "local_adapter.json"
 
+    def neural_adapter_path(self) -> Path:
+        return self.state_dir / "minimind" / "adapters" / "neural_adapter.json"
+
     def train_local_adapter(self, *, dataset_path: str | Path | None = None) -> dict[str, Any]:
         """Train Ghost's lightweight local MiniMind adapter from JSONL data.
 
@@ -154,9 +159,35 @@ class MiniMindLifecycle:
             profile_name=self.profile.name,
         )
 
+    def train_neural_adapter(
+        self,
+        *,
+        dataset_path: str | Path | None = None,
+        epochs: int = 12,
+        learning_rate: float = 0.25,
+        max_vocab: int = 512,
+    ) -> dict[str, Any]:
+        """Train Ghost's local neural MiniMind adapter from JSONL data.
+
+        This performs real numeric weight updates over the approved dataset and
+        stores the resulting weights locally. It is intentionally a small
+        personal adapter, not full upstream MiniMind model-weight fine-tuning.
+        """
+
+        return train_neural_adapter(
+            dataset_path or self.dataset_path(),
+            state_dir=self.state_dir,
+            profile_name=self.profile.name,
+            epochs=epochs,
+            learning_rate=learning_rate,
+            max_vocab=max_vocab,
+        )
+
     def infer(self, query: str) -> dict[str, Any]:
         """Answer a query from the trained local MiniMind adapter."""
 
+        if self.neural_adapter_path().exists():
+            return infer_from_neural_adapter(self.neural_adapter_path(), query)
         return infer_from_dataset_adapter(self.adapter_path(), query)
 
     def log_low_confidence(

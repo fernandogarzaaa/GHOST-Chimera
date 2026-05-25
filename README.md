@@ -11,6 +11,7 @@ Key capabilities:
 - **27 model providers** (OpenAI, Anthropic, Gemini, Groq, Mistral, Ollama, and 21 more) â€” swap or chain them without rewriting code.
 - **10 Chimera Pilot backends** â€” deterministic, Python, memory retrieval, Gemini reasoning, local GGUF, analytics, simulation, desktop control, MCP, and quantum simulator.
 - **Browser console (Ghost Console)** - full no-code operator dashboard with guided setup, provider/model configuration, RAG Builder, Self-Evolution, Trust Runtime, remote control, conversational loop, local models, and production readiness. No terminal needed for day-to-day use.
+- **Opt-in host self-editing** - explicit, audited unrestricted host mode lets trusted admins allow Ghost to run host commands and apply source patches with revert artifacts. It is off by default and requires a visible confirmation phrase.
 - **Conservative safety defaults** â€” Python, shell, network, and desktop execution are all off by default. Production mode adds deployment-level guardrails.
 - **Personal MiniMind** â€” consent-gated local memory bootstrap with system specs, approved files/email exports, optional whole-machine/email-artifact crawling, MiniMind JSONL dataset generation, and primary-model RAG handoff.
 - **Native Chimera capability pack** - built-in cognition guardrails, tamper-evident handoffs, query-aware context compression, local model inventory/resolution, MCP normalization, and sandbox journeys with no external project dependency. [Details](docs/NATIVE_ABSORPTION.md)
@@ -263,6 +264,7 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 | **Skills** | Bundled/workspace skill browser, GitHub skill discovery queue, compatibility notes, generated skill previews, and approval-before-activation controls. |
 | **Self-Evolution** | Learning sources, evolution candidates, lifecycle status, review/promote/reject actions, model recommendations, RAG updates, skill candidates, and activity provenance. |
 | **Remote Control** | Pair mobile or messaging senders, review safe slash commands, toggle global direct-execution policy, enable direct execution per paired admin, and approve or deny remote `/run` requests. |
+| **Unrestricted Host Execution** | Explicitly arm host command execution and source self-editing from the Status tab. Default is OFF; arming requires the exact phrase `I ACCEPT HOST EXECUTION RISK`, an allowed root, and an audit directory. Every self-edit writes the requested patch, applied patch, and revert patch. |
 | **Trust Runtime** | Durable run journals, pending approvals, resumable checkpoints, MCP trust registry, eval baselines, capability admission records, and redacted OTel-style trace exports. |
 | **Latency** | Cost/latency posture, context-compression recommendations, provider timing, model health, and slow-path diagnostics. |
 | **Cognitive Guardrails** | Belief confidence, variance guards, provenance handoff verification, hallucination risk signals, and safe operational trace nodes. |
@@ -273,6 +275,14 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 The **Home** tab is the Operator Workbench: command search, next best actions, superiority scorecards, browser E2E status, guided setup, and the conversational loop are surfaced before the advanced tabs.
 
 **All actions produce toast notifications** (green ok / yellow warn / red error), activity timeline entries, and trust/runtime records where relevant. You should not need to watch the terminal for normal operation.
+
+### Unrestricted Host Execution Disclaimer
+
+Ghost Chimera ships with sandboxed execution by default. The optional **Unrestricted Host Execution** mode is for trusted local operators who intentionally want Ghost to run host commands, install packages, send through configured channels, and apply source patches to the repository. This mode can overwrite files inside the configured root.
+
+To reduce accidental damage, it stays off until an admin enables it in Ghost Console and types the exact confirmation phrase `I ACCEPT HOST EXECUTION RISK`. When enabled, Ghost writes local audit artifacts under the configured audit directory, including command results and self-edit revert patches. Keep this mode disabled for shared machines, untrusted prompts, production hosts without isolation, or any workspace where you cannot review and revert diffs.
+
+For outbound messaging, configure the **Remote Control** channel, write-only credentials, and a **Default Reply Target**. If no target or channel is configured, Ghost records message intent locally instead of pretending that a real message was sent.
 
 ### Multi-Purpose Ghost Paths
 
@@ -772,25 +782,27 @@ ghostchimera minimind log-failure --prompt "..." --response "..." --confidence 0
 ghostchimera minimind personal-consent --admin-controls --allow-system-specs --allow-files --allow-email --allow-autonomy --allow-training --file-path ~/Documents --email-path ~/mail/export.mbox
 ghostchimera minimind personal-consent --admin-controls --allow-machine-crawl --allow-email-crawl --allow-training --crawl-root ~ --exclude-path ~/.ssh
 ghostchimera minimind personal-bootstrap --include-system-specs
+ghostchimera minimind personal-train-neural --epochs 12 --learning-rate 0.25
+ghostchimera minimind personal-infer --objective "What did my Ghost learn about release readiness?"
 ghostchimera minimind personal-handoff --objective "Review my personal context and identify pending work."
 ```
 
-Training data accumulates (append-only) at `~/.ghostchimera/minimind/datasets/dataset.jsonl`. `MINIMIND_ROOT` is optional for users who keep an upstream MiniMind workspace nearby.
+Training data accumulates (append-only) at `~/.ghostchimera/minimind/datasets/dataset.jsonl`. The `personal-train-neural` command trains a local neural Personal MiniMind adapter at `~/.ghostchimera/minimind/adapters/neural_adapter.json` using gradient descent over approved prompt/response records. The adapter stores learned numeric weights, a weight checksum, training metadata, and local inference records. `MINIMIND_ROOT` is optional for users who keep an upstream MiniMind workspace nearby.
 
 Personal MiniMind in `0.4.0-beta` is the local-first bridge between the user's private context and the configured primary AI model:
 
 - Admin controls are off until the operator grants consent from the MiniMind tab, CLI, or SDK.
 - System specs, explicit files, explicit email exports, whole-machine crawling, email-artifact crawling, autonomy handoff, and training are separate consent scopes.
 - Whole-machine crawl uses the current OS user permissions, default exclusions, configured roots, and file/email limits. It does not bypass permissions or decrypt protected stores.
-- The local memory corpus becomes both RAG context and MiniMind JSONL training data.
+- The local memory corpus becomes RAG context, MiniMind JSONL training data, and optional local neural adapter weights when training consent is enabled.
 - `personal-handoff` returns a ready prompt bundle containing relevant memory snippets, task hints, and the active Ghost Path policy for the configured main model.
 - See `docs/PERSONAL_MINIMIND_PRIVACY.md` before enabling broad crawl on a machine that contains sensitive or regulated data.
 
-MiniMind does not require a cloud AI provider for local personalization. The memory store, dataset generation, and handoff prompt are local. Real MiniMind inference can run on the user's machine when weights and runtime dependencies are installed, including a Transformers/PyTorch checkpoint via `.[minimind]` or compatible quantized local weights through the llama.cpp/GGUF path when available. The primary Ghost model can be a remote provider or a local model; Personal MiniMind only supplies the personal RAG context and task hints.
+MiniMind does not require a cloud AI provider for local personalization. The memory store, dataset generation, neural personal adapter, and handoff prompt are local. Real MiniMind inference can run on the user's machine through the trained neural adapter, and full checkpoint inference can run when weights and runtime dependencies are installed, including a Transformers/PyTorch checkpoint via `.[minimind]` or compatible quantized local weights through the llama.cpp/GGUF path when available. The primary Ghost model can be a remote provider or a local model; Personal MiniMind supplies personal RAG context, task hints, and an optional local neural adapter.
 
 The integration is derived from the public Apache-2.0 MiniMind project and attributed in `NOTICE`.
 
-**Important safety boundary:** Personal MiniMind is powerful and privacy-sensitive. It only reads local sources after explicit admin consent and approved path scopes, keeps the resulting memory/datasets local, and exposes revocation through the dashboard and CLI. Operators still provide MiniMind weights for real local inference and run any fine-tuning workflow in their own environment.
+**Important safety boundary:** Personal MiniMind is powerful and privacy-sensitive. It only reads local sources after explicit admin consent and approved path scopes, keeps the resulting memory/datasets/adapter weights local, and exposes revocation through the dashboard and CLI. The built-in neural adapter is real local weight training, but it is intentionally a small personal adapter rather than full upstream MiniMind checkpoint fine-tuning. Operators still provide MiniMind checkpoint weights when they want full local model inference or external full-model fine-tuning.
 
 ---
 

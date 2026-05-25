@@ -82,6 +82,7 @@ from .evolution import (
     set_source_consent,
     upsert_candidate,
 )
+from .host_execution import CONFIRMATION_PHRASE, HostExecutionStore
 from .latency import latency_summary, record_latency_event
 from .local_voice import LocalVoiceTranscriber
 
@@ -701,6 +702,7 @@ def register_console_routes(
     trust_store = TrustRuntimeStore(console_state_dir)
     admission_store = CapabilityAdmissionStore(console_state_dir)
     conversation_store = ConversationStore(console_state_dir)
+    host_execution_store = HostExecutionStore(console_state_dir)
     local_voice = LocalVoiceTranscriber(console_state_dir / "local_voice")
     conversation_controller = ConversationalLoopController(
         state_dir=console_state_dir,
@@ -1714,9 +1716,10 @@ def register_console_routes(
         if ctx.get("method") == "GET":
             return conversation_store.list_sessions()
         body = _json_body(ctx)
+        title = str(body.get("title") or body.get("label") or "Ghost Conversation")
         session = conversation_controller.create_session(
             session_id=str(body.get("session_id") or ""),
-            title=str(body.get("title") or "Ghost Conversation"),
+            title=title,
             always_listening=_as_bool(body.get("always_listening"), default=True),
         )
         return {"ok": True, "session": session, "settings": conversation_store.settings()}
@@ -1808,6 +1811,59 @@ def register_console_routes(
             filename=str(body.get("filename") or ""),
             provider=str(body.get("provider") or "auto"),
         )
+
+    def host_execution_settings(ctx: dict[str, Any]) -> dict[str, Any]:
+        if ctx.get("method") == "GET":
+            payload = {"ok": True, "settings": host_execution_store.settings(), "confirmation_phrase": CONFIRMATION_PHRASE}
+            payload["warning"] = (
+                "Unrestricted host mode runs commands and applies source patches on the local machine. "
+                "Keep it off unless you intentionally want Ghost to mutate the host."
+            )
+            return payload
+        payload = host_execution_store.update_settings(_json_body(ctx))
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "host_execution_settings_updated",
+                {
+                    "unrestricted_host_mode": payload.get("settings", {}).get("unrestricted_host_mode"),
+                    "allow_source_mutation": payload.get("settings", {}).get("allow_source_mutation"),
+                },
+            )
+        return payload
+
+    def host_execution_run(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        command = body.get("command")
+        if isinstance(command, str):
+            command = [part for part in command.split(" ") if part]
+        if not isinstance(command, list):
+            return {"ok": False, "error": "command must be a list of strings"}
+        payload = host_execution_store.run_command(
+            [str(part) for part in command],
+            purpose=str(body.get("purpose") or "console_host_execution"),
+            cwd=str(body.get("cwd") or "") or None,
+            input_text=str(body.get("input") or ""),
+        )
+        record_timeline_event(
+            console_state_dir,
+            "host_command_run",
+            {"run_id": payload.get("run_id"), "purpose": body.get("purpose") or "console_host_execution", "ok": bool(payload.get("ok"))},
+        )
+        return payload
+
+    def host_execution_self_edit(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        patch_text = str(body.get("patch") or body.get("diff") or "").strip()
+        if not patch_text:
+            return {"ok": False, "error": "patch is required"}
+        payload = host_execution_store.apply_self_edit(patch_text, objective=str(body.get("objective") or ""))
+        record_timeline_event(
+            console_state_dir,
+            "host_self_edit_applied" if payload.get("ok") else "host_self_edit_failed",
+            {"run_id": payload.get("run_id"), "changed_files": payload.get("changed_files", []), "ok": bool(payload.get("ok"))},
+        )
+        return payload
 
     def browser_fetch(ctx: dict[str, Any]) -> dict[str, Any]:
         body = _json_body(ctx)
@@ -2097,6 +2153,21 @@ def register_console_routes(
             return {"ok": False, "error": "Missing objective"}
         return personal_minimind().build_handoff(objective)
 
+    def minimind_personal_train_neural(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        return personal_minimind().train_neural_adapter(
+            epochs=int(body.get("epochs") or 12),
+            learning_rate=float(body.get("learning_rate") or 0.25),
+            max_vocab=int(body.get("max_vocab") or 512),
+        )
+
+    def minimind_personal_infer(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        query = str(body.get("query") or body.get("objective") or "").strip()
+        if not query:
+            return {"ok": False, "error": "Missing query"}
+        return personal_minimind().infer_neural_adapter(query)
+
     def minimind_post_training_action(ctx: dict[str, Any]) -> dict[str, Any]:
         body = _json_body(ctx)
         objective = str(body.get("objective") or "").strip() or (
@@ -2121,6 +2192,11 @@ def register_console_routes(
             ]
         )
         local_adapter = lifecycle.train_local_adapter()
+        neural_adapter = (
+            lifecycle.train_neural_adapter()
+            if readiness.get("training_ready")
+            else {"ok": False, "skipped": True, "reason": "Personal MiniMind training consent or dataset is not ready."}
+        )
         local_inference = lifecycle.infer(objective) if local_adapter.get("ok") else {"ok": False, "answer": ""}
         training = training_status({"method": "GET", "path": "/api/console/training/status", "headers": {}, "body": "", "query": {}})
         training_state = training.get("status") if isinstance(training.get("status"), dict) else {}
@@ -2201,6 +2277,7 @@ def register_console_routes(
                 "primary_model_prompt_chars": len(str(handoff.get("primary_model_prompt") or "")),
             },
             "local_adapter": local_adapter,
+            "neural_adapter": neural_adapter,
             "local_inference": local_inference,
             "learning_source": source,
             "candidate": candidate,
@@ -4068,6 +4145,30 @@ def register_console_routes(
         method="POST",
         description="Transcribe a short local voice audio clip without storing raw audio",
     )
+    _api_register(
+        "/api/console/host-execution/settings",
+        host_execution_settings,
+        method="GET",
+        description="Inspect explicit unrestricted host execution settings",
+    )
+    _api_register(
+        "/api/console/host-execution/settings",
+        host_execution_settings,
+        method="POST",
+        description="Arm or disarm explicit unrestricted host execution",
+    )
+    _api_register(
+        "/api/console/host-execution/run",
+        host_execution_run,
+        method="POST",
+        description="Run an explicit audited host command when unrestricted mode is armed",
+    )
+    _api_register(
+        "/api/console/host-execution/self-edit",
+        host_execution_self_edit,
+        method="POST",
+        description="Apply an explicit audited source patch when unrestricted mode is armed",
+    )
     _api_register("/api/console/remote/status", remote_status, method="GET", description="Inspect remote control status")
     _api_register("/api/console/remote/policy", remote_policy, method="POST", description="Update remote control policy")
     _api_register(
@@ -4452,6 +4553,18 @@ def register_console_routes(
         minimind_personal_handoff,
         method="POST",
         description="Build Personal MiniMind RAG handoff for the primary model",
+    )
+    _api_register(
+        "/api/console/minimind/personal/train-neural",
+        minimind_personal_train_neural,
+        method="POST",
+        description="Train the local neural Personal MiniMind adapter from approved dataset records",
+    )
+    _api_register(
+        "/api/console/minimind/personal/infer",
+        minimind_personal_infer,
+        method="POST",
+        description="Run inference against the trained local Personal MiniMind adapter",
     )
     _api_register(
         "/api/console/minimind/personal/post-training-action",

@@ -289,6 +289,8 @@ def _main(argv: list[str] | None = None) -> int:
             "personal-consent",
             "personal-bootstrap",
             "personal-handoff",
+            "personal-train-neural",
+            "personal-infer",
             "personal-revoke",
         ],
         nargs="?",
@@ -300,6 +302,11 @@ def _main(argv: list[str] | None = None) -> int:
     minimind_parser.add_argument("--response", default="", help="Response/output text.")
     minimind_parser.add_argument("--confidence", type=float, default=0.0)
     minimind_parser.add_argument("--threshold", type=float, default=0.5)
+    minimind_parser.add_argument("--epochs", type=int, default=12, help="Epochs for local neural MiniMind adapter training.")
+    minimind_parser.add_argument(
+        "--learning-rate", type=float, default=0.25, help="Learning rate for local neural MiniMind adapter training."
+    )
+    minimind_parser.add_argument("--max-vocab", type=int, default=512, help="Maximum neural adapter vocabulary size.")
     minimind_parser.add_argument(
         "--memory-db", default=".ghostchimera-memory.sqlite3", help="Memory DB path for personal ingestion."
     )
@@ -1325,6 +1332,21 @@ def _run_minimind_cli(args: argparse.Namespace) -> int:
             )
             return 2
         payload = personal.build_handoff(args.objective)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 2
+    if args.action == "personal-train-neural":
+        payload = personal.train_neural_adapter(
+            epochs=args.epochs,
+            learning_rate=args.learning_rate,
+            max_vocab=args.max_vocab,
+        )
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 2
+    if args.action == "personal-infer":
+        if not args.objective:
+            print(json.dumps({"ok": False, "error": "Pass --objective for personal-infer."}, indent=2, sort_keys=True))
+            return 2
+        payload = personal.infer_neural_adapter(args.objective)
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0 if payload.get("ok") else 2
     if args.action == "personal-revoke":

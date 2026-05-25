@@ -29,6 +29,16 @@ class LocalVoiceTranscriberTests(unittest.TestCase):
             self.assertFalse(status["raw_audio_stored"])
             self.assertIn("providers", status)
             self.assertGreaterEqual(len(status["providers"]), 3)
+            self.assertIn("browser_network_fallback", status)
+            self.assertEqual(
+                status["browser_network_fallback"]["endpoint"],
+                "/api/console/conversation/local-voice/status",
+            )
+            self.assertIn("network", status["browser_network_fallback"]["reason"].lower())
+            self.assertIn("browser_audio_conversion", status["browser_network_fallback"])
+            self.assertTrue(
+                any("WebM" in item for item in status["browser_network_fallback"]["configuration"])
+            )
             self.assertTrue(any(provider["id"] == "custom-command" for provider in status["providers"]))
 
     def test_custom_command_transcribes_base64_audio_without_persisting_audio(self) -> None:

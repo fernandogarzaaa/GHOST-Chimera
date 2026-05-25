@@ -20,6 +20,7 @@ venv/
 *.log
 .ghostchimera/
 .ghost-admin-live/
+.ghost-artifacts/
 .ghost-live-final-test/
 /data/
 /logs/

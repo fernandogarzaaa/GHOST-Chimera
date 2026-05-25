@@ -144,6 +144,7 @@ def check_imports() -> dict[str, Any]:
         "ghostchimera.capability_pack",
         "ghostchimera.capability_admission",
         "ghostchimera.control_plane.cli",
+        "ghostchimera.control_plane.host_execution",
         "ghostchimera.integrations.remote_control",
         "ghostchimera.model_layer.local_model_inventory",
         "ghostchimera.mcp.normalization",

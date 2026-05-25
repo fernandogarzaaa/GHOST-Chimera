@@ -44,9 +44,9 @@ mcp = ["mcp>=1.0.0"]
 gateway = ["websockets>=12.0,<16", "croniter>=6.0.0"]
 voice = [
   "SpeechRecognition>=3.10",
-  "faster-whisper>=1.0; python_version < '3.14'",
-  "pocketsphinx>=5.0; python_version < '3.14'",
-  "vosk>=0.3.45; python_version < '3.14'",
+  "faster-whisper>=1.0",
+  "pocketsphinx>=5.0",
+  "vosk>=0.3.45",
 ]
 all = [
   "certifi>=2024.2.2",
@@ -62,9 +62,9 @@ all = [
   "nvidia-cutlass-dsl>=4.0; python_version == '3.12' and platform_system == 'Linux'",
   "mcp>=1.0.0",
   "SpeechRecognition>=3.10",
-  "faster-whisper>=1.0; python_version < '3.14'",
-  "pocketsphinx>=5.0; python_version < '3.14'",
-  "vosk>=0.3.45; python_version < '3.14'",
+  "faster-whisper>=1.0",
+  "pocketsphinx>=5.0",
+  "vosk>=0.3.45",
 ]
 dev = [
   "build>=1.2",

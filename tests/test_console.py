@@ -1523,10 +1523,14 @@ class ConsoleRouteTests(unittest.TestCase):
             consent_route = server.routes.find("POST", "/api/console/minimind/personal/consent")
             bootstrap_route = server.routes.find("POST", "/api/console/minimind/personal/bootstrap")
             handoff_route = server.routes.find("POST", "/api/console/minimind/personal/handoff")
+            train_neural_route = server.routes.find("POST", "/api/console/minimind/personal/train-neural")
+            infer_route = server.routes.find("POST", "/api/console/minimind/personal/infer")
             self.assertIsNotNone(status_route)
             self.assertIsNotNone(consent_route)
             self.assertIsNotNone(bootstrap_route)
             self.assertIsNotNone(handoff_route)
+            self.assertIsNotNone(train_neural_route)
+            self.assertIsNotNone(infer_route)
 
             initial = status_route.handler(
                 {
@@ -1590,6 +1594,30 @@ class ConsoleRouteTests(unittest.TestCase):
             )
             self.assertTrue(handoff["ok"])
             self.assertIn("primary_model_prompt", handoff)
+
+            neural = train_neural_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/minimind/personal/train-neural",
+                    "headers": {},
+                    "body": json.dumps({"epochs": 6, "learning_rate": 0.35}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(neural["ok"])
+            self.assertTrue(neural["training"]["adapter"]["metadata"]["neural_weight_training"])
+            self.assertTrue(neural["status"]["neural_adapter_trained"])
+
+            inferred = infer_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/minimind/personal/infer",
+                    "headers": {},
+                    "body": json.dumps({"query": "beta release"}),
+                }
+            )
+            self.assertTrue(inferred["ok"])
+            self.assertEqual(inferred["adapter_kind"], "neural-personal-adapter")
 
     def test_console_readiness_route_returns_release_runbook(self) -> None:
         server = GatewayServer()

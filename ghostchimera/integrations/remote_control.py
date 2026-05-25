@@ -178,6 +178,7 @@ def _default_state() -> dict[str, Any]:
                 "enabled": channel == "webhook",
                 "configured": False,
                 "send_enabled": False,
+                "default_reply_target": "",
                 "secret_fields_configured": [],
                 "adapter_status": "metadata_only" if channel != "webhook" else "ready",
                 "notes": "Provider adapter is optional; inbound webhook simulation works without external services.",
@@ -653,6 +654,9 @@ class RemoteControlStore:
 
         channel_state = dict(data["channels"].get(channel) or {"id": channel})
         configured_fields = sorted(key for key, value in channel_secrets.items() if value)
+        default_reply_target = str(payload.get("default_reply_target", channel_state.get("default_reply_target", "")) or "").strip()
+        if len(default_reply_target) > 500:
+            raise ValueError("default_reply_target is too long")
         channel_state.update(
             {
                 "id": channel,
@@ -660,6 +664,7 @@ class RemoteControlStore:
                 "configured": bool(configured_fields),
                 "send_enabled": bool(payload.get("send_enabled", channel_state.get("send_enabled", False)))
                 and bool(configured_fields),
+                "default_reply_target": default_reply_target,
                 "secret_fields_configured": configured_fields,
                 "adapter_status": "send_enabled"
                 if bool(payload.get("send_enabled", channel_state.get("send_enabled", False))) and configured_fields
@@ -695,6 +700,9 @@ class RemoteControlStore:
         channel_state = data["channels"].get(channel)
         if not isinstance(channel_state, dict) or not channel_state.get("send_enabled"):
             return {"ok": False, "error": "Outbound sending is disabled for this channel.", "channel": channel}
+        reply_target = str(reply_target or channel_state.get("default_reply_target") or "").strip()
+        if not reply_target:
+            return {"ok": False, "error": "reply_target is required and no default recipient is configured.", "channel": channel}
         secrets_data = self._load_secrets()
         channel_secrets = secrets_data.get(channel) if isinstance(secrets_data.get(channel), dict) else {}
         if not channel_secrets:
