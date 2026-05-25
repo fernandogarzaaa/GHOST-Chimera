@@ -179,7 +179,28 @@ def _main(argv: list[str] | None = None) -> int:
     conversation_parser.add_argument("--full-bypass", action="store_true", help="Arm Full Bypass before sending.")
     conversation_parser.add_argument("--no-listen", action="store_true", help="Start without always-listening mode.")
     live_presence_parser = sub.add_parser("live-presence", help="Manage live meetings, interviews, and delegated presence")
-    live_presence_parser.add_argument("action", choices=["status", "create", "start", "approve-disclosure", "transcript", "report"], nargs="?", default="status")
+    live_presence_parser.add_argument(
+        "action",
+        choices=[
+            "status",
+            "create",
+            "start",
+            "approve-disclosure",
+            "transcript",
+            "report",
+            "bridge",
+            "interrupt",
+            "draft",
+            "approve-recipient",
+            "send",
+            "context",
+            "interview-configure",
+            "interview-score",
+            "eval",
+        ],
+        nargs="?",
+        default="status",
+    )
     live_presence_parser.add_argument("--state-dir", default="", help="Optional Live Presence state directory.")
     live_presence_parser.add_argument("--session-id", default="", help="Live Presence session id.")
     live_presence_parser.add_argument("--title", default="Live Presence Session", help="Session title for create.")
@@ -188,6 +209,22 @@ def _main(argv: list[str] | None = None) -> int:
     live_presence_parser.add_argument("--external", action="store_true", help="Mark participants as external.")
     live_presence_parser.add_argument("--speaker", default="Speaker", help="Transcript speaker.")
     live_presence_parser.add_argument("--text", default="", help="Transcript content.")
+    live_presence_parser.add_argument("--app", default="browser", help="Meeting app for bridge, for example google_meet.")
+    live_presence_parser.add_argument("--meeting-url", default="", help="Meeting URL for visible browser handoff.")
+    live_presence_parser.add_argument("--browser-session", default="default", help="Browser profile/session label.")
+    live_presence_parser.add_argument("--reason", default="", help="Interrupt reason.")
+    live_presence_parser.add_argument("--channel", default="email", help="Delegated communication channel.")
+    live_presence_parser.add_argument("--recipient", default="", help="Delegated communication recipient.")
+    live_presence_parser.add_argument("--body", default="", help="Delegated communication body.")
+    live_presence_parser.add_argument("--disclosure-template", default="", help="Disclosure text appended to delegated communication.")
+    live_presence_parser.add_argument("--draft-id", default="", help="Communication draft id for send.")
+    live_presence_parser.add_argument("--agenda", action="append", default=[], help="Shared context agenda item. Repeatable.")
+    live_presence_parser.add_argument("--hint", action="append", default=[], help="MiniMind/RAG live-context hint. Repeatable.")
+    live_presence_parser.add_argument("--rag-snippet", action="append", default=[], help="RAG snippet text for live context. Repeatable.")
+    live_presence_parser.add_argument("--correction", default="", help="User correction to store in live shared context.")
+    live_presence_parser.add_argument("--role", default="Candidate", help="Interview role.")
+    live_presence_parser.add_argument("--mode", choices=["interviewer", "interviewee", "observer"], default="interviewer", help="Interview operator mode.")
+    live_presence_parser.add_argument("--competency", action="append", default=[], help="Interview competency. Repeatable.")
     saas_parser = sub.add_parser("saas", help="Inspect Enterprise SaaS launch-mode readiness")
     saas_parser.add_argument("saas_action", choices=["status", "init-db", "create-admin"], nargs="?", default="status")
     saas_parser.add_argument("--print-sql", action="store_true", help="Print the initial Postgres schema for init-db.")
@@ -1033,8 +1070,48 @@ def _run_live_presence_cli(args: argparse.Namespace) -> int:
                 payload = store.record_transcript(args.session_id, speaker=args.speaker, content=args.text)
             elif action == "report":
                 payload = store.generate_report(args.session_id)
+            elif action == "bridge":
+                payload = store.configure_meeting_bridge(
+                    args.session_id,
+                    app=args.app,
+                    meeting_url=args.meeting_url,
+                    browser_session=args.browser_session,
+                )
+            elif action == "interrupt":
+                payload = store.interrupt_session(args.session_id, reason=args.reason or "CLI interrupted the live session.")
+            elif action == "draft":
+                payload = store.create_communication_draft(
+                    args.session_id,
+                    channel=args.channel,
+                    recipient=args.recipient,
+                    body=args.body,
+                    disclosure_template=args.disclosure_template,
+                )
+            elif action == "approve-recipient":
+                payload = store.approve_recipient(args.session_id, channel=args.channel, recipient=args.recipient, approved_by="cli")
+            elif action == "send":
+                payload = store.send_communication(args.session_id, args.draft_id)
+            elif action == "context":
+                payload = store.update_shared_context(
+                    args.session_id,
+                    agenda=args.agenda or [],
+                    minimind_hints=args.hint or [],
+                    rag_snippets=[{"source": "cli", "text": item} for item in (args.rag_snippet or [])],
+                    user_correction=args.correction,
+                )
+            elif action == "interview-configure":
+                payload = store.configure_interview(
+                    args.session_id,
+                    mode=args.mode,
+                    role=args.role,
+                    competencies=args.competency or [],
+                )
+            elif action == "interview-score":
+                payload = store.score_interview(args.session_id)
             else:
                 payload = {"ok": False, "error": f"Unsupported action: {action}"}
+        if action == "eval":
+            payload = store.run_presence_eval_suite()
     except KeyError:
         payload = {"ok": False, "error": "Live Presence session not found"}
     print(json.dumps(payload, indent=2, sort_keys=True))

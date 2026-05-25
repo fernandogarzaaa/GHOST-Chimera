@@ -3818,12 +3818,121 @@
     }
   }
 
+  function livePresenceLines(selector) {
+    var node = $(selector);
+    return node ? (node.value || "").split(/\r?\n/).map(function(item) { return item.trim(); }).filter(Boolean) : [];
+  }
+
+  async function livePresencePost(action, body) {
+    var sessionId = selectedLivePresenceSessionId();
+    if (!sessionId) { toast("Select a Live Presence session first.", "warn"); return null; }
+    try {
+      var data = await api("/api/console/live-presence/sessions/" + encodeURIComponent(sessionId) + "/" + action, {
+        method: "POST",
+        body: body || {},
+      });
+      $("#livePresenceOutput").textContent = JSON.stringify(data, null, 2);
+      if (data && data.draft && data.draft.draft_id && $("#livePresenceDraftId")) $("#livePresenceDraftId").value = data.draft.draft_id;
+      await refreshLivePresence();
+      await refreshTrust();
+      await refreshTimeline();
+      toast(data && data.ok ? "Live Presence updated." : ((data && (data.reply || data.error)) || "Live Presence action needs review."), data && data.ok ? "ok" : "warn");
+      return data;
+    } catch (e) {
+      $("#livePresenceOutput").textContent = e.message;
+      toast(e.message, "error");
+      return null;
+    }
+  }
+
+  async function configureLivePresenceBridge() {
+    return livePresencePost("bridge", {
+      app: ($("#livePresenceMeetingApp").value || "browser").trim(),
+      meeting_url: ($("#livePresenceMeetingUrl").value || "").trim(),
+      browser_session: ($("#livePresenceBrowserSession").value || "default").trim(),
+      handoff_policy: "visible_browser",
+    });
+  }
+
+  async function interruptLivePresence() {
+    return livePresencePost("interrupt", { reason: "User interrupted the live session from Ghost Console." });
+  }
+
+  async function draftLivePresenceCommunication() {
+    return livePresencePost("communication/draft", {
+      channel: ($("#livePresenceCommunicationChannel").value || "email").trim(),
+      recipient: ($("#livePresenceCommunicationRecipient").value || "").trim(),
+      body: ($("#livePresenceCommunicationBody").value || "").trim(),
+      disclosure_template: ($("#livePresenceDisclosureTemplate").value || "").trim(),
+    });
+  }
+
+  async function approveLivePresenceRecipient() {
+    return livePresencePost("communication/recipient/approve", {
+      channel: ($("#livePresenceCommunicationChannel").value || "email").trim(),
+      recipient: ($("#livePresenceCommunicationRecipient").value || "").trim(),
+      approved_by: "console-admin",
+    });
+  }
+
+  async function sendLivePresenceCommunication() {
+    var draftId = ($("#livePresenceDraftId").value || "").trim();
+    if (!draftId) { toast("Enter or create a communication draft id first.", "warn"); return; }
+    return livePresencePost("communication/" + encodeURIComponent(draftId) + "/send", {});
+  }
+
+  async function updateLivePresenceContext() {
+    var ragText = ($("#livePresenceRagSnippet").value || "").trim();
+    return livePresencePost("context", {
+      agenda: livePresenceLines("#livePresenceAgenda"),
+      minimind_hints: livePresenceLines("#livePresenceMiniMindHints"),
+      rag_snippets: ragText ? [{ source: "console", text: ragText }] : [],
+      user_correction: ($("#livePresenceCorrection").value || "").trim(),
+    });
+  }
+
+  async function configureLivePresenceInterview() {
+    var competencies = ($("#livePresenceInterviewCompetencies").value || "")
+      .split(",").map(function(item) { return item.trim(); }).filter(Boolean);
+    return livePresencePost("interview/configure", {
+      mode: $("#livePresenceInterviewMode").value || "interviewer",
+      role: ($("#livePresenceInterviewRole").value || "Candidate").trim(),
+      competencies: competencies,
+    });
+  }
+
+  async function scoreLivePresenceInterview() {
+    return livePresencePost("interview/score", {});
+  }
+
+  async function runLivePresenceEval() {
+    try {
+      var data = await api("/api/console/live-presence/evals/run", { method: "POST", body: {} });
+      $("#livePresenceOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshLivePresence();
+      await refreshTimeline();
+      toast("Live Presence eval completed.", data.ok ? "ok" : "warn");
+    } catch (e) {
+      $("#livePresenceOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
   if ($("#livePresenceCreate")) $("#livePresenceCreate").addEventListener("click", createLivePresenceSession);
   if ($("#livePresenceRefresh")) $("#livePresenceRefresh").addEventListener("click", refreshLivePresence);
   if ($("#livePresenceApproveDisclosure")) $("#livePresenceApproveDisclosure").addEventListener("click", function() { livePresenceAction("approve-disclosure"); });
   if ($("#livePresenceStart")) $("#livePresenceStart").addEventListener("click", function() { livePresenceAction("start"); });
   if ($("#livePresenceReport")) $("#livePresenceReport").addEventListener("click", function() { livePresenceAction("report"); });
   if ($("#livePresenceAddTranscript")) $("#livePresenceAddTranscript").addEventListener("click", function() { livePresenceAction("transcript"); });
+  if ($("#livePresenceConfigureBridge")) $("#livePresenceConfigureBridge").addEventListener("click", configureLivePresenceBridge);
+  if ($("#livePresenceInterrupt")) $("#livePresenceInterrupt").addEventListener("click", interruptLivePresence);
+  if ($("#livePresenceDraftCommunication")) $("#livePresenceDraftCommunication").addEventListener("click", draftLivePresenceCommunication);
+  if ($("#livePresenceApproveRecipient")) $("#livePresenceApproveRecipient").addEventListener("click", approveLivePresenceRecipient);
+  if ($("#livePresenceSendCommunication")) $("#livePresenceSendCommunication").addEventListener("click", sendLivePresenceCommunication);
+  if ($("#livePresenceUpdateContext")) $("#livePresenceUpdateContext").addEventListener("click", updateLivePresenceContext);
+  if ($("#livePresenceConfigureInterview")) $("#livePresenceConfigureInterview").addEventListener("click", configureLivePresenceInterview);
+  if ($("#livePresenceScoreInterview")) $("#livePresenceScoreInterview").addEventListener("click", scoreLivePresenceInterview);
+  if ($("#livePresenceEval")) $("#livePresenceEval").addEventListener("click", runLivePresenceEval);
 
   async function refreshReadiness() {
     var data = await api("/api/console/readiness");

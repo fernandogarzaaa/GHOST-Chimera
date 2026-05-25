@@ -220,6 +220,97 @@
           <button id="livePresenceAddTranscript">Add Transcript</button>
         </div>
       </div>
+      <div class="card">
+        <h3>Meeting Bridge</h3>
+        <div class="form-group">
+          <label>Meeting App</label>
+          <input id="livePresenceMeetingApp" placeholder="google_meet, zoom, teams, brave">
+        </div>
+        <div class="form-group">
+          <label>Meeting URL</label>
+          <input id="livePresenceMeetingUrl" placeholder="https://meet.google.com/...">
+        </div>
+        <div class="form-group">
+          <label>Browser Session</label>
+          <input id="livePresenceBrowserSession" placeholder="brave-default">
+        </div>
+        <div class="row">
+          <button id="livePresenceConfigureBridge">Configure Bridge</button>
+          <button id="livePresenceInterrupt">Interrupt / Pause</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Delegated Communication</h3>
+        <div class="form-group">
+          <label>Channel</label>
+          <input id="livePresenceCommunicationChannel" placeholder="email, slack, sms">
+        </div>
+        <div class="form-group">
+          <label>Recipient</label>
+          <input id="livePresenceCommunicationRecipient" placeholder="person@example.com">
+        </div>
+        <div class="form-group">
+          <label>Message</label>
+          <textarea id="livePresenceCommunicationBody" rows="3" placeholder="Follow-up message Ghost should draft."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Disclosure Template</label>
+          <input id="livePresenceDisclosureTemplate" placeholder="Ghost Chimera assisted with this follow-up.">
+        </div>
+        <div class="form-group">
+          <label>Draft ID</label>
+          <input id="livePresenceDraftId" placeholder="Filled from draft output or paste an existing draft id">
+        </div>
+        <div class="row">
+          <button id="livePresenceDraftCommunication">Draft</button>
+          <button id="livePresenceApproveRecipient">Approve Recipient</button>
+          <button id="livePresenceSendCommunication">Send Recorded Follow-up</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Shared Context</h3>
+        <div class="form-group">
+          <label>Agenda</label>
+          <textarea id="livePresenceAgenda" rows="2" placeholder="One agenda item per line"></textarea>
+        </div>
+        <div class="form-group">
+          <label>MiniMind Hints</label>
+          <textarea id="livePresenceMiniMindHints" rows="2" placeholder="One memory hint per line"></textarea>
+        </div>
+        <div class="form-group">
+          <label>RAG Snippet</label>
+          <textarea id="livePresenceRagSnippet" rows="2" placeholder="Relevant retrieved context"></textarea>
+        </div>
+        <div class="form-group">
+          <label>User Correction</label>
+          <input id="livePresenceCorrection" placeholder="Correction Ghost should learn for this session">
+        </div>
+        <button id="livePresenceUpdateContext">Update Context</button>
+      </div>
+      <div class="card">
+        <h3>Interview Operator</h3>
+        <div class="form-group">
+          <label>Mode</label>
+          <select id="livePresenceInterviewMode">
+            <option value="interviewer">Interviewer</option>
+            <option value="interviewee">Interviewee</option>
+            <option value="observer">Observer</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Role</label>
+          <input id="livePresenceInterviewRole" placeholder="Senior Python Engineer">
+        </div>
+        <div class="form-group">
+          <label>Competencies</label>
+          <input id="livePresenceInterviewCompetencies" placeholder="architecture, testing, communication">
+        </div>
+        <div class="row">
+          <button id="livePresenceConfigureInterview">Configure Interview</button>
+          <button id="livePresenceScoreInterview">Score Evidence</button>
+          <button id="livePresenceEval">Run Presence Eval</button>
+        </div>
+      </div>
     </div>
     <div class="section-hdr">Sessions</div>
     <div id="livePresenceSessions" class="list"></div>

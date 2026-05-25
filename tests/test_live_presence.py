@@ -69,6 +69,125 @@ class LivePresenceStoreTests(unittest.TestCase):
             self.assertEqual(status["counts"]["pending_disclosures"], 1)
             self.assertEqual(status["recommended_next_action"]["session_id"], pending["session_id"])
 
+    def test_meeting_bridge_tracks_browser_session_diarization_and_interrupts(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-live-presence-") as tmp:
+            store = LivePresenceStore(tmp)
+            created = store.create_session(title="Product review", session_type="meeting")
+            sid = created["session_id"]
+
+            bridge = store.configure_meeting_bridge(
+                sid,
+                app="google_meet",
+                meeting_url="https://meet.google.com/abc-defg-hij",
+                browser_session="brave-default",
+            )
+            store.start_session(sid)
+            turn = store.record_transcript(
+                sid,
+                speaker="Unknown speaker 1",
+                content="We should ship the trust runtime update.",
+                source="live_audio",
+                diarization={"speaker_id": "spk_1", "confidence": 0.82},
+            )
+            interrupted = store.interrupt_session(sid, reason="User asked Ghost to pause.")
+
+            self.assertTrue(bridge["ok"])
+            self.assertEqual(bridge["session"]["meeting_bridge"]["app"], "google_meet")
+            self.assertEqual(bridge["session"]["meeting_bridge"]["status"], "ready")
+            self.assertEqual(turn["turn"]["diarization"]["speaker_id"], "spk_1")
+            self.assertEqual(interrupted["session"]["mode"], "paused")
+            self.assertEqual(interrupted["session"]["interruptions"][0]["reason"], "User asked Ghost to pause.")
+
+    def test_delegated_communication_requires_approved_recipient_before_send(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-live-presence-") as tmp:
+            store = LivePresenceStore(tmp)
+            created = store.create_session(title="Follow-up", session_type="meeting")
+            sid = created["session_id"]
+            draft = store.create_communication_draft(
+                sid,
+                channel="email",
+                recipient="customer@example.com",
+                body="Here are the notes from our meeting.",
+                disclosure_template="AI-assisted follow-up from Ghost Chimera.",
+            )
+
+            blocked = store.send_communication(sid, draft["draft"]["draft_id"])
+            approved = store.approve_recipient(sid, channel="email", recipient="customer@example.com", approved_by="admin")
+            sent = store.send_communication(sid, draft["draft"]["draft_id"])
+
+            self.assertFalse(blocked["ok"])
+            self.assertEqual(blocked["required_action"], "approve_recipient")
+            self.assertTrue(approved["ok"])
+            self.assertTrue(sent["ok"])
+            self.assertEqual(sent["draft"]["status"], "sent")
+            self.assertTrue(sent["draft"]["approval_required"])
+            self.assertNotIn("pretend", json.dumps(sent).lower())
+
+    def test_interview_operator_generates_questions_and_scores_evidence(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-live-presence-") as tmp:
+            store = LivePresenceStore(tmp)
+            created = store.create_session(title="Engineer interview", session_type="interview")
+            sid = created["session_id"]
+
+            bank = store.configure_interview(
+                sid,
+                mode="interviewer",
+                role="Senior Python Engineer",
+                competencies=["architecture", "testing"],
+            )
+            store.record_transcript(sid, speaker="Candidate", content="I designed service boundaries and wrote pytest coverage.")
+            scoring = store.score_interview(sid)
+
+            self.assertTrue(bank["ok"])
+            self.assertEqual(bank["session"]["interview"]["mode"], "interviewer")
+            self.assertGreaterEqual(len(bank["session"]["interview"]["question_bank"]), 2)
+            self.assertTrue(scoring["ok"])
+            self.assertGreater(scoring["scorecard"]["overall_score"], 0)
+            self.assertIn("testing", scoring["scorecard"]["competencies"])
+            self.assertTrue(scoring["scorecard"]["evidence"])
+
+    def test_shared_context_adds_agenda_memory_and_user_corrections(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-live-presence-") as tmp:
+            store = LivePresenceStore(tmp)
+            created = store.create_session(title="Roadmap review", session_type="meeting")
+            sid = created["session_id"]
+
+            context = store.update_shared_context(
+                sid,
+                agenda=["review latency", "assign follow-ups"],
+                minimind_hints=["User prefers production code only."],
+                rag_snippets=[{"source": "README", "text": "Trust Runtime records live runs."}],
+                user_correction="Do not say the follow-up was sent until a channel confirms it.",
+            )
+            report = store.generate_report(sid)
+
+            self.assertTrue(context["ok"])
+            self.assertIn("review latency", context["session"]["shared_context"]["agenda"])
+            self.assertIn("User prefers production code only.", context["session"]["shared_context"]["minimind_hints"])
+            self.assertIn("Do not say", context["session"]["shared_context"]["user_corrections"][0]["text"])
+            self.assertIn("Shared context", report["report"]["summary"])
+
+    def test_presence_eval_harness_scores_safety_latency_and_replayability(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-live-presence-") as tmp:
+            store = LivePresenceStore(tmp)
+            external = store.create_session(
+                title="Candidate call",
+                session_type="interview",
+                participants=[{"name": "Candidate", "external": True}],
+            )
+            internal = store.create_session(title="Solo sync", session_type="companion")
+            store.start_session(internal["session_id"])
+            store.record_transcript(internal["session_id"], speaker="Ghost", content="Action item: create summary.")
+            eval_payload = store.run_presence_eval_suite()
+
+            self.assertTrue(eval_payload["ok"])
+            self.assertEqual(eval_payload["suite"], "presence")
+            self.assertGreaterEqual(eval_payload["score"], 0.8)
+            self.assertIn("external_disclosure_gate", eval_payload["checks"])
+            self.assertFalse(eval_payload["checks"]["external_disclosure_gate"]["passed"] is False and not external)
+            self.assertTrue(eval_payload["checks"]["trust_replayability"]["passed"])
+            self.assertEqual(store.status()["presence_eval_score"], eval_payload["score"])
+
 
 class LivePresenceConsoleTests(unittest.TestCase):
     def test_console_registers_live_presence_routes_and_blocks_start_until_disclosure(self) -> None:
@@ -82,8 +201,16 @@ class LivePresenceConsoleTests(unittest.TestCase):
                 ("POST", "/api/console/live-presence/sessions"),
                 ("POST", "/api/console/live-presence/sessions/demo/start"),
                 ("POST", "/api/console/live-presence/sessions/demo/disclosure/approve"),
+                ("POST", "/api/console/live-presence/sessions/demo/bridge"),
+                ("POST", "/api/console/live-presence/sessions/demo/interrupt"),
                 ("POST", "/api/console/live-presence/sessions/demo/transcript"),
                 ("POST", "/api/console/live-presence/sessions/demo/report"),
+                ("POST", "/api/console/live-presence/sessions/demo/communication/draft"),
+                ("POST", "/api/console/live-presence/sessions/demo/communication/draft-1/send"),
+                ("POST", "/api/console/live-presence/sessions/demo/context"),
+                ("POST", "/api/console/live-presence/sessions/demo/interview/configure"),
+                ("POST", "/api/console/live-presence/sessions/demo/interview/score"),
+                ("POST", "/api/console/live-presence/evals/run"),
             ]:
                 with self.subTest(path=path):
                     self.assertIsNotNone(server.routes.find(method, path))
@@ -141,8 +268,12 @@ class LivePresenceConsoleTests(unittest.TestCase):
 
         self.assertIn('data-tab="live-presence"', html)
         self.assertIn("livePresenceSessions", html)
+        self.assertIn("livePresenceMeetingUrl", html)
+        self.assertIn("livePresenceCommunicationBody", html)
+        self.assertIn("livePresenceInterviewRole", html)
         self.assertIn("/api/console/live-presence/status", js)
         self.assertIn("refreshLivePresence", js)
+        self.assertIn("runLivePresenceEval", js)
 
 
 class LivePresenceCliTests(unittest.TestCase):
@@ -151,4 +282,3 @@ class LivePresenceCliTests(unittest.TestCase):
             code = _main(["live-presence", "status", "--state-dir", tmp])
 
             self.assertEqual(code, 0)
-

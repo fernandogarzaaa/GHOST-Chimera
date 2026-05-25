@@ -1876,7 +1876,77 @@ def register_console_routes(
                     speaker=str(body.get("speaker") or "Speaker"),
                     content=str(body.get("content") or body.get("text") or ""),
                     source=str(body.get("source") or "manual"),
+                    diarization=body.get("diarization") if isinstance(body.get("diarization"), dict) else {},
                 )
+            if action_path == "bridge":
+                payload = live_presence_store.configure_meeting_bridge(
+                    session_id,
+                    app=str(body.get("app") or "browser"),
+                    meeting_url=str(body.get("meeting_url") or ""),
+                    browser_session=str(body.get("browser_session") or "default"),
+                    handoff_policy=str(body.get("handoff_policy") or "visible_browser"),
+                )
+                record_timeline_event(console_state_dir, "live_presence_bridge_configured", {"session_id": session_id, "ok": payload.get("ok")})
+                return payload
+            if action_path == "interrupt":
+                payload = live_presence_store.interrupt_session(session_id, reason=str(body.get("reason") or "Operator interrupted the live session."))
+                record_timeline_event(console_state_dir, "live_presence_interrupted", {"session_id": session_id})
+                return payload
+            if action_path == "communication/draft":
+                payload = live_presence_store.create_communication_draft(
+                    session_id,
+                    channel=str(body.get("channel") or "email"),
+                    recipient=str(body.get("recipient") or ""),
+                    body=str(body.get("body") or ""),
+                    disclosure_template=str(body.get("disclosure_template") or ""),
+                )
+                record_timeline_event(console_state_dir, "live_presence_communication_drafted", {"session_id": session_id, "ok": payload.get("ok")})
+                return payload
+            if action_path.startswith("communication/") and action_path.endswith("/send"):
+                draft_id = action_path.split("/")[1]
+                payload = live_presence_store.send_communication(session_id, draft_id)
+                record_timeline_event(
+                    console_state_dir,
+                    "live_presence_communication_sent" if payload.get("ok") else "live_presence_communication_send_blocked",
+                    {"session_id": session_id, "draft_id": draft_id, "required_action": payload.get("required_action", "")},
+                )
+                return payload
+            if action_path == "communication/recipient/approve":
+                payload = live_presence_store.approve_recipient(
+                    session_id,
+                    channel=str(body.get("channel") or "email"),
+                    recipient=str(body.get("recipient") or ""),
+                    approved_by=str(body.get("approved_by") or "admin"),
+                )
+                record_timeline_event(console_state_dir, "live_presence_recipient_approved", {"session_id": session_id, "ok": payload.get("ok")})
+                return payload
+            if action_path == "context":
+                payload = live_presence_store.update_shared_context(
+                    session_id,
+                    agenda=body.get("agenda") if isinstance(body.get("agenda"), list) else [],
+                    minimind_hints=body.get("minimind_hints") if isinstance(body.get("minimind_hints"), list) else [],
+                    rag_snippets=body.get("rag_snippets") if isinstance(body.get("rag_snippets"), list) else [],
+                    user_correction=str(body.get("user_correction") or ""),
+                )
+                record_timeline_event(console_state_dir, "live_presence_context_updated", {"session_id": session_id})
+                return payload
+            if action_path == "interview/configure":
+                payload = live_presence_store.configure_interview(
+                    session_id,
+                    mode=str(body.get("mode") or "interviewer"),
+                    role=str(body.get("role") or "Candidate"),
+                    competencies=body.get("competencies") if isinstance(body.get("competencies"), list) else [],
+                )
+                record_timeline_event(console_state_dir, "live_presence_interview_configured", {"session_id": session_id})
+                return payload
+            if action_path == "interview/score":
+                payload = live_presence_store.score_interview(session_id)
+                record_timeline_event(
+                    console_state_dir,
+                    "live_presence_interview_scored",
+                    {"session_id": session_id, "overall_score": payload.get("scorecard", {}).get("overall_score", 0)},
+                )
+                return payload
             if action_path == "report":
                 payload = live_presence_store.generate_report(session_id)
                 record_timeline_event(
@@ -1891,6 +1961,15 @@ def register_console_routes(
         except KeyError:
             return {"ok": False, "error": "Live Presence session not found"}
         return {"ok": False, "error": f"Unsupported Live Presence action: {action_path}"}
+
+    def live_presence_eval_run(ctx: dict[str, Any]) -> dict[str, Any]:
+        payload = live_presence_store.run_presence_eval_suite()
+        record_timeline_event(
+            console_state_dir,
+            "live_presence_eval_run",
+            {"score": payload.get("score", 0), "checks": len(payload.get("checks", []) or [])},
+        )
+        return payload
 
     def host_execution_settings(ctx: dict[str, Any]) -> dict[str, Any]:
         if ctx.get("method") == "GET":
@@ -4290,6 +4369,12 @@ def register_console_routes(
         method="POST",
         prefix=True,
         description="Start, disclose, transcribe, or report a Live Presence session",
+    )
+    _api_register(
+        "/api/console/live-presence/evals/run",
+        live_presence_eval_run,
+        method="POST",
+        description="Run Live Presence safety, replayability, and latency evals",
     )
     _api_register(
         "/api/console/host-execution/settings",
