@@ -28,7 +28,7 @@ dependencies = [
   "croniter>=6.0.0",
   "jsonschema>=4.0",
   "pyautogui>=0.9.54",
-  "websockets>=12.0,<16",
+  "websockets>=12.0,<17",
 ]
 
 [project.optional-dependencies]
@@ -41,7 +41,7 @@ minimind = [
 ]
 cute = ["nvidia-cutlass-dsl>=4.0; python_version == '3.12' and platform_system == 'Linux'"]
 mcp = ["mcp>=1.0.0"]
-gateway = ["websockets>=12.0,<16", "croniter>=6.0.0"]
+gateway = ["websockets>=12.0,<17", "croniter>=6.0.0"]
 voice = [
   "SpeechRecognition>=3.10",
   "faster-whisper>=1.0",
@@ -53,7 +53,7 @@ all = [
   "croniter>=6.0.0",
   "jsonschema>=4.0",
   "pyautogui>=0.9.54",
-  "websockets>=12.0,<16",
+  "websockets>=12.0,<17",
   "pyqpanda3>=3.0",
   "llama-cpp-python>=0.3.0",
   "torch>=2.6; python_version < '3.14'",
