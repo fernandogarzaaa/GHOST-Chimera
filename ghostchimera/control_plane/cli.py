@@ -818,8 +818,7 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0 if all(item["ok"] for item in payload) else 1
 
-    run_cli()
-    return 0
+    return _run_start_cli(args)
 
 
 def _run_autonomy_cli(args: argparse.Namespace) -> int:
