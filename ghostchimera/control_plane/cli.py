@@ -818,7 +818,18 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0 if all(item["ok"] for item in payload) else 1
 
-    return _run_start_cli(args)
+    if not args.command:
+        args.host = getattr(args, "host", "127.0.0.1")
+        args.port = getattr(args, "port", 8765)
+        args.http_port = getattr(args, "http_port", 8766)
+        args.state_dir = getattr(args, "state_dir", "")
+        args.no_open = getattr(args, "no_open", False)
+        args.skip_setup = getattr(args, "skip_setup", False)
+        args.auth_token = getattr(args, "auth_token", "")
+        return _run_start_cli(args)
+
+    run_cli()
+    return 0
 
 
 def _run_autonomy_cli(args: argparse.Namespace) -> int:
