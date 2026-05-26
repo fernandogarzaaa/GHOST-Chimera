@@ -1703,6 +1703,27 @@ class ConsoleCliTests(unittest.TestCase):
         parallel_main.assert_not_called()
         autonomy_main.assert_called_once()
 
+    def test_cli_treats_freeform_prompt_as_one_liner_ask(self) -> None:
+        with patch("ghostchimera.control_plane.cli._run_ask_cli", return_value=0) as ask_main:
+            result = _main(["Plan my week with 3 priorities"])
+
+        self.assertEqual(result, 0)
+        ask_main.assert_called_once()
+        namespace = ask_main.call_args.args[0]
+        self.assertEqual(namespace.objective, ["Plan my week with 3 priorities"])
+
+    def test_start_command_skips_setup_when_config_exists(self) -> None:
+        with (
+            patch("ghostchimera.control_plane.cli.load_config", return_value={"model": {"provider": "openai"}}),
+            patch("ghostchimera.control_plane.setup_wizard.run_setup_wizard") as setup_wizard,
+            patch("ghostchimera.control_plane.console.run_console") as run_console_mock,
+        ):
+            result = _main(["start", "--no-open"])
+
+        self.assertEqual(result, 0)
+        setup_wizard.assert_not_called()
+        run_console_mock.assert_called_once()
+
     def test_run_console_registers_routes_without_blocking(self) -> None:
         server = run_console(host="127.0.0.1", port=0, http_port=0, open_browser=False, block=False)
         try:

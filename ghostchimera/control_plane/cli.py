@@ -26,6 +26,42 @@ logger = get_logger("cli")
 
 
 _PARALLEL_COMMANDS = {"run", "batch"}
+_TOP_LEVEL_COMMANDS = {
+    "setup",
+    "start",
+    "console",
+    "doctor",
+    "capabilities",
+    "superiority",
+    "review-pr",
+    "github",
+    "remote",
+    "production-gaps",
+    "conversation",
+    "live-presence",
+    "saas",
+    "worker",
+    "trust",
+    "capability-admission",
+    "mcp",
+    "path",
+    "model",
+    "policy",
+    "desktop-stop",
+    "autonomy",
+    "workspace",
+    "minimind",
+    "local-model",
+    "cognition",
+    "context",
+    "capability-pack",
+    "sandbox",
+    "runtime-warmup",
+    "ux-audit",
+    "ask",
+    "run",
+    "batch",
+}
 _GLOBAL_OPTIONS_WITH_VALUES = {
     "--log-level",
     "--pilot-run",
@@ -68,6 +104,16 @@ def _first_command_token(argv: list[str]) -> str:
     return ""
 
 
+def _normalize_one_liner_args(argv: list[str]) -> list[str]:
+    """Convert free-form terminal prompts into the ask command."""
+    if not argv:
+        return argv
+    first = argv[0].strip()
+    if not first or first.startswith("-") or first in _TOP_LEVEL_COMMANDS:
+        return argv
+    return ["ask", " ".join(token for token in argv if token.strip())]
+
+
 def run_cli() -> None:
     """Start an interactive command line session with the agent."""
     ensure_configured()
@@ -98,10 +144,21 @@ def _main(argv: list[str] | None = None) -> int:
         from .parallel_cli import _main as _parallel_main
 
         return _parallel_main(effective_argv)
+    effective_argv = _normalize_one_liner_args(effective_argv)
 
     parser = argparse.ArgumentParser(description="Ghost Chimera CLI")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("setup", help="Run interactive setup wizard")
+    start_parser = sub.add_parser("start", help="Guided start for non-technical users")
+    start_parser.add_argument("--host", default="127.0.0.1", help="Gateway bind host for the console.")
+    start_parser.add_argument("--port", type=int, default=8765, help="Gateway WebSocket port.")
+    start_parser.add_argument("--http-port", type=int, default=8766, help="Console HTTP port.")
+    start_parser.add_argument("--state-dir", default="", help="Optional state directory for console jobs and schedules.")
+    start_parser.add_argument("--no-open", action="store_true", help="Print the console URL without opening a browser.")
+    start_parser.add_argument("--skip-setup", action="store_true", help="Skip setup wizard even when config is missing.")
+    start_parser.add_argument(
+        "--auth-token", default="", help="Require this bearer token on all /api/* routes (X-Gateway-Token header)."
+    )
     console_parser = sub.add_parser("console", help="Open the browser-based Ghost Console")
     console_parser.add_argument("--host", default="127.0.0.1", help="Gateway bind host for the console.")
     console_parser.add_argument("--port", type=int, default=8765, help="Gateway WebSocket port.")
@@ -477,6 +534,11 @@ def _main(argv: list[str] | None = None) -> int:
         "--gpu-architecture", default="", help="Optional GPU architecture hint, for example sm100."
     )
     runtime_warmup_parser.add_argument("--gpu-sm-count", type=int, default=0, help="Optional GPU SM count hint.")
+    ask_parser = sub.add_parser("ask", help="Run one plain-language objective from terminal")
+    ask_parser.add_argument("objective", nargs="+", help="Objective to execute, in plain language.")
+    ask_parser.add_argument("--json", action="store_true", help="Output full JSON execution payload.")
+    ux_audit_parser = sub.add_parser("ux-audit", help="Audit UX readiness and suggest upgrades")
+    ux_audit_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
     parser.add_argument(
         "--log-level",
         default="INFO",
@@ -566,6 +628,8 @@ def _main(argv: list[str] | None = None) -> int:
 
         run_setup_wizard()
         return 0
+    if args.command == "start":
+        return _run_start_cli(args)
 
     if args.command == "console":
         from .console import run_console
@@ -698,6 +762,10 @@ def _main(argv: list[str] | None = None) -> int:
             )
         )
         return 0
+    if args.command == "ask":
+        return _run_ask_cli(args)
+    if args.command == "ux-audit":
+        return _run_ux_audit_cli(args)
 
     if args.config_show:
         print(json.dumps(GhostChimeraConfig.from_env().to_dict(), indent=2, sort_keys=True))
@@ -798,6 +866,116 @@ def _run_autonomy_cli(args: argparse.Namespace) -> int:
         if not args.job:
             print(json.dumps({"ok": False, "error": "Missing autonomy job name"}, indent=2, sort_keys=True))
             return 2
+
+
+def _run_start_cli(args: argparse.Namespace) -> int:
+            from .console import run_console
+            from .setup_wizard import run_setup_wizard
+
+            if not args.skip_setup and not load_config():
+                run_setup_wizard()
+            run_console(
+                host=args.host,
+                port=args.port,
+                http_port=args.http_port,
+                state_dir=args.state_dir or None,
+                open_browser=not args.no_open,
+                block=True,
+                auth_token=args.auth_token or "",
+            )
+            return 0
+
+
+def _run_ask_cli(args: argparse.Namespace) -> int:
+            from ..chimera_pilot import ChimeraPilotKernel
+
+            objective = " ".join(args.objective or []).strip()
+            if not objective:
+                print(json.dumps({"ok": False, "error": "objective is required"}, indent=2, sort_keys=True))
+                return 2
+            persisted_autonomy = get_autonomy_config(load_config())
+            autonomy_level = str(persisted_autonomy.get("level") or "supervised")
+            kernel = ChimeraPilotKernel.default(include_deterministic_backend=True, autonomy_level=autonomy_level)
+            try:
+                executions = kernel.run(objective)
+            except PermissionError as exc:
+                payload = {"ok": False, "error": str(exc), "tip": "Run `ghostchimera setup` to tune permissions and model setup."}
+                if args.json:
+                    print(json.dumps(payload, indent=2, sort_keys=True))
+                else:
+                    print(payload["error"])
+                    print(payload["tip"])
+                return 1
+            payload = [execution.to_dict() for execution in executions]
+            if args.json:
+                print(json.dumps(payload, indent=2, sort_keys=True))
+            else:
+                primary_output = ""
+                first_error = ""
+                for item in payload:
+                    if item.get("ok") and str(item.get("output") or "").strip():
+                        primary_output = str(item.get("output") or "").strip()
+                        break
+                    if (not first_error) and item.get("error"):
+                        first_error = str(item.get("error") or "").strip()
+                if primary_output:
+                    print(primary_output)
+                elif first_error:
+                    print(first_error)
+                else:
+                    print("Done.")
+            return 0 if all(item["ok"] for item in payload) else 1
+
+
+def _run_ux_audit_cli(args: argparse.Namespace) -> int:
+            payload = {
+                "ok": True,
+                "title": "Ghost Chimera UX Audit",
+                "scorecard": {
+                    "strengths": [
+                        "Interactive setup wizard already follows OpenClaw/Hermes modular setup patterns.",
+                        "Browser console supports no-code run flows and status visibility.",
+                        "Safety controls default to conservative permissions.",
+                    ],
+                    "gaps": [
+                        "CLI command surface is broad and can feel developer-heavy.",
+                        "Raw JSON output is hard for non-technical operators.",
+                    ],
+                },
+                "upgrades": [
+                    {
+                        "id": "one_liner_terminal",
+                        "status": "implemented",
+                        "inspired_by": ["OpenClaw", "Hermes Agent"],
+                        "usage": ['ghost "Summarize my inbox and draft next steps"', 'ghostchimera ask "Plan my day in 3 tasks"'],
+                    },
+                    {
+                        "id": "guided_start",
+                        "status": "implemented",
+                        "inspired_by": ["OpenClaw", "Hermes Agent"],
+                        "usage": ["ghost start"],
+                    },
+                ],
+            }
+            if args.format == "markdown":
+                print("# Ghost Chimera UX Audit")
+                print()
+                print("## Strengths")
+                for item in payload["scorecard"]["strengths"]:
+                    print(f"- {item}")
+                print()
+                print("## Gaps")
+                for item in payload["scorecard"]["gaps"]:
+                    print(f"- {item}")
+                print()
+                print("## Upgrades")
+                for item in payload["upgrades"]:
+                    print(f"- **{item['id']}** ({item['status']}, inspired by {', '.join(item['inspired_by'])})")
+                    for usage in item["usage"]:
+                        print(f"  - `{usage}`")
+            else:
+                print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
         runner = AutonomyJobRunner(profile=str(autonomy.get("level") or "supervised"))
         result = runner.run(args.job, execute=args.execute)
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))

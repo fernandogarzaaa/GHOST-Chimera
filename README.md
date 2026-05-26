@@ -351,6 +351,9 @@ ghostchimera console --state-dir /data/ghost-state --no-open
 
 ```bash
 ghostchimera setup                    # interactive setup wizard
+ghostchimera start                    # guided start (runs setup if needed, then opens console)
+ghostchimera ask "Plan my day"        # plain-language one-liner objective
+ghost "Plan my day"                   # short alias for non-technical users
 ghostchimera doctor                   # health checks
 ghostchimera doctor --production      # production-mode gate
 ghostchimera model                    # list / switch model provider
@@ -409,6 +412,9 @@ ghostchimera runtime-warmup --runtime-specialization-cache-dir .ghost/rs --local
 
 # Desktop kill switch
 ghostchimera desktop-stop --desktop-kill-switch-path .ghost/DESKTOP_STOP
+
+# UX audit (OpenClaw/Hermes-inspired recommendations)
+ghostchimera ux-audit --format markdown
 ```
 
 ### `chimera-pilot` â€” Pilot-specific CLI
@@ -1034,4 +1040,3 @@ The full test suite requires `.[gateway]` (croniter) and `.[mcp]` (mcp) to be in
 ## License
 
 MIT â€” see `LICENSE`. Third-party attribution in `NOTICE`.
-
