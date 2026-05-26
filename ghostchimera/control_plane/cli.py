@@ -774,7 +774,8 @@ def _main(argv: list[str] | None = None) -> int:
     if args.pilot_status or args.pilot_run:
         from ..chimera_pilot import ChimeraPilotKernel
 
-        persisted_autonomy = get_autonomy_config(load_config())
+        config = load_config() or {}
+        persisted_autonomy = get_autonomy_config(config)
         autonomy_level = args.autonomy_level or str(persisted_autonomy.get("level") or "supervised")
         kernel = ChimeraPilotKernel.default(
             include_deterministic_backend=args.pilot_status,
@@ -866,122 +867,123 @@ def _run_autonomy_cli(args: argparse.Namespace) -> int:
         if not args.job:
             print(json.dumps({"ok": False, "error": "Missing autonomy job name"}, indent=2, sort_keys=True))
             return 2
-
-
-def _run_start_cli(args: argparse.Namespace) -> int:
-            from .console import run_console
-            from .setup_wizard import run_setup_wizard
-
-            if not args.skip_setup and not load_config():
-                run_setup_wizard()
-            run_console(
-                host=args.host,
-                port=args.port,
-                http_port=args.http_port,
-                state_dir=args.state_dir or None,
-                open_browser=not args.no_open,
-                block=True,
-                auth_token=args.auth_token or "",
-            )
-            return 0
-
-
-def _run_ask_cli(args: argparse.Namespace) -> int:
-            from ..chimera_pilot import ChimeraPilotKernel
-
-            objective = " ".join(args.objective or []).strip()
-            if not objective:
-                print(json.dumps({"ok": False, "error": "objective is required"}, indent=2, sort_keys=True))
-                return 2
-            persisted_autonomy = get_autonomy_config(load_config())
-            autonomy_level = str(persisted_autonomy.get("level") or "supervised")
-            kernel = ChimeraPilotKernel.default(include_deterministic_backend=True, autonomy_level=autonomy_level)
-            try:
-                executions = kernel.run(objective)
-            except PermissionError as exc:
-                payload = {"ok": False, "error": str(exc), "tip": "Run `ghostchimera setup` to tune permissions and model setup."}
-                if args.json:
-                    print(json.dumps(payload, indent=2, sort_keys=True))
-                else:
-                    print(payload["error"])
-                    print(payload["tip"])
-                return 1
-            payload = [execution.to_dict() for execution in executions]
-            if args.json:
-                print(json.dumps(payload, indent=2, sort_keys=True))
-            else:
-                primary_output = ""
-                first_error = ""
-                for item in payload:
-                    if item.get("ok") and str(item.get("output") or "").strip():
-                        primary_output = str(item.get("output") or "").strip()
-                        break
-                    if (not first_error) and item.get("error"):
-                        first_error = str(item.get("error") or "").strip()
-                if primary_output:
-                    print(primary_output)
-                elif first_error:
-                    print(first_error)
-                else:
-                    print("Done.")
-            return 0 if all(item["ok"] for item in payload) else 1
-
-
-def _run_ux_audit_cli(args: argparse.Namespace) -> int:
-            payload = {
-                "ok": True,
-                "title": "Ghost Chimera UX Audit",
-                "scorecard": {
-                    "strengths": [
-                        "Interactive setup wizard already follows OpenClaw/Hermes modular setup patterns.",
-                        "Browser console supports no-code run flows and status visibility.",
-                        "Safety controls default to conservative permissions.",
-                    ],
-                    "gaps": [
-                        "CLI command surface is broad and can feel developer-heavy.",
-                        "Raw JSON output is hard for non-technical operators.",
-                    ],
-                },
-                "upgrades": [
-                    {
-                        "id": "one_liner_terminal",
-                        "status": "implemented",
-                        "inspired_by": ["OpenClaw", "Hermes Agent"],
-                        "usage": ['ghost "Summarize my inbox and draft next steps"', 'ghostchimera ask "Plan my day in 3 tasks"'],
-                    },
-                    {
-                        "id": "guided_start",
-                        "status": "implemented",
-                        "inspired_by": ["OpenClaw", "Hermes Agent"],
-                        "usage": ["ghost start"],
-                    },
-                ],
-            }
-            if args.format == "markdown":
-                print("# Ghost Chimera UX Audit")
-                print()
-                print("## Strengths")
-                for item in payload["scorecard"]["strengths"]:
-                    print(f"- {item}")
-                print()
-                print("## Gaps")
-                for item in payload["scorecard"]["gaps"]:
-                    print(f"- {item}")
-                print()
-                print("## Upgrades")
-                for item in payload["upgrades"]:
-                    print(f"- **{item['id']}** ({item['status']}, inspired by {', '.join(item['inspired_by'])})")
-                    for usage in item["usage"]:
-                        print(f"  - `{usage}`")
-            else:
-                print(json.dumps(payload, indent=2, sort_keys=True))
-            return 0
         runner = AutonomyJobRunner(profile=str(autonomy.get("level") or "supervised"))
         result = runner.run(args.job, execute=args.execute)
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
         return 0 if result.ok else 1
 
     return 2
+
+
+def _run_start_cli(args: argparse.Namespace) -> int:
+    from .console import run_console
+    from .setup_wizard import run_setup_wizard
+
+    if not args.skip_setup and not load_config():
+        run_setup_wizard()
+    run_console(
+        host=args.host,
+        port=args.port,
+        http_port=args.http_port,
+        state_dir=args.state_dir or None,
+        open_browser=not args.no_open,
+        block=True,
+        auth_token=args.auth_token or "",
+    )
+    return 0
+
+
+def _run_ask_cli(args: argparse.Namespace) -> int:
+    from ..chimera_pilot import ChimeraPilotKernel
+
+    objective = " ".join(args.objective or []).strip()
+    if not objective:
+        print(json.dumps({"ok": False, "error": "objective is required"}, indent=2, sort_keys=True))
+        return 2
+    config = load_config() or {}
+    persisted_autonomy = get_autonomy_config(config)
+    autonomy_level = str(persisted_autonomy.get("level") or "supervised")
+    kernel = ChimeraPilotKernel.default(include_deterministic_backend=True, autonomy_level=autonomy_level)
+    try:
+        executions = kernel.run(objective)
+    except PermissionError as exc:
+        payload = {"ok": False, "error": str(exc), "tip": "Run `ghostchimera setup` to tune permissions and model setup."}
+        if args.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(payload["error"])
+            print(payload["tip"])
+        return 1
+    payload = [execution.to_dict() for execution in executions]
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        primary_output = ""
+        first_error = ""
+        for item in payload:
+            if item.get("ok") and str(item.get("output") or "").strip():
+                primary_output = str(item.get("output") or "").strip()
+                break
+            if (not first_error) and item.get("error"):
+                first_error = str(item.get("error") or "").strip()
+        if primary_output:
+            print(primary_output)
+        elif first_error:
+            print(first_error)
+        else:
+            print("Done.")
+    return 0 if all(item["ok"] for item in payload) else 1
+
+
+def _run_ux_audit_cli(args: argparse.Namespace) -> int:
+    payload = {
+        "ok": True,
+        "title": "Ghost Chimera UX Audit",
+        "scorecard": {
+            "strengths": [
+                "Interactive setup wizard already follows OpenClaw/Hermes modular setup patterns.",
+                "Browser console supports no-code run flows and status visibility.",
+                "Safety controls default to conservative permissions.",
+            ],
+            "gaps": [
+                "CLI command surface is broad and can feel developer-heavy.",
+                "Raw JSON output is hard for non-technical operators.",
+            ],
+        },
+        "upgrades": [
+            {
+                "id": "one_liner_terminal",
+                "status": "implemented",
+                "inspired_by": ["OpenClaw", "Hermes Agent"],
+                "usage": ['ghost "Summarize my inbox and draft next steps"', 'ghostchimera ask "Plan my day in 3 tasks"'],
+            },
+            {
+                "id": "guided_start",
+                "status": "implemented",
+                "inspired_by": ["OpenClaw", "Hermes Agent"],
+                "usage": ["ghost start"],
+            },
+        ],
+    }
+    if args.format == "markdown":
+        print("# Ghost Chimera UX Audit")
+        print()
+        print("## Strengths")
+        for item in payload["scorecard"]["strengths"]:
+            print(f"- {item}")
+        print()
+        print("## Gaps")
+        for item in payload["scorecard"]["gaps"]:
+            print(f"- {item}")
+        print()
+        print("## Upgrades")
+        for item in payload["upgrades"]:
+            print(f"- **{item['id']}** ({item['status']}, inspired by {', '.join(item['inspired_by'])})")
+            for usage in item["usage"]:
+                print(f"  - `{usage}`")
+    else:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
 
 
 def _run_capabilities_cli(args: argparse.Namespace) -> int:
