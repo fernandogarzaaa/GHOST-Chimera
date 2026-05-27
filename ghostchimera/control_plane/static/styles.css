@@ -26,13 +26,14 @@ header {
 header h1 { font-size: 16px; font-weight: 650; }
 .tab-bar {
   display: flex; gap: 6px; border-bottom: 1px solid var(--line);
-  background: #15181c; padding: 10px 24px; overflow-x: visible; flex-wrap: wrap;
+  background: #15181c; padding: 10px 24px; overflow-x: auto; flex-wrap: nowrap;
   position: sticky; top: 52px; z-index: 25;
+  scrollbar-width: thin;
 }
 .tab {
   padding: 7px 10px; cursor: pointer; border: 1px solid transparent; background: #11161a;
   color: var(--muted); font: inherit; border-radius: 999px;
-  transition: color .15s, border-color .15s, background .15s; white-space: normal; flex-shrink: 0;
+  transition: color .15s, border-color .15s, background .15s; white-space: nowrap; flex-shrink: 0;
 }
 .tab:hover { color: var(--text); border-color: #3b4651; background: #182026; }
 .tab.active { color: var(--accent); border-color: #247858; background: #10251c; }
@@ -65,6 +66,7 @@ button.danger { color: var(--danger); border-color: var(--danger); background: t
 button.success { color: var(--accent); border-color: var(--accent); background: transparent; }
 button:disabled { opacity: .5; cursor: not-allowed; }
 .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+#tabQuickJump { width: 260px; max-width: min(48vw, 320px); }
 .output {
   background: #0a0c0e; border: 1px solid var(--line); border-radius: 8px;
   padding: 14px; min-height: 120px; max-height: 50vh; overflow: auto;

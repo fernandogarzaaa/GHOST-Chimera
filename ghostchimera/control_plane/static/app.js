@@ -144,13 +144,79 @@
   }
 
   // ── Tabs ─────────────────────────────────────────────────────────────────
-  $$$("#tabBar .tab").forEach(function(tab) {
-    tab.addEventListener("click", function() {
-      $$$(".tab").forEach(function(t) { t.classList.remove("active"); });
-      $$$(".tab-content").forEach(function(c) { c.classList.remove("active"); });
-      tab.classList.add("active");
-      $("#tab-" + tab.dataset.tab).classList.add("active");
+  var ACTIVE_TAB_KEY = "ghostchimera_active_tab";
+
+  function normalizeTabName(name) {
+    name = String(name || "").trim().replace(/^#/, "");
+    return name.indexOf("tab-") === 0 ? name.slice(4) : name;
+  }
+
+  function tabExists(name) {
+    return !!$(".tab[data-tab='" + name + "']");
+  }
+
+  function activateTab(name, opts) {
+    var target = tabExists(name) ? name : "operator";
+    var options = opts || {};
+    $$$(".tab").forEach(function(t) { t.classList.remove("active"); });
+    $$$(".tab-content").forEach(function(c) { c.classList.remove("active"); });
+    var tab = $(".tab[data-tab='" + target + "']");
+    var content = $("#tab-" + target);
+    if (tab) tab.classList.add("active");
+    if (content) content.classList.add("active");
+    if (!options.skipPersist) {
+      try { localStorage.setItem(ACTIVE_TAB_KEY, target); } catch (_) {}
+    }
+    if (!options.skipHash) {
+      if (window.history && window.history.replaceState) window.history.replaceState(null, "", "#" + target);
+      else window.location.hash = target;
+    }
+  }
+
+  function initTabQuickJump() {
+    var quick = $("#tabQuickJump");
+    var datalist = $("#tabQuickJumpList");
+    if (!quick || !datalist) return;
+    datalist.innerHTML = "";
+    $$$("#tabBar .tab").forEach(function(tab) {
+      var option = el("option", { value: tab.textContent.trim() });
+      option.setAttribute("label", tab.dataset.tab);
+      datalist.appendChild(option);
     });
+    quick.addEventListener("keydown", function(e) {
+      if (e.key !== "Enter") return;
+      var q = (quick.value || "").trim().toLowerCase();
+      if (!q) return;
+      var match = Array.prototype.slice.call($$$("#tabBar .tab")).find(function(tab) {
+        var label = tab.textContent.trim().toLowerCase();
+        var key = (tab.dataset.tab || "").toLowerCase();
+        return label === q || key === q || label.indexOf(q) !== -1 || key.indexOf(q) !== -1;
+      });
+      if (match) {
+        activateTab(match.dataset.tab);
+        quick.value = "";
+      } else {
+        toast("No matching tab found.", "warn", 2200);
+      }
+    });
+  }
+
+  $$$("#tabBar .tab").forEach(function(tab) {
+    tab.addEventListener("click", function() { activateTab(tab.dataset.tab); });
+  });
+
+  window.addEventListener("hashchange", function() {
+    var fromHash = normalizeTabName(window.location.hash);
+    if (fromHash) activateTab(fromHash, { skipHash: true });
+  });
+
+  document.addEventListener("keydown", function(e) {
+    if (!(e.ctrlKey || e.metaKey) || String(e.key || "").toLowerCase() !== "k") return;
+    var quick = $("#tabQuickJump");
+    if (!quick) return;
+    e.preventDefault();
+    quick.focus();
+    quick.select();
   });
 
   // ── API helper ───────────────────────────────────────────────────────────
@@ -181,8 +247,7 @@
   function badge(el, text, cls) { el.textContent = text; el.className = "badge " + (cls || ""); }
 
   function openTab(name) {
-    var tab = $(".tab[data-tab='" + name + "']");
-    if (tab) tab.click();
+    activateTab(name);
   }
 
   function setConversationMicState(text, cls) {
@@ -4138,6 +4203,12 @@
 
   // ── Boot ──────────────────────────────────────────────────────────────────
   applyConversationMinimized();
+  initTabQuickJump();
+  var initialTab = normalizeTabName(window.location.hash);
+  if (!initialTab) {
+    try { initialTab = localStorage.getItem(ACTIVE_TAB_KEY) || ""; } catch (_) {}
+  }
+  activateTab(initialTab || "operator", { skipHash: !!normalizeTabName(window.location.hash) });
   renderQuickActions();
   renderHistory();
   initAuth().then(function() {
