@@ -41,6 +41,7 @@ from typing import Any
 
 from .chimera_pilot.executor import PilotExecution
 from .chimera_pilot.kernel import ChimeraPilotKernel
+from .config import GhostChimeraConfig
 from .memory_layer.store import MemoryStore
 from .model_layer.minimind_lifecycle import MiniMindLifecycle
 from .model_layer.minimind_personal_agent import MiniMindPersonalAgent
@@ -107,6 +108,7 @@ class GhostClient:
         *,
         state_dir: str | Path | None = None,
         memory_db: str | Path | None = None,
+        config_path: str | Path | None = None,
         autonomy_level: str = "supervised",
         enable_personal_context: bool = True,
         enable_minimind_summary: bool = True,
@@ -120,6 +122,7 @@ class GhostClient:
         self._enable_personal_context = enable_personal_context
         self._enable_minimind_summary = enable_minimind_summary
         self._include_deterministic_backend = include_deterministic_backend
+        self._config_path = Path(config_path).expanduser() if config_path else None
 
         self._memory = MemoryStore(_db)
         self._email_ingester = EmailIngester(self._memory)
@@ -246,6 +249,17 @@ class GhostClient:
             output_path=output_path,
         )
 
+    def teach_many(
+        self,
+        records: list[dict[str, Any]],
+        *,
+        output_path: str | Path | None = None,
+    ) -> Path:
+        """Append multiple prompt/response pairs to the MiniMind dataset."""
+
+        lifecycle = MiniMindLifecycle(state_dir=self._state_dir)
+        return lifecycle.generate_dataset(records, output_path=output_path)
+
     def training_status(self) -> dict[str, Any]:
         """Return status of the local MiniMind training setup.
 
@@ -352,6 +366,125 @@ class GhostClient:
         )
         result = provider.context_for_objective(objective, limit=limit, summarize=False)
         return result.to_dict()
+
+    def recent_memory_documents(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        """Return recent memory documents with metadata."""
+
+        return self._memory.recent_documents(limit=limit)
+
+    def providers(self) -> dict[str, Any]:
+        """Return provider configuration and readiness summary."""
+
+        from .control_plane.config import config_to_env_vars, load_config
+        from .model_layer.provider_auth import provider_auth_summary
+        from .model_layer.providers import get_provider
+
+        config = load_config(self._config_path)
+        env_overlay = {**os.environ, **config_to_env_vars(config)}
+        active_provider = str(env_overlay.get("GHOSTCHIMERA_MODEL_PROVIDER") or "").strip().lower()
+        payload = provider_auth_summary(config)
+        status: dict[str, Any] = {
+            "ok": False,
+            "provider": active_provider,
+            "available": False,
+            "errors": [],
+        }
+        if active_provider:
+            provider = get_provider(active_provider)
+            if provider is None:
+                status["errors"] = [f"Unknown provider: {active_provider}"]
+            else:
+                errors = provider.validate_config()
+                status = {
+                    "ok": provider.available and not errors,
+                    "provider": provider.name,
+                    "available": provider.available,
+                    "errors": errors,
+                }
+        else:
+            status["errors"] = ["No provider configured."]
+        payload["status"] = status
+        return payload
+
+    def trust_status(self) -> dict[str, Any]:
+        """Return trust-runtime readiness and approval posture."""
+
+        from .trust_runtime import TrustRuntimeStore
+
+        return TrustRuntimeStore(self._state_dir).trust_status()
+
+    def workspace(self, objective: str = "", *, limit: int = 5) -> dict[str, Any]:
+        """Return workspace state and optional relevant objective evidence."""
+
+        from .cognition_layer.workspace_state import OperatorWorkspaceStore
+
+        store = OperatorWorkspaceStore(state_dir=self._state_dir)
+        snapshot = store.snapshot()
+        if objective.strip():
+            snapshot["objective"] = objective
+            snapshot["objective_context"] = store.workspace_context_for_objective(objective, limit=limit)
+        return snapshot
+
+    def train_personal_minimind(
+        self,
+        *,
+        mode: str = "local",
+        epochs: int = 12,
+        learning_rate: float = 0.25,
+        max_vocab: int = 512,
+    ) -> dict[str, Any]:
+        """Train local or neural MiniMind adapters."""
+
+        normalized = mode.strip().lower() or "local"
+        if normalized == "local":
+            lifecycle = MiniMindLifecycle(state_dir=self._state_dir)
+            training = lifecycle.train_local_adapter()
+            return {"ok": bool(training.get("ok")), "mode": normalized, "training": training, "status": self.training_status()}
+        if normalized == "neural":
+            training = self._personal_minimind.train_neural_adapter(
+                epochs=epochs,
+                learning_rate=learning_rate,
+                max_vocab=max_vocab,
+            )
+            return {"ok": bool(training.get("ok")), "mode": normalized, "training": training, "status": self.training_status()}
+        raise ValueError(f"Unsupported MiniMind training mode: {mode}")
+
+    def runtime_status(self) -> dict[str, Any]:
+        """Return an aggregated Ghost runtime status payload."""
+
+        from .personalization.path_state import get_active_ghost_path
+
+        config = GhostChimeraConfig.from_env().to_dict()
+        config["state_dir"] = str(self._state_dir)
+        config["memory_db"] = str(self._memory.db_path)
+        config["autonomy_level"] = self._autonomy_level
+        providers = self.providers()
+        training = self.training_status()
+        personal = self.personal_minimind_status()
+        trust = self.trust_status()
+        workspace = self.workspace()
+        path = get_active_ghost_path(config_path=self._config_path)
+        return {
+            "ok": True,
+            "summary": {
+                "memory_count": self.memory_count(),
+                "provider_ready": bool(providers.get("status", {}).get("ok")),
+                "trust_ready": bool(trust.get("ready")),
+                "training_ready": bool(personal.get("readiness", {}).get("training_ready")),
+            },
+            "config": config,
+            "providers": providers,
+            "training": training,
+            "personal_minimind": personal,
+            "trust": trust,
+            "workspace": {
+                "state_file": workspace.get("state_file"),
+                "quality": workspace.get("quality"),
+                "attention": workspace.get("attention"),
+                "uncertainty": workspace.get("uncertainty"),
+            },
+            "path": path,
+        }
 
     # ── Convenience ───────────────────────────────────────────────────────
 

@@ -323,13 +323,18 @@ def _main(argv: list[str] | None = None) -> int:
     admission_parser.add_argument("--risk-ceiling", choices=["low", "medium", "high", "critical"], default="medium")
     admission_parser.add_argument("--permission", action="append", default=[], help="Requested permission. Repeatable.")
     admission_parser.add_argument("--reason", default="", help="Review reason for transition.")
-    mcp_parser = sub.add_parser("mcp", help="Manage MCP trust registry")
-    mcp_parser.add_argument("action", choices=["trust"], nargs="?", default="trust")
+    mcp_parser = sub.add_parser("mcp", help="Manage MCP trust registry and Ghost MCP runtime")
+    mcp_parser.add_argument("action", choices=["trust", "serve"], nargs="?", default="trust")
     mcp_parser.add_argument("trust_action", choices=["list", "approve", "revoke"], nargs="?", default="list")
     mcp_parser.add_argument("server_id", nargs="?", default="", help="MCP server id.")
     mcp_parser.add_argument("--state-dir", default="", help="Optional Trust Runtime state directory.")
     mcp_parser.add_argument("--risk-ceiling", choices=["low", "medium", "high", "critical"], default="medium")
     mcp_parser.add_argument("--tool", action="append", default=[], help="Reviewed tool name. Repeatable.")
+    mcp_parser.add_argument("--transport", choices=["stdio", "streamable-http", "sse"], default="stdio")
+    mcp_parser.add_argument("--config-path", default="", help="Optional config.json path for portable MCP launches.")
+    mcp_parser.add_argument("--name", default="Ghost Chimera MCP", help="Displayed Ghost MCP server name.")
+    mcp_parser.add_argument("--host", default="127.0.0.1", help="HTTP bind host for non-stdio MCP transports.")
+    mcp_parser.add_argument("--port", type=int, default=8000, help="HTTP bind port for non-stdio MCP transports.")
     path_parser = sub.add_parser("path", help="Show, list, and persist the active multi-purpose Ghost path")
     path_parser.add_argument("action", choices=["show", "set", "list"], nargs="?", default="show")
     path_parser.add_argument("--profile", default="autonomous-engineer", help="Role profile id for 'set'.")
@@ -1425,12 +1430,25 @@ def _run_capability_admission_cli(args: argparse.Namespace) -> int:
 
 
 def _run_mcp_cli(args: argparse.Namespace) -> int:
+    if args.action == "serve":
+        from ..mcp.runtime import create_ghost_mcp
+
+        server = create_ghost_mcp(
+            state_dir=args.state_dir or None,
+            config_path=args.config_path or None,
+            name=args.name,
+        )
+        server.settings.host = args.host
+        server.settings.port = args.port
+        server.run(args.transport)
+        return 0
+
     from ..trust_runtime import TrustRuntimeStore
 
     state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
     store = TrustRuntimeStore(state_dir)
     if args.action != "trust":
-        print(json.dumps({"ok": False, "error": "Only 'trust' is supported."}, indent=2, sort_keys=True))
+        print(json.dumps({"ok": False, "error": "Only 'trust' and 'serve' are supported."}, indent=2, sort_keys=True))
         return 2
     if args.trust_action == "list":
         print(json.dumps(store.mcp_trust_list(), indent=2, sort_keys=True))

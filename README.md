@@ -55,6 +55,7 @@ If you are new to Ghost Chimera, use the tutorial first:
 - [Quick Start â€” Docker](#quick-start--docker)
 - [Developer Install](#developer-install)
 - [Ghost Console â€” Browser UI](#ghost-console--browser-ui)
+- [Ghost MCP Runtime](#ghost-mcp-runtime)
 - [CLI Reference](#cli-reference)
 - [Python SDK](#python-sdk)
 - [Model Providers](#model-providers)
@@ -342,6 +343,39 @@ Console options:
 ghostchimera console --host 0.0.0.0 --port 9001 --http-port 9002
 ghostchimera console --state-dir /data/ghost-state --no-open
 ```
+
+---
+
+## Ghost MCP Runtime
+
+Ghost Chimera can now run as a **compressed MCP capability runtime** with a
+small external surface and one primary tool: `ghost`.
+
+- **Transport-first portability:** stdio is the default transport for Claude,
+  Codex, and other MCP-capable clients.
+- **One massive tool:** the exposed MCP surface is intentionally compressed into
+  `ghost`, which routes internally across execution, memory, MiniMind,
+  personalization, trust, workspace, and provider capabilities.
+- **Action-based protocol:** call `ghost` with an `action` payload such as
+  `run`, `status`, `memory`, `context`, `consent`, `bootstrap`, `teach`,
+  `train`, `trust`, `workspace`, or `providers`.
+
+Start the dedicated runtime:
+
+```bash
+python -m pip install -e ".[mcp_runtime]"
+ghostchimera-mcp
+```
+
+Or launch it from the main CLI:
+
+```bash
+ghostchimera mcp serve
+ghostchimera mcp serve --transport streamable-http --host 127.0.0.1 --port 8000
+```
+
+This keeps Ghost Console and the broader CLI available as operator-facing
+surfaces while positioning MCP as the portable integration shell.
 
 ---
 
