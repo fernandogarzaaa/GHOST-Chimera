@@ -31,11 +31,16 @@ def create_ghost_mcp(
         name="ghost",
         description=(
             "Massive Ghost Chimera capability tool. "
-            "Accepts an action payload such as run, status, memory, context, consent, bootstrap, teach, train, trust, workspace, or providers."
+            "Accepts an action string plus optional payload. "
+            "Supported actions include run, status, memory, context, consent, bootstrap, teach, train, trust, workspace, and providers."
         ),
     )
     def ghost(action: str = "run", payload: dict | None = None) -> dict:
-        return adapter.invoke({"action": action, **(payload or {})})
+        merged_payload = dict(payload or {})
+        payload_action = str(merged_payload.pop("action", "") or "").strip().lower()
+        if payload_action and payload_action != action.strip().lower():
+            raise ValueError("Conflicting action specified in both `action` and `payload.action`.")
+        return adapter.invoke({"action": payload_action or action, **merged_payload})
 
     return server
 

@@ -32,7 +32,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-core = []
 quantum = ["pyqpanda3>=0.3.5"]
 local = ["llama-cpp-python>=0.3.0"]
 minimind = [
@@ -42,7 +41,6 @@ minimind = [
 ]
 cute = ["nvidia-cutlass-dsl>=4.0; python_version == '3.12' and platform_system == 'Linux'"]
 mcp = ["mcp>=1.0.0"]
-mcp_runtime = ["mcp>=1.0.0"]
 gateway = ["websockets>=12.0,<16", "croniter>=6.0.0"]
 voice = [
   "SpeechRecognition>=3.10",

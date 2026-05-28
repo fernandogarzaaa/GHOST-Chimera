@@ -5,11 +5,14 @@ Maps a single external ``ghost`` MCP tool to the broader Ghost Chimera runtime.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from ..sdk import GhostClient
 from ..trust_runtime import TrustRuntimeStore
+
+logger = logging.getLogger(__name__)
 
 
 class GhostMCPAdapter:
@@ -54,6 +57,7 @@ class GhostMCPAdapter:
                 next_actions=self.available_actions(),
             )
         except Exception as exc:  # noqa: BLE001
+            logger.exception("Ghost MCP action failed", extra={"action": action})
             return self._envelope(
                 ok=False,
                 action=action,
@@ -89,7 +93,7 @@ class GhostMCPAdapter:
         providers = self._client.providers()
         warnings: list[str] = []
         if not handoff.get("ok", False) and handoff.get("error"):
-            warnings.append(str(handoff["error"]))
+            warnings.append(str(handoff.get("error")))
         return {
             "ok": result.ok,
             "summary": f"Ghost completed objective via {result.backend_id or 'unknown backend'}.",

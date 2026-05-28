@@ -363,7 +363,7 @@ small external surface and one primary tool: `ghost`.
 Start the dedicated runtime:
 
 ```bash
-python -m pip install -e ".[mcp_runtime]"
+python -m pip install -e ".[mcp]"
 ghostchimera-mcp
 ```
 

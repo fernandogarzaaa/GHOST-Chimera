@@ -122,7 +122,7 @@ class GhostClient:
         self._enable_personal_context = enable_personal_context
         self._enable_minimind_summary = enable_minimind_summary
         self._include_deterministic_backend = include_deterministic_backend
-        self._config_path = Path(config_path).expanduser() if config_path else None
+        self._config_path = Path(config_path).expanduser() if config_path is not None else None
 
         self._memory = MemoryStore(_db)
         self._email_ingester = EmailIngester(self._memory)
