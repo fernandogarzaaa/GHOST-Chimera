@@ -1448,7 +1448,16 @@ def _run_mcp_cli(args: argparse.Namespace) -> int:
     state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
     store = TrustRuntimeStore(state_dir)
     if args.action != "trust":
-        print(json.dumps({"ok": False, "error": "Only 'trust' and 'serve' are supported."}, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": f"Invalid action: {args.action!r}. Only 'trust' with trust_action values list/approve/revoke is supported here.",
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 2
     if args.trust_action == "list":
         print(json.dumps(store.mcp_trust_list(), indent=2, sort_keys=True))

@@ -91,6 +91,9 @@ class GhostClient:
             ``~/.ghostchimera``.
         memory_db: Override memory database path.  Defaults to
             ``<state_dir>/memory.sqlite3``.
+        config_path: Optional path to Ghost configuration for portable
+            deployments, SDK-driven testing, or MCP runtimes that should not
+            rely on the default home-directory config file.
         autonomy_level: One of ``assist``, ``supervised``, ``autonomous``,
             ``generalist``.  Default is ``supervised``.
         enable_personal_context: When ``True``, relevant memory snippets
@@ -122,7 +125,7 @@ class GhostClient:
         self._enable_personal_context = enable_personal_context
         self._enable_minimind_summary = enable_minimind_summary
         self._include_deterministic_backend = include_deterministic_backend
-        self._config_path = Path(config_path).expanduser() if config_path is not None else None
+        self._config_path = Path(config_path).expanduser() if config_path not in {None, ""} else None
 
         self._memory = MemoryStore(_db)
         self._email_ingester = EmailIngester(self._memory)
@@ -255,7 +258,15 @@ class GhostClient:
         *,
         output_path: str | Path | None = None,
     ) -> Path:
-        """Append multiple prompt/response pairs to the MiniMind dataset."""
+        """Append multiple prompt/response pairs to the MiniMind dataset.
+
+        ``records`` should primarily contain dictionaries with ``prompt`` and
+        ``response`` keys. The underlying lifecycle helper also accepts
+        ``instruction``/``output`` aliases, and silently skips records that do
+        not resolve to at least one non-empty prompt/response field.
+        ``output_path`` overrides the default dataset destination when a
+        portable or test-specific path is needed.
+        """
 
         lifecycle = MiniMindLifecycle(state_dir=self._state_dir)
         return lifecycle.generate_dataset(records, output_path=output_path)
@@ -368,7 +379,11 @@ class GhostClient:
         return result.to_dict()
 
     def recent_memory_documents(self, *, limit: int = 20) -> list[dict[str, Any]]:
-        """Return recent memory documents with metadata."""
+        """Return the most recently ingested memory documents with metadata.
+
+        Each dictionary includes ``id``, ``source``, ``content``, parsed
+        ``metadata``, and ``created_at`` fields.
+        """
 
         return self._memory.recent_documents(limit=limit)
 
@@ -450,7 +465,13 @@ class GhostClient:
         raise ValueError(f"Unsupported MiniMind training mode: {mode}")
 
     def runtime_status(self) -> dict[str, Any]:
-        """Return an aggregated Ghost runtime status payload."""
+        """Return an aggregated Ghost runtime status payload.
+
+        The returned dictionary includes top-level ``summary``, ``config``,
+        ``providers``, ``training``, ``personal_minimind``, ``trust``,
+        ``workspace``, and ``path`` keys so higher-level surfaces can inspect
+        Ghost without reaching into individual subsystems.
+        """
 
         from .personalization.path_state import get_active_ghost_path
 

@@ -62,8 +62,8 @@ class GhostMCPAdapter:
                 ok=False,
                 action=action,
                 status="error",
-                summary=f"Ghost action failed: {exc}",
-                warnings=[str(exc)],
+                summary=f"Ghost action {action!r} failed with {type(exc).__name__}: {exc}",
+                warnings=[f"{type(exc).__name__}: {exc}"],
                 next_actions=self.available_actions(),
             )
 
