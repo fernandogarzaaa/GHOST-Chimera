@@ -46,11 +46,20 @@ def test_chat_collects_text_from_agent_sdk(tmp_path, monkeypatch):
 
     assert out == "Hello Ghost"
     assert captured["prompt"] == "say hi"
-    # Single-turn, tool-free, isolated settings.
-    assert captured["options"].max_turns == 1
+    # Tool-free, isolated settings, with turn headroom.
+    assert captured["options"].max_turns >= 1
     assert captured["options"].allowed_tools == []
     assert captured["options"].setting_sources == []
     assert captured["options"].system_prompt == "be concise"
+    # Subscription stream must hit the real API, not the Axiom proxy.
+    assert captured["options"].env.get("ANTHROPIC_BASE_URL") == "https://api.anthropic.com"
+
+
+def test_use_axiom_flag_disables_base_url_override(tmp_path, monkeypatch):
+    _fake_cli(tmp_path, monkeypatch)
+    monkeypatch.setenv("GHOSTCHIMERA_CLAUDE_AGENT_USE_AXIOM", "1")
+    provider = ClaudeAgentProvider()
+    assert provider.force_base_url is None
 
 
 def test_chat_raises_when_no_text(tmp_path, monkeypatch):
