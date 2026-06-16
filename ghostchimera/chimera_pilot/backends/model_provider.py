@@ -7,6 +7,7 @@ from typing import Any
 
 from ...logging_config import get_logger
 from ...model_layer.providers import BaseProvider, get_provider
+from ...model_layer.test_time_compute import self_consistency
 from ..task_ir import TaskKind, TaskSpec
 from .base import BackendCapabilities, BackendHealth, ExecutionResult
 
@@ -80,8 +81,22 @@ class ModelProviderBackend:
             "Report what you can and cannot do; do not pretend work happened."
         )
         prompt = str(task.inputs.get("prompt") or task.inputs.get("query") or task.objective)
+        samples = max(1, int(task.constraints.get("test_time_samples", 1)))
+        metrics: dict[str, Any] = {"provider": self.provider_name, "model": self.model, "kind": task.kind.value}
         try:
-            output = self.provider.chat(system, prompt)
+            if samples > 1:
+                # Test-time compute: sample N candidates and take the majority
+                # answer (self-consistency). A small local model that "thinks
+                # longer" this way can beat a single-pass larger model.
+                result = self_consistency(lambda p: self.provider.chat(system, p), prompt, n=samples)
+                output = result.answer
+                metrics.update(
+                    test_time_samples=samples,
+                    strategy=result.strategy,
+                    vote_share=round(result.vote_share, 4),
+                )
+            else:
+                output = self.provider.chat(system, prompt)
         except Exception as exc:
             logger.warning("Model provider backend failed: %s", exc)
             return ExecutionResult(
@@ -97,7 +112,7 @@ class ModelProviderBackend:
             task_id=task.id,
             ok=True,
             output=output,
-            metrics={"provider": self.provider_name, "model": self.model, "kind": task.kind.value},
+            metrics=metrics,
         )
 
 
