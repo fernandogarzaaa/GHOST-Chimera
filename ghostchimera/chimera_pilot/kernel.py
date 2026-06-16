@@ -138,12 +138,12 @@ class ChimeraPilotKernel:
             enable_minimind_personal_context=enable_minimind_personal_context,
         )
         kernel.registry.register(PythonRuntimeBackend(cwd=cwd, allowed_roots=[cwd] if cwd else None))
-        temporal_graph_db = Path(
-            os.environ.get("GHOSTCHIMERA_TEMPORAL_GRAPH_DB", "~/.ghostchimera/temporal_graph.sqlite3")
-        ).expanduser()
-        kernel.registry.register(
-            CWRBackend(store=memory_store, graph=TemporalGraphStore(temporal_graph_db))
-        )
+        # Bi-temporal graph fusion is opt-in: only attach (and touch its SQLite
+        # file) when a path is configured, so the default kernel does no extra
+        # I/O. Set GHOSTCHIMERA_TEMPORAL_GRAPH_DB to enable.
+        graph_db = os.environ.get("GHOSTCHIMERA_TEMPORAL_GRAPH_DB")
+        graph_store = TemporalGraphStore(Path(graph_db).expanduser()) if graph_db else None
+        kernel.registry.register(CWRBackend(store=memory_store, graph=graph_store))
         if include_model_provider_backend:
             kernel.registry.register(ModelProviderBackend())
         if enable_desktop_backend:
