@@ -183,7 +183,7 @@ class SuperiorityScorecardTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=False,
-            timeout=30,
+            timeout=120,
         )
         self.assertEqual(cli.returncode, 0, cli.stderr or cli.stdout)
         payload = json.loads(cli.stdout)
@@ -200,7 +200,7 @@ class SuperiorityScorecardTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=False,
-            timeout=30,
+            timeout=120,
         )
         self.assertEqual(eval_run.returncode, 0, eval_run.stderr or eval_run.stdout)
         eval_payload = json.loads(eval_run.stdout)

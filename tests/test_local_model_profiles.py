@@ -21,6 +21,17 @@ class LocalModelProfileTests(unittest.TestCase):
         self.assertTrue(profile.fits_budget(system_ram_gb=4, gpu_vram_gb=8))
         self.assertGreaterEqual(profile.max_context_tokens, 8192)
 
+    def test_reasoning_profile_carries_thinking_and_tuning_hints(self) -> None:
+        profile = get_local_model_profile("reasoning")
+
+        self.assertEqual(profile.name, "reasoning")
+        self.assertIn("Qwen3-1.7B", profile.model_id)
+        self.assertTrue(profile.supports_thinking)
+        self.assertEqual(profile.recommended_kv_cache_type, "q8_0")
+        self.assertEqual(profile.recommended_temperature, 0.6)
+        self.assertEqual(profile.provider_hint, "llamacpp")
+        self.assertTrue(profile.fits_budget(system_ram_gb=4, gpu_vram_gb=0))
+
     def test_unknown_profile_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             get_local_model_profile("missing")

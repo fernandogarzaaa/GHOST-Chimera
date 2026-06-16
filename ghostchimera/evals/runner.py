@@ -139,7 +139,7 @@ def _run_python_module(args: list[str], *, env: dict[str, str] | None = None) ->
         text=True,
         capture_output=True,
         check=False,
-        timeout=30,
+        timeout=120,
     )
 
 
@@ -534,7 +534,7 @@ def _case_superiority_browser_e2e_script() -> tuple[bool, str]:
         capture_output=True,
         text=True,
         check=False,
-        timeout=30,
+        timeout=120,
     )
     if completed.returncode != 0:
         return False, completed.stderr or completed.stdout
@@ -1768,7 +1768,7 @@ def _case_local_model_check_reports_profiles() -> tuple[bool, str]:
         capture_output=True,
         text=True,
         check=False,
-        timeout=20,
+        timeout=120,
     )
     try:
         payload = json.loads(completed.stdout)

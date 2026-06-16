@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..logging_config import get_logger
 from ..memory_layer.store import MemoryStore
+from ..memory_layer.temporal_graph import TemporalGraphStore
 from ..safety_layer.production import ProductionGuardrails
 from .autonomy import AutonomyProfile, get_autonomy_profile, get_autonomy_profile_from_env
 from .backends.cwr import CWRBackend
@@ -23,6 +26,7 @@ from .hooks import HookName, HookRegistry
 from .policy import PilotPolicy
 from .resource_registry import ResourceRegistry
 from .scheduler import ChimeraScheduler
+from .task_dag import DagRunReport, NodeResult, TaskDAG
 from .task_ir import TaskKind, TaskSpec
 from .telemetry import InMemoryTelemetryStore
 
@@ -134,7 +138,12 @@ class ChimeraPilotKernel:
             enable_minimind_personal_context=enable_minimind_personal_context,
         )
         kernel.registry.register(PythonRuntimeBackend(cwd=cwd, allowed_roots=[cwd] if cwd else None))
-        kernel.registry.register(CWRBackend(store=memory_store))
+        # Bi-temporal graph fusion is opt-in: only attach (and touch its SQLite
+        # file) when a path is configured, so the default kernel does no extra
+        # I/O. Set GHOSTCHIMERA_TEMPORAL_GRAPH_DB to enable.
+        graph_db = os.environ.get("GHOSTCHIMERA_TEMPORAL_GRAPH_DB")
+        graph_store = TemporalGraphStore(Path(graph_db).expanduser()) if graph_db else None
+        kernel.registry.register(CWRBackend(store=memory_store, graph=graph_store))
         if include_model_provider_backend:
             kernel.registry.register(ModelProviderBackend())
         if enable_desktop_backend:
@@ -289,6 +298,49 @@ class ChimeraPilotKernel:
             results = [self.execute_task(task) for task in tasks]
         self.hooks.fire(HookName.SESSION_END, objective=objective, results=results)
         return results
+
+    def execute_dag(
+        self, tasks: list[TaskSpec], *, max_repairs: int = 1
+    ) -> tuple[DagRunReport, dict[str, PilotExecution]]:
+        """Execute pre-compiled tasks as a typed DAG with locality-bounded repair.
+
+        Dependency edges and precondition/effect keys are read from each task's
+        ``constraints`` (``depends_on`` / ``requires`` / ``produces``). A node
+        failure only invalidates its topological descendants, leaving
+        independent branches intact — unlike the flat ``run`` path. Each node is
+        executed through the same policy-gated :meth:`execute_task` primitive.
+        """
+
+        dag = TaskDAG()
+        for task in tasks:
+            dag.add_node(
+                task.id,
+                task.objective,
+                depends_on=task.constraints.get("depends_on"),
+                requires=task.constraints.get("requires"),
+                produces=task.constraints.get("produces"),
+                payload=task,
+            )
+
+        executions: dict[str, PilotExecution] = {}
+
+        def runner(node, _state):
+            execution = self.execute_task(node.payload)
+            executions[node.id] = execution
+            output = execution.result.output if execution.result is not None else None
+            return NodeResult(ok=execution.ok, output=output)
+
+        report = dag.execute(runner, max_repairs=max_repairs)
+        return report, executions
+
+    def run_dag(self, objective: str, *, max_repairs: int = 1) -> tuple[DagRunReport, dict[str, PilotExecution]]:
+        """Compile an objective and execute it through the typed-DAG path."""
+
+        self.hooks.fire(HookName.SESSION_START, objective=objective)
+        tasks = self.compile(objective)
+        report, executions = self.execute_dag(tasks, max_repairs=max_repairs)
+        self.hooks.fire(HookName.SESSION_END, objective=objective, results=list(executions.values()))
+        return report, executions
 
     def calibrate(self) -> dict[str, Any]:
         calibrator = ChimeraCalibrator(self.registry.list(), self.calibration_store)
