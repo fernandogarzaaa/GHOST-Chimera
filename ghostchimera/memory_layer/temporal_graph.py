@@ -35,12 +35,26 @@ def _now_iso() -> str:
 
 
 def _as_iso(value: str | datetime | None) -> str | None:
+    """Normalize a timestamp to a UTC ISO-8601 string.
+
+    All stored timestamps are normalized to UTC so that the lexicographic SQL
+    comparisons used for system/valid-time filtering are correct even when
+    callers pass naive datetimes or ISO strings with non-UTC offsets.
+    """
+
     if value is None:
         return None
     if isinstance(value, datetime):
         ts = value if value.tzinfo else value.replace(tzinfo=UTC)
-        return ts.isoformat()
-    return str(value)
+        return ts.astimezone(UTC).isoformat()
+    text = str(value)
+    try:
+        ts = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text  # leave unparseable strings untouched
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    return ts.astimezone(UTC).isoformat()
 
 
 @dataclass(frozen=True)
@@ -213,10 +227,14 @@ class TemporalGraphStore:
             clauses.append("predicate = ?")
             params.append(predicate.strip())
 
+        # Valid-window filtering happens in Python, so we must not apply the
+        # caller's LIMIT in SQL first (it could discard rows that pass the
+        # window). Scan system-active matches newest-first under a generous cap,
+        # then truncate after filtering.
         with self._connect() as conn:
             rows = conn.execute(
-                f"SELECT * FROM tg_facts WHERE {' AND '.join(clauses)} ORDER BY id DESC LIMIT ?",
-                (*params, limit * 4),
+                f"SELECT * FROM tg_facts WHERE {' AND '.join(clauses)} ORDER BY id DESC LIMIT 10000",
+                tuple(params),
             ).fetchall()
 
         facts: list[Fact] = []

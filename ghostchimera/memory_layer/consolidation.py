@@ -82,6 +82,7 @@ class ConsolidationReport:
     promoted: int = 0
     skipped_low_heat: int = 0
     skipped_unparseable: int = 0
+    skipped_already_promoted: int = 0
     expired_stale: int = 0
     promoted_ids: list[int] = field(default_factory=list)
 
@@ -91,6 +92,7 @@ class ConsolidationReport:
             "promoted": self.promoted,
             "skipped_low_heat": self.skipped_low_heat,
             "skipped_unparseable": self.skipped_unparseable,
+            "skipped_already_promoted": self.skipped_already_promoted,
             "expired_stale": self.expired_stale,
             "promoted_ids": list(self.promoted_ids),
         }
@@ -117,11 +119,21 @@ class MemoryConsolidator:
 
         now = now or datetime.now(UTC)
         report = ConsolidationReport()
+        already_promoted = self._promoted_episodic_ids()
         for doc in self.episodic.recent_documents(limit=limit):
             report.scanned += 1
+            doc_id = doc.get("id")
+            # Idempotency: never re-promote a document already promoted in a
+            # previous pass (recurring sleep-time runs rescan the same buffer).
+            if doc_id in already_promoted:
+                report.skipped_already_promoted += 1
+                continue
             content = (doc.get("content") or "").strip()
             metadata = doc.get("metadata") or {}
-            access_count = int(metadata.get("access_count", 0))
+            try:
+                access_count = int(metadata.get("access_count", 0))
+            except (TypeError, ValueError):
+                access_count = 0
             heat = heat_score(
                 created_at=doc.get("created_at", ""),
                 access_count=access_count,
@@ -151,6 +163,16 @@ class MemoryConsolidator:
             report.promoted += 1
             report.promoted_ids.append(int(doc["id"]))
         return report
+
+    def _promoted_episodic_ids(self) -> set[int]:
+        """Episodic document ids already represented in the semantic graph."""
+
+        promoted: set[int] = set()
+        for fact in self.semantic.system_active_facts(limit=10000):
+            episodic_id = fact.provenance.get("episodic_id")
+            if isinstance(episodic_id, int):
+                promoted.add(episodic_id)
+        return promoted
 
     def expire_stale(self, *, now: datetime | None = None, limit: int = 1000) -> int:
         """System-expire durable facts whose validity ended long ago."""

@@ -90,6 +90,38 @@ def test_expire_stale_facts(tmp_path):
     assert semantic.active_facts(subject="user", predicate="lived_in") == []
 
 
+def test_consolidation_is_idempotent(tmp_path):
+    episodic, semantic = _pair(tmp_path)
+    episodic.add_document(
+        "chat",
+        "employer fact",
+        {"subject": "user", "predicate": "works_at", "object": "Globex", "access_count": 9},
+    )
+    consolidator = MemoryConsolidator(episodic, semantic, promotion_threshold=0.3)
+
+    first = consolidator.consolidate()
+    second = consolidator.consolidate()
+
+    assert first.promoted == 1
+    assert second.promoted == 0
+    assert second.skipped_already_promoted == 1
+    # No duplicate facts created on the second pass.
+    assert semantic.count(active_only=True) == 1
+
+
+def test_non_integer_access_count_does_not_abort(tmp_path):
+    episodic, semantic = _pair(tmp_path)
+    episodic.add_document(
+        "chat",
+        "fact one",
+        {"subject": "user", "predicate": "uses", "object": "Linux", "access_count": "lots"},
+    )
+    consolidator = MemoryConsolidator(episodic, semantic, promotion_threshold=0.0)
+    report = consolidator.consolidate()
+    assert report.scanned == 1
+    assert report.promoted == 1
+
+
 def test_run_reports_combined(tmp_path):
     episodic, semantic = _pair(tmp_path)
     episodic.add_document(

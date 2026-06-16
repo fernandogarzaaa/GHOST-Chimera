@@ -81,7 +81,10 @@ class ModelProviderBackend:
             "Report what you can and cannot do; do not pretend work happened."
         )
         prompt = str(task.inputs.get("prompt") or task.inputs.get("query") or task.objective)
-        samples = max(1, int(task.constraints.get("test_time_samples", 1)))
+        try:
+            samples = max(1, int(task.constraints.get("test_time_samples", 1)))
+        except (TypeError, ValueError):
+            samples = 1
         metrics: dict[str, Any] = {"provider": self.provider_name, "model": self.model, "kind": task.kind.value}
         try:
             if samples > 1:

@@ -98,6 +98,37 @@ def test_min_confidence_filter(tmp_path):
     assert {f.obj for f in high} == {"tea"}
 
 
+def test_timestamps_normalized_to_utc_for_correct_ordering(tmp_path):
+    store = _store(tmp_path)
+    # Same instant expressed in two different offsets; the later real instant
+    # is the +09:00 one recorded earlier in wall-clock but they must order by
+    # true UTC instant, not lexicographically by raw string.
+    store.add_fact(
+        "user", "status", obj="old", exclusive=True, recorded_at="2026-06-16T09:00:00+09:00"
+    )  # == 00:00:00Z
+    store.add_fact(
+        "user", "status", obj="new", exclusive=True, recorded_at="2026-06-16T01:00:00+00:00"
+    )  # == 01:00:00Z (later)
+    active = store.active_facts(subject="user", predicate="status")
+    assert len(active) == 1
+    assert active[0].obj == "new"
+    # Stored form is UTC-normalized.
+    assert active[0].recorded_at.endswith("+00:00")
+
+
+def test_valid_window_with_offset_timestamps(tmp_path):
+    store = _store(tmp_path)
+    store.add_fact(
+        "user",
+        "lived_in",
+        obj="Tokyo",
+        valid_from="2020-01-01T00:00:00+09:00",
+        valid_to="2022-12-31T00:00:00+09:00",
+    )
+    inside = store.active_facts(subject="user", predicate="lived_in", as_of="2021-06-01T00:00:00+00:00")
+    assert len(inside) == 1
+
+
 def test_value_facts_and_validation(tmp_path):
     store = _store(tmp_path)
     fid = store.add_fact("user", "timezone", value="Asia/Manila")
