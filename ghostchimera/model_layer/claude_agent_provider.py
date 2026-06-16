@@ -58,6 +58,19 @@ class ClaudeAgentProvider(BaseProvider):
         )
         self.cli_path = _claude_cli_path()
         self.timeout_seconds = float(os.environ.get("GHOSTCHIMERA_CLAUDE_AGENT_TIMEOUT_SECONDS", "180"))
+        # Headroom for the CLI's internal turns. Tools are disabled, so the model
+        # still just answers; a cap of 1 falsely trips "max turns" on richer
+        # prompts that need a planning turn before the final reply.
+        self.max_turns = max(1, int(os.environ.get("GHOSTCHIMERA_CLAUDE_AGENT_MAX_TURNS", "8")))
+        # The Claude Code subscription stream-json protocol must reach the real
+        # Anthropic API. Routing it through the Axiom TTT proxy returns a 502
+        # "decode error", so by default we pin the spawned CLI to api.anthropic.com.
+        # Opt back into proxy routing with GHOSTCHIMERA_CLAUDE_AGENT_USE_AXIOM=1.
+        self.force_base_url = (
+            None
+            if os.environ.get("GHOSTCHIMERA_CLAUDE_AGENT_USE_AXIOM") == "1"
+            else os.environ.get("GHOSTCHIMERA_CLAUDE_AGENT_BASE_URL", "https://api.anthropic.com")
+        )
         self._sdk_present = _sdk_available()
         self.available = self._sdk_present and self.cli_path is not None
 
@@ -104,14 +117,21 @@ class ClaudeAgentProvider(BaseProvider):
             query,
         )
 
+        env_override: dict[str, str] = {}
+        if self.force_base_url:
+            # options.env overrides inherited process env in the SDK, so this
+            # wins over any ANTHROPIC_BASE_URL pointing at the Axiom proxy.
+            env_override["ANTHROPIC_BASE_URL"] = self.force_base_url
+
         options = ClaudeAgentOptions(
             system_prompt=system_message,
             model=self.model,
             allowed_tools=[],          # pure reasoning backend — no tool use
-            max_turns=1,               # single response, not an agent loop
+            max_turns=self.max_turns,  # headroom; no tools, so it still just answers
             permission_mode="default",
             setting_sources=[],        # do not load user/project CLAUDE.md, hooks, MCP
             cli_path=self.cli_path,
+            env=env_override,
         )
 
         chunks: list[str] = []
