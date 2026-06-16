@@ -2986,9 +2986,58 @@
       item.appendChild(el("span", { class: "meta" }, st.memory_db || ""));
       ms.appendChild(item);
     } catch (_) { empty("#memoryStatus", "Memory unavailable."); }
+    await refreshMemoryGraph();
   }
 
   function memOut(r) { $("#memoryOutput").textContent = JSON.stringify(r, null, 2); }
+
+  async function refreshMemoryGraph() {
+    try {
+      var g = await api("/api/console/memory/graph?limit=25");
+      $("#memoryGraphStatus").textContent =
+        "Active facts: " + (g.active_fact_count || 0) + " / total " + (g.total_fact_count || 0) +
+        "  •  " + (g.graph_db || "");
+      var facts = g.facts || [];
+      var box = $("#memoryGraphOutput");
+      box.innerHTML = "";
+      if (!facts.length) {
+        box.appendChild(el("span", { class: "empty" }, "No active facts yet. Run consolidation to promote memories."));
+        return;
+      }
+      facts.forEach(function(f) {
+        var obj = f.object != null ? f.object : (f.value != null ? f.value : "");
+        var row = el("div", { class: "fact-row" });
+        row.appendChild(el("span", { class: "fact-subj" }, String(f.subject)));
+        row.appendChild(el("span", { class: "fact-pred" }, String(f.predicate)));
+        row.appendChild(el("span", { class: "fact-obj" }, String(obj)));
+        if (f.confidence != null) {
+          row.appendChild(el("span", { class: "fact-conf" }, Number(f.confidence).toFixed(2)));
+        }
+        box.appendChild(row);
+      });
+    } catch (_) {
+      $("#memoryGraphStatus").textContent = "Knowledge graph unavailable.";
+    }
+  }
+
+  $("#memoryGraphRefresh").addEventListener("click", function() { refreshMemoryGraph(); });
+
+  $("#memoryConsolidate").addEventListener("click", async function() {
+    var btn = $("#memoryConsolidate");
+    btn.disabled = true;
+    try {
+      var r = await api("/api/console/memory/consolidate", { method: "POST", body: {} });
+      memOut(r);
+      if (r.ok) {
+        var rep = r.report || {};
+        toast("Consolidation: promoted " + (rep.promoted || 0) + ", expired " + (rep.expired_stale || 0) + ".", "ok");
+        await refreshMemoryGraph();
+      } else {
+        toast(r.error || "Consolidation failed.", "error");
+      }
+    } catch (e) { toast(e.message, "error"); }
+    finally { btn.disabled = false; }
+  });
 
   $("#emailIngestFile").addEventListener("click", async function() {
     var path = ($("#emailFilePath").value || "").trim();
