@@ -959,6 +959,18 @@
     </div>
     <pre class="output" id="memoryOutput">Ready.</pre>
 
+    <div class="section-hdr">🕸️ Knowledge Graph &amp; Consolidation</div>
+    <p class="hint" style="margin-bottom:8px;">
+      Ghost's bi-temporal knowledge graph holds durable facts promoted from episodic memory.
+      Run a sleep-time consolidation pass to promote salient memories and retire stale facts.
+    </p>
+    <div id="memoryGraphStatus" class="hint" style="margin-bottom:6px;">Graph status not loaded.</div>
+    <div class="row" style="margin-bottom:10px;">
+      <button id="memoryGraphRefresh" class="primary">Refresh Graph</button>
+      <button id="memoryConsolidate" class="primary">Run Consolidation</button>
+    </div>
+    <div id="memoryGraphOutput" class="fact-list"><span class="empty">No active facts loaded.</span></div>
+
     <div class="section-hdr">🎓 Teach Ghost</div>
     <p class="hint" style="margin-bottom:8px;">
       Record a good prompt/response pair to grow Ghost's personal training dataset.

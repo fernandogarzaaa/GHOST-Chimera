@@ -26,6 +26,7 @@ from urllib import request as urllib_request
 
 from ..logging_config import get_logger
 from .base_provider import BaseProvider
+from .claude_agent_provider import ClaudeAgentProvider
 from .codex_cli_provider import CodexCliProvider
 from .gemini_provider import GeminiProvider
 from .llamacpp_runtime import LlamaCppRuntime
@@ -313,6 +314,7 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
     AI21Provider.name: AI21Provider,
     AnthropicProvider.name: AnthropicProvider,
     CerebrasProvider.name: CerebrasProvider,
+    ClaudeAgentProvider.name: ClaudeAgentProvider,
     CodexCliProvider.name: CodexCliProvider,
     CohereProvider.name: CohereProvider,
     DeepInfraProvider.name: DeepInfraProvider,
@@ -346,6 +348,7 @@ TEXT_PROVIDERS: dict[str, type[BaseProvider]] = {
     AI21Provider.name: AI21Provider,
     AnthropicProvider.name: AnthropicProvider,
     CerebrasProvider.name: CerebrasProvider,
+    ClaudeAgentProvider.name: ClaudeAgentProvider,
     CodexCliProvider.name: CodexCliProvider,
     CohereProvider.name: CohereProvider,
     DeepInfraProvider.name: DeepInfraProvider,

@@ -48,7 +48,9 @@ from ..integrations.remote_control import (
     verify_remote_webhook_signature,
     verify_whatsapp_webhook_challenge,
 )
+from ..memory_layer.maintenance import run_memory_consolidation
 from ..memory_layer.store import MemoryStore
+from ..memory_layer.temporal_graph import TemporalGraphStore
 from ..model_layer.auth_profiles import AuthProfile
 from ..model_layer.codex_cli_provider import codex_login_command, get_codex_cli_status, launch_codex_login_flow
 from ..model_layer.local_model_inventory import discover_local_model_inventory, resolve_model_source
@@ -2325,6 +2327,44 @@ def register_console_routes(
             stale_after_days=float(stale_after_days) if stale_after_days is not None else None,
         )
         return {"ok": True, "query": query, "results": results}
+
+    def _temporal_graph_path() -> str:
+        return os.environ.get("GHOSTCHIMERA_TEMPORAL_GRAPH_DB") or str(
+            Path(server.config.memory_db).expanduser().parent / "temporal_graph.sqlite3"
+        )
+
+    def memory_graph(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Surface the bi-temporal knowledge graph: counts + recent active facts."""
+        graph_path = _temporal_graph_path()
+        graph = TemporalGraphStore(graph_path)
+        try:
+            limit = int((ctx.get("query") or {}).get("limit") or 25)
+        except (TypeError, ValueError):
+            limit = 25
+        facts = [fact.as_dict() for fact in graph.system_active_facts(limit=max(1, min(limit, 200)))]
+        return {
+            "ok": True,
+            "graph_db": str(graph_path),
+            "active_fact_count": graph.count(active_only=True),
+            "total_fact_count": graph.count(),
+            "facts": facts,
+        }
+
+    def memory_consolidate(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Run one sleep-time consolidation pass (episodic -> semantic graph)."""
+        body = _json_body(ctx)
+        try:
+            threshold = float(body.get("promotion_threshold", 0.55))
+            limit = int(body.get("limit", 200))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "Invalid promotion_threshold or limit"}
+        report = run_memory_consolidation(
+            memory_db=server.config.memory_db,
+            graph_db=_temporal_graph_path(),
+            promotion_threshold=threshold,
+            limit=limit,
+        )
+        return {"ok": True, "report": report}
 
     def training_status(ctx: dict[str, Any]) -> dict[str, Any]:
         """Return MiniMind training setup status including dataset record count."""
@@ -4947,6 +4987,18 @@ def register_console_routes(
         description="Ingest a local file or directory into personal memory",
     )
     _api_register("/api/console/memory/search", memory_search, method="POST", description="Search local CWR memory")
+    _api_register(
+        "/api/console/memory/graph",
+        memory_graph,
+        method="GET",
+        description="Inspect the bi-temporal knowledge graph (counts + active facts)",
+    )
+    _api_register(
+        "/api/console/memory/consolidate",
+        memory_consolidate,
+        method="POST",
+        description="Run a sleep-time memory consolidation pass",
+    )
     _api_register(
         "/api/console/training/status",
         training_status,
