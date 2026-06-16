@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import claude_agent_sdk
 import pytest
-from claude_agent_sdk import AssistantMessage, TextBlock
 
 from ghostchimera.model_layer.claude_agent_provider import ClaudeAgentProvider
 from ghostchimera.model_layer.providers import get_provider
@@ -29,6 +27,9 @@ def test_unavailable_without_cli(monkeypatch):
 
 
 def test_chat_collects_text_from_agent_sdk(tmp_path, monkeypatch):
+    claude_agent_sdk = pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import AssistantMessage, TextBlock
+
     _fake_cli(tmp_path, monkeypatch)
     captured = {}
 
@@ -53,6 +54,7 @@ def test_chat_collects_text_from_agent_sdk(tmp_path, monkeypatch):
 
 
 def test_chat_raises_when_no_text(tmp_path, monkeypatch):
+    claude_agent_sdk = pytest.importorskip("claude_agent_sdk")
     _fake_cli(tmp_path, monkeypatch)
 
     async def empty_query(*, prompt, options=None, transport=None):
