@@ -2,14 +2,26 @@
 
 ## Summary
 
-- **Total dependencies:** 21
-- **Dependencies with risks:** 21
+- **Total dependencies:** 38
+- **Dependencies with risks:** 34
+
+## Base Dependencies
+
+- `certifi>=2024.2.2` :warning:
+  - Unpinned upper bound (>=)
+- `croniter>=6.0.0` :warning:
+  - Unpinned upper bound (>=)
+- `jsonschema>=4.0` :warning:
+  - Unpinned upper bound (>=)
+- `pyautogui>=0.9.54` :warning:
+  - Unpinned upper bound (>=)
+- `websockets>=12.0,<16`
 
 ## Optional Extras
 
 ### [quantum]
 
-- `pyqpanda3>=3.0` :warning:
+- `pyqpanda3>=0.3.5` :warning:
   - Unpinned upper bound (>=)
 
 ### [local]
@@ -38,14 +50,34 @@
 
 ### [gateway]
 
-- `websockets>=12.0` :warning:
-  - Unpinned upper bound (>=)
+- `websockets>=12.0,<16`
 - `croniter>=6.0.0` :warning:
+  - Unpinned upper bound (>=)
+
+### [voice]
+
+- `SpeechRecognition>=3.10` :warning:
+  - Unpinned upper bound (>=)
+- `faster-whisper>=1.0` :warning:
+  - Unpinned upper bound (>=)
+- `pocketsphinx>=5.0` :warning:
+  - Unpinned upper bound (>=)
+- `vosk>=0.3.45` :warning:
   - Unpinned upper bound (>=)
 
 ### [all]
 
-- `pyqpanda3>=3.0` :warning:
+- `certifi>=2024.2.2` :warning:
+  - Unpinned upper bound (>=)
+- `croniter>=6.0.0` :warning:
+  - Unpinned upper bound (>=)
+- `jsonschema>=4.0` :warning:
+  - Unpinned upper bound (>=)
+- `pyautogui>=0.9.54` :warning:
+  - Unpinned upper bound (>=)
+- `websockets>=12.0,<16`
+- `fsspec[http]>=2023.1.0,<=2026.2.0`
+- `pyqpanda3>=0.3.5` :warning:
   - Unpinned upper bound (>=)
 - `llama-cpp-python>=0.3.0` :warning:
   - Unpinned upper bound (>=)
@@ -59,9 +91,13 @@
   - Unpinned upper bound (>=)
 - `mcp>=1.0.0` :warning:
   - Unpinned upper bound (>=)
-- `websockets>=12.0` :warning:
+- `SpeechRecognition>=3.10` :warning:
   - Unpinned upper bound (>=)
-- `croniter>=6.0.0` :warning:
+- `faster-whisper>=1.0` :warning:
+  - Unpinned upper bound (>=)
+- `pocketsphinx>=5.0` :warning:
+  - Unpinned upper bound (>=)
+- `vosk>=0.3.45` :warning:
   - Unpinned upper bound (>=)
 
 ### [dev]
@@ -75,7 +111,7 @@
 
 ## Common Risks
 
-- **Unpinned upper bound (>=):** 21 occurrences
+- **Unpinned upper bound (>=):** 34 occurrences
 
 ---
 
