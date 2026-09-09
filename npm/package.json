@@ -1,0 +1,40 @@
+{
+  "name": "ghostchimera",
+  "version": "0.4.0-beta",
+  "description": "Ghost Chimera — background AI infrastructure. Local-first ambient intelligence runtime with Stealth Loop, host adapters, and Ghost Console.",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "ghostchimera": "./bin/ghostchimera.js",
+    "ghost": "./bin/ghostchimera.js"
+  },
+  "files": [
+    "bin/",
+    "install.js",
+    "README.npm.md"
+  ],
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fernandogarzaaa/GHOST-Chimera.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fernandogarzaaa/GHOST-Chimera/issues"
+  },
+  "homepage": "https://github.com/fernandogarzaaa/GHOST-Chimera#readme",
+  "keywords": [
+    "ai",
+    "agents",
+    "orchestration",
+    "local-first",
+    "ghost",
+    "chimera",
+    "console",
+    "mcp"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
