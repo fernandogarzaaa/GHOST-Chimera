@@ -23,8 +23,6 @@ def bearer_get_json(url: str, token: str, *, params: dict[str, str] | None = Non
 
 def vault_token(state_dir: str, provider: str) -> str:
     """Read a usable access token from the connector vault, or ''."""
-    from pathlib import Path
-
     from .oauth import TokenVault
 
     token = TokenVault(state_dir).valid_token(provider)
