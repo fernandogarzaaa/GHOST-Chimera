@@ -4446,14 +4446,13 @@
     }
   });
 
-  // ── Integrations (connectors: native OAuth + Nango) ────────────────────
+  // ── Integrations (Custom Auth Engine: built-in OAuth, no cloud) ───────
   async function refreshIntegrations() {
     var list = $("#integrationList");
     var out = $("#integrationOutput");
     try {
       var data = await api("/api/connectors/providers");
-      badge($("#integrationsNango"), data.nango_configured ? "nango ready" : "nango not configured",
-        data.nango_configured ? "ok" : "warn");
+      badge($("#integrationsNango"), "auth engine: built-in", "ok");
       if (!list) return;
       list.innerHTML = "";
       (data.providers || []).forEach(function(p) {
@@ -4470,10 +4469,6 @@
         main.appendChild(meta);
         item.appendChild(main);
         var actions = el("div", { class: "actions" });
-        var docs = el("button", {});
-        docs.textContent = "Docs";
-        docs.addEventListener("click", function() { window.open(p.docs, "_blank"); });
-        actions.appendChild(docs);
         var connect = el("button", { class: "primary" });
         connect.textContent = connected ? "Reconnect" : "Connect";
         connect.addEventListener("click", function() { connectIntegration(p, out); });
@@ -4481,7 +4476,8 @@
         item.appendChild(actions);
         list.appendChild(item);
       });
-      if (out) out.textContent = (data.providers || []).length + " providers loaded.";
+      if (out) out.textContent = (data.providers || []).length + " providers loaded. " +
+        "Connect opens the provider login; Ghost stores encrypted tokens locally.";
     } catch (e) {
       if (out) out.textContent = "Error: " + e.message;
     }
@@ -4489,21 +4485,20 @@
 
   async function connectIntegration(p, out) {
     try {
-      var connectionId = "console-" + Date.now().toString(36);
-      var data = await api("/api/connectors/nango/session",
-        { method: "POST", body: { providerConfigKey: p.key, connectionId: connectionId } });
+      var entityId = "console-user";
+      var redirect = window.location.origin + "/api/auth/callback";
+      var data = await api("/api/auth/authorize",
+        { method: "POST", body: { provider: p.key, entity_id: entityId, redirect_uri: redirect } });
       if (!data.ok) {
-        if (out) out.textContent = "Direct OAuth for " + p.display +
-          ": add provider credentials in Config, or set NANGO_SECRET_KEY for 1-click connect. (" +
-          (data.error || "unavailable") + ")";
-        else toast("Direct OAuth for " + p.display + ".", "warn");
+        if (out) out.textContent = "Cannot start " + p.display + " login: " +
+          (data.error || "unavailable") + ". Add the provider client ID to the environment first.";
+        else toast("Login unavailable for " + p.display + ".", "warn");
         return;
       }
-      if (out) out.textContent = "Nango session ready for " + p.display +
-        " (connection " + data.session.connectionId + "). " +
-        "In a Nango-enabled dashboard call nango.auth('" + data.session.providerConfigKey +
-        "', '" + data.session.connectionId + "'). Docs: " + p.docs;
-      toast("Connection session prepared for " + p.display + ".", "ok");
+      window.open(data.authorize_url, "_blank");
+      if (out) out.textContent = "Login window opened for " + p.display +
+        ". Approve access, then press Refresh Status. Tokens stay encrypted on this machine.";
+      toast("Complete the " + p.display + " login, then Refresh Status.", "ok");
     } catch (e) {
       if (out) out.textContent = "Error: " + e.message;
     }

@@ -1,11 +1,10 @@
-"""Agent-output pipeline + Nango inbox connector + secret-leak guard tests."""
+"""Agent-output pipeline + unified webhooks + secret-leak guard tests."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from ghostchimera.connectors import NangoInboxConnector
 from ghostchimera.stealth import (
     AutonomyLevel,
     GhostPolicy,
@@ -104,32 +103,25 @@ def test_handle_agent_output_rejects_malformed() -> None:
         loop.close()
 
 
-def test_nango_inbox_connector_feeds_loop(tmp_path: Path) -> None:
-    inbox_dir = tmp_path / "connector_oauth"
-    inbox_dir.mkdir(parents=True)
-    (inbox_dir / "nango_webhooks.jsonl").write_text(
-        "\n".join([
-            json.dumps({"type": "message", "connectionId": "va_1",
-                        "providerConfigKey": "slack", "received_at": 1000.0}),
-            "not-json{{{",
-            json.dumps({"type": "action", "connectionId": "va_2",
-                        "providerConfigKey": "zendesk", "received_at": 1001.0}),
-        ]), encoding="utf-8")
+def test_unified_webhooks_feed_loop() -> None:
+    from ghostchimera.connectors import normalize_webhook
+
     loop = StealthLoop()
     try:
-        connector = NangoInboxConnector(tmp_path)
-        assert connector.authenticate()["authenticated"] is True
-        assert connector.poll(loop.emit) == 2  # bad line skipped
+        delivered = 0
+        for source, did, va, payload in [
+            ("slack", "d1", "va-1", {"event": {"type": "message", "user": "U1",
+                                               "text": "help", "channel": "C1", "ts": "1"}}),
+            ("gmail", "d2", "va-1", {"id": "m1", "payload": {"headers": [
+                {"name": "From", "value": "c@example.com"},
+                {"name": "Subject", "value": "Hi"}]}}),
+            ("slack", "d0", "va-1", {"type": "url_verification"}),
+        ]:
+            event = normalize_webhook(source, did, va, payload)
+            if event is not None and loop.emit(event):
+                delivered += 1
+        assert delivered == 2  # ping acked, not learned
         assert loop.bus.processed == 2
-        assert connector.poll(loop.emit) == 0  # offset advanced, no redelivery
-    finally:
-        loop.close()
-
-
-def test_nango_inbox_missing_file_is_silent(tmp_path: Path) -> None:
-    loop = StealthLoop()
-    try:
-        assert NangoInboxConnector(tmp_path).poll(loop.emit) == 0
     finally:
         loop.close()
 

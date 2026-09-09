@@ -72,13 +72,16 @@ def get_service_loop(state_dir: str | Path) -> Any:
 
 
 def approve_draft(loop: Any, intervention_id: str, *, final_text: str = "",
-                  connections: dict[str, str] | None = None) -> dict[str, Any]:
+                  connections: dict[str, str] | None = None,
+                  state_dir: str | Path | None = None) -> dict[str, Any]:
     """One-click approve: STE-check the final text, send when possible.
 
     Returns {approved, sent, detail, final_text, rules}. `sent` is True
-    only when a Nango executor actually delivered every action; otherwise
-    the approval is recorded and the text is returned for copy-paste /
-    manual send — never claimed as sent.
+    only when the Custom Auth Engine actually delivered every action;
+    otherwise the approval is recorded and the text is returned for
+    copy-paste / manual send — never claimed as sent.
+
+    `connections` maps provider key -> entity_id holding the OAuth grant.
     """
     from ..stealth.intervention import InterventionOutcome, InterventionState
     from ..stealth.ste import simplify
@@ -111,23 +114,36 @@ def approve_draft(loop: Any, intervention_id: str, *, final_text: str = "",
             intervention.transition(InterventionState.READY)
     except ValueError as exc:
         return {"ok": False, "error": f"bad intervention state: {exc}"}
-    # Attempt delivery through Nango when fully configured.
+    # Attempt delivery through the Custom Auth Engine when a grant exists.
     sent, detail, results = False, "not sent", []
     connections = connections or {}
     try:
-        from .nango import NangoAction, NangoClient
+        from .auth_engine import PROVIDERS, CustomAuthEngine, EngineAction
 
-        client = NangoClient()
-        for action in actions:
-            provider = str(action.get("provider", ""))
-            connection_id = connections.get(provider, "")
-            if not connection_id:
-                raise ValueError(f"no connection mapped for provider '{provider}'")
-            results.append(NangoAction(
-                provider=provider, endpoint=str(action.get("endpoint", "/")),
-                payload=action.get("payload") if isinstance(action.get("payload"), dict) else {},
-            ).execute(client, connection_id=connection_id))
-        sent, detail = True, f"delivered {len(results)} action(s) via Nango"
+        engine = CustomAuthEngine(
+            Path(state_dir) if state_dir else Path.home() / ".ghostchimera")
+        try:
+            for action in actions:
+                provider = str(action.get("provider", ""))
+                entity_id = connections.get(provider, "")
+                if not entity_id:
+                    raise ValueError(f"no connected account mapped for provider '{provider}'")
+                endpoint = str(action.get("endpoint", "/"))
+                if endpoint.startswith("http"):
+                    url = endpoint
+                else:
+                    base = PROVIDERS[provider].api_base if provider in PROVIDERS else ""
+                    if not base or "{" in base:
+                        raise ValueError(
+                            f"provider '{provider}' needs an absolute action URL")
+                    url = base.rstrip("/") + "/" + endpoint.lstrip("/")
+                results.append(EngineAction(
+                    provider=provider, url=url,
+                    payload=action.get("payload") if isinstance(action.get("payload"), dict) else {},
+                ).execute(engine, entity_id))
+        finally:
+            engine.close()
+        sent, detail = True, f"delivered {len(results)} action(s) via connected account"
     except Exception as exc:
         detail = f"approved but not sent ({type(exc).__name__}: {exc}); copy-paste the text below"
     intervention.provenance["approval"] = {

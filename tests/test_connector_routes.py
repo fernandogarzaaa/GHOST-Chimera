@@ -66,47 +66,37 @@ def test_providers_and_status_are_redacted(tmp_path) -> None:
         code, data = _get(BASE + "/api/connectors/providers")
         assert code == 200 and data["ok"] is True
         assert len(data["providers"]) == 13
-        assert "SECRET" not in json.dumps(data).upper() or True
         assert "sk-or" not in json.dumps(data)
-        assert data["nango_configured"] is False
+        assert data["auth_engine"] == "custom"
         code, status = _get(BASE + "/api/connectors/status")
         assert code == 200 and status["native"]["slack"]["connected"] is False
     finally:
         server.stop()
 
 
-def test_nango_session_needs_keys_but_never_leaks(tmp_path, monkeypatch) -> None:
-
-    monkeypatch.setenv("NANGO_SECRET_KEY", "test-secret")
-    monkeypatch.setenv("NANGO_PUBLIC_KEY", "test-public")
+def test_auth_authorize_callback_status_revoke(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("SLACK_CLIENT_ID", "cid")
+    monkeypatch.setenv("SLACK_CLIENT_SECRET", "csecret")
     server = _server(tmp_path)
     BASE = _base(server)
     try:
-        code, data = _post(BASE + "/api/connectors/nango/session",
-                           {"providerConfigKey": "slack", "connectionId": "va_1"})
-        assert code == 200 and data["ok"] is True
-        assert data["session"]["publicKey"] == "test-public"
-        assert "test-secret" not in json.dumps(data)
-        code, bad = _post(BASE + "/api/connectors/nango/session",
-                          {"providerConfigKey": "nope", "connectionId": "x"})
+        code, auth = _post(BASE + "/api/auth/authorize",
+                           {"provider": "slack", "entity_id": "va-1",
+                            "redirect_uri": "http://localhost/cb"})
+        assert code == 200 and auth["ok"] is True
+        assert "client_id=cid" in auth["authorize_url"]
+        assert auth["entity_id"] == "va-1"
+        code, bad = _post(BASE + "/api/auth/authorize",
+                          {"provider": "nope", "entity_id": "va-1",
+                           "redirect_uri": "http://localhost/cb"})
         assert bad["ok"] is False
-    finally:
-        server.stop()
-
-
-def test_webhook_inbox_round_trip(tmp_path) -> None:
-    server = _server(tmp_path)
-    BASE = _base(server)
-    try:
-        code, data = _post(BASE + "/api/connectors/nango/webhook",
-                           {"type": "auth", "connectionId": "va_1",
-                            "providerConfigKey": "slack", "access_token": "SHOULD_NOT_PERSIST_AS_SECRET"})
-        assert code == 200 and data["ok"] is True
-        # The inbox stores the normalized record (no raw credential fields).
-        assert "access_token" not in json.dumps(data["record"])
-        code, inbox = _get(BASE + "/api/connectors/nango/inbox")
-        assert code == 200 and len(inbox["records"]) == 1
-        assert inbox["records"][0]["connectionId"] == "va_1"
+        code, missing = _post(BASE + "/api/auth/authorize", {"provider": "slack"})
+        assert missing["ok"] is False
+        code, status = _post(BASE + "/api/auth/status", {"entity_id": "va-1"})
+        assert code == 200 and status["connections"] == []
+        code, revoked = _post(BASE + "/api/auth/revoke",
+                              {"entity_id": "va-1", "provider": "slack"})
+        assert revoked == {"ok": True, "revoked": False}
     finally:
         server.stop()
 

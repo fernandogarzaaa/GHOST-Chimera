@@ -7,7 +7,7 @@ nav:
   - Install: INSTALL.md
   - IBM Bob Tools: bob-tools.md
   - API Reference: api-reference.md
-  - Nango Integration: NANGO.md
+  - Custom Auth Engine: CUSTOM_AUTH.md
   - Safety and Production: safety-production.md
   - Release Process: release-process.md
   - Roadmap: BOB_POST_HACKATHON_ROADMAP.md
