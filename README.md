@@ -5,9 +5,15 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![CI](https://img.shields.io/badge/CI-ubuntu%20%7C%20windows%20%7C%20macos-brightgreen)
 
-Ghost Chimera is a **local-first agent orchestration runtime** built around **Chimera Pilot** â€” a resource-control layer that compiles natural-language objectives into a task IR, schedules them across registered backends using weighted scoring, enforces safety policy, executes with fallback, and records telemetry.
+> **Ghost is background AI infrastructure.** Ghost Chimera observes events across your digital workflow, learns how you work, and quietly prepares the right context or action for whichever AI agent you're using — without fine-tuning or replacing the underlying model. Your AI agents do the thinking. Ghost remembers what matters and makes sure they know what they need.
+
+Ghost Chimera is a **local-first ambient intelligence runtime** built around the **Stealth Loop** — an event-driven learning and intervention cycle (`ghostchimera/stealth/`): EVENT → UNDERSTAND → UPDATE STATE → RECALL EXPERIENCE → MATCH WORKFLOW → PREDICT → DECIDE → PREPARE / INJECT / ACT → OBSERVE OUTCOME → LEARN. **Chimera Pilot** remains as the execution capability underneath it: a resource-control layer that compiles natural-language objectives into a task IR, schedules them across registered backends, enforces safety policy, executes with fallback, and records telemetry.
 
 Key capabilities:
+- **Stealth Loop** (\ghostchimera/stealth/\) — Event Fabric, WorldState, Experience Graph, Workflow Learner, Prediction Engine, Stealth Evaluator, Context Fabric, Background Runtime, host adapters, and local IPC transport. Silence is a successful outcome.
+- **Host adapters** — Claude Code (lifecycle hooks + context injection), OpenClaw (context-engine assemble/after-turn), OpenCode, with \/ghost status|memory|workflows|interventions|explain|pause|resume\ everywhere.
+- **Connectors** (\ghostchimera/connectors/\) — GitHub (poll + webhooks), generic OAuth2 + token vault (Slack, Notion, LinkedIn, GitHub, Google, Zendesk, Freshdesk, Gorgias, HubSpot, Salesforce, Airtable, Hubstaff, Time Doctor), and [Nango](docs/NANGO.md) 1-click OAuth + proxied actions across 13 providers.
+- **Durable local database** — SQLite/WAL journal for events, interventions, outcomes, and workflows (\StealthStore\), including the useful-intervention-rate metric. No server required.
 - **27 model providers** (OpenAI, Anthropic, Gemini, Groq, Mistral, Ollama, and 21 more) â€” swap or chain them without rewriting code.
 - **10 Chimera Pilot backends** â€” deterministic, Python, memory retrieval, Gemini reasoning, local GGUF, analytics, simulation, desktop control, MCP, and quantum simulator.
 - **Browser console (Ghost Console)** - full no-code operator dashboard with guided setup, provider/model configuration, RAG Builder, Self-Evolution, Trust Runtime, Live Presence meetings/interviews, remote control, conversational loop, local models, and production readiness. No terminal needed for day-to-day use.
@@ -27,6 +33,16 @@ Key capabilities:
 - **Optional IBM Bob Developer Accelerator** - repo-aware hackathon/developer tools that analyze codebase health, test coverage, documentation completeness, and onboarding guidance without being required by the Ghost Chimera runtime. **[Boundary](docs/BOB_OPTIONAL_TOOLING.md)** | **[Hackathon Submission](docs/IBM_BOB_SUBMISSION.md)** | [Workflow Guide](docs/IBM_BOB_WORKFLOW.md)
 
 This is beta-stage software for real, user-supervised work in local-first environments. It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
+
+## Install
+
+```bash
+pip install ghostchimera            # Python core
+npm install -g ghostchimera         # or: npx ghostchimera doctor
+brew tap fernandogarzaaa/ghostchimera && brew install ghostchimera
+```
+
+Full matrix (extras, publishing): [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Start Here
 

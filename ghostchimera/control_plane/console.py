@@ -772,9 +772,15 @@ def _security_audit_handler(ctx: dict[str, Any]) -> dict[str, Any]:
         from ..safety_layer.audit import AuditLog
     except ImportError:
         return {"ok": False, "error": "Audit module unavailable"}
-    audit = AuditLog()
-    ok, msg = audit.verify_integrity()
-    entries = audit.get_entries()
+    try:
+        audit = AuditLog()
+        ok, msg = audit.verify_integrity()
+        entries = audit.get_entries()
+    except Exception as exc:
+        # Fresh installs have no audit file yet — report empty, not 500.
+        return {"ok": True, "chain_integrity": False,
+                "integrity_message": f"No audit log yet: {type(exc).__name__}",
+                "entry_count": 0, "entries": []}
     return {
         "ok": True,
         "chain_integrity": ok,
@@ -5351,6 +5357,22 @@ def run_console(
     server = GatewayServer(host=host, port=port, http_port=http_port, config=config)
     _register_static_routes(server)
     register_console_routes(server, state_dir=state_dir or config.state_dir, console_token=auth_token or "")
+    try:
+        from ..connectors.console_routes import register_connector_routes
+
+        register_connector_routes(
+            server,
+            state_dir or config.state_dir,
+            auth="token" if auth_token else "open",
+            token=auth_token or "",
+        )
+    except Exception as exc:  # connectors must never break console startup
+        try:
+            from ..logging_config import get_logger
+
+            get_logger("console").warning("Connector routes unavailable: %s", exc)
+        except Exception:
+            print(f"Connector routes unavailable: {exc}")
     server.start()
     url = _console_url(server)
     print(f"Ghost Console: {url}")

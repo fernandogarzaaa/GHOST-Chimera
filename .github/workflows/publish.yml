@@ -1,0 +1,32 @@
+name: Publish to PyPI
+
+# Publishes on every GitHub Release via PyPI Trusted Publisher (OIDC).
+# No API tokens: configure at https://pypi.org/manage/account/publishing/
+#   PyPI Project Name: ghostchimera
+#   Owner:             fernandogarzaaa
+#   Repository name:   GHOST-Chimera
+#   Workflow name:     publish.yml
+#   Environment name:  (leave empty)
+# Then: draft a Release (tag vX.Y.Z) -> this workflow builds + uploads.
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  pypi-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build distributions
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

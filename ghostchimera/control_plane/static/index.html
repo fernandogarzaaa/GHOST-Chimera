@@ -37,6 +37,7 @@
     <button class="tab" data-tab="status">Status</button>
     <button class="tab" data-tab="config">Config</button>
     <button class="tab" data-tab="connections">Connections</button>
+    <button class="tab" data-tab="integrations">Integrations</button>
     <button class="tab" data-tab="path">Path</button>
     <button class="tab" data-tab="github">GitHub</button>
     <button class="tab" data-tab="remote">Remote Control</button>
@@ -64,6 +65,7 @@
     <button class="tab" data-tab="review">Review</button>
     <button class="tab" data-tab="capabilities">Capabilities</button>
     <button class="tab" data-tab="readiness">Readiness</button>
+    <button class="tab" data-tab="stealth">Stealth</button>
   </nav>
 
   <aside id="ghostConversationPanel" class="ghost-conversation-panel" aria-live="polite">
@@ -107,6 +109,13 @@
 
   <!-- ── OPERATOR HOME ─────────────────────────────────────────────────── -->
   <div class="tab-content active" id="tab-operator">
+    <div id="firstRunBanner" class="next-action" style="display:none; margin-bottom:14px;">
+      <div class="next-action-main">
+        <div class="next-action-title">First run: <span id="firstRunSummary"></span></div>
+        <div class="next-action-reason" id="firstRunSteps"></div>
+      </div>
+      <div><button id="firstRunGo" class="primary">Start setup</button></div>
+    </div>
     <section id="operatorWorkbench" class="operator-workbench">
       <div class="workbench-hero">
         <div>
@@ -1098,6 +1107,22 @@
     <pre class="output" id="ragBuilderOutput">Ready.</pre>
   </div>
 
+  <!-- ── INTEGRATIONS ──────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-integrations">
+    <div class="section-hdr" style="margin-top:0;">Connected Services</div>
+    <p class="hint" style="margin-bottom:12px;">
+      Log in with Slack, Notion, GitHub, Gmail and more. Connect natively with OAuth
+      or 1-click via Nango — Ghost polls connected services into background events.
+    </p>
+    <div class="row" style="margin-bottom:10px;">
+      <button id="integrationsRefresh" class="primary">Refresh Status</button>
+      <span id="integrationsNango" class="badge">nango: checking</span>
+    </div>
+    <div id="integrationList"></div>
+    <div class="section-hdr" style="margin-top:20px;">Connection Details</div>
+    <pre class="output compact-output" id="integrationOutput">Select Refresh Status to load the provider catalog.</pre>
+  </div>
+
   <div class="tab-content" id="tab-mcp">
     <div class="section-hdr" style="margin-top:0;">chimeralang-mcp</div>
     <div id="mcpStatus"></div>
@@ -1330,6 +1355,33 @@
     <div class="section-hdr" style="margin-top:0;">Release Readiness Checklist</div>
     <p class="hint" style="margin-bottom:12px;">Run these commands locally before tagging or pushing a beta release.</p>
     <div id="readinessList"></div>
+  </div>
+
+  <!-- ── STEALTH ───────────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-stealth">
+    <div class="section-hdr" style="margin-top:0;">Stealth Activity</div>
+    <p class="hint" style="margin-bottom:12px;">
+      Live feed from the background event loop: events observed, decisions made,
+      interventions prepared, outcomes learned. Silence is a successful outcome.
+    </p>
+    <div class="row" style="margin-bottom:10px;">
+      <button id="stealthRefresh" class="primary">Refresh Activity</button>
+      <span id="stealthAutonomy" class="badge">autonomy: checking</span>
+      <span id="stealthEvents" class="badge">events: 0</span>
+    </div>
+    <div id="stealthFeed"></div>
+    <div class="section-hdr" style="margin-top:20px;">Pre-fill Drafts (Simplified Technical English)</div>
+    <p class="hint" style="margin-bottom:12px;">
+      Every draft is rewritten in plain human language (ASD-STE100 core rules) so it
+      never reads as AI-generated. Edit freely, copy-paste anywhere, or approve to send.
+    </p>
+    <div id="stealthDrafts"></div>
+    <div class="section-hdr" style="margin-top:20px;">STE Checker</div>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="steInput" placeholder="paste any text to STE-check it" style="flex:3;">
+      <button id="steCheck" class="primary">Simplify</button>
+    </div>
+    <pre class="output compact-output" id="steOutput">Simplified text and applied rules appear here.</pre>
   </div>
 
   <script src="/static/app.js"></script>

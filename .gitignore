@@ -29,3 +29,6 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+.coverage
+.coverage.*
