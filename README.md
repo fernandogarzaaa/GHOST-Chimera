@@ -37,9 +37,8 @@ This is beta-stage software for real, user-supervised work in local-first enviro
 ## Install
 
 ```bash
-pip install ghostchimera            # Python core
-npm install -g ghostchimera         # or: npx ghostchimera doctor
-brew tap fernandogarzaaa/ghostchimera && brew install ghostchimera
+pip install "ghostchimera[all]"   # Python: everything included
+brew tap fernandogarzaaa/ghostchimera && brew install --HEAD ghostchimera
 ```
 
 Full matrix (extras, publishing): [docs/INSTALL.md](docs/INSTALL.md)
