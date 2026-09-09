@@ -19,25 +19,27 @@ from .stealth_service import (
     get_service_loop,
     ste_prefill,
 )
+from .webhooks import NORMALIZERS, normalize_webhook
 
 __all__ = [
     "Connector",
     "ConnectorStatus",
     "GitHubEventConnector",
     "NANGO_CATALOG",
+    "NORMALIZERS",
     "NangoAction",
     "NangoClient",
     "NangoError",
     "NangoInboxConnector",
-    "approve_draft",
     "OAUTH_PRESETS",
     "TokenVault",
     "approve_draft",
     "draft_actions",
+    "extract_draft_text",
     "get_preset",
     "get_service_loop",
     "normalize_github_webhook",
-    "extract_draft_text",
+    "normalize_webhook",
     "oauth_status",
     "ste_prefill",
 ]

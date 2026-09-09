@@ -19,6 +19,7 @@ from .agent_prompt import (
     parse_agent_output,
     render_system_prompt,
 )
+from .bpo_store import BpoStore
 from .eval import EvalReport, StealthEval
 from .event_bus import EventBus, read_only_consumer
 from .events import Event, new_event
@@ -48,6 +49,7 @@ __all__ = [
     "AgentAction",
     "AgentActionType",
     "AdapterRegistry",
+    "BpoStore",
     "ClaudeCodeAdapter",
     "CodexAdapter",
     "Decision",

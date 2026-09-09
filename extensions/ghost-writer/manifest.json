@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Ghost Writer (Ghost Chimera)",
+  "version": "0.1.0",
+  "description": "Gray ghost completions for support drafts, served by your local Ghost Chimera console. Silent unless a model is configured.",
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1:8766/*", "http://localhost:8766/*"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["overlay.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
