@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import sys
 import textwrap
 import time
@@ -41,8 +42,15 @@ from ..integrations.email_oauth import (
     start_email_oauth,
     start_gmail_browser_oauth,
 )
-from ..integrations.remote_control import RemoteControlStore, normalize_remote_payload, verify_remote_webhook_signature
+from ..integrations.remote_control import (
+    RemoteControlStore,
+    normalize_remote_payload,
+    verify_remote_webhook_signature,
+    verify_whatsapp_webhook_challenge,
+)
+from ..memory_layer.maintenance import run_memory_consolidation
 from ..memory_layer.store import MemoryStore
+from ..memory_layer.temporal_graph import TemporalGraphStore
 from ..model_layer.auth_profiles import AuthProfile
 from ..model_layer.codex_cli_provider import codex_login_command, get_codex_cli_status, launch_codex_login_flow
 from ..model_layer.local_model_inventory import discover_local_model_inventory, resolve_model_source
@@ -63,13 +71,15 @@ from ..model_layer.provider_oauth_connectors import (
     start_huggingface_device_flow,
     start_openrouter_pkce,
 )
-from ..model_layer.providers import get_provider
+from ..model_layer.providers import TEXT_PROVIDERS, get_provider
+from ..production_gaps import scan_production_gaps
 from ..sandbox.journey import run_sandbox_journey
+from ..superiority import build_local_operator_summary, build_superiority_scorecard
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
 from ..trust_runtime import TrustRuntimeStore
 from .config import CONFIG_FILE, config_to_env_vars, get_autonomy_config, get_default_config, load_config, save_config
-from .conversation import ConversationStore, ConversationalLoopController
+from .conversation import ConversationalLoopController, ConversationStore, summarize_run_result
 from .evolution import (
     create_learning_source,
     list_candidates,
@@ -81,7 +91,11 @@ from .evolution import (
     set_source_consent,
     upsert_candidate,
 )
+from .host_execution import CONFIRMATION_PHRASE, HostExecutionStore
 from .latency import latency_summary, record_latency_event
+from .live_presence import LivePresenceStore
+from .local_voice import LocalVoiceTranscriber
+from .standing_orders import StandingOrderStore
 
 RunObjective = Callable[[str], dict[str, Any]]
 FetchUrl = Callable[[str], str]
@@ -132,6 +146,11 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "name": "competitive capability eval",
         "command": "python -m ghostchimera.evals run --suite competitive",
         "purpose": "Checks Ghost Chimera against current agent-orchestration capability benchmarks.",
+    },
+    {
+        "name": "public superiority eval",
+        "command": "python -m ghostchimera.evals run --suite superiority",
+        "purpose": "Measures operator UX, platform breadth, and autonomy-depth proof surfaces.",
     },
     {
         "name": "GitHub-connected eval",
@@ -194,6 +213,11 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "purpose": "Verifies the competitive capability matrix is reachable from the CLI.",
     },
     {
+        "name": "public superiority smoke",
+        "command": "ghostchimera superiority score --format json",
+        "purpose": "Verifies the bounded public superiority scorecard is reachable from the CLI.",
+    },
+    {
         "name": "native capability pack smoke",
         "command": "ghostchimera capability-pack list",
         "purpose": "Verifies built-in Chimera capability tools are reachable without external MCP servers.",
@@ -217,6 +241,16 @@ RELEASE_CHECKS: list[dict[str, str]] = [
         "name": "remote control smoke",
         "command": "ghostchimera remote status",
         "purpose": "Verifies Ghost-native mobile/messaging remote control is reachable without external gateways.",
+    },
+    {
+        "name": "remote channel health smoke",
+        "command": "ghostchimera remote health",
+        "purpose": "Verifies paired channel readiness diagnostics and write-only secret posture.",
+    },
+    {
+        "name": "production gap scan",
+        "command": "ghostchimera production-gaps --format markdown --limit 50",
+        "purpose": "Surfaces placeholder, scaffold, and demo-runtime markers before release.",
     },
     {
         "name": "GitHub connection smoke",
@@ -313,6 +347,14 @@ def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str,
     github_oauth = config.get("github_oauth", {}) if isinstance(config.get("github_oauth"), dict) else {}
     env_vars = config_to_env_vars(config)
     provider = str(model.get("provider") or os.environ.get("GHOSTCHIMERA_MODEL_PROVIDER") or "").strip()
+    model_api_key_configured = bool(model.get("api_key"))
+    model_oauth_configured = bool(model.get("oauth_token"))
+    model_auth_detail = "api_key_or_oauth_token" if model_api_key_configured or model_oauth_configured else ""
+    if provider == "codex_cli":
+        with contextlib.suppress(Exception):
+            codex_status = get_codex_cli_status(timeout=3)
+            model_api_key_configured = bool(codex_status.available and codex_status.logged_in)
+            model_auth_detail = codex_status.detail
     runtime = GhostChimeraConfig.from_env().to_dict()
     return {
         "ok": True,
@@ -323,8 +365,10 @@ def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str,
             "provider": provider,
             "model": str(model.get("model") or ""),
             "base_url": str(model.get("base_url") or ""),
-            "api_key_configured": bool(model.get("api_key")),
-            "oauth_token_configured": bool(model.get("oauth_token")),
+            "api_key_configured": model_api_key_configured,
+            "oauth_token_configured": model_oauth_configured,
+            "auth_configured": model_api_key_configured or model_oauth_configured,
+            "auth_detail": model_auth_detail,
             "api_key_preview": _redact_secret(str(model.get("api_key") or "")),
         },
         "env_preview": {
@@ -381,6 +425,98 @@ def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str,
     }
 
 
+def _runtime_dependencies_payload() -> dict[str, Any]:
+    """Return secret-safe runtime dependency readiness for the dashboard."""
+
+    module_checks = [
+        ("mcp", "mcp", "MCP client/server SDK"),
+        ("pyautogui", "pyautogui", "Desktop automation"),
+        ("websockets", "websockets", "Realtime transports"),
+        ("SpeechRecognition", "speech_recognition", "Browser/local voice bridge"),
+        ("vosk", "vosk", "Offline speech recognition"),
+        ("pocketsphinx", "pocketsphinx", "Offline speech recognition fallback"),
+        ("faster-whisper", "faster_whisper", "Local Whisper transcription"),
+        ("llama-cpp-python", "llama_cpp", "Local GGUF inference"),
+        ("pyqpanda3", "pyqpanda3", "Quantum optional runtime"),
+        ("jsonschema", "jsonschema", "Schema validation"),
+    ]
+    tool_checks = [
+        ("ffmpeg", "Audio/video processing"),
+        ("ffprobe", "Audio/video inspection"),
+        ("dot", "Graphviz diagrams"),
+        ("ollama", "Local model server"),
+        ("docker", "Container runtime"),
+        ("git", "Repository operations"),
+        ("gh", "GitHub CLI"),
+    ]
+    modules = [
+        {
+            "id": package,
+            "label": label,
+            "installed": importlib.util.find_spec(module) is not None,
+        }
+        for package, module, label in module_checks
+    ]
+    tools = [
+        {
+            "id": command,
+            "label": label,
+            "installed": _tool_available(command),
+        }
+        for command, label in tool_checks
+    ]
+    missing_modules = [item["id"] for item in modules if not item["installed"]]
+    missing_tools = [item["id"] for item in tools if not item["installed"]]
+    return {
+        "ok": True,
+        "python": {
+            "version": ".".join(str(part) for part in sys.version_info[:3]),
+            "executable_name": Path(sys.executable).name,
+        },
+        "modules": modules,
+        "third_party_tools": tools,
+        "missing_modules": missing_modules,
+        "missing_tools": missing_tools,
+        "ready": not missing_modules and not missing_tools,
+        "provider_catalog": {"count": len(TEXT_PROVIDERS), "providers": sorted(TEXT_PROVIDERS)},
+        "install_profile": "pip install -e .[all,dev]",
+        "notes": [
+            "Secrets and local absolute paths are not returned by this endpoint.",
+            "If newly installed command-line tools are missing, restart the shell so PATH changes load.",
+        ],
+    }
+
+
+def _tool_available(command: str) -> bool:
+    if shutil.which(command):
+        return True
+    local_app_data = Path(os.environ.get("LOCALAPPDATA") or "")
+    fallbacks = {
+        "ffmpeg": [
+            local_app_data
+            / "Microsoft"
+            / "WinGet"
+            / "Packages"
+            / "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
+            / "ffmpeg-8.1.1-full_build"
+            / "bin"
+            / "ffmpeg.exe",
+        ],
+        "ffprobe": [
+            local_app_data
+            / "Microsoft"
+            / "WinGet"
+            / "Packages"
+            / "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
+            / "ffmpeg-8.1.1-full_build"
+            / "bin"
+            / "ffprobe.exe",
+        ],
+        "dot": [Path("C:/Program Files/Graphviz/bin/dot.exe")],
+    }
+    return any(path.exists() for path in fallbacks.get(command, []))
+
+
 def _json_body(ctx: dict[str, Any]) -> dict[str, Any]:
     """
     Parse and return the JSON object from a request-like context's body.
@@ -424,7 +560,53 @@ def _suffix(ctx: dict[str, Any], prefix: str) -> str:
     return str(ctx.get("path") or "")[len(prefix) :].strip("/")
 
 
-def _default_run_objective(objective: str) -> dict[str, Any]:
+def _compact_operator_context(summary: dict[str, Any]) -> str:
+    """Return a redacted status snapshot for live model-backed operator runs."""
+
+    model = summary.get("model") if isinstance(summary.get("model"), dict) else {}
+    active_path = summary.get("active_path") if isinstance(summary.get("active_path"), dict) else {}
+    counts = summary.get("counts") if isinstance(summary.get("counts"), dict) else {}
+    trust = summary.get("trust") if isinstance(summary.get("trust"), dict) else {}
+    production = summary.get("production_readiness") if isinstance(summary.get("production_readiness"), dict) else {}
+    remote = summary.get("remote") if isinstance(summary.get("remote"), dict) else {}
+    admission = summary.get("capability_admission") if isinstance(summary.get("capability_admission"), dict) else {}
+    warnings = [str(item) for item in (summary.get("warnings") or []) if str(item).strip()]
+    lines = [
+        "Operator context snapshot (redacted, current best effort):",
+        f"- Active Ghost path: {active_path.get('label') or active_path.get('profile_id') or 'not selected'}",
+        f"- Model provider/model: {model.get('provider') or 'not configured'} / {model.get('model') or 'default'}",
+        f"- Model auth configured: {bool(model.get('api_key_configured'))}",
+        f"- Learning sources: {counts.get('approved_sources', 0)} approved of {counts.get('learning_sources', 0)} total",
+        f"- Evolution candidates: {counts.get('pending_candidates', 0)} pending of {counts.get('candidates', 0)} total",
+        f"- Trust Runtime ready: {bool(trust.get('ready'))}",
+        f"- Production readiness: {production.get('status') or ('ready' if production.get('ready') else 'review')}",
+        f"- Capability admission production ready: {bool(admission.get('production_ready'))}",
+        f"- Remote paired peers: {(remote.get('counts') or {}).get('paired_peers', 0) if isinstance(remote.get('counts'), dict) else 0}",
+    ]
+    if warnings:
+        lines.append("- Current warnings: " + "; ".join(warnings[:5]))
+    else:
+        lines.append("- Current warnings: none reported")
+    return "\n".join(lines)
+
+
+def _objective_with_operator_context(objective: str, summary: dict[str, Any]) -> str:
+    context = _compact_operator_context(summary)
+    return (
+        f"{context}\n\n"
+        f"User objective:\n{objective.strip()}\n\n"
+        "Answer as Ghost Chimera's operator runtime. Use the context above as evidence, clearly state what actually ran, "
+        "what is only configured, what is blocked, and the smallest next action. Do not claim hidden work, scraping, "
+        "training, tool use, or desktop control unless it appears in the provided execution result or context."
+    )
+
+
+def _default_run_objective(
+    objective: str,
+    *,
+    state_dir: str | Path | None = None,
+    config_path: str | Path | None = None,
+) -> dict[str, Any]:
     autonomy = get_autonomy_config(load_config())
     true_autonomy_desktop = _as_bool(autonomy.get("true_autonomy_desktop"), default=False)
     enable_personal_context = _as_bool(autonomy.get("personal_context"), default=True)
@@ -440,7 +622,8 @@ def _default_run_objective(objective: str) -> dict[str, Any]:
     memory_store = MemoryStore(runtime.memory_db)
     if true_autonomy_desktop:
         kernel = ChimeraPilotKernel.default(
-            include_deterministic_backend=True,
+            include_deterministic_backend=False,
+            include_model_provider_backend=True,
             allow_network=True,
             allow_python_execution=True,
             allow_desktop_control=True,
@@ -457,14 +640,31 @@ def _default_run_objective(objective: str) -> dict[str, Any]:
         )
     else:
         kernel = ChimeraPilotKernel.default(
-            include_deterministic_backend=True,
+            include_deterministic_backend=False,
+            include_model_provider_backend=True,
             autonomy_level=str(autonomy.get("level") or "supervised"),
             memory_store=memory_store,
             enable_personal_context=enable_personal_context,
         )
-    executions = kernel.run(objective)
+    summary = build_local_operator_summary(state_dir=state_dir or runtime.state_dir, config_path=config_path)
+    enriched_objective = _objective_with_operator_context(objective, summary)
+    try:
+        executions = kernel.run(enriched_objective)
+    except RuntimeError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+            "operator_report": (
+                "I could not run the objective with a live model/tool backend. "
+                f"Reason: {exc}. Configure a model provider or local model before treating this as production execution."
+            ),
+        }
     payload = [execution.to_dict() for execution in executions]
-    return {"ok": all(item.get("ok") for item in payload), "executions": payload}
+    return {
+        "ok": all(item.get("ok") for item in payload),
+        "executions": payload,
+        "operator_context": _compact_operator_context(summary),
+    }
 
 
 def _status_payload(server: GatewayServer) -> dict[str, Any]:
@@ -572,9 +772,15 @@ def _security_audit_handler(ctx: dict[str, Any]) -> dict[str, Any]:
         from ..safety_layer.audit import AuditLog
     except ImportError:
         return {"ok": False, "error": "Audit module unavailable"}
-    audit = AuditLog()
-    ok, msg = audit.verify_integrity()
-    entries = audit.get_entries()
+    try:
+        audit = AuditLog()
+        ok, msg = audit.verify_integrity()
+        entries = audit.get_entries()
+    except Exception as exc:
+        # Fresh installs have no audit file yet — report empty, not 500.
+        return {"ok": True, "chain_integrity": False,
+                "integrity_message": f"No audit log yet: {type(exc).__name__}",
+                "entry_count": 0, "entries": []}
     return {
         "ok": True,
         "chain_integrity": ok,
@@ -599,21 +805,32 @@ def register_console_routes(
 ) -> None:
     """Register browser console routes on an existing GatewayServer."""
 
-    objective_runner = run_objective or _default_run_objective
+    objective_runner = run_objective or (
+        lambda objective: _default_run_objective(
+            objective,
+            state_dir=state_dir or server.config.state_dir,
+            config_path=config_path,
+        )
+    )
     url_fetcher = fetch_url or http_get
     workspace = browser_workspace or AgentBrowserWorkspace()
     queue = autonomy_queue or AutonomyJobQueue(state_dir=state_dir or server.config.state_dir)
     workspace_store = operator_workspace or OperatorWorkspaceStore(state_dir=state_dir or server.config.state_dir)
     console_state_dir = Path(state_dir or server.config.state_dir)
     remote_store = RemoteControlStore(console_state_dir)
+    standing_order_store = StandingOrderStore(console_state_dir)
     trust_store = TrustRuntimeStore(console_state_dir)
     admission_store = CapabilityAdmissionStore(console_state_dir)
     conversation_store = ConversationStore(console_state_dir)
+    live_presence_store = LivePresenceStore(console_state_dir, trust_store=trust_store)
+    host_execution_store = HostExecutionStore(console_state_dir)
+    local_voice = LocalVoiceTranscriber(console_state_dir / "local_voice")
     conversation_controller = ConversationalLoopController(
         state_dir=console_state_dir,
         store=conversation_store,
         trust_store=trust_store,
         objective_runner=objective_runner,
+        status_provider=lambda: _operator_summary_payload(include_superiority=False),
         timeline_recorder=lambda event_type, detail: record_timeline_event(console_state_dir, event_type, detail),
     )
     path_config_file = Path(config_path).expanduser() if config_path else None
@@ -1586,8 +1803,11 @@ def register_console_routes(
             )
             if isinstance(result, dict):
                 result.setdefault("trust_run", trust_store.get_run(trust_run["run_id"]))
+                result.setdefault("operator_report", summarize_run_result(result, ok=ok, objective=objective))
                 return result
-            return {"ok": True, "result": result, "trust_run": trust_store.get_run(trust_run["run_id"])}
+            payload = {"ok": True, "result": result, "trust_run": trust_store.get_run(trust_run["run_id"])}
+            payload["operator_report"] = summarize_run_result(payload, ok=True, objective=objective)
+            return payload
         except PermissionError as exc:
             trust_store.record_step(
                 trust_run["run_id"],
@@ -1617,9 +1837,10 @@ def register_console_routes(
         if ctx.get("method") == "GET":
             return conversation_store.list_sessions()
         body = _json_body(ctx)
+        title = str(body.get("title") or body.get("label") or "Ghost Conversation")
         session = conversation_controller.create_session(
             session_id=str(body.get("session_id") or ""),
-            title=str(body.get("title") or "Ghost Conversation"),
+            title=title,
             always_listening=_as_bool(body.get("always_listening"), default=True),
         )
         return {"ok": True, "session": session, "settings": conversation_store.settings()}
@@ -1646,6 +1867,27 @@ def register_console_routes(
                 message,
                 input_mode="voice" if action == "voice-turn" else str(body.get("input_mode") or "text"),
             )
+        if action == "local-voice-turn":
+            transcribed = local_voice.transcribe_base64(
+                str(body.get("audio_base64") or body.get("audio") or "").strip(),
+                mime_type=str(body.get("mime_type") or ""),
+                filename=str(body.get("filename") or ""),
+                provider=str(body.get("provider") or "auto"),
+            )
+            if not transcribed.get("ok"):
+                return transcribed
+            result = conversation_controller.handle_turn(
+                session_id,
+                str(transcribed.get("transcript") or "").strip(),
+                input_mode="local_voice",
+            )
+            result["local_voice"] = {
+                "ok": True,
+                "provider": transcribed.get("provider", ""),
+                "raw_audio_stored": False,
+                "transcript_chars": len(str(transcribed.get("transcript") or "")),
+            }
+            return result
         if action == "approve":
             return conversation_controller.handle_turn(
                 session_id,
@@ -1659,13 +1901,23 @@ def register_console_routes(
         return {"ok": False, "error": f"Unsupported conversation action: {action}"}
 
     def conversation_status(ctx: dict[str, Any]) -> dict[str, Any]:
-        return conversation_controller.status()
+        payload = conversation_controller.status()
+        payload["local_voice"] = local_voice.status()
+        return payload
 
     def conversation_settings(ctx: dict[str, Any]) -> dict[str, Any]:
         body = _json_body(ctx)
         allowed = {
             key: body[key]
-            for key in ("always_listening", "hands_free", "full_bypass", "voice_provider", "voice_id")
+            for key in (
+                "always_listening",
+                "hands_free",
+                "full_bypass",
+                "local_fallback",
+                "presenter_coach_mode",
+                "voice_provider",
+                "voice_id",
+            )
             if key in body
         }
         payload = conversation_controller.update_settings(**allowed)
@@ -1675,6 +1927,228 @@ def register_console_routes(
                 "conversation_full_bypass_changed",
                 {"enabled": bool(payload.get("settings", {}).get("full_bypass"))},
             )
+        return payload
+
+    def conversation_local_voice_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        return local_voice.status()
+
+    def conversation_local_voice_transcribe(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        return local_voice.transcribe_base64(
+            str(body.get("audio_base64") or body.get("audio") or "").strip(),
+            mime_type=str(body.get("mime_type") or ""),
+            filename=str(body.get("filename") or ""),
+            provider=str(body.get("provider") or "auto"),
+        )
+
+    def live_presence_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        return live_presence_store.status()
+
+    def live_presence_sessions(ctx: dict[str, Any]) -> dict[str, Any]:
+        if ctx.get("method") == "GET":
+            return live_presence_store.list_sessions()
+        body = _json_body(ctx)
+        payload = live_presence_store.create_session(
+            session_id=str(body.get("session_id") or ""),
+            title=str(body.get("title") or "Live Presence Session"),
+            session_type=str(body.get("session_type") or "meeting"),
+            participants=body.get("participants") if isinstance(body.get("participants"), list) else [],
+            disclosure_text=str(body.get("disclosure_text") or ""),
+            recording_enabled=_as_bool(body.get("recording_enabled"), default=False),
+        )
+        record_timeline_event(
+            console_state_dir,
+            "live_presence_session_created",
+            {
+                "session_id": payload.get("session_id"),
+                "session_type": payload.get("session", {}).get("session_type"),
+                "disclosure_status": payload.get("session", {}).get("disclosure_status"),
+            },
+        )
+        return payload
+
+    def live_presence_session_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/live-presence/sessions/")
+        parts = [part for part in suffix.split("/") if part]
+        if not parts:
+            return {"ok": False, "error": "session_id is required"}
+        session_id = parts[0]
+        if len(parts) == 1 and ctx.get("method") == "GET":
+            try:
+                return {"ok": True, "session": live_presence_store.get_session(session_id)}
+            except KeyError:
+                return {"ok": False, "error": "Live Presence session not found"}
+        body = _json_body(ctx)
+        action_path = "/".join(parts[1:])
+        try:
+            if action_path == "start":
+                payload = live_presence_store.start_session(session_id)
+                record_timeline_event(
+                    console_state_dir,
+                    "live_presence_started" if payload.get("ok") else "live_presence_start_blocked",
+                    {
+                        "session_id": session_id,
+                        "required_action": payload.get("required_action", ""),
+                        "ok": bool(payload.get("ok")),
+                    },
+                )
+                return payload
+            if action_path == "disclosure/approve":
+                payload = live_presence_store.approve_disclosure(session_id, approved_by=str(body.get("approved_by") or "admin"))
+                record_timeline_event(console_state_dir, "live_presence_disclosure_approved", {"session_id": session_id})
+                return payload
+            if action_path == "transcript":
+                return live_presence_store.record_transcript(
+                    session_id,
+                    speaker=str(body.get("speaker") or "Speaker"),
+                    content=str(body.get("content") or body.get("text") or ""),
+                    source=str(body.get("source") or "manual"),
+                    diarization=body.get("diarization") if isinstance(body.get("diarization"), dict) else {},
+                )
+            if action_path == "bridge":
+                payload = live_presence_store.configure_meeting_bridge(
+                    session_id,
+                    app=str(body.get("app") or "browser"),
+                    meeting_url=str(body.get("meeting_url") or ""),
+                    browser_session=str(body.get("browser_session") or "default"),
+                    handoff_policy=str(body.get("handoff_policy") or "visible_browser"),
+                )
+                record_timeline_event(console_state_dir, "live_presence_bridge_configured", {"session_id": session_id, "ok": payload.get("ok")})
+                return payload
+            if action_path == "interrupt":
+                payload = live_presence_store.interrupt_session(session_id, reason=str(body.get("reason") or "Operator interrupted the live session."))
+                record_timeline_event(console_state_dir, "live_presence_interrupted", {"session_id": session_id})
+                return payload
+            if action_path == "communication/draft":
+                payload = live_presence_store.create_communication_draft(
+                    session_id,
+                    channel=str(body.get("channel") or "email"),
+                    recipient=str(body.get("recipient") or ""),
+                    body=str(body.get("body") or ""),
+                    disclosure_template=str(body.get("disclosure_template") or ""),
+                )
+                record_timeline_event(console_state_dir, "live_presence_communication_drafted", {"session_id": session_id, "ok": payload.get("ok")})
+                return payload
+            if action_path.startswith("communication/") and action_path.endswith("/send"):
+                draft_id = action_path.split("/")[1]
+                payload = live_presence_store.send_communication(session_id, draft_id)
+                record_timeline_event(
+                    console_state_dir,
+                    "live_presence_communication_sent" if payload.get("ok") else "live_presence_communication_send_blocked",
+                    {"session_id": session_id, "draft_id": draft_id, "required_action": payload.get("required_action", "")},
+                )
+                return payload
+            if action_path == "communication/recipient/approve":
+                payload = live_presence_store.approve_recipient(
+                    session_id,
+                    channel=str(body.get("channel") or "email"),
+                    recipient=str(body.get("recipient") or ""),
+                    approved_by=str(body.get("approved_by") or "admin"),
+                )
+                record_timeline_event(console_state_dir, "live_presence_recipient_approved", {"session_id": session_id, "ok": payload.get("ok")})
+                return payload
+            if action_path == "context":
+                payload = live_presence_store.update_shared_context(
+                    session_id,
+                    agenda=body.get("agenda") if isinstance(body.get("agenda"), list) else [],
+                    minimind_hints=body.get("minimind_hints") if isinstance(body.get("minimind_hints"), list) else [],
+                    rag_snippets=body.get("rag_snippets") if isinstance(body.get("rag_snippets"), list) else [],
+                    user_correction=str(body.get("user_correction") or ""),
+                )
+                record_timeline_event(console_state_dir, "live_presence_context_updated", {"session_id": session_id})
+                return payload
+            if action_path == "interview/configure":
+                payload = live_presence_store.configure_interview(
+                    session_id,
+                    mode=str(body.get("mode") or "interviewer"),
+                    role=str(body.get("role") or "Candidate"),
+                    competencies=body.get("competencies") if isinstance(body.get("competencies"), list) else [],
+                )
+                record_timeline_event(console_state_dir, "live_presence_interview_configured", {"session_id": session_id})
+                return payload
+            if action_path == "interview/score":
+                payload = live_presence_store.score_interview(session_id)
+                record_timeline_event(
+                    console_state_dir,
+                    "live_presence_interview_scored",
+                    {"session_id": session_id, "overall_score": payload.get("scorecard", {}).get("overall_score", 0)},
+                )
+                return payload
+            if action_path == "report":
+                payload = live_presence_store.generate_report(session_id)
+                record_timeline_event(
+                    console_state_dir,
+                    "live_presence_report_generated",
+                    {
+                        "session_id": session_id,
+                        "action_items": len(payload.get("report", {}).get("action_items", []) or []),
+                    },
+                )
+                return payload
+        except KeyError:
+            return {"ok": False, "error": "Live Presence session not found"}
+        return {"ok": False, "error": f"Unsupported Live Presence action: {action_path}"}
+
+    def live_presence_eval_run(ctx: dict[str, Any]) -> dict[str, Any]:
+        payload = live_presence_store.run_presence_eval_suite()
+        record_timeline_event(
+            console_state_dir,
+            "live_presence_eval_run",
+            {"score": payload.get("score", 0), "checks": len(payload.get("checks", []) or [])},
+        )
+        return payload
+
+    def host_execution_settings(ctx: dict[str, Any]) -> dict[str, Any]:
+        if ctx.get("method") == "GET":
+            payload = {"ok": True, "settings": host_execution_store.settings(), "confirmation_phrase": CONFIRMATION_PHRASE}
+            payload["warning"] = (
+                "Unrestricted host mode runs commands and applies source patches on the local machine. "
+                "Keep it off unless you intentionally want Ghost to mutate the host."
+            )
+            return payload
+        payload = host_execution_store.update_settings(_json_body(ctx))
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "host_execution_settings_updated",
+                {
+                    "unrestricted_host_mode": payload.get("settings", {}).get("unrestricted_host_mode"),
+                    "allow_source_mutation": payload.get("settings", {}).get("allow_source_mutation"),
+                },
+            )
+        return payload
+
+    def host_execution_run(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        command = body.get("command")
+        if isinstance(command, str):
+            command = [part for part in command.split(" ") if part]
+        if not isinstance(command, list):
+            return {"ok": False, "error": "command must be a list of strings"}
+        payload = host_execution_store.run_command(
+            [str(part) for part in command],
+            purpose=str(body.get("purpose") or "console_host_execution"),
+            cwd=str(body.get("cwd") or "") or None,
+            input_text=str(body.get("input") or ""),
+        )
+        record_timeline_event(
+            console_state_dir,
+            "host_command_run",
+            {"run_id": payload.get("run_id"), "purpose": body.get("purpose") or "console_host_execution", "ok": bool(payload.get("ok"))},
+        )
+        return payload
+
+    def host_execution_self_edit(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        patch_text = str(body.get("patch") or body.get("diff") or "").strip()
+        if not patch_text:
+            return {"ok": False, "error": "patch is required"}
+        payload = host_execution_store.apply_self_edit(patch_text, objective=str(body.get("objective") or ""))
+        record_timeline_event(
+            console_state_dir,
+            "host_self_edit_applied" if payload.get("ok") else "host_self_edit_failed",
+            {"run_id": payload.get("run_id"), "changed_files": payload.get("changed_files", []), "ok": bool(payload.get("ok"))},
+        )
         return payload
 
     def browser_fetch(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -1860,6 +2334,44 @@ def register_console_routes(
         )
         return {"ok": True, "query": query, "results": results}
 
+    def _temporal_graph_path() -> str:
+        return os.environ.get("GHOSTCHIMERA_TEMPORAL_GRAPH_DB") or str(
+            Path(server.config.memory_db).expanduser().parent / "temporal_graph.sqlite3"
+        )
+
+    def memory_graph(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Surface the bi-temporal knowledge graph: counts + recent active facts."""
+        graph_path = _temporal_graph_path()
+        graph = TemporalGraphStore(graph_path)
+        try:
+            limit = int((ctx.get("query") or {}).get("limit") or 25)
+        except (TypeError, ValueError):
+            limit = 25
+        facts = [fact.as_dict() for fact in graph.system_active_facts(limit=max(1, min(limit, 200)))]
+        return {
+            "ok": True,
+            "graph_db": str(graph_path),
+            "active_fact_count": graph.count(active_only=True),
+            "total_fact_count": graph.count(),
+            "facts": facts,
+        }
+
+    def memory_consolidate(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Run one sleep-time consolidation pass (episodic -> semantic graph)."""
+        body = _json_body(ctx)
+        try:
+            threshold = float(body.get("promotion_threshold", 0.55))
+            limit = int(body.get("limit", 200))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "Invalid promotion_threshold or limit"}
+        report = run_memory_consolidation(
+            memory_db=server.config.memory_db,
+            graph_db=_temporal_graph_path(),
+            promotion_threshold=threshold,
+            limit=limit,
+        )
+        return {"ok": True, "report": report}
+
     def training_status(ctx: dict[str, Any]) -> dict[str, Any]:
         """Return MiniMind training setup status including dataset record count."""
         autonomy_cfg = get_autonomy_config(load_config())
@@ -1965,6 +2477,21 @@ def register_console_routes(
             return {"ok": False, "error": "Missing objective"}
         return personal_minimind().build_handoff(objective)
 
+    def minimind_personal_train_neural(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        return personal_minimind().train_neural_adapter(
+            epochs=int(body.get("epochs") or 12),
+            learning_rate=float(body.get("learning_rate") or 0.25),
+            max_vocab=int(body.get("max_vocab") or 512),
+        )
+
+    def minimind_personal_infer(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        query = str(body.get("query") or body.get("objective") or "").strip()
+        if not query:
+            return {"ok": False, "error": "Missing query"}
+        return personal_minimind().infer_neural_adapter(query)
+
     def minimind_post_training_action(ctx: dict[str, Any]) -> dict[str, Any]:
         body = _json_body(ctx)
         objective = str(body.get("objective") or "").strip() or (
@@ -1989,6 +2516,11 @@ def register_console_routes(
             ]
         )
         local_adapter = lifecycle.train_local_adapter()
+        neural_adapter = (
+            lifecycle.train_neural_adapter()
+            if readiness.get("training_ready")
+            else {"ok": False, "skipped": True, "reason": "Personal MiniMind training consent or dataset is not ready."}
+        )
         local_inference = lifecycle.infer(objective) if local_adapter.get("ok") else {"ok": False, "answer": ""}
         training = training_status({"method": "GET", "path": "/api/console/training/status", "headers": {}, "body": "", "query": {}})
         training_state = training.get("status") if isinstance(training.get("status"), dict) else {}
@@ -2069,6 +2601,7 @@ def register_console_routes(
                 "primary_model_prompt_chars": len(str(handoff.get("primary_model_prompt") or "")),
             },
             "local_adapter": local_adapter,
+            "neural_adapter": neural_adapter,
             "local_inference": local_inference,
             "learning_source": source,
             "candidate": candidate,
@@ -2369,22 +2902,36 @@ def register_console_routes(
         }
 
     def github_status(ctx: dict[str, Any]) -> dict[str, Any]:
-        from ..integrations.github_client import GitHubAuth, github_oauth_client_id
+        from ..integrations.github_client import GitHubAuth, GitHubClient, github_oauth_client_id
 
         auth = GitHubAuth.discover()
         stored = _read_github_console_auth()
         has_stored_token = bool(stored.get("token"))
         user = stored.get("user") if isinstance(stored.get("user"), dict) else {}
+        gh_cli_ready = False
+        if not user and auth.mode == "gh-cli":
+            try:
+                gh_user = GitHubClient(auth=auth).get_json("user")
+                if isinstance(gh_user, dict):
+                    user = {
+                        "login": gh_user.get("login", ""),
+                        "name": gh_user.get("name", ""),
+                        "html_url": gh_user.get("html_url", ""),
+                    }
+                    gh_cli_ready = bool(user.get("login"))
+            except Exception:
+                gh_cli_ready = False
         return {
             "ok": True,
             "auth_mode": "console-device-token" if has_stored_token else auth.mode,
-            "has_token": has_stored_token or bool(auth.token),
+            "has_token": has_stored_token or bool(auth.token) or gh_cli_ready,
             "token_source": "console_state" if has_stored_token else ("environment" if auth.token else "gh-cli"),
             "user": {
                 "login": user.get("login", ""),
                 "name": user.get("name", ""),
                 "html_url": user.get("html_url", ""),
             },
+            "gh_cli_ready": gh_cli_ready,
             "device_flow_configured": bool(github_oauth_client_id()),
             "device_flow_required_env": "GHOSTCHIMERA_GITHUB_CLIENT_ID",
             "self_evolution_policy": {
@@ -2403,14 +2950,34 @@ def register_console_routes(
         }
 
     def github_device_start(ctx: dict[str, Any]) -> dict[str, Any]:
-        from ..integrations.github_client import github_oauth_client_id, start_device_flow
+        from ..integrations.github_client import GitHubAuth, GitHubClient, github_oauth_client_id, start_device_flow
 
         client_id = github_oauth_client_id()
         if not client_id:
+            try:
+                auth = GitHubAuth.discover()
+                if auth.mode == "gh-cli":
+                    user = GitHubClient(auth=auth).get_json("user")
+                    if isinstance(user, dict) and user.get("login"):
+                        return {
+                            "ok": True,
+                            "auth_mode": "gh-cli",
+                            "has_token": True,
+                            "token_source": "gh-cli",
+                            "user": {
+                                "login": user.get("login", ""),
+                                "name": user.get("name", ""),
+                                "html_url": user.get("html_url", ""),
+                            },
+                            "message": "GitHub is already connected through the local GitHub CLI account. Device sign-in is not required.",
+                            "setup": "Optional: configure GHOSTCHIMERA_GITHUB_CLIENT_ID only if you want Ghost Console's own device-flow OAuth app.",
+                        }
+            except Exception:
+                pass
             return {
                 "ok": False,
                 "error": "GitHub device sign-in is disabled until GHOSTCHIMERA_GITHUB_CLIENT_ID is configured.",
-                "setup": "Create a GitHub OAuth app with device flow enabled, then set GHOSTCHIMERA_GITHUB_CLIENT_ID.",
+                "setup": "Create a GitHub OAuth app with device flow enabled, set GHOSTCHIMERA_GITHUB_CLIENT_ID, or sign in with GitHub CLI by running: gh auth login",
             }
         body = _json_body(ctx)
         scope = str(body.get("scope") or "read:user repo").strip() or "read:user repo"
@@ -2879,7 +3446,25 @@ def register_console_routes(
             "skills_dir": str(_workspace_skills_dir()),
         }
 
-    def _operator_summary_payload() -> dict[str, Any]:
+    def _superiority_payload(summary: dict[str, Any]) -> dict[str, Any]:
+        static_dir = Path(__file__).resolve().parent / "static"
+        html_text = ""
+        app_text = ""
+        with contextlib.suppress(OSError):
+            html_text = (static_dir / "index.html").read_text(encoding="utf-8")
+        with contextlib.suppress(OSError):
+            app_text = (static_dir / "app.js").read_text(encoding="utf-8")
+        capability_payload = inspect_capabilities(Path(__file__).resolve().parents[2])
+        routes = [str(route.get("path") or "") for route in server.routes.list_all()]
+        return build_superiority_scorecard(
+            operator_summary=summary,
+            capabilities=capability_payload,
+            routes=routes,
+            static_html=html_text,
+            static_app=app_text,
+        ).to_dict()
+
+    def _operator_summary_payload(*, include_superiority: bool = True) -> dict[str, Any]:
         from ..personalization.path_state import get_active_ghost_path
 
         config = _load_console_config(console_config_file)
@@ -2906,6 +3491,7 @@ def register_console_routes(
         trust_payload = trust_store.trust_status()
         admission_payload = admission_store.summary()
         conversation_payload = conversation_controller.status()
+        runtime_dependencies_payload = _runtime_dependencies_payload()
         combined_warnings = list(summary.get("warnings") or [])
         combined_warnings.extend(str(item) for item in trust_payload.get("warnings", []) if str(item).strip())
         combined_warnings.extend(str(item) for item in admission_payload.get("warnings", []) if str(item).strip())
@@ -2957,6 +3543,14 @@ def register_console_routes(
                     "action": "trust",
                 }
             )
+            summary["cards"].append(
+                {
+                    "id": "runtime-dependencies",
+                    "label": "Runtime Dependencies",
+                    "status": "ready" if runtime_dependencies_payload.get("ready") else "review",
+                    "action": "operator",
+                }
+            )
         summary.update(
             {
                 "active_path": active_path,
@@ -2977,12 +3571,30 @@ def register_console_routes(
                 "trust": trust_payload,
                 "capability_admission": admission_payload,
                 "conversation": conversation_payload,
+                "runtime_dependencies": runtime_dependencies_payload,
             }
         )
+        if include_superiority:
+            superiority = _superiority_payload(summary)
+            summary["superiority"] = superiority
+            summary["next_best_actions"] = superiority.get("next_best_actions", [])
         return summary
 
     def operator_summary(ctx: dict[str, Any]) -> dict[str, Any]:
         return _operator_summary_payload()
+
+    def runtime_dependencies(ctx: dict[str, Any]) -> dict[str, Any]:
+        return _runtime_dependencies_payload()
+
+    def superiority_scorecard(ctx: dict[str, Any]) -> dict[str, Any]:
+        summary = _operator_summary_payload(include_superiority=False)
+        payload = _superiority_payload(summary)
+        record_timeline_event(
+            console_state_dir,
+            "superiority_scorecard_viewed",
+            {"score_ratio": payload.get("score_ratio")},
+        )
+        return payload
 
     def operator_timeline(ctx: dict[str, Any]) -> dict[str, Any]:
         query = ctx.get("query") or {}
@@ -3021,6 +3633,7 @@ def register_console_routes(
             "review_mcp",
             "review_skills",
             "run_readiness",
+            "connect_email",
         }
         if step not in allowed:
             return {"ok": False, "error": "Unsupported setup step.", "allowed_steps": sorted(allowed)}
@@ -3305,6 +3918,51 @@ def register_console_routes(
     def remote_status(ctx: dict[str, Any]) -> dict[str, Any]:
         return remote_store.status()
 
+    def remote_health(ctx: dict[str, Any]) -> dict[str, Any]:
+        return remote_store.channel_health()
+
+    def production_gaps(ctx: dict[str, Any]) -> dict[str, Any]:
+        return scan_production_gaps(Path(__file__).resolve().parents[2])
+
+    def standing_orders(ctx: dict[str, Any]) -> dict[str, Any]:
+        if ctx.get("method") == "GET":
+            return standing_order_store.list_orders()
+        try:
+            payload = standing_order_store.create_order(_json_body(ctx))
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "standing_order_created",
+                {
+                    "order_id": payload.get("order", {}).get("id"),
+                    "title": payload.get("order", {}).get("title"),
+                    "scope": payload.get("order", {}).get("scope"),
+                },
+            )
+        return payload
+
+    def standing_order_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        suffix = _suffix(ctx, "/api/console/standing-orders/")
+        parts = [part for part in suffix.split("/") if part]
+        if len(parts) != 2 or parts[1] not in {"enable", "disable", "run"}:
+            return {"ok": False, "error": "Expected /api/console/standing-orders/{id}/enable, /disable, or /run"}
+        order_id, action = parts
+        if action == "enable":
+            payload = standing_order_store.enable_order(order_id)
+        elif action == "disable":
+            payload = standing_order_store.disable_order(order_id)
+        else:
+            payload = standing_order_store.run_order(order_id, objective_runner=objective_runner)
+        if payload.get("ok"):
+            record_timeline_event(
+                console_state_dir,
+                "standing_order_" + action,
+                {"order_id": order_id, "ok": bool(payload.get("ok"))},
+            )
+        return payload
+
     def remote_policy(ctx: dict[str, Any]) -> dict[str, Any]:
         try:
             payload = remote_store.update_policy(_json_body(ctx))
@@ -3432,6 +4090,7 @@ def register_console_routes(
             status_provider=_operator_summary_payload,
             paths_provider=paths_provider,
             jobs_provider=lambda: {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()},
+            channels_provider=remote_store.channel_health,
         )
         _record_remote_trust_run(
             payload,
@@ -3477,6 +4136,7 @@ def register_console_routes(
             status_provider=_operator_summary_payload,
             paths_provider=lambda: {"ok": True, "active_path": _operator_summary_payload().get("active_path", {})},
             jobs_provider=lambda: {"ok": True, "available_jobs": queue.available_jobs(), "history": queue.list_jobs()},
+            channels_provider=remote_store.channel_health,
         )
         _record_remote_trust_run(payload, channel=inbound.channel, peer_id=inbound.peer_id, text=inbound.text)
         payload["signature_status"] = signature.get("signature_status", "")
@@ -3493,6 +4153,20 @@ def register_console_routes(
                 "ok": bool(payload.get("ok")),
             },
         )
+        return payload
+
+    def remote_provider_webhook_verify(ctx: dict[str, Any]) -> dict[str, Any] | HttpResponse:
+        channel = _suffix(ctx, "/api/console/remote/webhook/")
+        if channel != "whatsapp":
+            return {"ok": False, "error": "Webhook verification is currently implemented for WhatsApp."}
+        payload = verify_whatsapp_webhook_challenge(remote_store, dict(ctx.get("query") or {}))
+        record_timeline_event(
+            console_state_dir,
+            "remote_provider_webhook_verified",
+            {"channel": channel, "verification_status": payload.get("verification_status", ""), "ok": bool(payload.get("ok"))},
+        )
+        if payload.get("ok"):
+            return HttpResponse(str(payload.get("challenge") or ""), content_type="text/plain")
         return payload
 
     def remote_approval_action(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -3844,6 +4518,18 @@ def register_console_routes(
     )
     _api_register("/api/console/status", status, method="GET", description="Ghost Console status")
     _api_register("/api/console/operator/summary", operator_summary, method="GET", description="Operator home summary")
+    _api_register(
+        "/api/console/runtime/dependencies",
+        runtime_dependencies,
+        method="GET",
+        description="Inspect installed runtime dependencies and provider coverage",
+    )
+    _api_register(
+        "/api/console/superiority",
+        superiority_scorecard,
+        method="GET",
+        description="Measured public superiority scorecard",
+    )
     _api_register("/api/console/operator/timeline", operator_timeline, method="GET", description="Operator activity timeline")
     _api_register("/api/console/operator/latency", operator_latency, method="GET", description="Operator latency telemetry")
     _api_register("/api/console/operator/readiness", operator_readiness, method="POST", description="Run operator readiness check")
@@ -3886,7 +4572,87 @@ def register_console_routes(
         method="POST",
         description="Update conversation voice and bypass settings",
     )
+    _api_register(
+        "/api/console/conversation/local-voice/status",
+        conversation_local_voice_status,
+        method="GET",
+        description="Inspect local machine speech-to-text fallback readiness",
+    )
+    _api_register(
+        "/api/console/conversation/local-voice/transcribe",
+        conversation_local_voice_transcribe,
+        method="POST",
+        description="Transcribe a short local voice audio clip without storing raw audio",
+    )
+    _api_register(
+        "/api/console/live-presence/status",
+        live_presence_status,
+        method="GET",
+        description="Inspect meeting/interview live-presence readiness",
+    )
+    _api_register(
+        "/api/console/live-presence/sessions",
+        live_presence_sessions,
+        method="GET",
+        description="List Live Presence sessions",
+    )
+    _api_register(
+        "/api/console/live-presence/sessions",
+        live_presence_sessions,
+        method="POST",
+        description="Create a disclosure-gated meeting or interview session",
+    )
+    _api_register(
+        "/api/console/live-presence/sessions/",
+        live_presence_session_action,
+        method="GET",
+        prefix=True,
+        description="Inspect a Live Presence session",
+    )
+    _api_register(
+        "/api/console/live-presence/sessions/",
+        live_presence_session_action,
+        method="POST",
+        prefix=True,
+        description="Start, disclose, transcribe, or report a Live Presence session",
+    )
+    _api_register(
+        "/api/console/live-presence/evals/run",
+        live_presence_eval_run,
+        method="POST",
+        description="Run Live Presence safety, replayability, and latency evals",
+    )
+    _api_register(
+        "/api/console/host-execution/settings",
+        host_execution_settings,
+        method="GET",
+        description="Inspect explicit unrestricted host execution settings",
+    )
+    _api_register(
+        "/api/console/host-execution/settings",
+        host_execution_settings,
+        method="POST",
+        description="Arm or disarm explicit unrestricted host execution",
+    )
+    _api_register(
+        "/api/console/host-execution/run",
+        host_execution_run,
+        method="POST",
+        description="Run an explicit audited host command when unrestricted mode is armed",
+    )
+    _api_register(
+        "/api/console/host-execution/self-edit",
+        host_execution_self_edit,
+        method="POST",
+        description="Apply an explicit audited source patch when unrestricted mode is armed",
+    )
     _api_register("/api/console/remote/status", remote_status, method="GET", description="Inspect remote control status")
+    _api_register(
+        "/api/console/remote/health",
+        remote_health,
+        method="GET",
+        description="Inspect remote channel readiness and setup gaps",
+    )
     _api_register("/api/console/remote/policy", remote_policy, method="POST", description="Update remote control policy")
     _api_register(
         "/api/console/remote/pairing/create",
@@ -3932,6 +4698,13 @@ def register_console_routes(
         method="POST",
         prefix=True,
         description="Normalize provider-shaped webhook payloads into remote commands",
+    )
+    _api_register(
+        "/api/console/remote/webhook/",
+        remote_provider_webhook_verify,
+        method="GET",
+        prefix=True,
+        description="Verify provider webhook callbacks such as WhatsApp Cloud API",
     )
     _api_register(
         "/api/console/remote/approvals/",
@@ -4221,6 +4994,18 @@ def register_console_routes(
     )
     _api_register("/api/console/memory/search", memory_search, method="POST", description="Search local CWR memory")
     _api_register(
+        "/api/console/memory/graph",
+        memory_graph,
+        method="GET",
+        description="Inspect the bi-temporal knowledge graph (counts + active facts)",
+    )
+    _api_register(
+        "/api/console/memory/consolidate",
+        memory_consolidate,
+        method="POST",
+        description="Run a sleep-time memory consolidation pass",
+    )
+    _api_register(
         "/api/console/training/status",
         training_status,
         method="GET",
@@ -4270,6 +5055,18 @@ def register_console_routes(
         minimind_personal_handoff,
         method="POST",
         description="Build Personal MiniMind RAG handoff for the primary model",
+    )
+    _api_register(
+        "/api/console/minimind/personal/train-neural",
+        minimind_personal_train_neural,
+        method="POST",
+        description="Train the local neural Personal MiniMind adapter from approved dataset records",
+    )
+    _api_register(
+        "/api/console/minimind/personal/infer",
+        minimind_personal_infer,
+        method="POST",
+        description="Run inference against the trained local Personal MiniMind adapter",
     )
     _api_register(
         "/api/console/minimind/personal/post-training-action",
@@ -4385,6 +5182,31 @@ def register_console_routes(
     )
     _api_register(
         "/api/console/review-pr", review_pr, method="POST", description="Run deterministic PR/diff review automation"
+    )
+    _api_register(
+        "/api/console/production/gaps",
+        production_gaps,
+        method="GET",
+        description="Scan for placeholder, scaffold, and demo-runtime production gaps",
+    )
+    _api_register(
+        "/api/console/standing-orders",
+        standing_orders,
+        method="GET",
+        description="List scoped standing authority programs",
+    )
+    _api_register(
+        "/api/console/standing-orders",
+        standing_orders,
+        method="POST",
+        description="Create a scoped standing authority program",
+    )
+    _api_register(
+        "/api/console/standing-orders/",
+        standing_order_action,
+        method="POST",
+        prefix=True,
+        description="Enable, disable, or run a standing order",
     )
     _api_register(
         "/api/console/readiness", readiness, method="GET", description="Ghost Console release readiness runbook"
@@ -4535,6 +5357,22 @@ def run_console(
     server = GatewayServer(host=host, port=port, http_port=http_port, config=config)
     _register_static_routes(server)
     register_console_routes(server, state_dir=state_dir or config.state_dir, console_token=auth_token or "")
+    try:
+        from ..connectors.console_routes import register_connector_routes
+
+        register_connector_routes(
+            server,
+            state_dir or config.state_dir,
+            auth="token" if auth_token else "open",
+            token=auth_token or "",
+        )
+    except Exception as exc:  # connectors must never break console startup
+        try:
+            from ..logging_config import get_logger
+
+            get_logger("console").warning("Connector routes unavailable: %s", exc)
+        except Exception:
+            print(f"Connector routes unavailable: {exc}")
     server.start()
     url = _console_url(server)
     print(f"Ghost Console: {url}")

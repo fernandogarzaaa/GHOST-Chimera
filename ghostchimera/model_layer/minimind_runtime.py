@@ -164,6 +164,7 @@ _PROFILE_ARCHITECTURE = {
 _PACKAGE_RUNTIME_FACTORIES = ("load_model", "create_chat_model")
 _MODEL_FILE_SUFFIXES = {".safetensors", ".bin", ".pth", ".gguf"}
 _DATASET_ADAPTER_FILE = "local_adapter.json"
+_NEURAL_ADAPTER_FILE = "neural_adapter.json"
 
 
 @dataclass(frozen=True)
@@ -281,6 +282,36 @@ class MiniMindDatasetAdapterRuntime:
         ).strip()
 
 
+class MiniMindNeuralAdapterRuntime:
+    """Small local neural adapter trained from approved MiniMind records.
+
+    The adapter updates numeric weights with gradient descent over the user's
+    prompt/response records. It is still intentionally tiny and local-first:
+    it does not modify upstream MiniMind model weights or claim full LLM
+    fine-tuning, but it gives Ghost a real trainable neural personalization
+    layer that can be evaluated and rolled back.
+    """
+
+    def __init__(self, adapter_path: str | Path) -> None:
+        self.adapter_path = Path(adapter_path).expanduser()
+        data = json.loads(self.adapter_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("Neural MiniMind adapter payload must be an object")
+        self.payload = data
+
+    def chat(self, messages: list[dict[str, str]], *, max_context_tokens: int = 8192) -> str:
+        del max_context_tokens
+        query = "\n".join(str(item.get("content") or "") for item in messages if item.get("role") != "system")
+        result = infer_from_neural_adapter(self.adapter_path, query)
+        answer = str(result.get("answer") or "").strip()
+        confidence = float(result.get("confidence") or 0.0)
+        return (
+            f"{answer}\n\n"
+            f"[MiniMind neural adapter: confidence={confidence:.2f}, "
+            f"record_id={result.get('record_id', '')}]"
+        ).strip()
+
+
 def minimind_source_metadata() -> dict[str, str]:
     return {
         "url": MINIMIND_SOURCE_URL,
@@ -353,6 +384,11 @@ def inspect_minimind_runtime(
     if not model_files_found:
         notes.append("No MiniMind model weights were found; set MINIMIND_MODEL_PATH for local inference")
 
+    neural_adapter_path = _neural_adapter_path(state_path)
+    neural_adapter_found = neural_adapter_path.exists()
+    if neural_adapter_found:
+        notes.append("Ghost-native MiniMind neural personal adapter is trained and available for local inference")
+
     adapter_path = _dataset_adapter_path(state_path)
     dataset_adapter_found = adapter_path.exists()
     if dataset_adapter_found:
@@ -368,10 +404,11 @@ def inspect_minimind_runtime(
         notes.append("Missing optional MiniMind inference dependencies: " + ", ".join(missing_runtime_deps))
 
     transformers_ready = model_files_found and all(optional_dependencies.values())
-    inference_available = package_compatible or transformers_ready or dataset_adapter_found
+    inference_available = package_compatible or transformers_ready or neural_adapter_found or dataset_adapter_found
     runtime_hint = _runtime_hint(
         package_compatible=package_compatible,
         transformers_ready=transformers_ready,
+        neural_adapter_found=neural_adapter_found,
         dataset_adapter_found=dataset_adapter_found,
         workspace_compatible=workspace_compatible,
     )
@@ -439,7 +476,11 @@ def load_minimind_chat_runtime(
                 notes=inspection.notes,
             )
             return None, failed
-    adapter_path = _dataset_adapter_path(Path(state_dir or os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera")).expanduser())
+    state_path = Path(state_dir or os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera")).expanduser()
+    neural_adapter_path = _neural_adapter_path(state_path)
+    if neural_adapter_path.exists():
+        return MiniMindNeuralAdapterRuntime(neural_adapter_path), inspection
+    adapter_path = _dataset_adapter_path(state_path)
     if adapter_path.exists():
         return MiniMindDatasetAdapterRuntime(adapter_path), inspection
     return None, inspection
@@ -468,6 +509,7 @@ def _runtime_hint(
     *,
     package_compatible: bool,
     transformers_ready: bool,
+    neural_adapter_found: bool,
     dataset_adapter_found: bool,
     workspace_compatible: bool,
 ) -> str:
@@ -475,6 +517,8 @@ def _runtime_hint(
         return "package"
     if transformers_ready:
         return "transformers"
+    if neural_adapter_found:
+        return "neural-adapter"
     if dataset_adapter_found:
         return "dataset-adapter"
     if workspace_compatible:
@@ -539,6 +583,10 @@ def _dataset_adapter_path(state_dir: Path) -> Path:
     return state_dir / "minimind" / "adapters" / _DATASET_ADAPTER_FILE
 
 
+def _neural_adapter_path(state_dir: Path) -> Path:
+    return state_dir / "minimind" / "adapters" / _NEURAL_ADAPTER_FILE
+
+
 def _tokenize(text: str) -> set[str]:
     tokens: set[str] = set()
     current: list[str] = []
@@ -561,16 +609,11 @@ def _record_id(prompt: str, response: str) -> str:
     return hashlib.sha1(f"{prompt}\n{response}".encode()).hexdigest()[:16]
 
 
-def train_dataset_adapter(
-    dataset_path: str | Path,
-    *,
-    state_dir: str | Path,
-    profile_name: str,
-) -> dict[str, Any]:
+def _read_dataset_records(dataset_path: str | Path) -> list[dict[str, Any]]:
     dataset = Path(dataset_path).expanduser()
-    if not dataset.exists():
-        return {"ok": False, "error": f"Dataset not found: {dataset}"}
     records: list[dict[str, Any]] = []
+    if not dataset.exists():
+        return records
     for line in dataset.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
@@ -584,6 +627,23 @@ def train_dataset_adapter(
         response = str(raw.get("output") or raw.get("response") or "").strip()
         if not prompt and not response:
             continue
+        records.append({"prompt": prompt, "response": response})
+    return records
+
+
+def train_dataset_adapter(
+    dataset_path: str | Path,
+    *,
+    state_dir: str | Path,
+    profile_name: str,
+) -> dict[str, Any]:
+    dataset = Path(dataset_path).expanduser()
+    if not dataset.exists():
+        return {"ok": False, "error": f"Dataset not found: {dataset}"}
+    records: list[dict[str, Any]] = []
+    for raw in _read_dataset_records(dataset):
+        prompt = str(raw.get("prompt") or "").strip()
+        response = str(raw.get("response") or "").strip()
         records.append(
             {
                 "id": _record_id(prompt, response),
@@ -609,6 +669,142 @@ def train_dataset_adapter(
     }
     adapter_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return {"ok": True, "adapter_path": str(adapter_path), "adapter": {k: v for k, v in payload.items() if k != "records"}}
+
+
+def _softmax(scores: list[float]) -> list[float]:
+    if not scores:
+        return []
+    ceiling = max(scores)
+    exp_values = [math.exp(max(-60.0, min(60.0, score - ceiling))) for score in scores]
+    total = sum(exp_values) or 1.0
+    return [value / total for value in exp_values]
+
+
+def _score_neural(payload: dict[str, Any], query: str) -> tuple[int, list[float], float]:
+    vocab = [str(item) for item in payload.get("vocab") or []]
+    vocab_index = {token: idx for idx, token in enumerate(vocab)}
+    weights = payload.get("weights") if isinstance(payload.get("weights"), list) else []
+    biases = [float(item) for item in payload.get("bias") or []]
+    records = payload.get("records") if isinstance(payload.get("records"), list) else []
+    record_count = len(records)
+    if record_count <= 0:
+        return -1, [], 0.0
+    scores = [biases[idx] if idx < len(biases) else 0.0 for idx in range(record_count)]
+    tokens = _tokenize(query)
+    scale = math.sqrt(max(1, len(tokens)))
+    for token in tokens:
+        idx = vocab_index.get(token)
+        if idx is None or idx >= len(weights):
+            continue
+        row = weights[idx] if isinstance(weights[idx], list) else []
+        for record_idx in range(record_count):
+            if record_idx < len(row):
+                scores[record_idx] += float(row[record_idx]) / scale
+    probabilities = _softmax(scores)
+    best_idx = max(range(record_count), key=lambda idx: probabilities[idx]) if probabilities else -1
+    confidence = probabilities[best_idx] if best_idx >= 0 else 0.0
+    return best_idx, probabilities, confidence
+
+
+def train_neural_adapter(
+    dataset_path: str | Path,
+    *,
+    state_dir: str | Path,
+    profile_name: str,
+    epochs: int = 12,
+    learning_rate: float = 0.25,
+    max_vocab: int = 512,
+) -> dict[str, Any]:
+    """Train a tiny local neural MiniMind adapter from approved JSONL data."""
+
+    dataset = Path(dataset_path).expanduser()
+    if not dataset.exists():
+        return {"ok": False, "error": f"Dataset not found: {dataset}"}
+    source_records = _read_dataset_records(dataset)
+    if not source_records:
+        return {"ok": False, "error": "Dataset contains no trainable prompt/response records"}
+
+    token_counts: dict[str, int] = {}
+    train_records: list[dict[str, Any]] = []
+    for raw in source_records:
+        prompt = str(raw.get("prompt") or "").strip()
+        response = str(raw.get("response") or "").strip()
+        tokens = sorted(_tokenize(prompt or response))
+        for token in tokens:
+            token_counts[token] = token_counts.get(token, 0) + 1
+        train_records.append(
+            {
+                "id": _record_id(prompt, response),
+                "prompt": prompt,
+                "response": response,
+                "tokens": tokens,
+            }
+        )
+
+    vocab = [
+        token
+        for token, _count in sorted(token_counts.items(), key=lambda item: (-item[1], item[0]))[: max(1, max_vocab)]
+    ]
+    vocab_index = {token: idx for idx, token in enumerate(vocab)}
+    record_count = len(train_records)
+    weights = [[0.0 for _ in range(record_count)] for _ in range(len(vocab))]
+    bias = [0.0 for _ in range(record_count)]
+    update_steps = 0
+    total_loss = 0.0
+    bounded_epochs = max(1, min(int(epochs or 1), 200))
+    lr = max(0.001, min(float(learning_rate or 0.25), 2.0))
+
+    for _epoch in range(bounded_epochs):
+        for target_idx, record in enumerate(train_records):
+            tokens = [token for token in record["tokens"] if token in vocab_index]
+            if not tokens:
+                continue
+            scale = math.sqrt(max(1, len(tokens)))
+            scores = list(bias)
+            for token in tokens:
+                row = weights[vocab_index[token]]
+                for idx in range(record_count):
+                    scores[idx] += row[idx] / scale
+            probabilities = _softmax(scores)
+            target_probability = max(probabilities[target_idx], 1e-9)
+            total_loss += -math.log(target_probability)
+            for idx in range(record_count):
+                gradient = probabilities[idx] - (1.0 if idx == target_idx else 0.0)
+                bias[idx] -= lr * gradient * 0.1
+                for token in tokens:
+                    weights[vocab_index[token]][idx] -= (lr * gradient) / scale
+            update_steps += 1
+
+    checksum_payload = json.dumps({"bias": bias, "weights": weights}, sort_keys=True, separators=(",", ":"))
+    payload = {
+        "adapter_version": "1.0",
+        "kind": "neural-personal-adapter",
+        "profile": profile_name,
+        "dataset_path": str(dataset),
+        "record_count": record_count,
+        "vocab": vocab,
+        "bias": [round(value, 8) for value in bias],
+        "weights": [[round(value, 8) for value in row] for row in weights],
+        "records": train_records,
+        "metadata": {
+            "created_by": "Ghost Chimera MiniMindLifecycle",
+            "neural_weight_training": True,
+            "full_model_weight_finetune": False,
+            "training_algorithm": "local_softmax_bag_of_words_gradient_descent",
+            "epochs": bounded_epochs,
+            "learning_rate": lr,
+            "weight_update_steps": update_steps,
+            "loss": round(total_loss / max(1, update_steps), 6),
+            "weight_checksum": hashlib.sha256(checksum_payload.encode()).hexdigest(),
+            "dataset_checksum": hashlib.sha256(dataset.read_bytes()).hexdigest(),
+            "inference_mode": "local_neural_personal_adapter",
+        },
+    }
+    adapter_path = _neural_adapter_path(Path(state_dir).expanduser())
+    adapter_path.parent.mkdir(parents=True, exist_ok=True)
+    adapter_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    adapter = {k: v for k, v in payload.items() if k not in {"records", "weights"}}
+    return {"ok": True, "adapter_path": str(adapter_path), "adapter": adapter}
 
 
 def infer_from_dataset_adapter(adapter_path: str | Path, query: str) -> dict[str, Any]:
@@ -642,19 +838,46 @@ def infer_from_dataset_adapter(adapter_path: str | Path, query: str) -> dict[str
     }
 
 
+def infer_from_neural_adapter(adapter_path: str | Path, query: str) -> dict[str, Any]:
+    path = Path(adapter_path).expanduser()
+    if not path.exists():
+        return {"ok": False, "error": f"Adapter not found: {path}", "answer": "", "confidence": 0.0}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "Adapter payload is invalid", "answer": "", "confidence": 0.0}
+    records = payload.get("records") if isinstance(payload.get("records"), list) else []
+    best_idx, _probabilities, confidence = _score_neural(payload, query)
+    if best_idx < 0 or best_idx >= len(records):
+        return {"ok": False, "answer": "", "confidence": 0.0, "record_id": "", "adapter_path": str(path)}
+    best = records[best_idx] if isinstance(records[best_idx], dict) else {}
+    return {
+        "ok": True,
+        "answer": str(best.get("response") or ""),
+        "matched_prompt": str(best.get("prompt") or ""),
+        "confidence": round(max(0.0, min(confidence, 1.0)), 4),
+        "record_id": str(best.get("id") or ""),
+        "adapter_path": str(path),
+        "adapter_kind": "neural-personal-adapter",
+        "weight_checksum": str(((payload.get("metadata") or {}) if isinstance(payload.get("metadata"), dict) else {}).get("weight_checksum") or ""),
+    }
+
+
 __all__ = [
     "MINIMIND_LICENSE",
     "MINIMIND_SOURCE_COMMIT",
     "MINIMIND_SOURCE_URL",
     "MiniMindArchitectureSpec",
     "MiniMindDatasetAdapterRuntime",
+    "MiniMindNeuralAdapterRuntime",
     "MiniMindRuntimeInspection",
     "MiniMindTransformersRuntime",
     "get_minimind_architecture",
     "infer_from_dataset_adapter",
+    "infer_from_neural_adapter",
     "inspect_minimind_runtime",
     "list_minimind_architectures",
     "load_minimind_chat_runtime",
     "minimind_source_metadata",
     "train_dataset_adapter",
+    "train_neural_adapter",
 ]

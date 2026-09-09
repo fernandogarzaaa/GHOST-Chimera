@@ -20,6 +20,7 @@ venv/
 *.log
 .ghostchimera/
 .ghost-admin-live/
+.ghost-artifacts/
 .ghost-live-final-test/
 /data/
 /logs/
@@ -28,3 +29,6 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+.coverage
+.coverage.*

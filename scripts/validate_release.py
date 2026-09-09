@@ -28,15 +28,19 @@ REQUIRED_FILES = [
     "CHANGES.md",
     "pyproject.toml",
     "MANIFEST.in",
+    ".env.saas.example",
+    "docker-compose.saas.yml",
     "docs/ARCHITECTURE.md",
     "docs/CLEAN_ROOM.md",
     "docs/BOB_OPTIONAL_TOOLING.md",
     "docs/COMPETITIVE_CAPABILITY_MATRIX.md",
     "docs/NATIVE_ABSORPTION.md",
     "docs/REMOTE_CONTROL.md",
+    "docs/STANDING_ORDERS.md",
     "docs/TRUST_RUNTIME.md",
     "docs/CAPABILITY_ADMISSION.md",
     "docs/PRODUCTION_DEPLOYMENT.md",
+    "docs/PUBLIC_LAUNCH_SAAS.md",
     "docs/RELEASE_CHECKLIST.md",
     "docs/model_provider_catalog.json",
     "docs/model_provider_catalog.md",
@@ -141,14 +145,21 @@ def check_imports() -> dict[str, Any]:
         "ghostchimera.capability_pack",
         "ghostchimera.capability_admission",
         "ghostchimera.control_plane.cli",
+        "ghostchimera.control_plane.host_execution",
+        "ghostchimera.control_plane.standing_orders",
         "ghostchimera.integrations.remote_control",
         "ghostchimera.model_layer.local_model_inventory",
         "ghostchimera.mcp.normalization",
         "ghostchimera.mcp.server",
         "ghostchimera.mcp.client",
+        "ghostchimera.production_gaps",
         "ghostchimera.sandbox.journey",
         "ghostchimera.chimera_pilot.backends.mcp",
         "ghostchimera.trust_runtime",
+        "ghostchimera.saas",
+        "ghostchimera.saas.cli",
+        "ghostchimera.saas.store",
+        "ghostchimera.superiority",
     ]
     imported: list[str] = []
     for module in modules:
@@ -297,6 +308,8 @@ def check_release_hardening() -> dict[str, Any]:
             "ghostchimera capability-pack list",
             "ghostchimera sandbox journey",
             "ghostchimera remote status",
+            "ghostchimera remote health",
+            "ghostchimera production-gaps --format markdown --limit 50",
             "ghostchimera trust eval-cases list",
             "ghostchimera capability-admission list",
         )
@@ -322,6 +335,8 @@ def check_release_hardening() -> dict[str, Any]:
         "ghostchimera cognition guard --confidence 0.9 --variance 0.01",
         "ghostchimera sandbox journey",
         "ghostchimera remote status",
+        "ghostchimera remote health",
+        "ghostchimera production-gaps --format markdown --limit 50",
         "ghostchimera trust eval-cases list",
         "ghostchimera capability-admission list",
     ):
@@ -505,6 +520,141 @@ def check_production_maintenance_artifacts() -> dict[str, Any]:
     return {"ok": not errors, "errors": errors}
 
 
+def check_public_launch_saas_artifacts() -> dict[str, Any]:
+    """Check that the public-branch SaaS foundation remains wired and documented."""
+
+    errors: list[str] = []
+    doc = (ROOT / "docs" / "PUBLIC_LAUNCH_SAAS.md").read_text(encoding="utf-8")
+    for token in (
+        "generic OIDC",
+        "organizations own workspaces",
+        "Postgres is the SaaS source of truth",
+        "ghostchimera saas status",
+        "ghostchimera worker status",
+        "docker-compose.saas.yml",
+        "approval-first",
+    ):
+        if token not in doc:
+            errors.append(f"public launch SaaS doc missing {token!r}")
+
+    cli = (ROOT / "ghostchimera" / "control_plane" / "cli.py").read_text(encoding="utf-8")
+    for token in ("sub.add_parser(\"saas\"", "sub.add_parser(\"worker\"", "run_saas_cli", "run_worker_cli"):
+        if token not in cli:
+            errors.append(f"CLI missing SaaS/worker surface {token!r}")
+
+    schema = (ROOT / "ghostchimera" / "saas" / "store.py").read_text(encoding="utf-8")
+    for table in (
+        "organizations",
+        "user_accounts",
+        "memberships",
+        "workspaces",
+        "ghost_profiles",
+        "tenant_secret_refs",
+        "saas_runs",
+        "saas_approvals",
+        "audit_events",
+        "worker_leases",
+        "eval_baselines",
+    ):
+        if table not in schema:
+            errors.append(f"SaaS schema missing {table!r}")
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    for token in ("Public Launch SaaS", "ghostchimera saas status", "ghostchimera worker status", "docker-compose.saas.yml"):
+        if token not in readme:
+            errors.append(f"README missing SaaS launch reference {token!r}")
+
+    compose = (ROOT / "docker-compose.saas.yml").read_text(encoding="utf-8")
+    for token in ("postgres:", "console:", "worker:", "no-new-privileges:true", "cap_drop:"):
+        if token not in compose:
+            errors.append(f"SaaS compose missing {token!r}")
+
+    env_example = (ROOT / ".env.saas.example").read_text(encoding="utf-8")
+    for token in (
+        "GHOSTCHIMERA_DEPLOYMENT_TARGET=saas",
+        "GHOSTCHIMERA_DATABASE_URL=",
+        "GHOSTCHIMERA_OIDC_ISSUER=",
+        "GHOSTCHIMERA_SESSION_SECRET=",
+        "GHOSTCHIMERA_SECRETS_ENCRYPTION_KEY=",
+        "GHOSTCHIMERA_WORKER_TOKEN=",
+    ):
+        if token not in env_example:
+            errors.append(f"SaaS env example missing {token!r}")
+
+    return {"ok": not errors, "errors": errors}
+
+
+def check_public_superiority_artifacts() -> dict[str, Any]:
+    """Check that the public superiority scorecard and Workbench proof are wired."""
+
+    from ghostchimera.control_plane.console import RELEASE_CHECKS
+    from ghostchimera.evals.runner import EVAL_SUITES
+    from ghostchimera.superiority import build_superiority_scorecard
+
+    errors: list[str] = []
+    if "superiority" not in EVAL_SUITES:
+        errors.append("superiority eval suite missing")
+
+    commands = [check["command"] for check in RELEASE_CHECKS]
+    for command in (
+        "python -m ghostchimera.evals run --suite superiority",
+        "ghostchimera superiority score --format json",
+    ):
+        if command not in commands:
+            errors.append(f"console readiness missing {command!r}")
+
+    html = (ROOT / "ghostchimera" / "control_plane" / "static" / "index.html").read_text(encoding="utf-8")
+    app = (ROOT / "ghostchimera" / "control_plane" / "static" / "app.js").read_text(encoding="utf-8")
+    for token in (
+        "operatorWorkbench",
+        "operatorCommandSearch",
+        "nextBestActions",
+        "superiorityScorecards",
+        "browserE2EStatus",
+        "/api/console/superiority",
+        "renderSuperiorityScorecard",
+    ):
+        if token not in html + app:
+            errors.append(f"Operator Workbench missing {token!r}")
+
+    if not (ROOT / "scripts" / "run_operator_workbench_e2e.py").exists():
+        errors.append("operator workbench browser E2E script missing")
+
+    payload = build_superiority_scorecard(
+        operator_summary={"ok": True, "warnings": [], "trust": {"ready": True}, "counts": {"approved_sources": 1}},
+        capabilities={"ok": True, "score_ratio": 1.0, "capability_count": 14, "top_gaps": []},
+        routes=[
+            "/api/console/operator/summary",
+            "/api/console/models/discovery",
+            "/api/console/trust/summary",
+            "/api/console/trust/runs",
+            "/api/console/trust/approvals",
+            "/api/console/trust/evals",
+            "/api/console/evolution/candidates",
+            "/api/console/remote/status",
+            "/api/console/remote/health",
+            "/api/console/production/gaps",
+            "/api/console/standing-orders",
+            "/api/console/conversation/status",
+            "/api/console/sandbox/journey",
+            "/api/console/local-models/inventory",
+            "/api/console/capability-pack",
+            "/api/console/mcp/trust",
+            "/api/console/autonomy/jobs",
+            "/api/console/autonomy/schedules",
+        ],
+        static_html=html,
+        static_app=app,
+    ).to_dict()
+    if payload.get("score_ratio", 0) < 0.85:
+        errors.append(f"superiority score below launch threshold: {payload.get('score_ratio')}")
+    serialized = json.dumps(payload)
+    if "sk-" in serialized or "ghp_" in serialized:
+        errors.append("superiority payload appears to expose raw secret-like content")
+
+    return {"ok": not errors, "errors": errors, "score_ratio": payload.get("score_ratio")}
+
+
 def check_unittest() -> dict[str, Any]:
     stream = io.StringIO()
     suite = unittest.defaultTestLoader.loadTestsFromNames(
@@ -544,6 +694,8 @@ def main() -> int:
         "optional_tooling_boundary": check_optional_tooling_boundary(),
         "bob_tooling_artifacts": check_bob_tooling_artifacts(),
         "production_maintenance_artifacts": check_production_maintenance_artifacts(),
+        "public_launch_saas_artifacts": check_public_launch_saas_artifacts(),
+        "public_superiority_artifacts": check_public_superiority_artifacts(),
         "policy_defaults": check_policy_defaults(),
         "compileall": check_compileall(),
         "unittest": check_unittest(),

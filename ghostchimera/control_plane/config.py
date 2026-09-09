@@ -76,6 +76,13 @@ def get_default_config() -> dict[str, Any]:
             "desktop_max_live_actions": 25,
             "desktop_max_session_seconds": 300.0,
         },
+        "host_execution": {
+            "unrestricted_host_mode": False,
+            "allowed_root": "",
+            "audit_dir": "",
+            "allow_network_commands": True,
+            "allow_source_mutation": True,
+        },
         "email_oauth": {
             "gmail_client_id": "",
             "gmail_client_secret": "",

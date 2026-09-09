@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from ghostchimera.model_layer.model_discovery import (
+    DEFAULT_SOURCES,
     get_model_discovery,
     normalize_huggingface_models,
     normalize_openrouter_models,
@@ -17,6 +18,10 @@ from ghostchimera.model_layer.model_discovery import (
 
 
 class ModelDiscoveryTests(unittest.TestCase):
+    def test_default_sources_include_local_discovery(self) -> None:
+        self.assertIn("openrouter", DEFAULT_SOURCES)
+        self.assertIn("local", DEFAULT_SOURCES)
+
     def test_normalizes_openrouter_model_as_compatible_needing_key(self) -> None:
         payload = {
             "data": [
@@ -181,6 +186,8 @@ class ModelDiscoveryTests(unittest.TestCase):
 
             self.assertEqual(result["model_count"], 1)
             self.assertEqual(result["models"][0]["model_id"], "vision")
+            self.assertGreaterEqual(result["provider_catalog"]["count"], 20)
+            self.assertIn("ollama", result["provider_catalog"]["local_private"])
 
     def test_select_discovered_model_updates_config_only_for_selectable_models(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-model-discovery-") as tmp:

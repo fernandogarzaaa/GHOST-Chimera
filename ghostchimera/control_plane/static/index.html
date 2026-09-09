@@ -26,6 +26,8 @@
   <header>
     <h1>👻 Ghost Console</h1>
     <div class="row">
+      <input id="tabQuickJump" list="tabQuickJumpList" placeholder="Jump to tab (Ctrl/Cmd+K)" aria-label="Jump to tab">
+      <datalist id="tabQuickJumpList"></datalist>
       <span id="health" class="badge">checking</span>
       <button id="refresh">↺ Refresh</button>
     </div>
@@ -35,10 +37,12 @@
     <button class="tab" data-tab="status">Status</button>
     <button class="tab" data-tab="config">Config</button>
     <button class="tab" data-tab="connections">Connections</button>
+    <button class="tab" data-tab="integrations">Integrations</button>
     <button class="tab" data-tab="path">Path</button>
     <button class="tab" data-tab="github">GitHub</button>
     <button class="tab" data-tab="remote">Remote Control</button>
     <button class="tab" data-tab="trust">Trust Runtime</button>
+    <button class="tab" data-tab="live-presence">Live Presence</button>
     <button class="tab" data-tab="thinking">Thinking</button>
     <button class="tab" data-tab="run">▶ Run</button>
     <button class="tab" data-tab="jobs">Jobs</button>
@@ -61,6 +65,7 @@
     <button class="tab" data-tab="review">Review</button>
     <button class="tab" data-tab="capabilities">Capabilities</button>
     <button class="tab" data-tab="readiness">Readiness</button>
+    <button class="tab" data-tab="stealth">Stealth</button>
   </nav>
 
   <aside id="ghostConversationPanel" class="ghost-conversation-panel" aria-live="polite">
@@ -70,15 +75,26 @@
         <strong>Ghost Conversation</strong>
         <span class="hint">Always-on natural loop</span>
       </div>
-      <span id="conversationMicState" class="badge warn">Muted</span>
+      <div class="conversation-head-actions">
+        <span id="conversationMicState" class="badge warn">Muted</span>
+        <button id="conversationMinimize" class="icon-btn" type="button" title="Minimize Ghost Conversation">_</button>
+      </div>
     </div>
     <div class="conversation-controls">
       <label class="inline-check"><input id="conversationAlwaysListening" type="checkbox"> Always Listening</label>
+      <label class="inline-check"><input id="conversationLocalFallback" type="checkbox" checked> Local fallback</label>
+      <label class="inline-check"><input id="conversationPresenterCoach" type="checkbox"> Presenter Coach</label>
       <label class="inline-check danger-check"><input id="conversationFullBypass" type="checkbox"> Full Bypass</label>
       <select id="conversationVoiceSelect" title="Voice runtime"></select>
     </div>
     <div id="conversationTranscript" class="conversation-transcript">Transcript will appear here after Ghost hears you.</div>
     <div id="conversationReply" class="conversation-reply">Ghost is ready. Say “Hey Ghost” or type below.</div>
+    <div class="conversation-quick-actions">
+      <button type="button" data-conversation-prompt="Run a readiness check">Readiness</button>
+      <button type="button" data-conversation-prompt="Show evidence">Evidence</button>
+      <button type="button" data-conversation-prompt="Coach me through the next step with visible notes only">Coach</button>
+      <button type="button" data-conversation-prompt="Run in sandbox">Sandbox</button>
+    </div>
     <div class="conversation-input-row">
       <input id="conversationTextInput" placeholder="Talk to Ghost or type a message">
       <button id="conversationSend" class="primary">Send</button>
@@ -93,7 +109,36 @@
 
   <!-- ── OPERATOR HOME ─────────────────────────────────────────────────── -->
   <div class="tab-content active" id="tab-operator">
-    <div class="section-hdr" style="margin-top:0;">Ask Ghost</div>
+    <div id="firstRunBanner" class="next-action" style="display:none; margin-bottom:14px;">
+      <div class="next-action-main">
+        <div class="next-action-title">First run: <span id="firstRunSummary"></span></div>
+        <div class="next-action-reason" id="firstRunSteps"></div>
+      </div>
+      <div><button id="firstRunGo" class="primary">Start setup</button></div>
+    </div>
+    <section id="operatorWorkbench" class="operator-workbench">
+      <div class="workbench-hero">
+        <div>
+          <div class="section-hdr" style="margin-top:0;">Operator Workbench</div>
+          <h2>Command Ghost from one place</h2>
+          <p class="hint">Setup, connect, train, run, approve, review, and evolve without editing files or environment variables.</p>
+        </div>
+        <div class="workbench-search">
+          <label for="operatorCommandSearch">Command or next action</label>
+          <input id="operatorCommandSearch" placeholder="Search actions, tabs, providers, trust, MiniMind, MCP">
+        </div>
+      </div>
+      <div class="grid compact-grid" id="superiorityScorecards"></div>
+      <div class="section-hdr">Next Best Actions</div>
+      <div id="nextBestActions" class="next-actions"></div>
+      <div class="section-hdr">Browser E2E Proof</div>
+      <div id="browserE2EStatus" class="list-item">
+        <span class="badge warn">not run</span>
+        <span class="name">Operator Workbench E2E</span>
+        <span class="meta">Run scripts/run_operator_workbench_e2e.py to launch the Console, verify this workbench, and capture proof.</span>
+      </div>
+    </section>
+    <div class="section-hdr">Ask Ghost</div>
     <div class="home-command-panel">
       <div class="home-command-copy">
         <strong>Tell Ghost Chimera what to do.</strong>
@@ -112,6 +157,8 @@
     </div>
     <div class="section-hdr" style="margin-top:0;">Ghost Readiness</div>
     <div class="grid" id="operatorCards"></div>
+    <div class="section-hdr">Runtime Dependencies</div>
+    <div id="runtimeDependencies" class="list"></div>
     <div class="section-hdr">Guided Setup</div>
     <div class="setup-steps" id="setupSteps">
       <button data-step="choose_path" data-target="path">1. Choose Ghost Path</button>
@@ -145,6 +192,155 @@
   </div>
 
   <!-- ── STATUS ────────────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-live-presence">
+    <div class="section-hdr" style="margin-top:0;">Live Presence Runtime</div>
+    <div class="grid compact-grid" id="livePresenceCards"></div>
+    <div class="live-presence-layout">
+      <div class="card">
+        <h3>Create Session</h3>
+        <div class="form-group">
+          <label>Title</label>
+          <input id="livePresenceTitle" placeholder="Customer call, hiring interview, daily standup">
+        </div>
+        <div class="form-group">
+          <label>Type</label>
+          <select id="livePresenceType">
+            <option value="meeting">Meeting</option>
+            <option value="interview">Interview</option>
+            <option value="companion">User + Ghost</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Participant</label>
+          <input id="livePresenceParticipant" placeholder="name or role">
+        </div>
+        <label class="inline-check"><input id="livePresenceExternal" type="checkbox" checked> External participant</label>
+        <div class="row">
+          <button id="livePresenceCreate" class="primary">Create</button>
+          <button id="livePresenceRefresh">Refresh</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Session Controls</h3>
+        <div class="form-group">
+          <label>Session</label>
+          <select id="livePresenceSessionSelect"></select>
+        </div>
+        <div class="row">
+          <button id="livePresenceApproveDisclosure">Approve Disclosure</button>
+          <button id="livePresenceStart" class="primary">Start Live</button>
+          <button id="livePresenceReport">Generate Report</button>
+        </div>
+        <div class="form-group">
+          <label>Speaker</label>
+          <input id="livePresenceSpeaker" placeholder="Ghost, User, Candidate, Customer">
+        </div>
+        <div class="form-group">
+          <label>Transcript Turn</label>
+          <textarea id="livePresenceTranscriptText" rows="3" placeholder="Action item: send follow-up notes after the call."></textarea>
+        </div>
+        <div class="row">
+          <button id="livePresenceAddTranscript">Add Transcript</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Meeting Bridge</h3>
+        <div class="form-group">
+          <label>Meeting App</label>
+          <input id="livePresenceMeetingApp" placeholder="google_meet, zoom, teams, brave">
+        </div>
+        <div class="form-group">
+          <label>Meeting URL</label>
+          <input id="livePresenceMeetingUrl" placeholder="https://meet.google.com/...">
+        </div>
+        <div class="form-group">
+          <label>Browser Session</label>
+          <input id="livePresenceBrowserSession" placeholder="brave-default">
+        </div>
+        <div class="row">
+          <button id="livePresenceConfigureBridge">Configure Bridge</button>
+          <button id="livePresenceInterrupt">Interrupt / Pause</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Delegated Communication</h3>
+        <div class="form-group">
+          <label>Channel</label>
+          <input id="livePresenceCommunicationChannel" placeholder="email, slack, sms">
+        </div>
+        <div class="form-group">
+          <label>Recipient</label>
+          <input id="livePresenceCommunicationRecipient" placeholder="person@example.com">
+        </div>
+        <div class="form-group">
+          <label>Message</label>
+          <textarea id="livePresenceCommunicationBody" rows="3" placeholder="Follow-up message Ghost should draft."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Disclosure Template</label>
+          <input id="livePresenceDisclosureTemplate" placeholder="Ghost Chimera assisted with this follow-up.">
+        </div>
+        <div class="form-group">
+          <label>Draft ID</label>
+          <input id="livePresenceDraftId" placeholder="Filled from draft output or paste an existing draft id">
+        </div>
+        <div class="row">
+          <button id="livePresenceDraftCommunication">Draft</button>
+          <button id="livePresenceApproveRecipient">Approve Recipient</button>
+          <button id="livePresenceSendCommunication">Send Recorded Follow-up</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Shared Context</h3>
+        <div class="form-group">
+          <label>Agenda</label>
+          <textarea id="livePresenceAgenda" rows="2" placeholder="One agenda item per line"></textarea>
+        </div>
+        <div class="form-group">
+          <label>MiniMind Hints</label>
+          <textarea id="livePresenceMiniMindHints" rows="2" placeholder="One memory hint per line"></textarea>
+        </div>
+        <div class="form-group">
+          <label>RAG Snippet</label>
+          <textarea id="livePresenceRagSnippet" rows="2" placeholder="Relevant retrieved context"></textarea>
+        </div>
+        <div class="form-group">
+          <label>User Correction</label>
+          <input id="livePresenceCorrection" placeholder="Correction Ghost should learn for this session">
+        </div>
+        <button id="livePresenceUpdateContext">Update Context</button>
+      </div>
+      <div class="card">
+        <h3>Interview Operator</h3>
+        <div class="form-group">
+          <label>Mode</label>
+          <select id="livePresenceInterviewMode">
+            <option value="interviewer">Interviewer</option>
+            <option value="interviewee">Interviewee</option>
+            <option value="observer">Observer</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Role</label>
+          <input id="livePresenceInterviewRole" placeholder="Senior Python Engineer">
+        </div>
+        <div class="form-group">
+          <label>Competencies</label>
+          <input id="livePresenceInterviewCompetencies" placeholder="architecture, testing, communication">
+        </div>
+        <div class="row">
+          <button id="livePresenceConfigureInterview">Configure Interview</button>
+          <button id="livePresenceScoreInterview">Score Evidence</button>
+          <button id="livePresenceEval">Run Presence Eval</button>
+        </div>
+      </div>
+    </div>
+    <div class="section-hdr">Sessions</div>
+    <div id="livePresenceSessions" class="list"></div>
+    <div class="section-hdr">Report</div>
+    <pre class="output compact-output" id="livePresenceOutput">Create a session to let Ghost join meetings or interviews with disclosure, consent, and Trust Runtime journaling.</pre>
+  </div>
+
   <div class="tab-content" id="tab-config">
     <div class="section-hdr" style="margin-top:0;">Model Provider</div>
     <div class="grid" id="configSummary"></div>
@@ -334,6 +530,27 @@
   <div class="tab-content" id="tab-remote">
     <div class="section-hdr" style="margin-top:0;">Remote Control Center</div>
     <div class="grid" id="remoteSummary"></div>
+    <div class="section-hdr">Standing Orders</div>
+    <div class="remote-layout">
+      <div>
+        <div class="form-group">
+          <label>Title</label>
+          <input id="standingOrderTitle" placeholder="Daily repo health">
+        </div>
+        <div class="form-group">
+          <label>Scope</label>
+          <input id="standingOrderScope" placeholder="engineering, ops, marketing">
+        </div>
+      </div>
+      <div>
+        <div class="form-group">
+          <label>Objective</label>
+          <textarea id="standingOrderObjective" rows="3" placeholder="What Ghost is authorized to do when this order runs."></textarea>
+        </div>
+        <button id="standingOrderCreate" class="primary">Create Standing Order</button>
+      </div>
+    </div>
+    <div id="standingOrders" class="list"></div>
     <div class="remote-layout">
       <div>
         <div class="section-hdr" style="margin-top:0;">Policy</div>
@@ -405,9 +622,19 @@
           <input id="remoteConfigPhone" type="password" autocomplete="off" placeholder="write-only optional id">
         </div>
         <div class="form-group">
+          <label>Default Reply Target</label>
+          <input id="remoteConfigDefaultTarget" autocomplete="off" placeholder="chat id, channel id, email, or phone">
+          <small>Used when a message send does not provide an explicit target.</small>
+        </div>
+        <div class="form-group">
           <label>Signing Secret</label>
           <input id="remoteConfigSigning" type="password" autocomplete="off" placeholder="write-only optional HMAC secret">
           <small>When saved, provider webhooks must include a matching SHA-256 signature. Local simulation remains unsigned.</small>
+        </div>
+        <div class="form-group">
+          <label>Webhook Verify Token</label>
+          <input id="remoteConfigVerifyToken" type="password" autocomplete="off" placeholder="write-only WhatsApp verify token">
+          <small>For WhatsApp Cloud API callback verification at /api/console/remote/webhook/whatsapp.</small>
         </div>
         <label class="inline-check"><input id="remoteConfigEnabled" type="checkbox" checked> Enable inbound adapter metadata</label>
         <label class="inline-check"><input id="remoteConfigSendEnabled" type="checkbox"> Enable outbound sending for this channel</label>
@@ -418,6 +645,8 @@
       </div>
     </div>
     <div id="remoteChannels" class="list"></div>
+    <div class="section-hdr">Channel Health</div>
+    <div id="remoteChannelHealth" class="list"></div>
     <div class="section-hdr">Send Test Reply</div>
     <div class="row">
       <select id="remoteSendChannel" style="max-width:180px;">
@@ -607,6 +836,25 @@
     </div>
     <div class="row"><button id="saveAutonomy" class="primary">Save Profile</button></div>
 
+    <div class="section-hdr" style="margin-top:24px;">Unrestricted Host Execution</div>
+    <div class="form-group">
+      <div class="inline-check danger-check">
+        <input id="hostUnrestrictedMode" type="checkbox">
+        <label for="hostUnrestrictedMode">Allow Ghost to run host commands and self-edit source</label>
+      </div>
+      <label class="hint">Default is OFF. When armed, Ghost can run local commands and apply source patches inside the configured root. Every run writes an audit record and revert patch.</label>
+    </div>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="hostAllowedRoot" placeholder="allowed root path" style="flex:2;min-width:260px;">
+      <input id="hostAuditDir" placeholder="audit directory" style="flex:2;min-width:260px;">
+    </div>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="hostConfirmationPhrase" placeholder="type: I ACCEPT HOST EXECUTION RISK" style="flex:2;min-width:320px;">
+      <button id="saveHostExecution" class="danger">Save Host Mode</button>
+      <button id="refreshHostExecution">Refresh Host Mode</button>
+    </div>
+    <pre class="output compact-output" id="hostExecutionOutput">Host execution is off by default. Arm it only for trusted local work you are willing to audit and revert.</pre>
+
     <div class="section-hdr" style="margin-top:24px;">Active Provider &amp; Model</div>
     <div id="providerStatus"></div>
 
@@ -720,6 +968,18 @@
     </div>
     <pre class="output" id="memoryOutput">Ready.</pre>
 
+    <div class="section-hdr">🕸️ Knowledge Graph &amp; Consolidation</div>
+    <p class="hint" style="margin-bottom:8px;">
+      Ghost's bi-temporal knowledge graph holds durable facts promoted from episodic memory.
+      Run a sleep-time consolidation pass to promote salient memories and retire stale facts.
+    </p>
+    <div id="memoryGraphStatus" class="hint" style="margin-bottom:6px;">Graph status not loaded.</div>
+    <div class="row" style="margin-bottom:10px;">
+      <button id="memoryGraphRefresh" class="primary">Refresh Graph</button>
+      <button id="memoryConsolidate" class="primary">Run Consolidation</button>
+    </div>
+    <div id="memoryGraphOutput" class="fact-list"><span class="empty">No active facts loaded.</span></div>
+
     <div class="section-hdr">🎓 Teach Ghost</div>
     <p class="hint" style="margin-bottom:8px;">
       Record a good prompt/response pair to grow Ghost's personal training dataset.
@@ -788,6 +1048,16 @@
       <button id="pmBootstrap" class="primary">Bootstrap Personal Model</button>
     </div>
 
+    <div class="section-hdr">Neural MiniMind Training</div>
+    <p class="hint" style="margin-bottom:10px;">Train a local neural personal adapter from approved MiniMind dataset records. This updates local adapter weights; it does not upload data or mutate upstream model weights.</p>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="pmNeuralEpochs" value="12" placeholder="epochs" style="flex:1;min-width:120px;">
+      <input id="pmNeuralLearningRate" value="0.25" placeholder="learning rate" style="flex:1;min-width:120px;">
+      <input id="pmNeuralQuery" placeholder="test query after training" style="flex:2;min-width:220px;">
+      <button id="pmTrainNeural" class="primary">Train Neural Adapter</button>
+      <button id="pmInferNeural">Test Neural Adapter</button>
+    </div>
+
     <div class="section-hdr">Email OAuth Crawling</div>
     <p class="hint" style="margin-bottom:10px;">Gmail and Outlook use read-only OAuth scopes. Tokens stay local and are never shown in API responses.</p>
     <div id="emailOAuthStatus"></div>
@@ -835,6 +1105,22 @@
       <textarea id="ragOpenSourceRepos" placeholder="modelcontextprotocol/servers&#10;github/docs"></textarea>
     </div>
     <pre class="output" id="ragBuilderOutput">Ready.</pre>
+  </div>
+
+  <!-- ── INTEGRATIONS ──────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-integrations">
+    <div class="section-hdr" style="margin-top:0;">Connected Services</div>
+    <p class="hint" style="margin-bottom:12px;">
+      Log in with Slack, Notion, GitHub, Gmail and more. Connect natively with OAuth
+      or 1-click via Nango — Ghost polls connected services into background events.
+    </p>
+    <div class="row" style="margin-bottom:10px;">
+      <button id="integrationsRefresh" class="primary">Refresh Status</button>
+      <span id="integrationsNango" class="badge">nango: checking</span>
+    </div>
+    <div id="integrationList"></div>
+    <div class="section-hdr" style="margin-top:20px;">Connection Details</div>
+    <pre class="output compact-output" id="integrationOutput">Select Refresh Status to load the provider catalog.</pre>
   </div>
 
   <div class="tab-content" id="tab-mcp">
@@ -1069,6 +1355,33 @@
     <div class="section-hdr" style="margin-top:0;">Release Readiness Checklist</div>
     <p class="hint" style="margin-bottom:12px;">Run these commands locally before tagging or pushing a beta release.</p>
     <div id="readinessList"></div>
+  </div>
+
+  <!-- ── STEALTH ───────────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-stealth">
+    <div class="section-hdr" style="margin-top:0;">Stealth Activity</div>
+    <p class="hint" style="margin-bottom:12px;">
+      Live feed from the background event loop: events observed, decisions made,
+      interventions prepared, outcomes learned. Silence is a successful outcome.
+    </p>
+    <div class="row" style="margin-bottom:10px;">
+      <button id="stealthRefresh" class="primary">Refresh Activity</button>
+      <span id="stealthAutonomy" class="badge">autonomy: checking</span>
+      <span id="stealthEvents" class="badge">events: 0</span>
+    </div>
+    <div id="stealthFeed"></div>
+    <div class="section-hdr" style="margin-top:20px;">Pre-fill Drafts (Simplified Technical English)</div>
+    <p class="hint" style="margin-bottom:12px;">
+      Every draft is rewritten in plain human language (ASD-STE100 core rules) so it
+      never reads as AI-generated. Edit freely, copy-paste anywhere, or approve to send.
+    </p>
+    <div id="stealthDrafts"></div>
+    <div class="section-hdr" style="margin-top:20px;">STE Checker</div>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="steInput" placeholder="paste any text to STE-check it" style="flex:3;">
+      <button id="steCheck" class="primary">Simplify</button>
+    </div>
+    <pre class="output compact-output" id="steOutput">Simplified text and applied rules appear here.</pre>
   </div>
 
   <script src="/static/app.js"></script>

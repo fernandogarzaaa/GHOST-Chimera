@@ -12,6 +12,7 @@ from ghostchimera.control_plane.conversation import (
     ConversationalLoopController,
     ConversationStore,
     classify_conversation_intent,
+    summarize_run_result,
 )
 from ghostchimera.trust_runtime import TrustRuntimeStore
 
@@ -88,6 +89,18 @@ class ConversationRuntimeTests(unittest.TestCase):
             self.assertEqual(status["active_session"]["mode"], "sleeping")
             self.assertFalse(status["settings"]["always_listening"])
 
+    def test_presenter_coach_mode_is_visible_and_not_anti_detection(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-conversation-") as tmp:
+            controller = ConversationalLoopController(state_dir=tmp)
+
+            payload = controller.update_settings(presenter_coach_mode=True)
+            status = controller.status()
+
+            self.assertTrue(payload["settings"]["presenter_coach_mode"])
+            self.assertTrue(status["settings"]["presenter_coach_mode"])
+            self.assertFalse(status["privacy"]["anti_detection_supported"])
+            self.assertTrue(status["privacy"]["coaching_requires_visible_console"])
+
     def test_conversation_turn_creates_trust_run_record(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghost-conversation-") as tmp:
             trust = TrustRuntimeStore(Path(tmp) / "trust")
@@ -97,13 +110,77 @@ class ConversationRuntimeTests(unittest.TestCase):
                 objective_runner=lambda objective: {"ok": True, "result": "done"},
             )
             session = controller.create_session(always_listening=True)
-            result = controller.handle_turn(session["session_id"], "inspect status")
+            result = controller.handle_turn(session["session_id"], "inspect runtime")
 
             runs = trust.list_runs()["runs"]
             self.assertTrue(result["ok"])
             self.assertEqual(len(runs), 1)
             self.assertEqual(runs[0]["source"], "conversation")
             self.assertIn("trust_run", result)
+
+    def test_successful_run_reply_is_operator_report_not_generic_placeholder(self) -> None:
+        result = {
+            "ok": True,
+            "executions": [
+                {"ok": True, "backend_id": "deterministic.local", "output": "workspace status inspected"}
+            ],
+            "trust_run": {"run": {"run_id": "run-123"}, "tool_calls": [], "approvals": []},
+        }
+
+        reply = summarize_run_result(result, ok=True, objective="inspect status")
+
+        self.assertIn("1/1 task", reply)
+        self.assertIn("deterministic.local", reply)
+        self.assertIn("run-123", reply)
+        self.assertNotIn("Done. I recorded the run in Trust Runtime and I am listening for the next step.", reply)
+
+    def test_failed_execution_reply_includes_backend_error(self) -> None:
+        result = {"ok": False, "executions": [{"ok": False, "backend_id": "codex_cli", "error": "provider failed"}]}
+
+        reply = summarize_run_result(result, ok=False, objective="run status")
+
+        self.assertIn("provider failed", reply)
+        self.assertNotEqual(reply, "I could not complete that. Check Trust Runtime for details.")
+
+    def test_show_evidence_returns_recent_trust_runs(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-conversation-evidence-") as tmp:
+            trust = TrustRuntimeStore(tmp)
+            trust.create_run(
+                agent_name="ghost_conversation",
+                objective="inspect live status",
+                source="conversation",
+            )
+            controller = ConversationalLoopController(state_dir=tmp, trust_store=trust)
+            session = controller.create_session(session_id="demo", always_listening=False)
+
+            result = controller.handle_turn(session["session_id"], "show evidence")
+
+            self.assertTrue(result["ok"])
+            self.assertIn("Recent Trust Runtime evidence", result["reply"])
+            self.assertIn("inspect live status", result["reply"])
+            self.assertNotIn("Evidence is available in the Trust Runtime", result["reply"])
+
+    def test_readiness_intent_returns_status_provider_summary(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-conversation-readiness-") as tmp:
+            controller = ConversationalLoopController(
+                state_dir=tmp,
+                status_provider=lambda: {
+                    "active_path": {"profile_id": "autonomous-engineer"},
+                    "model": {"provider": "codex_cli", "model": "gpt-5.4-mini", "auth_configured": True},
+                    "production_readiness": {"status": "ready", "ready": True},
+                    "counts": {"approved_sources": 5, "learning_sources": 5, "pending_candidates": 1},
+                    "warnings": [],
+                },
+            )
+            session = controller.create_session(session_id="demo", always_listening=False)
+
+            result = controller.handle_turn(session["session_id"], "run readiness check")
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["intent"], "readiness")
+            self.assertIn("Readiness check", result["reply"])
+            self.assertIn("codex_cli / gpt-5.4-mini", result["reply"])
+            self.assertIn("Pending evolution candidates: 1", result["reply"])
 
 
 class ConversationConsoleRouteTests(unittest.TestCase):
@@ -121,6 +198,9 @@ class ConversationConsoleRouteTests(unittest.TestCase):
                 ("GET", "/api/console/conversation/sessions"),
                 ("GET", "/api/console/conversation/status"),
                 ("POST", "/api/console/conversation/settings"),
+                ("GET", "/api/console/conversation/local-voice/status"),
+                ("POST", "/api/console/conversation/local-voice/transcribe"),
+                ("GET", "/api/console/runtime/dependencies"),
             ]:
                 with self.subTest(path=path):
                     self.assertIsNotNone(server.routes.find(method, path))
@@ -128,6 +208,7 @@ class ConversationConsoleRouteTests(unittest.TestCase):
             create_route = server.routes.find("POST", "/api/console/conversation/sessions")
             turn_route = server.routes.find("POST", "/api/console/conversation/sessions/demo/turn")
             status_route = server.routes.find("GET", "/api/console/conversation/status")
+            runtime_route = server.routes.find("GET", "/api/console/runtime/dependencies")
             self.assertIsNotNone(create_route)
             self.assertIsNotNone(turn_route)
 
@@ -160,12 +241,44 @@ class ConversationConsoleRouteTests(unittest.TestCase):
                     "query": {},
                 }
             )
+            runtime = runtime_route.handler(
+                {
+                    "method": "GET",
+                    "path": "/api/console/runtime/dependencies",
+                    "headers": {},
+                    "body": "",
+                    "query": {},
+                }
+            )
 
             serialized = json.dumps(result) + json.dumps(status)
             self.assertTrue(result["ok"])
+            self.assertTrue(runtime["ok"])
+            self.assertIn("provider_catalog", runtime)
+            self.assertIn("operator_report", result)
             self.assertNotIn("sk-testsecret123456", serialized)
             self.assertIn("[redacted]", serialized)
             self.assertEqual(status["active_session"]["session_id"], "demo")
+
+    def test_session_create_accepts_label_alias_for_title(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-console-conversation-label-") as tmp:
+            server = GatewayServer()
+            register_console_routes(server, state_dir=tmp)
+            create_route = server.routes.find("POST", "/api/console/conversation/sessions")
+            self.assertIsNotNone(create_route)
+
+            created = create_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/conversation/sessions",
+                    "headers": {},
+                    "body": json.dumps({"label": "Full autonomy live test"}),
+                    "query": {},
+                }
+            )
+
+            self.assertTrue(created["ok"])
+            self.assertEqual(created["session"]["title"], "Full autonomy live test")
 
 
 class ConversationCliTests(unittest.TestCase):
@@ -198,7 +311,12 @@ class ConversationUiStaticTests(unittest.TestCase):
             "conversationStopAll",
             "conversationAlwaysListening",
             "conversationFullBypass",
+            "conversationLocalFallback",
+            "conversationPresenterCoach",
             "conversationVoiceSelect",
+            "conversationMinimize",
+            "runtimeDependencies",
+            "data-conversation-prompt",
         ]:
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
@@ -207,7 +325,18 @@ class ConversationUiStaticTests(unittest.TestCase):
             "/api/console/conversation/status",
             "/api/console/conversation/settings",
             "SpeechRecognition",
+            "MediaRecorder",
+            "local-voice-turn",
+            "/api/console/conversation/local-voice/status",
             "speechSynthesis",
+            "speechErrorGuidance",
+            "voiceRestartBlocked",
+            "Voice Network Unavailable",
+            "buildLocalVoiceReadinessMessage",
+            "Local Voice Provider Needed",
+            "toggleConversationMinimized",
+            "presenter_coach_mode",
+            "renderRuntimeDependencies",
         ]:
             with self.subTest(marker=marker):
                 self.assertIn(marker, js)

@@ -1,6 +1,6 @@
 param(
     [string]$InstallDir = $(if ($env:GHOSTCHIMERA_INSTALL_DIR) { $env:GHOSTCHIMERA_INSTALL_DIR } else { Join-Path $HOME "ghost-chimera" }),
-    [string]$Extras = $(if ($env:GHOSTCHIMERA_EXTRAS) { $env:GHOSTCHIMERA_EXTRAS } else { "all" }),
+    [string]$Extras = $(if ($env:GHOSTCHIMERA_EXTRAS) { $env:GHOSTCHIMERA_EXTRAS } else { "all,dev" }),
     [string]$Ref = $(if ($env:GHOSTCHIMERA_REF) { $env:GHOSTCHIMERA_REF } else { "main" }),
     [switch]$DryRun
 )
@@ -55,6 +55,19 @@ function Invoke-Python {
     if ($LASTEXITCODE -ne 0) {
         throw "Python command failed: $($Arguments -join ' ')"
     }
+}
+
+function Test-RuntimeDependencySurface {
+    param([string]$PythonExe)
+    & $PythonExe -c @"
+import importlib.util
+required = ["certifi", "croniter", "jsonschema", "pyautogui", "websockets"]
+missing = [name for name in required if importlib.util.find_spec(name) is None]
+if missing:
+    raise SystemExit("Missing installed runtime dependencies: " + ", ".join(missing))
+print("runtime dependency surface ok: " + ", ".join(required))
+"@
+    if ($LASTEXITCODE -ne 0) { throw "Runtime dependency verification failed" }
 }
 
 $installPath = [System.IO.Path]::GetFullPath($InstallDir)
@@ -115,11 +128,16 @@ try {
     $venvPython = Join-Path $installPath ".venv\Scripts\python.exe"
     $venvGhost = Join-Path $installPath ".venv\Scripts\ghostchimera.exe"
 
-    Write-Step "Installing full Python runtime dependencies."
+    Write-Step "Installing full Python runtime dependencies, optional extras, and developer verification tools."
     & $venvPython -m pip install --upgrade pip
     if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
     & $venvPython -m pip install -e ".[${Extras}]"
     if ($LASTEXITCODE -ne 0) { throw "Ghost Chimera install failed" }
+
+    Write-Step "Verifying installed dependency surface."
+    Test-RuntimeDependencySurface -PythonExe $venvPython
+    & $venvPython -m pip check
+    if ($LASTEXITCODE -ne 0) { throw "Installed package dependency check failed" }
 
     Write-Step "Verifying CLI entrypoint."
     & $venvGhost doctor

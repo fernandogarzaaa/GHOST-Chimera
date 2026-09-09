@@ -35,10 +35,16 @@ python -m pip install -e ".[gateway]"
 Start the console:
 
 ```bash
-ghostchimera console
+ghostchimera start
 ```
 
 Then open `http://localhost:8766/`.
+
+Run a one-liner objective (OpenClaw/Hermes-style terminal flow):
+
+```bash
+ghost "Summarize my current workspace and tell me the next safest action."
+```
 
 ## First successful run
 

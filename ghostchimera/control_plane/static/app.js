@@ -18,10 +18,15 @@
     localModels: null,
     remote: null,
     trust: null,
+    livePresence: null,
+    superiority: null,
     conversation: null,
     conversationSessionId: "",
     recognition: null,
     listening: false,
+    voiceRestartBlocked: false,
+    localVoiceRecording: false,
+    conversationMinimized: localStorage.getItem("ghostConversationMinimized") === "1",
   };
 
   function $(sel) { return document.querySelector(sel); }
@@ -139,13 +144,79 @@
   }
 
   // ── Tabs ─────────────────────────────────────────────────────────────────
-  $$$("#tabBar .tab").forEach(function(tab) {
-    tab.addEventListener("click", function() {
-      $$$(".tab").forEach(function(t) { t.classList.remove("active"); });
-      $$$(".tab-content").forEach(function(c) { c.classList.remove("active"); });
-      tab.classList.add("active");
-      $("#tab-" + tab.dataset.tab).classList.add("active");
+  var ACTIVE_TAB_KEY = "ghostchimera_active_tab";
+
+  function normalizeTabName(name) {
+    name = String(name || "").trim().replace(/^#/, "");
+    return name.indexOf("tab-") === 0 ? name.slice(4) : name;
+  }
+
+  function tabExists(name) {
+    return !!$(".tab[data-tab='" + name + "']");
+  }
+
+  function activateTab(name, opts) {
+    var target = tabExists(name) ? name : "operator";
+    var options = opts || {};
+    $$$(".tab").forEach(function(t) { t.classList.remove("active"); });
+    $$$(".tab-content").forEach(function(c) { c.classList.remove("active"); });
+    var tab = $(".tab[data-tab='" + target + "']");
+    var content = $("#tab-" + target);
+    if (tab) tab.classList.add("active");
+    if (content) content.classList.add("active");
+    if (!options.skipPersist) {
+      try { localStorage.setItem(ACTIVE_TAB_KEY, target); } catch (_) {}
+    }
+    if (!options.skipHash) {
+      if (window.history && window.history.replaceState) window.history.replaceState(null, "", "#" + target);
+      else window.location.hash = target;
+    }
+  }
+
+  function initTabQuickJump() {
+    var quick = $("#tabQuickJump");
+    var datalist = $("#tabQuickJumpList");
+    if (!quick || !datalist) return;
+    datalist.innerHTML = "";
+    $$$("#tabBar .tab").forEach(function(tab) {
+      var option = el("option", { value: tab.textContent.trim() });
+      option.setAttribute("label", tab.dataset.tab);
+      datalist.appendChild(option);
     });
+    quick.addEventListener("keydown", function(e) {
+      if (e.key !== "Enter") return;
+      var q = (quick.value || "").trim().toLowerCase();
+      if (!q) return;
+      var match = Array.prototype.slice.call($$$("#tabBar .tab")).find(function(tab) {
+        var label = tab.textContent.trim().toLowerCase();
+        var key = (tab.dataset.tab || "").toLowerCase();
+        return label === q || key === q || label.indexOf(q) !== -1 || key.indexOf(q) !== -1;
+      });
+      if (match) {
+        activateTab(match.dataset.tab);
+        quick.value = "";
+      } else {
+        toast("No matching tab found.", "warn", 2200);
+      }
+    });
+  }
+
+  $$$("#tabBar .tab").forEach(function(tab) {
+    tab.addEventListener("click", function() { activateTab(tab.dataset.tab); });
+  });
+
+  window.addEventListener("hashchange", function() {
+    var fromHash = normalizeTabName(window.location.hash);
+    if (fromHash) activateTab(fromHash, { skipHash: true });
+  });
+
+  document.addEventListener("keydown", function(e) {
+    if (!(e.ctrlKey || e.metaKey) || String(e.key || "").toLowerCase() !== "k") return;
+    var quick = $("#tabQuickJump");
+    if (!quick) return;
+    e.preventDefault();
+    quick.focus();
+    quick.select();
   });
 
   // ── API helper ───────────────────────────────────────────────────────────
@@ -176,8 +247,7 @@
   function badge(el, text, cls) { el.textContent = text; el.className = "badge " + (cls || ""); }
 
   function openTab(name) {
-    var tab = $(".tab[data-tab='" + name + "']");
-    if (tab) tab.click();
+    activateTab(name);
   }
 
   function setConversationMicState(text, cls) {
@@ -187,6 +257,23 @@
     mic.className = "badge " + (cls || "warn");
   }
 
+  function applyConversationMinimized() {
+    var panel = $("#ghostConversationPanel");
+    var btn = $("#conversationMinimize");
+    if (!panel) return;
+    panel.classList.toggle("minimized", !!state.conversationMinimized);
+    if (btn) {
+      btn.textContent = state.conversationMinimized ? "+" : "_";
+      btn.title = state.conversationMinimized ? "Expand Ghost Conversation" : "Minimize Ghost Conversation";
+    }
+  }
+
+  function toggleConversationMinimized() {
+    state.conversationMinimized = !state.conversationMinimized;
+    try { localStorage.setItem("ghostConversationMinimized", state.conversationMinimized ? "1" : "0"); } catch (_) {}
+    applyConversationMinimized();
+  }
+
   function renderConversationStatus(data) {
     state.conversation = data;
     var session = data && data.active_session;
@@ -194,10 +281,14 @@
     if (session && session.session_id) state.conversationSessionId = session.session_id;
     var always = $("#conversationAlwaysListening");
     var bypass = $("#conversationFullBypass");
+    var localFallback = $("#conversationLocalFallback");
+    var presenterCoach = $("#conversationPresenterCoach");
     var banner = $("#conversationBypassBanner");
     var voiceSelect = $("#conversationVoiceSelect");
     if (always) always.checked = !!settings.always_listening;
     if (bypass) bypass.checked = !!settings.full_bypass;
+    if (localFallback) localFallback.checked = settings.local_fallback !== false;
+    if (presenterCoach) presenterCoach.checked = !!settings.presenter_coach_mode;
     if (banner) banner.style.display = settings.full_bypass ? "block" : "none";
     if (voiceSelect) {
       var selected = settings.voice_id || "browser-default";
@@ -212,9 +303,17 @@
     var transcript = $("#conversationTranscript");
     if (transcript && session) {
       var turns = session.turns || [];
-      transcript.textContent = turns.slice(-8).map(function(t) {
+      var text = turns.slice(-8).map(function(t) {
         return (t.role === "ghost" ? "Ghost: " : "You: ") + (t.content || "");
-      }).join("\n") || "Transcript will appear here after Ghost hears you.";
+      }).join("\n");
+      // Preserve a locally-echoed user turn until the server round-trip
+      // returns it, so Send never looks dead while the API is in flight.
+      if (state.pendingEcho && text.indexOf(state.pendingEcho) === -1) {
+        text = (text ? text + "\n" : "") + state.pendingEcho;
+      } else if (state.pendingEcho && text.indexOf(state.pendingEcho) !== -1) {
+        state.pendingEcho = "";
+      }
+      transcript.textContent = text || "Transcript will appear here after Ghost hears you.";
     }
     var reply = $("#conversationReply");
     if (reply && session) reply.textContent = session.last_reply || "Ghost is listening for your next instruction.";
@@ -254,17 +353,181 @@
       var utterance = new SpeechSynthesisUtterance(String(text).slice(0, 900));
       utterance.onstart = function() { setConversationMicState("Speaking", "ok"); };
       utterance.onend = function() {
-        if ($("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked) startConversationListening();
+        if ($("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked && !state.voiceRestartBlocked) startConversationListening();
       };
       window.speechSynthesis.speak(utterance);
     } catch (_) {}
   }
 
+  function speechErrorGuidance(error) {
+    var code = String(error || "unknown");
+    if (code === "network") {
+      return "Browser voice input is unavailable because the browser speech service reported a network error. Text input and Ghost speaking still work. Try Edge/Chrome online, allow microphone access, disable VPN/proxy blockers, or choose a local voice provider when installed.";
+    }
+    if (code === "not-allowed" || code === "service-not-allowed") {
+      return "Microphone or browser speech service permission was denied. Allow microphone access for localhost, then click Start Listening again.";
+    }
+    if (code === "audio-capture") {
+      return "No microphone input was captured. Check the selected system microphone and browser site permissions.";
+    }
+    return "Voice input stopped: " + code + ". Text input and Ghost speaking are still available.";
+  }
+
+  function isFatalSpeechError(error) {
+    return ["network", "not-allowed", "service-not-allowed", "audio-capture"].indexOf(String(error || "")) >= 0;
+  }
+
+  function localVoiceEnabled() {
+    var settings = (state.conversation && state.conversation.settings) || {};
+    var checkbox = $("#conversationLocalFallback");
+    return settings.local_fallback !== false && (!checkbox || checkbox.checked !== false);
+  }
+
+  function buildLocalVoiceReadinessMessage(status, reason) {
+    var prefix = "Browser speech recognition failed" + (reason ? " (" + reason + ")" : "") + ". ";
+    if (!status || status.ready === false) {
+      var providers = ((status && status.providers) || []).map(function(provider) {
+        var stateText = provider.ready ? "ready" : provider.installed ? "installed, needs setup" : "not installed";
+        return provider.label + ": " + stateText + (provider.reason ? " - " + provider.reason : "");
+      }).join(" | ");
+      return prefix + "Local Voice Provider Needed. Install the voice extra or configure a local provider, then try Start Listening again." + (providers ? " " + providers : "");
+    }
+    var fallback = status.browser_network_fallback || {};
+    var recommended = fallback.recommended_provider || status.recommended_provider || "auto";
+    return prefix + "Switching to local voice fallback now using " + recommended + ".";
+  }
+
+  function mediaRecorderMimeType() {
+    var candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
+    if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return "";
+    for (var i = 0; i < candidates.length; i++) {
+      if (MediaRecorder.isTypeSupported(candidates[i])) return candidates[i];
+    }
+    return "";
+  }
+
+  function blobToBase64(blob) {
+    return new Promise(function(resolve, reject) {
+      var reader = new FileReader();
+      reader.onloadend = function() {
+        var value = String(reader.result || "");
+        resolve(value.indexOf(",") >= 0 ? value.split(",").pop() : value);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function startLocalVoiceFallback(reason) {
+    if (state.localVoiceRecording) return;
+    if (!localVoiceEnabled()) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+      toast("Local voice fallback needs browser microphone recording support. Type your message instead.", "warn", 7000);
+      return;
+    }
+    state.localVoiceRecording = true;
+    state.voiceRestartBlocked = true;
+    setConversationMicState("Local Voice Listening", "warn");
+    if ($("#conversationReply")) {
+      $("#conversationReply").textContent = "Browser speech recognition failed" + (reason ? " (" + reason + ")" : "") + ". I am recording a short local fallback clip now.";
+    }
+    try {
+      var localStatus = await api("/api/console/conversation/local-voice/status");
+      if (localStatus && localStatus.ready === false) {
+        var readinessMessage = buildLocalVoiceReadinessMessage(localStatus, reason);
+        setConversationMicState("Local Voice Provider Needed", "error");
+        if ($("#conversationReply")) $("#conversationReply").textContent = readinessMessage;
+        toast("Local voice fallback is enabled, but no local STT provider is ready yet.", "warn", 9000);
+        if ($("#conversationTextInput")) $("#conversationTextInput").focus();
+        return;
+      }
+      if ($("#conversationReply")) {
+        $("#conversationReply").textContent = buildLocalVoiceReadinessMessage(localStatus, reason);
+      }
+      var sessionId = await ensureConversationSession();
+      var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      var mimeType = mediaRecorderMimeType();
+      var options = mimeType ? { mimeType: mimeType } : {};
+      var recorder = new MediaRecorder(stream, options);
+      var chunks = [];
+      recorder.ondataavailable = function(event) {
+        if (event.data && event.data.size) chunks.push(event.data);
+      };
+      var stopped = new Promise(function(resolve) {
+        recorder.onstop = resolve;
+      });
+      recorder.start();
+      setTimeout(function() {
+        try { recorder.stop(); } catch (_) {}
+      }, 5500);
+      await stopped;
+      stream.getTracks().forEach(function(track) { track.stop(); });
+      var blob = new Blob(chunks, { type: mimeType || "audio/webm" });
+      if (!blob.size) throw new Error("No local audio was captured.");
+      setConversationMicState("Local Voice Transcribing", "warn");
+      var audioBase64 = await blobToBase64(blob);
+      var data = await api("/api/console/conversation/sessions/" + encodeURIComponent(sessionId) + "/local-voice-turn", {
+        method: "POST",
+        body: {
+          audio_base64: audioBase64,
+          mime_type: blob.type || mimeType || "audio/webm",
+          provider: "auto",
+        },
+      });
+      if (!data.ok) {
+        var providerErrors = (data.provider_errors || []).slice(0, 3).join("; ");
+        throw new Error(data.error || providerErrors || "Local voice transcription failed.");
+      }
+      renderConversationStatus({ ok: true, settings: ((state.conversation || {}).settings || {}), active_session: data.session, voice_catalog: ((state.conversation || {}).voice_catalog || []) });
+      if (data.reply) {
+        $("#conversationReply").textContent = data.reply;
+        speakGhost(data.reply);
+      }
+      toast("Local voice fallback handled the message.", "ok");
+      await refreshConversationStatus();
+      await refreshTimeline();
+      await refreshTrust();
+    } catch (e) {
+      if ($("#conversationReply")) $("#conversationReply").textContent = e.message;
+      toast(e.message + " Install/configure a local STT provider or use text input.", "warn", 9000);
+      setConversationMicState("Local Voice Unavailable", "error");
+      if ($("#conversationTextInput")) $("#conversationTextInput").focus();
+    } finally {
+      state.localVoiceRecording = false;
+    }
+  }
+
+  function persistConversationSettingsNoRestart(alwaysListening) {
+    var body = {
+      always_listening: !!alwaysListening,
+      full_bypass: $("#conversationFullBypass") ? $("#conversationFullBypass").checked : false,
+      local_fallback: $("#conversationLocalFallback") ? $("#conversationLocalFallback").checked : true,
+      presenter_coach_mode: $("#conversationPresenterCoach") ? $("#conversationPresenterCoach").checked : false,
+      voice_id: $("#conversationVoiceSelect") ? $("#conversationVoiceSelect").value : "browser-default",
+    };
+    api("/api/console/conversation/settings", { method: "POST", body: body }).catch(function() {});
+  }
+
   async function sendConversationMessage(message, inputMode) {
     message = (message || "").trim();
     if (!message) return;
-    var sessionId = await ensureConversationSession();
+    // Optimistic ack: show the user's turn immediately so the control
+    // never feels dead while the session/API round-trip is in flight.
+    try {
+      state.pendingEcho = "You: " + message;
+      var transcriptEl = $("#conversationTranscript");
+      if (transcriptEl) {
+        var existing = transcriptEl.textContent || "";
+        if (existing === "Transcript will appear here after Ghost hears you.") existing = "";
+        if (existing.indexOf(state.pendingEcho) === -1) {
+          transcriptEl.textContent = (existing ? existing + "\n" : "") + state.pendingEcho;
+        }
+      }
+      var replyEl = $("#conversationReply");
+      if (replyEl) replyEl.textContent = "Ghost is thinking…";
+    } catch (_) {}
     setConversationMicState("Processing", "warn");
+    var sessionId = await ensureConversationSession();
     var path = "/api/console/conversation/sessions/" + encodeURIComponent(sessionId) + (inputMode === "voice" ? "/voice-turn" : "/turn");
     try {
       var data = await api(path, { method: "POST", body: { message: message } });
@@ -289,6 +552,8 @@
     var body = {
       always_listening: $("#conversationAlwaysListening") ? $("#conversationAlwaysListening").checked : false,
       full_bypass: $("#conversationFullBypass") ? $("#conversationFullBypass").checked : false,
+      local_fallback: $("#conversationLocalFallback") ? $("#conversationLocalFallback").checked : true,
+      presenter_coach_mode: $("#conversationPresenterCoach") ? $("#conversationPresenterCoach").checked : false,
       voice_id: $("#conversationVoiceSelect") ? $("#conversationVoiceSelect").value : "browser-default",
     };
     Object.keys(extra || {}).forEach(function(k) { body[k] = extra[k]; });
@@ -304,9 +569,16 @@
   }
 
   function startConversationListening() {
+    state.voiceRestartBlocked = false;
+    var selectedVoice = $("#conversationVoiceSelect") ? $("#conversationVoiceSelect").value : "browser-default";
+    if (selectedVoice && selectedVoice !== "browser-default" && selectedVoice.indexOf("local") >= 0) {
+      startLocalVoiceFallback("local voice selected");
+      return;
+    }
     var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      toast("Browser speech recognition is not available. Use text or a local voice provider.", "warn");
+      toast("Browser speech recognition is not available. Trying local voice fallback.", "warn");
+      startLocalVoiceFallback("browser speech unavailable");
       return;
     }
     if (state.listening) return;
@@ -329,13 +601,25 @@
       };
       recognition.onerror = function(event) {
         state.listening = false;
-        setConversationMicState("Muted", "warn");
-        if (event.error !== "no-speech") toast("Voice input: " + event.error, "warn");
+        var error = event && event.error ? event.error : "unknown";
+        var guidance = speechErrorGuidance(error);
+        if (isFatalSpeechError(error)) {
+          state.voiceRestartBlocked = true;
+          if ($("#conversationAlwaysListening")) $("#conversationAlwaysListening").checked = false;
+          setConversationMicState(error === "network" ? "Voice Network Unavailable" : "Voice Unavailable", "error");
+          if ($("#conversationReply")) $("#conversationReply").textContent = guidance;
+          persistConversationSettingsNoRestart(false);
+          if ($("#conversationTextInput")) $("#conversationTextInput").focus();
+          if (error === "network") startLocalVoiceFallback(error);
+        } else {
+          setConversationMicState("Muted", "warn");
+        }
+        if (error !== "no-speech") toast(guidance, "warn", isFatalSpeechError(error) ? 9000 : 3500);
       };
       recognition.onend = function() {
         state.listening = false;
         var shouldRestart = $("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked;
-        if (shouldRestart) setTimeout(startConversationListening, 700);
+        if (shouldRestart && !state.voiceRestartBlocked) setTimeout(startConversationListening, 700);
         else setConversationMicState("Muted", "warn");
       };
       state.recognition = recognition;
@@ -356,6 +640,7 @@
 
   function renderOperatorSummary(data) {
     state.operator = data;
+    if (data && data.superiority) renderSuperiorityScorecard(data.superiority);
     var cards = $("#operatorCards");
     var warnings = $("#operatorWarnings");
     if (!cards || !warnings) return;
@@ -380,6 +665,80 @@
         warnings.appendChild(item);
       });
     }
+    renderRuntimeDependencies(data.runtime_dependencies);
+  }
+
+  function renderRuntimeDependencies(data) {
+    var panel = $("#runtimeDependencies");
+    if (!panel) return;
+    panel.innerHTML = "";
+    if (!data || !data.ok) {
+      panel.appendChild(el("div", { class: "list-item" }, "Runtime dependency status unavailable."));
+      return;
+    }
+    var summary = el("div", { class: "list-item" });
+    summary.appendChild(el("span", { class: "badge " + (data.ready ? "ok" : "warn") }, data.ready ? "ready" : "review"));
+    summary.appendChild(el("span", { class: "name" }, "Full install profile"));
+    summary.appendChild(el("span", { class: "meta" }, (data.install_profile || "pip install -e .[all,dev]") + " | providers=" + ((data.provider_catalog || {}).count || 0)));
+    panel.appendChild(summary);
+    var missing = (data.missing_modules || []).concat(data.missing_tools || []);
+    var detail = el("div", { class: "list-item" });
+    detail.appendChild(el("span", { class: "badge " + (missing.length ? "warn" : "ok") }, missing.length ? String(missing.length) : "0"));
+    detail.appendChild(el("span", { class: "name" }, "Missing dependency checks"));
+    detail.appendChild(el("span", { class: "meta" }, missing.length ? missing.slice(0, 8).join(", ") : "All tracked modules and tools are visible to this shell."));
+    panel.appendChild(detail);
+  }
+
+  function renderSuperiorityScorecard(data) {
+    state.superiority = data;
+    var cards = $("#superiorityScorecards");
+    var actions = $("#nextBestActions");
+    var e2e = $("#browserE2EStatus");
+    if (cards) {
+      cards.innerHTML = "";
+      [
+        ["Overall", data && data.score_ratio != null ? String(data.score_ratio) : "review"],
+        ["Grade", (data && data.grade) || "review"],
+        ["Operator UX", dimensionScore(data, "operator_ux")],
+        ["Platform", dimensionScore(data, "platform_breadth")],
+        ["Autonomy", dimensionScore(data, "autonomy_depth")],
+      ].forEach(function(row) {
+        var card = el("div", { class: "card" });
+        card.appendChild(el("h3", null, row[0]));
+        card.appendChild(el("div", { class: "value" }, row[1]));
+        cards.appendChild(card);
+      });
+    }
+    if (actions) {
+      actions.innerHTML = "";
+      ((data && data.next_best_actions) || []).slice(0, 6).forEach(function(action) {
+        var item = el("div", { class: "next-action" });
+        var main = el("div", { class: "next-action-main" });
+        main.appendChild(el("div", { class: "next-action-title" }, action.label || action.id));
+        main.appendChild(el("div", { class: "next-action-reason" }, action.reason || ""));
+        item.appendChild(main);
+        var btn = el("button", { type: "button", "data-target": action.tab || "operator" }, "Open " + (action.tab || "Home"));
+        btn.addEventListener("click", function() { openTab(action.tab || "operator"); });
+        item.appendChild(btn);
+        actions.appendChild(item);
+      });
+      if (!((data && data.next_best_actions) || []).length) {
+        actions.appendChild(el("div", { class: "empty" }, "No next actions yet."));
+      }
+    }
+    if (e2e) {
+      var cases = (data && data.journey_cases) || [];
+      var passed = cases.filter(function(item) { return item.status === "passed"; }).length;
+      e2e.innerHTML = "";
+      e2e.appendChild(el("span", { class: "badge " + (passed === cases.length ? "ok" : "warn") }, passed + "/" + cases.length));
+      e2e.appendChild(el("span", { class: "name" }, "Operator Workbench E2E"));
+      e2e.appendChild(el("span", { class: "meta" }, "Run scripts/run_operator_workbench_e2e.py for the live browser proof contract."));
+    }
+  }
+
+  function dimensionScore(data, id) {
+    var found = ((data && data.dimensions) || []).find(function(item) { return item.id === id; });
+    return found ? String(found.score) : "review";
   }
 
   async function refreshOperatorSummary() {
@@ -388,6 +747,14 @@
       renderOperatorSummary(data);
     } catch (e) {
       empty("#operatorWarnings", "Operator summary unavailable: " + e.message);
+    }
+  }
+
+  async function refreshSuperiorityScorecard() {
+    try {
+      renderSuperiorityScorecard(await api("/api/console/superiority"));
+    } catch (e) {
+      empty("#nextBestActions", "Superiority scorecard unavailable: " + e.message);
     }
   }
 
@@ -1249,6 +1616,13 @@
         toast(data.error || "GitHub sign-in unavailable.", "warn");
         return;
       }
+      if (data.auth_mode === "gh-cli") {
+        state.githubDevice = null;
+        writeGithubOutput(JSON.stringify(data, null, 2));
+        await refreshGithubStatus();
+        toast("GitHub connected through GitHub CLI.", "ok");
+        return;
+      }
       state.githubDevice = data;
       writeGithubOutput([
         "Open: " + data.verification_uri,
@@ -1384,6 +1758,72 @@
   $("#githubPlan").addEventListener("click", planGithubIssue);
   $("#githubPolicyPreview").addEventListener("click", previewGithubPolicy);
 
+  // Standing Orders
+  function renderStandingOrders(data) {
+    var list = $("#standingOrders");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!Array.isArray(data.orders) || !data.orders.length) {
+      list.appendChild(el("div", { class: "empty" }, "No standing orders yet."));
+      return;
+    }
+    data.orders.forEach(function(order) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "badge " + (order.status === "enabled" ? "ok" : "warn") }, order.status || "order"));
+      item.appendChild(el("span", { class: "name" }, order.title || "Standing order"));
+      item.appendChild(el("span", { class: "meta" }, (order.scope || "general") + " / runs " + (order.run_count || 0)));
+      var actions = el("span", { class: "actions" });
+      var toggle = el("button", null, order.status === "enabled" ? "Disable" : "Enable");
+      toggle.addEventListener("click", function() {
+        updateStandingOrder(order.id, order.status === "enabled" ? "disable" : "enable");
+      });
+      var run = el("button", { class: "primary" }, "Run");
+      run.addEventListener("click", function() { updateStandingOrder(order.id, "run"); });
+      actions.appendChild(toggle);
+      actions.appendChild(run);
+      item.appendChild(actions);
+      list.appendChild(item);
+    });
+  }
+
+  async function refreshStandingOrders() {
+    try {
+      renderStandingOrders(await api("/api/console/standing-orders"));
+    } catch (e) {
+      empty("#standingOrders", "Standing orders unavailable: " + e.message);
+    }
+  }
+
+  async function createStandingOrder() {
+    try {
+      var data = await api("/api/console/standing-orders", {
+        method: "POST",
+        body: JSON.stringify({
+          title: $("#standingOrderTitle").value,
+          scope: $("#standingOrderScope").value,
+          objective: $("#standingOrderObjective").value,
+          approval_gates: ["source edits, outbound messages, and high-impact actions require approval unless explicitly bypassed"],
+        }),
+      });
+      $("#remoteOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshStandingOrders();
+      toast(data.ok ? "Standing order created." : (data.error || "Standing order failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#remoteOutput").textContent = e.message;
+    }
+  }
+
+  async function updateStandingOrder(orderId, action) {
+    try {
+      var data = await api("/api/console/standing-orders/" + encodeURIComponent(orderId) + "/" + action, { method: "POST" });
+      $("#remoteOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshStandingOrders();
+      toast(data.ok ? "Standing order updated." : (data.error || "Standing order action failed."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#remoteOutput").textContent = e.message;
+    }
+  }
+
   // Remote Control
   function renderRemote(data) {
     state.remote = data;
@@ -1399,6 +1839,8 @@
         ["Paired", data.counts ? data.counts.paired_peers : 0],
         ["Pairings", data.counts ? data.counts.pending_pairings : 0],
         ["Approvals", data.counts ? data.counts.pending_approvals : 0],
+        ["Inbound", data.counts ? (data.counts.ready_inbound_channels || 0) : 0],
+        ["Outbound", data.counts ? (data.counts.ready_outbound_channels || 0) : 0],
         ["Direct", policy.direct_execution_enabled ? "enabled" : "approval-first"],
       ].forEach(function(m) {
         var card = el("div", { class: "card" });
@@ -1462,9 +1904,35 @@
         item.appendChild(el("span", { class: "name" }, channel.adapter_status || "metadata_only"));
         var fields = (channel.secret_fields_configured || []).join(", ") || "no credentials";
         var signed = (channel.secret_fields_configured || []).indexOf("signing_secret") >= 0 ? " / signed webhooks required" : " / unsigned webhooks allowed";
-        item.appendChild(el("span", { class: "meta" }, fields + " / outbound " + (channel.send_enabled ? "enabled" : "disabled") + signed));
+        var target = channel.default_reply_target ? " / default target set" : " / no default target";
+        item.appendChild(el("span", { class: "meta" }, fields + " / outbound " + (channel.send_enabled ? "enabled" : "disabled") + signed + target));
         channels.appendChild(item);
       });
+    }
+
+    var health = $("#remoteChannelHealth");
+    if (health) {
+      health.innerHTML = "";
+      if (!Array.isArray(data.channel_health) || !data.channel_health.length) {
+        health.appendChild(el("div", { class: "empty" }, "No channel health data yet."));
+      } else {
+        data.channel_health.forEach(function(channel) {
+          var item = el("div", { class: "list-item" });
+          var ready = channel.inbound_ready && (!channel.send_enabled || channel.outbound_ready);
+          item.appendChild(el("span", { class: "badge " + (ready ? "ok" : "warn") }, channel.id || "channel"));
+          item.appendChild(el("span", { class: "name" }, ready ? "ready" : "needs setup"));
+          var missing = [];
+          if (Array.isArray(channel.missing_inbound_fields) && channel.missing_inbound_fields.length) {
+            missing.push("inbound: " + channel.missing_inbound_fields.join(", "));
+          }
+          if (Array.isArray(channel.missing_outbound_fields) && channel.missing_outbound_fields.length) {
+            missing.push("outbound: " + channel.missing_outbound_fields.join(", "));
+          }
+          var path = channel.webhook_path ? " / " + channel.webhook_path : "";
+          item.appendChild(el("span", { class: "meta" }, (missing.join(" / ") || "all required fields present") + path));
+          health.appendChild(item);
+        });
+      }
     }
 
     var approvals = $("#remoteApprovals");
@@ -1595,7 +2063,9 @@
         api_token: $("#remoteConfigToken").value,
         webhook_url: $("#remoteConfigWebhook").value,
         phone_number_id: $("#remoteConfigPhone").value,
+        default_reply_target: $("#remoteConfigDefaultTarget").value,
         signing_secret: $("#remoteConfigSigning").value,
+        verify_token: $("#remoteConfigVerifyToken").value,
       };
       var data = await api("/api/console/remote/channels/" + encodeURIComponent(channel), {
         method: "POST",
@@ -1605,6 +2075,7 @@
       $("#remoteConfigWebhook").value = "";
       $("#remoteConfigPhone").value = "";
       $("#remoteConfigSigning").value = "";
+      $("#remoteConfigVerifyToken").value = "";
       $("#remoteOutput").textContent = JSON.stringify(data, null, 2);
       await refreshRemote();
       await refreshTimeline();
@@ -1679,6 +2150,7 @@
   $("#remoteSaveChannel").addEventListener("click", function() { saveRemoteChannel(false); });
   $("#remoteClearChannel").addEventListener("click", function() { saveRemoteChannel(true); });
   $("#remoteSendTest").addEventListener("click", sendRemoteTestReply);
+  $("#standingOrderCreate").addEventListener("click", createStandingOrder);
 
   // Trust Runtime
   function renderTrust(data) {
@@ -2141,6 +2613,7 @@
       $("#autonomyDesc").textContent = data.autonomy.resolved_profile.description || "";
       $("#trueAutonomyDesktop").checked = !!(data.autonomy.config && data.autonomy.config.true_autonomy_desktop);
       $("#personalContext").checked = !!(data.autonomy.config && data.autonomy.config.personal_context);
+      await refreshHostExecution();
 
       // Job profile selector
       var jSel = $("#jobProfile");
@@ -2170,6 +2643,7 @@
         refreshOperatorSummary(),
         refreshLatency(),
         refreshRemote(),
+        refreshStandingOrders(),
         refreshTrust(),
       ]);
     } catch (e) {
@@ -2235,6 +2709,45 @@
   });
 
   // ── Run ──────────────────────────────────────────────────────────────────
+  async function refreshHostExecution() {
+    var output = $("#hostExecutionOutput");
+    if (!output) return;
+    try {
+      var data = await api("/api/console/host-execution/settings");
+      var settings = data.settings || {};
+      $("#hostUnrestrictedMode").checked = !!settings.unrestricted_host_mode;
+      $("#hostAllowedRoot").value = settings.allowed_root || "";
+      $("#hostAuditDir").value = settings.audit_dir || "";
+      output.textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+      output.textContent = e.message;
+    }
+  }
+
+  $("#refreshHostExecution").addEventListener("click", refreshHostExecution);
+  $("#saveHostExecution").addEventListener("click", async function() {
+    try {
+      var data = await api("/api/console/host-execution/settings", {
+        method: "POST",
+        body: {
+          unrestricted_host_mode: $("#hostUnrestrictedMode").checked,
+          allowed_root: $("#hostAllowedRoot").value,
+          audit_dir: $("#hostAuditDir").value,
+          confirmation_phrase: $("#hostConfirmationPhrase").value,
+          allow_source_mutation: true,
+          allow_network_commands: true,
+          disclaimer_acknowledged: true,
+        },
+      });
+      $("#hostConfirmationPhrase").value = "";
+      $("#hostExecutionOutput").textContent = JSON.stringify(data, null, 2);
+      toast(data.ok ? "Host execution settings saved." : (data.error || "Host mode blocked."), data.ok ? "ok" : "error");
+    } catch (e) {
+      $("#hostExecutionOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  });
+
   function renderRunSummary(r) {
     var summaryEl = $("#runSummary");
     summaryEl.innerHTML = "";
@@ -2244,6 +2757,12 @@
     overall.appendChild(statusBadge);
     if (r.error) overall.appendChild(el("span", { class: "meta" }, r.error));
     summaryEl.appendChild(overall);
+    if (r.operator_report) {
+      var report = el("div", { class: "list-item" });
+      report.appendChild(el("span", { class: "badge ok" }, "report"));
+      report.appendChild(el("span", { class: "meta" }, String(r.operator_report).slice(0, 3000)));
+      summaryEl.appendChild(report);
+    }
     if (Array.isArray(r.executions)) {
       r.executions.forEach(function(e) {
         var item = el("div", { class: "list-item" });
@@ -2325,7 +2844,9 @@
     var text = (input.value || "").trim();
     if (!text) { toast("Enter a message for Ghost.", "warn"); return; }
     input.value = "";
-    sendConversationMessage(text, "text");
+    var btn = $("#conversationSend");
+    if (btn) btn.disabled = true;
+    sendConversationMessage(text, "text").finally(function() { if (btn) btn.disabled = false; });
   });
   $("#conversationTextInput").addEventListener("keydown", function(e) {
     if (e.key === "Enter") {
@@ -2344,6 +2865,14 @@
     stopConversationListening();
   });
   $("#conversationWake").addEventListener("click", function() { sendConversationMessage("Hey Ghost wake up", "text"); });
+  $("#conversationMinimize").addEventListener("click", toggleConversationMinimized);
+  $$$("[data-conversation-prompt]").forEach(function(btn) {
+    btn.addEventListener("click", function() {
+      var prompt = btn.getAttribute("data-conversation-prompt") || "";
+      if ($("#conversationTextInput")) $("#conversationTextInput").value = prompt;
+      sendConversationMessage(prompt, "text");
+    });
+  });
   $("#conversationStopAll").addEventListener("click", async function() {
     try {
       stopConversationListening();
@@ -2357,6 +2886,8 @@
   });
   $("#conversationAlwaysListening").addEventListener("change", function() { updateConversationSettings({ always_listening: $("#conversationAlwaysListening").checked }); });
   $("#conversationFullBypass").addEventListener("change", function() { updateConversationSettings({ full_bypass: $("#conversationFullBypass").checked }); });
+  $("#conversationLocalFallback").addEventListener("change", function() { updateConversationSettings({ local_fallback: $("#conversationLocalFallback").checked }); });
+  $("#conversationPresenterCoach").addEventListener("change", function() { updateConversationSettings({ presenter_coach_mode: $("#conversationPresenterCoach").checked }); });
   $("#conversationVoiceSelect").addEventListener("change", function() { updateConversationSettings({ voice_id: $("#conversationVoiceSelect").value }); });
 
   // ── Jobs ─────────────────────────────────────────────────────────────────
@@ -2480,9 +3011,58 @@
       item.appendChild(el("span", { class: "meta" }, st.memory_db || ""));
       ms.appendChild(item);
     } catch (_) { empty("#memoryStatus", "Memory unavailable."); }
+    await refreshMemoryGraph();
   }
 
   function memOut(r) { $("#memoryOutput").textContent = JSON.stringify(r, null, 2); }
+
+  async function refreshMemoryGraph() {
+    try {
+      var g = await api("/api/console/memory/graph?limit=25");
+      $("#memoryGraphStatus").textContent =
+        "Active facts: " + (g.active_fact_count || 0) + " / total " + (g.total_fact_count || 0) +
+        "  •  " + (g.graph_db || "");
+      var facts = g.facts || [];
+      var box = $("#memoryGraphOutput");
+      box.innerHTML = "";
+      if (!facts.length) {
+        box.appendChild(el("span", { class: "empty" }, "No active facts yet. Run consolidation to promote memories."));
+        return;
+      }
+      facts.forEach(function(f) {
+        var obj = f.object != null ? f.object : (f.value != null ? f.value : "");
+        var row = el("div", { class: "fact-row" });
+        row.appendChild(el("span", { class: "fact-subj" }, String(f.subject)));
+        row.appendChild(el("span", { class: "fact-pred" }, String(f.predicate)));
+        row.appendChild(el("span", { class: "fact-obj" }, String(obj)));
+        if (f.confidence != null) {
+          row.appendChild(el("span", { class: "fact-conf" }, Number(f.confidence).toFixed(2)));
+        }
+        box.appendChild(row);
+      });
+    } catch (_) {
+      $("#memoryGraphStatus").textContent = "Knowledge graph unavailable.";
+    }
+  }
+
+  $("#memoryGraphRefresh").addEventListener("click", function() { refreshMemoryGraph(); });
+
+  $("#memoryConsolidate").addEventListener("click", async function() {
+    var btn = $("#memoryConsolidate");
+    btn.disabled = true;
+    try {
+      var r = await api("/api/console/memory/consolidate", { method: "POST", body: {} });
+      memOut(r);
+      if (r.ok) {
+        var rep = r.report || {};
+        toast("Consolidation: promoted " + (rep.promoted || 0) + ", expired " + (rep.expired_stale || 0) + ".", "ok");
+        await refreshMemoryGraph();
+      } else {
+        toast(r.error || "Consolidation failed.", "error");
+      }
+    } catch (e) { toast(e.message, "error"); }
+    finally { btn.disabled = false; }
+  });
 
   $("#emailIngestFile").addEventListener("click", async function() {
     var path = ($("#emailFilePath").value || "").trim();
@@ -2662,6 +3242,7 @@
         ["Enabled", st.enabled ? "yes" : "no", st.enabled ? "ok" : "warn"],
         ["Memory", String(st.memory_count || 0), "ok"],
         ["Dataset", String(st.dataset_count || 0), (st.dataset_count || 0) > 0 ? "ok" : "warn"],
+        ["Neural adapter", st.neural_adapter_trained ? "trained" : "not trained", st.neural_adapter_trained ? "ok" : "warn"],
         ["RAG handoff", st.readiness && st.readiness.primary_model_handoff_ready ? "ready" : "not ready", st.readiness && st.readiness.primary_model_handoff_ready ? "ok" : "warn"],
         ["Machine crawl", st.readiness && st.readiness.whole_machine_crawl_ready ? "on" : "off", st.readiness && st.readiness.whole_machine_crawl_ready ? "warn" : ""],
       ].forEach(function(row) {
@@ -2725,6 +3306,31 @@
       toast(r.ok ? "Personal MiniMind bootstrap complete." : (r.error || "Bootstrap blocked."), r.ok ? "ok" : "error");
       await refreshPersonalMiniMind();
       await refreshMemory();
+    } catch (e) { toast(e.message, "error"); }
+  });
+
+  $("#pmTrainNeural").addEventListener("click", async function() {
+    try {
+      var r = await api("/api/console/minimind/personal/train-neural", {
+        method: "POST",
+        body: {
+          epochs: parseInt($("#pmNeuralEpochs").value || "12", 10),
+          learning_rate: parseFloat($("#pmNeuralLearningRate").value || "0.25"),
+        },
+      });
+      pmOut(r);
+      toast(r.ok ? "Neural MiniMind adapter trained." : (r.error || "Neural training blocked."), r.ok ? "ok" : "error");
+      await refreshPersonalMiniMind();
+    } catch (e) { toast(e.message, "error"); }
+  });
+
+  $("#pmInferNeural").addEventListener("click", async function() {
+    var query = ($("#pmNeuralQuery").value || $("#pmObjective").value || "").trim();
+    if (!query) { toast("Enter a neural adapter test query first.", "warn"); return; }
+    try {
+      var r = await api("/api/console/minimind/personal/infer", { method: "POST", body: { query: query } });
+      pmOut(r);
+      toast(r.ok ? "Neural MiniMind inference complete." : (r.error || "Inference unavailable."), r.ok ? "ok" : "warn");
     } catch (e) { toast(e.message, "error"); }
   });
 
@@ -3384,6 +3990,239 @@
   $("#runCapabilityTool").addEventListener("click", runCapabilityTool);
   $("#runSandboxJourney").addEventListener("click", runSandboxJourney);
 
+  function selectedLivePresenceSessionId() {
+    var select = $("#livePresenceSessionSelect");
+    return select ? (select.value || "").trim() : "";
+  }
+
+  function renderLivePresence(data) {
+    state.livePresence = data;
+    var status = (data && data.status) || {};
+    var counts = status.counts || {};
+    var cards = $("#livePresenceCards");
+    if (cards) {
+      cards.innerHTML = "";
+      [
+        ["Sessions", counts.sessions || 0, true],
+        ["Active", counts.active_sessions || 0, true],
+        ["Pending Disclosure", counts.pending_disclosures || 0, !(counts.pending_disclosures > 0)],
+        ["Action Items", counts.action_items || 0, true],
+      ].forEach(function(row) {
+        var item = el("div", { class: "card small" });
+        item.appendChild(el("span", { class: "name" }, row[0]));
+        item.appendChild(el("span", { class: "badge " + (row[2] ? "ok" : "warn") }, String(row[1])));
+        cards.appendChild(item);
+      });
+    }
+    var sessions = (data && data.sessions) || [];
+    var select = $("#livePresenceSessionSelect");
+    if (select) {
+      var previous = select.value;
+      select.innerHTML = "";
+      sessions.forEach(function(session) {
+        var opt = el("option", { value: session.session_id });
+        opt.textContent = (session.title || session.session_id) + " - " + (session.mode || "draft");
+        select.appendChild(opt);
+      });
+      if (previous) select.value = previous;
+    }
+    var list = $("#livePresenceSessions");
+    if (list) {
+      list.innerHTML = "";
+      if (!sessions.length) {
+        list.appendChild(el("div", { class: "empty" }, "No Live Presence sessions yet."));
+      } else {
+        sessions.forEach(function(session) {
+          var item = el("div", { class: "list-item" });
+          item.appendChild(el("span", { class: "name" }, session.title || session.session_id));
+          item.appendChild(el("span", { class: "badge " + (session.mode === "active" ? "ok" : "warn") }, session.mode || "draft"));
+          item.appendChild(el("span", { class: "meta" }, (session.session_type || "meeting") + " | disclosure: " + (session.disclosure_status || "unknown")));
+          item.addEventListener("click", function() {
+            if ($("#livePresenceSessionSelect")) $("#livePresenceSessionSelect").value = session.session_id;
+          });
+          list.appendChild(item);
+        });
+      }
+    }
+  }
+
+  async function refreshLivePresence() {
+    try {
+      var status = await api("/api/console/live-presence/status");
+      var sessions = await api("/api/console/live-presence/sessions");
+      renderLivePresence({ status: status, sessions: sessions.sessions || [] });
+    } catch (e) {
+      empty("#livePresenceSessions", "Live Presence unavailable: " + e.message);
+    }
+  }
+
+  async function createLivePresenceSession() {
+    var title = ($("#livePresenceTitle").value || "Live Presence Session").trim();
+    var participant = ($("#livePresenceParticipant").value || "").trim();
+    var participants = participant ? [{ name: participant, role: "participant", external: $("#livePresenceExternal").checked }] : [];
+    try {
+      var data = await api("/api/console/live-presence/sessions", {
+        method: "POST",
+        body: {
+          title: title,
+          session_type: $("#livePresenceType").value || "meeting",
+          participants: participants,
+        },
+      });
+      $("#livePresenceOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshLivePresence();
+      await refreshTimeline();
+      toast("Live Presence session created.", "ok");
+    } catch (e) {
+      $("#livePresenceOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  async function livePresenceAction(action) {
+    var sessionId = selectedLivePresenceSessionId();
+    if (!sessionId) { toast("Select a Live Presence session first.", "warn"); return; }
+    var body = {};
+    if (action === "transcript") {
+      body = {
+        speaker: ($("#livePresenceSpeaker").value || "Speaker").trim(),
+        content: ($("#livePresenceTranscriptText").value || "").trim(),
+      };
+      if (!body.content) { toast("Enter a transcript turn first.", "warn"); return; }
+    }
+    var pathAction = action === "approve-disclosure" ? "disclosure/approve" : action;
+    try {
+      var data = await api("/api/console/live-presence/sessions/" + encodeURIComponent(sessionId) + "/" + pathAction, {
+        method: "POST",
+        body: body,
+      });
+      $("#livePresenceOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshLivePresence();
+      await refreshTrust();
+      await refreshTimeline();
+      toast(data.ok ? "Live Presence updated." : (data.reply || data.error || "Live Presence action needs review."), data.ok ? "ok" : "warn");
+    } catch (e) {
+      $("#livePresenceOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  function livePresenceLines(selector) {
+    var node = $(selector);
+    return node ? (node.value || "").split(/\r?\n/).map(function(item) { return item.trim(); }).filter(Boolean) : [];
+  }
+
+  async function livePresencePost(action, body) {
+    var sessionId = selectedLivePresenceSessionId();
+    if (!sessionId) { toast("Select a Live Presence session first.", "warn"); return null; }
+    try {
+      var data = await api("/api/console/live-presence/sessions/" + encodeURIComponent(sessionId) + "/" + action, {
+        method: "POST",
+        body: body || {},
+      });
+      $("#livePresenceOutput").textContent = JSON.stringify(data, null, 2);
+      if (data && data.draft && data.draft.draft_id && $("#livePresenceDraftId")) $("#livePresenceDraftId").value = data.draft.draft_id;
+      await refreshLivePresence();
+      await refreshTrust();
+      await refreshTimeline();
+      toast(data && data.ok ? "Live Presence updated." : ((data && (data.reply || data.error)) || "Live Presence action needs review."), data && data.ok ? "ok" : "warn");
+      return data;
+    } catch (e) {
+      $("#livePresenceOutput").textContent = e.message;
+      toast(e.message, "error");
+      return null;
+    }
+  }
+
+  async function configureLivePresenceBridge() {
+    return livePresencePost("bridge", {
+      app: ($("#livePresenceMeetingApp").value || "browser").trim(),
+      meeting_url: ($("#livePresenceMeetingUrl").value || "").trim(),
+      browser_session: ($("#livePresenceBrowserSession").value || "default").trim(),
+      handoff_policy: "visible_browser",
+    });
+  }
+
+  async function interruptLivePresence() {
+    return livePresencePost("interrupt", { reason: "User interrupted the live session from Ghost Console." });
+  }
+
+  async function draftLivePresenceCommunication() {
+    return livePresencePost("communication/draft", {
+      channel: ($("#livePresenceCommunicationChannel").value || "email").trim(),
+      recipient: ($("#livePresenceCommunicationRecipient").value || "").trim(),
+      body: ($("#livePresenceCommunicationBody").value || "").trim(),
+      disclosure_template: ($("#livePresenceDisclosureTemplate").value || "").trim(),
+    });
+  }
+
+  async function approveLivePresenceRecipient() {
+    return livePresencePost("communication/recipient/approve", {
+      channel: ($("#livePresenceCommunicationChannel").value || "email").trim(),
+      recipient: ($("#livePresenceCommunicationRecipient").value || "").trim(),
+      approved_by: "console-admin",
+    });
+  }
+
+  async function sendLivePresenceCommunication() {
+    var draftId = ($("#livePresenceDraftId").value || "").trim();
+    if (!draftId) { toast("Enter or create a communication draft id first.", "warn"); return; }
+    return livePresencePost("communication/" + encodeURIComponent(draftId) + "/send", {});
+  }
+
+  async function updateLivePresenceContext() {
+    var ragText = ($("#livePresenceRagSnippet").value || "").trim();
+    return livePresencePost("context", {
+      agenda: livePresenceLines("#livePresenceAgenda"),
+      minimind_hints: livePresenceLines("#livePresenceMiniMindHints"),
+      rag_snippets: ragText ? [{ source: "console", text: ragText }] : [],
+      user_correction: ($("#livePresenceCorrection").value || "").trim(),
+    });
+  }
+
+  async function configureLivePresenceInterview() {
+    var competencies = ($("#livePresenceInterviewCompetencies").value || "")
+      .split(",").map(function(item) { return item.trim(); }).filter(Boolean);
+    return livePresencePost("interview/configure", {
+      mode: $("#livePresenceInterviewMode").value || "interviewer",
+      role: ($("#livePresenceInterviewRole").value || "Candidate").trim(),
+      competencies: competencies,
+    });
+  }
+
+  async function scoreLivePresenceInterview() {
+    return livePresencePost("interview/score", {});
+  }
+
+  async function runLivePresenceEval() {
+    try {
+      var data = await api("/api/console/live-presence/evals/run", { method: "POST", body: {} });
+      $("#livePresenceOutput").textContent = JSON.stringify(data, null, 2);
+      await refreshLivePresence();
+      await refreshTimeline();
+      toast("Live Presence eval completed.", data.ok ? "ok" : "warn");
+    } catch (e) {
+      $("#livePresenceOutput").textContent = e.message;
+      toast(e.message, "error");
+    }
+  }
+
+  if ($("#livePresenceCreate")) $("#livePresenceCreate").addEventListener("click", createLivePresenceSession);
+  if ($("#livePresenceRefresh")) $("#livePresenceRefresh").addEventListener("click", refreshLivePresence);
+  if ($("#livePresenceApproveDisclosure")) $("#livePresenceApproveDisclosure").addEventListener("click", function() { livePresenceAction("approve-disclosure"); });
+  if ($("#livePresenceStart")) $("#livePresenceStart").addEventListener("click", function() { livePresenceAction("start"); });
+  if ($("#livePresenceReport")) $("#livePresenceReport").addEventListener("click", function() { livePresenceAction("report"); });
+  if ($("#livePresenceAddTranscript")) $("#livePresenceAddTranscript").addEventListener("click", function() { livePresenceAction("transcript"); });
+  if ($("#livePresenceConfigureBridge")) $("#livePresenceConfigureBridge").addEventListener("click", configureLivePresenceBridge);
+  if ($("#livePresenceInterrupt")) $("#livePresenceInterrupt").addEventListener("click", interruptLivePresence);
+  if ($("#livePresenceDraftCommunication")) $("#livePresenceDraftCommunication").addEventListener("click", draftLivePresenceCommunication);
+  if ($("#livePresenceApproveRecipient")) $("#livePresenceApproveRecipient").addEventListener("click", approveLivePresenceRecipient);
+  if ($("#livePresenceSendCommunication")) $("#livePresenceSendCommunication").addEventListener("click", sendLivePresenceCommunication);
+  if ($("#livePresenceUpdateContext")) $("#livePresenceUpdateContext").addEventListener("click", updateLivePresenceContext);
+  if ($("#livePresenceConfigureInterview")) $("#livePresenceConfigureInterview").addEventListener("click", configureLivePresenceInterview);
+  if ($("#livePresenceScoreInterview")) $("#livePresenceScoreInterview").addEventListener("click", scoreLivePresenceInterview);
+  if ($("#livePresenceEval")) $("#livePresenceEval").addEventListener("click", runLivePresenceEval);
+
   async function refreshReadiness() {
     var data = await api("/api/console/readiness");
     var list = $("#readinessList");
@@ -3408,7 +4247,27 @@
       recordSetupStep(btn.getAttribute("data-step"), btn.getAttribute("data-target"));
     });
   });
+  $("#operatorCommandSearch").addEventListener("keydown", function(e) {
+    if (e.key !== "Enter") return;
+    var q = ($("#operatorCommandSearch").value || "").toLowerCase();
+    var targets = [
+      ["model", "config"], ["provider", "config"], ["config", "config"],
+      ["trust", "trust"], ["approval", "trust"], ["rag", "rag-builder"],
+      ["minimind", "minimind"], ["mcp", "mcp"], ["skill", "skills"],
+      ["evolution", "evolution"], ["remote", "remote"], ["sandbox", "sandbox"],
+      ["meeting", "live-presence"], ["interview", "live-presence"], ["presence", "live-presence"],
+      ["run", "run"], ["latency", "latency"], ["local", "local-models"],
+      ["slack", "integrations"], ["notion", "integrations"], ["connect", "integrations"],
+      ["integration", "integrations"], ["github login", "integrations"], ["gmail", "integrations"],
+      ["stealth", "stealth"], ["draft", "stealth"], ["activity", "stealth"], ["approve", "stealth"]
+    ];
+    var hit = targets.find(function(item) { return q.indexOf(item[0]) !== -1; });
+    openTab(hit ? hit[1] : "operator");
+  });
   $("#addEvolutionSource").addEventListener("click", addLearningSource);
+  $("#integrationsRefresh").addEventListener("click", refreshIntegrations);
+  $("#stealthRefresh").addEventListener("click", refreshStealth);
+  $("#steCheck").addEventListener("click", steCheckNow);
   $("#refreshActivity").addEventListener("click", refreshTimeline);
   $("#refreshLatency").addEventListener("click", refreshLatency);
   $("#operatorReadiness").addEventListener("click", async function() {
@@ -3422,7 +4281,248 @@
     }
   });
 
+  // ── Integrations (connectors: native OAuth + Nango) ────────────────────
+  async function refreshIntegrations() {
+    var list = $("#integrationList");
+    var out = $("#integrationOutput");
+    try {
+      var data = await api("/api/connectors/providers");
+      badge($("#integrationsNango"), data.nango_configured ? "nango ready" : "nango not configured",
+        data.nango_configured ? "ok" : "warn");
+      if (!list) return;
+      list.innerHTML = "";
+      (data.providers || []).forEach(function(p) {
+        var connected = p.native_oauth && p.native_oauth.connected;
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "badge " + (connected ? "ok" : "warn") },
+          connected ? "connected" : "not connected"));
+        var main = el("div", { style: "flex:1;min-width:180px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = p.display + "  ·  " + p.category;
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        meta.textContent = p.key;
+        main.appendChild(meta);
+        item.appendChild(main);
+        var actions = el("div", { class: "actions" });
+        var docs = el("button", {});
+        docs.textContent = "Docs";
+        docs.addEventListener("click", function() { window.open(p.docs, "_blank"); });
+        actions.appendChild(docs);
+        var connect = el("button", { class: "primary" });
+        connect.textContent = connected ? "Reconnect" : "Connect";
+        connect.addEventListener("click", function() { connectIntegration(p, out); });
+        actions.appendChild(connect);
+        item.appendChild(actions);
+        list.appendChild(item);
+      });
+      if (out) out.textContent = (data.providers || []).length + " providers loaded.";
+    } catch (e) {
+      if (out) out.textContent = "Error: " + e.message;
+    }
+  }
+
+  async function connectIntegration(p, out) {
+    try {
+      var connectionId = "console-" + Date.now().toString(36);
+      var data = await api("/api/connectors/nango/session",
+        { method: "POST", body: { providerConfigKey: p.key, connectionId: connectionId } });
+      if (!data.ok) {
+        if (out) out.textContent = "Direct OAuth for " + p.display +
+          ": add provider credentials in Config, or set NANGO_SECRET_KEY for 1-click connect. (" +
+          (data.error || "unavailable") + ")";
+        else toast("Direct OAuth for " + p.display + ".", "warn");
+        return;
+      }
+      if (out) out.textContent = "Nango session ready for " + p.display +
+        " (connection " + data.session.connectionId + "). " +
+        "In a Nango-enabled dashboard call nango.auth('" + data.session.providerConfigKey +
+        "', '" + data.session.connectionId + "'). Docs: " + p.docs;
+      toast("Connection session prepared for " + p.display + ".", "ok");
+    } catch (e) {
+      if (out) out.textContent = "Error: " + e.message;
+    }
+  }
+
+  async function refreshFirstRun() {
+    var banner = $("#firstRunBanner");
+    if (!banner) return;
+    try {
+      var data = await api("/api/connectors/first-run");
+      if (!data.first_run && data.done_count >= data.total) {
+        banner.style.display = "none";
+        return;
+      }
+      banner.style.display = "flex";
+      $("#firstRunSummary").textContent = data.done_count + " of " + data.total + " setup steps done.";
+      $("#firstRunSteps").textContent = (data.steps || []).map(function(s) {
+        return (s.done ? "✓ " : "○ ") + s.title;
+      }).join("   ");
+      var go = $("#firstRunGo");
+      if (go) go.onclick = function() {
+        var next = (data.steps || []).find(function(s) { return !s.done; });
+        openTab(next ? next.tab : "config");
+      };
+    } catch (e) {
+      banner.style.display = "none";
+    }
+  }
+
+  // ── Stealth activity monitor + STE pre-fill drafts ─────────────────────
+  var STEALTH_POLL_MS = 15000;
+  var stealthTimer = null;
+
+  async function refreshStealth() {
+    var feed = $("#stealthFeed");
+    try {
+      var data = await api("/api/stealth/activity");
+      badge($("#stealthAutonomy"), "autonomy: " + (data.enabled ? data.autonomy.toLowerCase() : "paused"),
+        data.enabled ? "ok" : "warn");
+      badge($("#stealthEvents"), "events: " + data.events_processed, "");
+      if (feed) {
+        feed.innerHTML = "";
+        var events = (data.recent_events || []).slice().reverse();
+        if (!events.length && !(data.interventions || []).length) {
+          feed.appendChild(el("div", { class: "empty" },
+            "No activity yet. Emit events via POST /api/stealth/emit or connect a host adapter."));
+        }
+        events.slice(0, 12).forEach(function(e) {
+          var item = el("div", { class: "list-item compact-list-item" });
+          item.appendChild(el("span", { class: "badge" }, e.event_type));
+          var meta = el("div", { class: "meta" });
+          meta.textContent = (e.actor ? e.actor + " · " : "") + e.source;
+          item.appendChild(meta);
+          feed.appendChild(item);
+        });
+        (data.interventions || []).slice(-8).reverse().forEach(function(i) {
+          var item = el("div", { class: "list-item compact-list-item" });
+          item.appendChild(el("span", {
+            class: "badge " + (i.outcome !== "pending" ? "ok" : i.state === "outcome" ? "" : "warn")
+          }, i.state + (i.outcome !== "pending" ? "/" + i.outcome : "")));
+          var main = el("div", { style: "flex:1;min-width:180px;" });
+          var title = el("div", { class: "name" });
+          title.textContent = i.workflow;
+          main.appendChild(title);
+          var meta2 = el("div", { class: "meta" });
+          meta2.textContent = i.id + " · conf " + Number(i.confidence).toFixed(2) +
+            (i.drafts ? " · " + i.drafts + " draft(s)" : "");
+          main.appendChild(meta2);
+          item.appendChild(main);
+          feed.appendChild(item);
+        });
+      }
+      await refreshStealthDrafts();
+    } catch (e) {
+      if (feed) {
+        feed.innerHTML = "";
+        feed.appendChild(el("div", { class: "empty" }, "Stealth service unavailable: " + e.message));
+      }
+    }
+  }
+
+  async function refreshStealthDrafts() {
+    var box = $("#stealthDrafts");
+    if (!box) return;
+    try {
+      var data = await api("/api/stealth/drafts");
+      box.innerHTML = "";
+      if (!(data.drafts || []).length) {
+        box.appendChild(el("div", { class: "empty" },
+          "No drafts. Drafts appear here when the loop prepares replies for review."));
+        return;
+      }
+      data.drafts.forEach(function(d) {
+        var card = el("div", { class: "card", style: "margin-bottom:12px;" });
+        var head = el("h3", {});
+        head.textContent = d.workflow + "  ·  " + d.state +
+          (d.approval ? (d.approval.sent ? "  ·  sent" : "  ·  approved, manual send") : "");
+        card.appendChild(head);
+        (d.actions || []).forEach(function(a, idx) {
+          var label = el("div", { class: "meta", style: "margin:8px 0 4px;" });
+          label.textContent = a.provider + " " + a.endpoint;
+          card.appendChild(label);
+          var area = document.createElement("textarea");
+          area.value = a.ste_text || a.original || "";
+          area.rows = 4;
+          card.appendChild(area);
+          var rules = el("div", { class: "meta", style: "margin:4px 0 8px;" });
+          rules.textContent = "STE rules: " + ((a.ste_rules || []).join(", ") || "none — already plain");
+          card.appendChild(rules);
+          var row = el("div", { class: "row" });
+          var save = el("button", {});
+          save.textContent = "Save edit";
+          save.addEventListener("click", async function() {
+            save.disabled = true;
+            try {
+              var res = await api("/api/stealth/drafts/" + d.id + "/edit",
+                { method: "POST", body: { action_index: idx, text: area.value } });
+              if (res.ok) {
+                area.value = res.ste_text;
+                rules.textContent = "STE rules: " + ((res.ste_rules || []).join(", ") || "none — already plain");
+                toast("Edit saved and STE-checked.", "ok");
+              } else toast(res.error || "Save failed.", "error");
+            } catch (e) { toast(e.message, "error"); }
+            save.disabled = false;
+          });
+          row.appendChild(save);
+          var copy = el("button", {});
+          copy.textContent = "Copy";
+          copy.addEventListener("click", function() {
+            area.select();
+            try { document.execCommand("copy"); toast("Copied to clipboard.", "ok"); }
+            catch (e) { toast("Select the text and copy manually.", "warn"); }
+          });
+          row.appendChild(copy);
+          var approve = el("button", { class: "primary" });
+          approve.textContent = "Approve & send";
+          approve.addEventListener("click", async function() {
+            approve.disabled = true;
+            try {
+              var res2 = await api("/api/stealth/drafts/" + d.id + "/approve",
+                { method: "POST", body: { text: area.value, connections: {} } });
+              if (res2.ok) {
+                area.value = res2.final_text;
+                toast(res2.sent ? "Approved and sent." : "Approved. " + res2.detail, res2.sent ? "ok" : "warn");
+                await refreshStealth();
+              } else toast(res2.error || "Approve failed.", "error");
+            } catch (e) { toast(e.message, "error"); }
+            approve.disabled = false;
+          });
+          row.appendChild(approve);
+          card.appendChild(row);
+        });
+        box.appendChild(card);
+      });
+    } catch (e) {
+      box.innerHTML = "";
+      box.appendChild(el("div", { class: "empty" }, "Drafts unavailable: " + e.message));
+    }
+  }
+
+  async function steCheckNow() {
+    var out = $("#steOutput");
+    try {
+      var data = await api("/api/stealth/simplify",
+        { method: "POST", body: { text: $("#steInput").value || "" } });
+      if (out) out.textContent = data.ste_text + "\n\nRules: " + ((data.ste_rules || []).join(", ") || "none");
+    } catch (e) {
+      if (out) out.textContent = "Error: " + e.message;
+    }
+  }
+
+  function maybePollStealth() {
+    var active = document.querySelector(".tab-content.active");
+    if (active && active.id === "tab-stealth") refreshStealth();
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────────────
+  applyConversationMinimized();
+  initTabQuickJump();
+  var initialTab = normalizeTabName(window.location.hash);
+  if (!initialTab) {
+    try { initialTab = localStorage.getItem(ACTIVE_TAB_KEY) || ""; } catch (_) {}
+  }
+  activateTab(initialTab || "operator", { skipHash: !!normalizeTabName(window.location.hash) });
   renderQuickActions();
   renderHistory();
   initAuth().then(function() {
@@ -3439,6 +4539,7 @@
     refreshThinking();
     refreshMcpStatus();
     refreshOperatorSummary();
+    refreshSuperiorityScorecard();
     refreshEvolution();
     refreshTimeline();
     refreshLatency();
@@ -3446,7 +4547,12 @@
     refreshCapabilityPack();
     refreshCognitionTrace();
     refreshTrust();
+    refreshLivePresence();
     refreshConversationStatus();
+    refreshIntegrations();
+    refreshFirstRun();
+    refreshStealth();
   });
   setInterval(refreshStatus, 30000);
+  setInterval(maybePollStealth, STEALTH_POLL_MS);
 })();

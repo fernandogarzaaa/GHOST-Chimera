@@ -187,6 +187,38 @@ class AutonomyProfileTests(unittest.TestCase):
             self.assertIn("self-evolution candidate", inferred["answer"])
             self.assertGreater(inferred["confidence"], 0.0)
 
+    def test_minimind_lifecycle_trains_neural_personal_adapter_weights(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-minimind-neural-") as tmp:
+            lifecycle = MiniMindLifecycle(profile_name="tiny", state_dir=tmp)
+            lifecycle.generate_dataset(
+                [
+                    {
+                        "prompt": "How should Ghost handle release readiness?",
+                        "response": "Run the release validator, inspect blockers, and report exact remediation steps.",
+                    },
+                    {
+                        "prompt": "How should Ghost handle email data?",
+                        "response": "Use email only after OAuth and explicit MiniMind email consent are approved.",
+                    },
+                ]
+            )
+
+            trained = lifecycle.train_neural_adapter(epochs=8, learning_rate=0.35)
+            status = lifecycle.status().to_dict()
+            inferred = lifecycle.infer("release readiness blockers")
+
+            self.assertTrue(trained["ok"])
+            self.assertEqual(trained["adapter"]["kind"], "neural-personal-adapter")
+            self.assertTrue(trained["adapter"]["metadata"]["neural_weight_training"])
+            self.assertGreater(trained["adapter"]["metadata"]["weight_update_steps"], 0)
+            self.assertTrue(trained["adapter"]["metadata"]["weight_checksum"])
+            self.assertTrue((Path(tmp) / "minimind" / "adapters" / "neural_adapter.json").exists())
+            self.assertTrue(status["inference_available"])
+            self.assertEqual(status["runtime_hint"], "neural-adapter")
+            self.assertIn("release validator", inferred["answer"])
+            self.assertEqual(inferred["adapter_kind"], "neural-personal-adapter")
+            self.assertGreater(inferred["confidence"], 0.0)
+
     def test_minimind_bootstrap_personal_ingests_files_with_explicit_opt_in(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-minimind-bootstrap-") as tmp:
             base = Path(tmp)

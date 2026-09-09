@@ -14,10 +14,14 @@ def test_install_scripts_default_to_full_runtime_profile() -> None:
     powershell = (ROOT / "scripts" / "install.ps1").read_text(encoding="utf-8")
     bash = (ROOT / "scripts" / "install.sh").read_text(encoding="utf-8")
 
-    assert '"all"' in powershell
-    assert "GHOSTCHIMERA_EXTRAS:-all" in bash
+    assert '"all,dev"' in powershell
+    assert "GHOSTCHIMERA_EXTRAS:-all,dev" in bash
     assert "Installing full Python runtime dependencies" in powershell
     assert "Installing full Python runtime dependencies" in bash
+    assert "pip check" in powershell
+    assert "pip check" in bash
+    assert "runtime dependency surface ok" in powershell
+    assert "runtime dependency surface ok" in bash
     assert "ghostchimera.exe console" in powershell
     assert "ghostchimera console" in bash
 

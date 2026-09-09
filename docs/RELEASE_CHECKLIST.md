@@ -15,11 +15,14 @@ python -m ghostchimera.evals run --suite autonomy
 python -m ghostchimera.evals run --suite user-journey
 python -m ghostchimera.evals run --suite workspace
 python -m ghostchimera.evals run --suite competitive
+python -m ghostchimera.evals run --suite superiority
 python -m ghostchimera.evals run --suite github-connected
 python -m ghostchimera.evals run --suite path-synthesis
 python scripts/smoke_installed_wheel.py
 python scripts/smoke_installed_wheel.py --extras gateway
 ghostchimera capabilities --format json
+ghostchimera superiority score --format json
+python scripts/run_operator_workbench_e2e.py --no-screenshot
 ghostchimera local-model inventory
 ghostchimera local-model resolve --source Qwen/Qwen2.5-7B-Instruct
 ghostchimera cognition guard --confidence 0.9 --variance 0.01
@@ -27,6 +30,8 @@ ghostchimera context compress --text "latency latency matters" --focus latency
 ghostchimera capability-pack list
 ghostchimera sandbox journey
 ghostchimera remote status
+ghostchimera remote health
+ghostchimera production-gaps --format markdown --limit 50
 ghostchimera trust status
 ghostchimera trust eval baseline
 ghostchimera trust eval-cases list
@@ -84,9 +89,12 @@ environment.
 
 - [ ] `python -m ghostchimera.evals run --suite workspace` passes.
 - [ ] `python -m ghostchimera.evals run --suite competitive` passes.
+- [ ] `python -m ghostchimera.evals run --suite superiority` passes.
 - [ ] `python -m ghostchimera.evals run --suite github-connected` passes.
 - [ ] `python -m ghostchimera.evals run --suite path-synthesis` passes.
 - [ ] `ghostchimera capabilities --format json` reports `ok: true`, `score_ratio: 1.0`, and no `top_gaps`.
+- [ ] `ghostchimera superiority score --format json` reports a bounded scorecard with `operator_ux`, `platform_breadth`, and `autonomy_depth`.
+- [ ] `python scripts/run_operator_workbench_e2e.py --no-screenshot` launches the Console locally, verifies the Operator Workbench, and writes a proof artifact.
 - [ ] `ghostchimera github status` reports a usable auth mode (`token` or `gh-cli`).
 - [ ] `ghostchimera path set ...` persists an active Ghost Path and `ghostchimera path show` returns the same profile.
 - [ ] Console Path tab can synthesize and save the active Ghost Path through `/api/console/paths/active`.
@@ -101,6 +109,8 @@ environment.
 - [ ] `ghostchimera capability-pack list` reports built-in tools without requiring an external MCP server.
 - [ ] `ghostchimera sandbox journey` emits a local operator journey report and preserves findings.
 - [ ] `ghostchimera remote status` reports disabled-by-default remote control state, no paired peers unless intentionally configured, and no raw channel secrets.
+- [ ] `ghostchimera remote health` reports inbound/outbound channel readiness, missing setup fields, and no raw channel secrets.
+- [ ] `ghostchimera production-gaps --format markdown --limit 50` has no unexplained `action_required` runtime markers.
 - [ ] `ghostchimera trust status` reports durable journal readiness, pending approvals, MCP trust posture, trace health, and eval baseline status without raw secrets.
 - [ ] `ghostchimera trust eval baseline` creates a fresh local trust baseline before production deployment, and `ghostchimera trust status` reports the latest baseline as `fresh` with zero P0 failures.
 - [ ] `ghostchimera trust eval-cases list` lists promoted regression cases or returns an empty local-first case list without failing.

@@ -17,6 +17,10 @@ class LocalModelProfile:
     estimated_gpu_vram_gb: float
     prompt_template: str
     provider_hint: str = "minimind"
+    # Reasoning / serving hints (consumed by LlamaCppRuntime tuning).
+    supports_thinking: bool = False
+    recommended_kv_cache_type: str | None = None
+    recommended_temperature: float = 0.0
 
     def fits_budget(self, *, system_ram_gb: float, gpu_vram_gb: float = 0.0) -> bool:
         return system_ram_gb >= self.estimated_system_ram_gb and gpu_vram_gb >= self.estimated_gpu_vram_gb
@@ -52,6 +56,21 @@ _PROFILES: dict[str, LocalModelProfile] = {
         estimated_system_ram_gb=6.0,
         estimated_gpu_vram_gb=4.0,
         prompt_template="phi3",
+    ),
+    # Small reasoning model: a 1.7B that "thinks longer" can beat a single-pass
+    # 8B on the 4GB/8GB target. Pairs with test-time compute + q8_0 KV cache.
+    "reasoning": LocalModelProfile(
+        name="reasoning",
+        model_id="Qwen/Qwen3-1.7B-GGUF",
+        quantization="q4_k_m",
+        max_context_tokens=32768,
+        estimated_system_ram_gb=4.0,
+        estimated_gpu_vram_gb=0.0,
+        prompt_template="qwen3-thinking",
+        provider_hint="llamacpp",
+        supports_thinking=True,
+        recommended_kv_cache_type="q8_0",
+        recommended_temperature=0.6,
     ),
 }
 

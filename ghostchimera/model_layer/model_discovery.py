@@ -20,7 +20,7 @@ FetchJson = Callable[[str, dict[str, str], float], dict[str, Any] | list[Any]]
 
 CACHE_FILE_NAME = "model_discovery_cache.json"
 CACHE_VERSION = 1
-DEFAULT_SOURCES = ("openrouter",)
+DEFAULT_SOURCES = ("openrouter", "local")
 SUPPORTED_SOURCES = {"openrouter", "vultr", "huggingface", "local"}
 SELECTABLE_COMPATIBILITY = {"ready", "needs_key"}
 
@@ -126,6 +126,7 @@ def get_model_discovery(
         "alerts": cache.get("alerts", []),
         "models": models,
         "model_count": len(models),
+        "provider_catalog": _provider_catalog(),
         "selected_provider": _model_config(config).get("provider", ""),
         "selected_model": _model_config(config).get("model", ""),
         "policy": {
@@ -133,6 +134,20 @@ def get_model_discovery(
             "activation": "review_then_activate",
             "secrets_are_write_only": True,
         },
+    }
+
+
+def _provider_catalog() -> dict[str, Any]:
+    providers = sorted(TEXT_PROVIDERS)
+    oauth_capable = {"codex_cli", "openrouter", "huggingface", "gemini"}
+    local_private = {"ollama", "lmstudio", "llamacpp", "minimind"}
+    return {
+        "count": len(providers),
+        "providers": providers,
+        "oauth_or_device_capable": sorted(provider for provider in providers if provider in oauth_capable),
+        "local_private": sorted(provider for provider in providers if provider in local_private),
+        "discovery_sources": sorted(SUPPORTED_SOURCES),
+        "default_sources": list(DEFAULT_SOURCES),
     }
 
 

@@ -20,11 +20,48 @@ from ..agent_core.core import AgentCore
 from ..config import GhostChimeraConfig
 from ..logging_config import ensure_configured, get_logger
 from .config import get_autonomy_config, load_config, save_config
+from .live_presence import LivePresenceStore
 
 logger = get_logger("cli")
 
 
 _PARALLEL_COMMANDS = {"run", "batch"}
+_TOP_LEVEL_COMMANDS = {
+    "setup",
+    "start",
+    "console",
+    "doctor",
+    "capabilities",
+    "superiority",
+    "review-pr",
+    "github",
+    "remote",
+    "production-gaps",
+    "conversation",
+    "live-presence",
+    "saas",
+    "worker",
+    "trust",
+    "capability-admission",
+    "mcp",
+    "path",
+    "model",
+    "policy",
+    "desktop-stop",
+    "autonomy",
+    "workspace",
+    "minimind",
+    "local-model",
+    "cognition",
+    "context",
+    "capability-pack",
+    "sandbox",
+    "runtime-warmup",
+    "ux-audit",
+    "ask",
+    "run",
+    "batch",
+}
 _GLOBAL_OPTIONS_WITH_VALUES = {
     "--log-level",
     "--pilot-run",
@@ -67,6 +104,16 @@ def _first_command_token(argv: list[str]) -> str:
     return ""
 
 
+def _normalize_one_liner_args(argv: list[str]) -> list[str]:
+    """Convert free-form terminal prompts into the ask command."""
+    if not argv:
+        return argv
+    first = argv[0].strip()
+    if not first or first.startswith("-") or first in _TOP_LEVEL_COMMANDS:
+        return argv
+    return ["ask", " ".join(token for token in argv if token.strip())]
+
+
 def run_cli() -> None:
     """Start an interactive command line session with the agent."""
     ensure_configured()
@@ -97,10 +144,21 @@ def _main(argv: list[str] | None = None) -> int:
         from .parallel_cli import _main as _parallel_main
 
         return _parallel_main(effective_argv)
+    effective_argv = _normalize_one_liner_args(effective_argv)
 
     parser = argparse.ArgumentParser(description="Ghost Chimera CLI")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("setup", help="Run interactive setup wizard")
+    start_parser = sub.add_parser("start", help="Guided start for non-technical users")
+    start_parser.add_argument("--host", default="127.0.0.1", help="Gateway bind host for the console.")
+    start_parser.add_argument("--port", type=int, default=8765, help="Gateway WebSocket port.")
+    start_parser.add_argument("--http-port", type=int, default=8766, help="Console HTTP port.")
+    start_parser.add_argument("--state-dir", default="", help="Optional state directory for console jobs and schedules.")
+    start_parser.add_argument("--no-open", action="store_true", help="Print the console URL without opening a browser.")
+    start_parser.add_argument("--skip-setup", action="store_true", help="Skip setup wizard even when config is missing.")
+    start_parser.add_argument(
+        "--auth-token", default="", help="Require this bearer token on all /api/* routes (X-Gateway-Token header)."
+    )
     console_parser = sub.add_parser("console", help="Open the browser-based Ghost Console")
     console_parser.add_argument("--host", default="127.0.0.1", help="Gateway bind host for the console.")
     console_parser.add_argument("--port", type=int, default=8765, help="Gateway WebSocket port.")
@@ -121,6 +179,12 @@ def _main(argv: list[str] | None = None) -> int:
     )
     capabilities_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
     capabilities_parser.add_argument("--save", default="", help="Optional path to write the report.")
+    superiority_parser = sub.add_parser("superiority", help="Measure public operator-platform superiority")
+    superiority_parser.add_argument("superiority_action", choices=["score"], nargs="?", default="score")
+    superiority_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
+    superiority_parser.add_argument("--save", default="", help="Optional path to write the scorecard.")
+    superiority_parser.add_argument("--state-dir", default="", help="Optional Ghost state directory to inspect.")
+    superiority_parser.add_argument("--config", default="", help="Optional dashboard config path to inspect.")
     review_parser = sub.add_parser("review-pr", help="Run deterministic PR/diff review checks")
     review_parser.add_argument("--base", default="origin/main", help="Base ref for review, default origin/main.")
     review_parser.add_argument(
@@ -143,7 +207,7 @@ def _main(argv: list[str] | None = None) -> int:
     remote_parser = sub.add_parser("remote", help="Manage Ghost-native mobile/messaging remote control")
     remote_parser.add_argument(
         "action",
-        choices=["status", "pair-code", "peers", "simulate", "policy", "channel-config", "send-test"],
+        choices=["status", "health", "pair-code", "peers", "simulate", "policy", "channel-config", "send-test"],
         nargs="?",
         default="status",
     )
@@ -158,10 +222,15 @@ def _main(argv: list[str] | None = None) -> int:
     remote_parser.add_argument("--webhook-url", default="", help="Write-only provider endpoint/webhook URL.")
     remote_parser.add_argument("--phone-number-id", default="", help="Write-only WhatsApp phone number id.")
     remote_parser.add_argument("--signing-secret", default="", help="Write-only provider signing secret.")
+    remote_parser.add_argument("--verify-token", default="", help="Write-only provider webhook verification token.")
     remote_parser.add_argument("--send-enabled", action="store_true", help="Enable outbound sending for channel-config.")
     remote_parser.add_argument("--clear-secrets", action="store_true", help="Clear stored channel secrets.")
     remote_parser.add_argument("--direct-execution", action="store_true", help="Enable global direct execution policy.")
     remote_parser.add_argument("--no-direct-execution", action="store_true", help="Disable global direct execution policy.")
+    production_gaps_parser = sub.add_parser("production-gaps", help="Scan for scaffold/demo markers before production")
+    production_gaps_parser.add_argument("--root", default="", help="Checkout root to scan.")
+    production_gaps_parser.add_argument("--limit", type=int, default=200, help="Maximum findings to return.")
+    production_gaps_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
     conversation_parser = sub.add_parser("conversation", help="Run the always-on Ghost conversation loop")
     conversation_parser.add_argument("action", choices=["start", "send", "status", "stop"], nargs="?", default="status")
     conversation_parser.add_argument("message", nargs="*", help="Message for the send action.")
@@ -171,6 +240,61 @@ def _main(argv: list[str] | None = None) -> int:
     conversation_parser.add_argument("--voice", action="store_true", help="Treat send input as a voice turn.")
     conversation_parser.add_argument("--full-bypass", action="store_true", help="Arm Full Bypass before sending.")
     conversation_parser.add_argument("--no-listen", action="store_true", help="Start without always-listening mode.")
+    live_presence_parser = sub.add_parser("live-presence", help="Manage live meetings, interviews, and delegated presence")
+    live_presence_parser.add_argument(
+        "action",
+        choices=[
+            "status",
+            "create",
+            "start",
+            "approve-disclosure",
+            "transcript",
+            "report",
+            "bridge",
+            "interrupt",
+            "draft",
+            "approve-recipient",
+            "send",
+            "context",
+            "interview-configure",
+            "interview-score",
+            "eval",
+        ],
+        nargs="?",
+        default="status",
+    )
+    live_presence_parser.add_argument("--state-dir", default="", help="Optional Live Presence state directory.")
+    live_presence_parser.add_argument("--session-id", default="", help="Live Presence session id.")
+    live_presence_parser.add_argument("--title", default="Live Presence Session", help="Session title for create.")
+    live_presence_parser.add_argument("--type", choices=["companion", "meeting", "interview"], default="meeting", help="Session type.")
+    live_presence_parser.add_argument("--participant", action="append", default=[], help="Participant name. Repeatable.")
+    live_presence_parser.add_argument("--external", action="store_true", help="Mark participants as external.")
+    live_presence_parser.add_argument("--speaker", default="Speaker", help="Transcript speaker.")
+    live_presence_parser.add_argument("--text", default="", help="Transcript content.")
+    live_presence_parser.add_argument("--app", default="browser", help="Meeting app for bridge, for example google_meet.")
+    live_presence_parser.add_argument("--meeting-url", default="", help="Meeting URL for visible browser handoff.")
+    live_presence_parser.add_argument("--browser-session", default="default", help="Browser profile/session label.")
+    live_presence_parser.add_argument("--reason", default="", help="Interrupt reason.")
+    live_presence_parser.add_argument("--channel", default="email", help="Delegated communication channel.")
+    live_presence_parser.add_argument("--recipient", default="", help="Delegated communication recipient.")
+    live_presence_parser.add_argument("--body", default="", help="Delegated communication body.")
+    live_presence_parser.add_argument("--disclosure-template", default="", help="Disclosure text appended to delegated communication.")
+    live_presence_parser.add_argument("--draft-id", default="", help="Communication draft id for send.")
+    live_presence_parser.add_argument("--agenda", action="append", default=[], help="Shared context agenda item. Repeatable.")
+    live_presence_parser.add_argument("--hint", action="append", default=[], help="MiniMind/RAG live-context hint. Repeatable.")
+    live_presence_parser.add_argument("--rag-snippet", action="append", default=[], help="RAG snippet text for live context. Repeatable.")
+    live_presence_parser.add_argument("--correction", default="", help="User correction to store in live shared context.")
+    live_presence_parser.add_argument("--role", default="Candidate", help="Interview role.")
+    live_presence_parser.add_argument("--mode", choices=["interviewer", "interviewee", "observer"], default="interviewer", help="Interview operator mode.")
+    live_presence_parser.add_argument("--competency", action="append", default=[], help="Interview competency. Repeatable.")
+    saas_parser = sub.add_parser("saas", help="Inspect Enterprise SaaS launch-mode readiness")
+    saas_parser.add_argument("saas_action", choices=["status", "init-db", "create-admin"], nargs="?", default="status")
+    saas_parser.add_argument("--print-sql", action="store_true", help="Print the initial Postgres schema for init-db.")
+    saas_parser.add_argument("--email", default="", help="Owner email for create-admin.")
+    saas_parser.add_argument("--org", default="Ghost Chimera", help="Organization name for create-admin.")
+    worker_parser = sub.add_parser("worker", help="Run or inspect SaaS queued worker primitives")
+    worker_parser.add_argument("worker_action", choices=["status", "start"], nargs="?", default="status")
+    worker_parser.add_argument("--worker-id", default="local-worker", help="Worker id for start/status output.")
     trust_parser = sub.add_parser("trust", help="Inspect durable Trust Runtime runs, traces, approvals, and evals")
     trust_sub = trust_parser.add_subparsers(dest="trust_command")
     trust_sub.add_parser("status", help="Show Trust Runtime readiness")
@@ -275,6 +399,8 @@ def _main(argv: list[str] | None = None) -> int:
             "personal-consent",
             "personal-bootstrap",
             "personal-handoff",
+            "personal-train-neural",
+            "personal-infer",
             "personal-revoke",
         ],
         nargs="?",
@@ -286,6 +412,11 @@ def _main(argv: list[str] | None = None) -> int:
     minimind_parser.add_argument("--response", default="", help="Response/output text.")
     minimind_parser.add_argument("--confidence", type=float, default=0.0)
     minimind_parser.add_argument("--threshold", type=float, default=0.5)
+    minimind_parser.add_argument("--epochs", type=int, default=12, help="Epochs for local neural MiniMind adapter training.")
+    minimind_parser.add_argument(
+        "--learning-rate", type=float, default=0.25, help="Learning rate for local neural MiniMind adapter training."
+    )
+    minimind_parser.add_argument("--max-vocab", type=int, default=512, help="Maximum neural adapter vocabulary size.")
     minimind_parser.add_argument(
         "--memory-db", default=".ghostchimera-memory.sqlite3", help="Memory DB path for personal ingestion."
     )
@@ -403,6 +534,11 @@ def _main(argv: list[str] | None = None) -> int:
         "--gpu-architecture", default="", help="Optional GPU architecture hint, for example sm100."
     )
     runtime_warmup_parser.add_argument("--gpu-sm-count", type=int, default=0, help="Optional GPU SM count hint.")
+    ask_parser = sub.add_parser("ask", help="Run one plain-language objective from terminal")
+    ask_parser.add_argument("objective", nargs="+", help="Objective to execute, in plain language.")
+    ask_parser.add_argument("--json", action="store_true", help="Output full JSON execution payload.")
+    ux_audit_parser = sub.add_parser("ux-audit", help="Audit UX readiness and suggest upgrades")
+    ux_audit_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
     parser.add_argument(
         "--log-level",
         default="INFO",
@@ -492,6 +628,8 @@ def _main(argv: list[str] | None = None) -> int:
 
         run_setup_wizard()
         return 0
+    if args.command == "start":
+        return _run_start_cli(args)
 
     if args.command == "console":
         from .console import run_console
@@ -515,6 +653,9 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "capabilities":
         return _run_capabilities_cli(args)
 
+    if args.command == "superiority":
+        return _run_superiority_cli(args)
+
     if args.command == "review-pr":
         return _run_review_pr_cli(args)
 
@@ -524,8 +665,24 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "remote":
         return _run_remote_cli(args)
 
+    if args.command == "production-gaps":
+        return _run_production_gaps_cli(args)
+
     if args.command == "conversation":
         return _run_conversation_cli(args)
+
+    if args.command == "live-presence":
+        return _run_live_presence_cli(args)
+
+    if args.command == "saas":
+        from ..saas.cli import run_saas_cli
+
+        return run_saas_cli(args)
+
+    if args.command == "worker":
+        from ..saas.cli import run_worker_cli
+
+        return run_worker_cli(args)
 
     if args.command == "trust":
         return _run_trust_cli(args)
@@ -605,6 +762,10 @@ def _main(argv: list[str] | None = None) -> int:
             )
         )
         return 0
+    if args.command == "ask":
+        return _run_ask_cli(args)
+    if args.command == "ux-audit":
+        return _run_ux_audit_cli(args)
 
     if args.config_show:
         print(json.dumps(GhostChimeraConfig.from_env().to_dict(), indent=2, sort_keys=True))
@@ -613,7 +774,8 @@ def _main(argv: list[str] | None = None) -> int:
     if args.pilot_status or args.pilot_run:
         from ..chimera_pilot import ChimeraPilotKernel
 
-        persisted_autonomy = get_autonomy_config(load_config())
+        config = load_config() or {}
+        persisted_autonomy = get_autonomy_config(config)
         autonomy_level = args.autonomy_level or str(persisted_autonomy.get("level") or "supervised")
         kernel = ChimeraPilotKernel.default(
             include_deterministic_backend=args.pilot_status,
@@ -655,6 +817,16 @@ def _main(argv: list[str] | None = None) -> int:
         payload = [execution.to_dict() for execution in executions]
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0 if all(item["ok"] for item in payload) else 1
+
+    if not args.command:
+        args.host = getattr(args, "host", "127.0.0.1")
+        args.port = getattr(args, "port", 8765)
+        args.http_port = getattr(args, "http_port", 8766)
+        args.state_dir = getattr(args, "state_dir", "")
+        args.no_open = getattr(args, "no_open", False)
+        args.skip_setup = getattr(args, "skip_setup", False)
+        args.auth_token = getattr(args, "auth_token", "")
+        return _run_start_cli(args)
 
     run_cli()
     return 0
@@ -713,6 +885,117 @@ def _run_autonomy_cli(args: argparse.Namespace) -> int:
     return 2
 
 
+def _run_start_cli(args: argparse.Namespace) -> int:
+    from .console import run_console
+    from .setup_wizard import run_setup_wizard
+
+    if not args.skip_setup and not load_config():
+        run_setup_wizard()
+    run_console(
+        host=args.host,
+        port=args.port,
+        http_port=args.http_port,
+        state_dir=args.state_dir or None,
+        open_browser=not args.no_open,
+        block=True,
+        auth_token=args.auth_token or "",
+    )
+    return 0
+
+
+def _run_ask_cli(args: argparse.Namespace) -> int:
+    from ..chimera_pilot import ChimeraPilotKernel
+
+    objective = " ".join(args.objective or []).strip()
+    if not objective:
+        print(json.dumps({"ok": False, "error": "objective is required"}, indent=2, sort_keys=True))
+        return 2
+    config = load_config() or {}
+    persisted_autonomy = get_autonomy_config(config)
+    autonomy_level = str(persisted_autonomy.get("level") or "supervised")
+    kernel = ChimeraPilotKernel.default(include_deterministic_backend=True, autonomy_level=autonomy_level)
+    try:
+        executions = kernel.run(objective)
+    except PermissionError as exc:
+        payload = {"ok": False, "error": str(exc), "tip": "Run `ghostchimera setup` to tune permissions and model setup."}
+        if args.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(payload["error"])
+            print(payload["tip"])
+        return 1
+    payload = [execution.to_dict() for execution in executions]
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        primary_output = ""
+        first_error = ""
+        for item in payload:
+            if item.get("ok") and str(item.get("output") or "").strip():
+                primary_output = str(item.get("output") or "").strip()
+                break
+            if (not first_error) and item.get("error"):
+                first_error = str(item.get("error") or "").strip()
+        if primary_output:
+            print(primary_output)
+        elif first_error:
+            print(first_error)
+        else:
+            print("Done.")
+    return 0 if all(item["ok"] for item in payload) else 1
+
+
+def _run_ux_audit_cli(args: argparse.Namespace) -> int:
+    payload = {
+        "ok": True,
+        "title": "Ghost Chimera UX Audit",
+        "scorecard": {
+            "strengths": [
+                "Interactive setup wizard already follows OpenClaw/Hermes modular setup patterns.",
+                "Browser console supports no-code run flows and status visibility.",
+                "Safety controls default to conservative permissions.",
+            ],
+            "gaps": [
+                "CLI command surface is broad and can feel developer-heavy.",
+                "Raw JSON output is hard for non-technical operators.",
+            ],
+        },
+        "upgrades": [
+            {
+                "id": "one_liner_terminal",
+                "status": "implemented",
+                "inspired_by": ["OpenClaw", "Hermes Agent"],
+                "usage": ['ghost "Summarize my inbox and draft next steps"', 'ghostchimera ask "Plan my day in 3 tasks"'],
+            },
+            {
+                "id": "guided_start",
+                "status": "implemented",
+                "inspired_by": ["OpenClaw", "Hermes Agent"],
+                "usage": ["ghost start"],
+            },
+        ],
+    }
+    if args.format == "markdown":
+        print("# Ghost Chimera UX Audit")
+        print()
+        print("## Strengths")
+        for item in payload["scorecard"]["strengths"]:
+            print(f"- {item}")
+        print()
+        print("## Gaps")
+        for item in payload["scorecard"]["gaps"]:
+            print(f"- {item}")
+        print()
+        print("## Upgrades")
+        for item in payload["upgrades"]:
+            print(f"- **{item['id']}** ({item['status']}, inspired by {', '.join(item['inspired_by'])})")
+            for usage in item["usage"]:
+                print(f"  - `{usage}`")
+    else:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
 def _run_capabilities_cli(args: argparse.Namespace) -> int:
     from ..chimera_pilot.capability_intelligence import format_capability_report, inspect_capabilities
 
@@ -721,6 +1004,49 @@ def _run_capabilities_cli(args: argparse.Namespace) -> int:
         output = format_capability_report(payload)
     else:
         output = json.dumps(payload, indent=2, sort_keys=True)
+    if args.save:
+        Path(args.save).expanduser().write_text(output, encoding="utf-8")
+    print(output, end="" if output.endswith("\n") else "\n")
+    return 0 if payload.get("ok") else 1
+
+
+def _run_superiority_cli(args: argparse.Namespace) -> int:
+    from ..chimera_pilot.capability_intelligence import inspect_capabilities
+    from ..superiority import build_local_operator_summary, build_superiority_scorecard, format_superiority_markdown
+
+    root = Path(__file__).resolve().parents[2]
+    html = (root / "ghostchimera" / "control_plane" / "static" / "index.html").read_text(encoding="utf-8")
+    app = (root / "ghostchimera" / "control_plane" / "static" / "app.js").read_text(encoding="utf-8")
+    routes = [
+        "/api/console/operator/summary",
+        "/api/console/models/discovery",
+        "/api/console/trust/summary",
+        "/api/console/trust/runs",
+        "/api/console/trust/approvals",
+        "/api/console/trust/evals",
+        "/api/console/evolution/candidates",
+        "/api/console/remote/status",
+        "/api/console/remote/health",
+        "/api/console/production/gaps",
+        "/api/console/standing-orders",
+        "/api/console/conversation/status",
+        "/api/console/sandbox/journey",
+        "/api/console/local-models/inventory",
+        "/api/console/capability-pack",
+        "/api/console/mcp/trust",
+        "/api/console/autonomy/jobs",
+        "/api/console/autonomy/schedules",
+    ]
+    state_dir = Path(args.state_dir).expanduser() if args.state_dir else None
+    config_path = Path(args.config).expanduser() if args.config else None
+    payload = build_superiority_scorecard(
+        operator_summary=build_local_operator_summary(state_dir=state_dir, config_path=config_path),
+        capabilities=inspect_capabilities(root),
+        routes=routes,
+        static_html=html,
+        static_app=app,
+    ).to_dict()
+    output = format_superiority_markdown(payload) if args.format == "markdown" else json.dumps(payload, indent=2, sort_keys=True)
     if args.save:
         Path(args.save).expanduser().write_text(output, encoding="utf-8")
     print(output, end="" if output.endswith("\n") else "\n")
@@ -778,6 +1104,10 @@ def _run_remote_cli(args: argparse.Namespace) -> int:
 
     if args.action == "status":
         print(json.dumps(store.status(), indent=2, sort_keys=True))
+        return 0
+
+    if args.action == "health":
+        print(json.dumps(store.channel_health(), indent=2, sort_keys=True))
         return 0
 
     if args.action == "peers":
@@ -846,6 +1176,7 @@ def _run_remote_cli(args: argparse.Namespace) -> int:
                     "webhook_url": args.webhook_url,
                     "phone_number_id": args.phone_number_id,
                     "signing_secret": args.signing_secret,
+                    "verify_token": args.verify_token,
                 },
             )
         except ValueError as exc:
@@ -867,11 +1198,18 @@ def _run_remote_cli(args: argparse.Namespace) -> int:
 
 
 def _run_conversation_cli(args: argparse.Namespace) -> int:
-    from .conversation import ConversationStore, ConversationalLoopController
+    from ..superiority import build_local_operator_summary
+    from .console import _default_run_objective
+    from .conversation import ConversationalLoopController, ConversationStore
 
     state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
     store = ConversationStore(state_dir)
-    controller = ConversationalLoopController(state_dir=state_dir, store=store)
+    controller = ConversationalLoopController(
+        state_dir=state_dir,
+        store=store,
+        objective_runner=lambda objective: _default_run_objective(objective, state_dir=state_dir),
+        status_provider=lambda: build_local_operator_summary(state_dir=state_dir),
+    )
     if args.full_bypass:
         controller.update_settings(full_bypass=True)
 
@@ -907,6 +1245,104 @@ def _run_conversation_cli(args: argparse.Namespace) -> int:
         return 0 if payload.get("ok") else 1
 
     return 2
+
+
+def _run_production_gaps_cli(args: argparse.Namespace) -> int:
+    from ..production_gaps import scan_production_gaps
+
+    payload = scan_production_gaps(args.root or None, limit=max(1, int(args.limit)))
+    if args.format == "markdown":
+        print("# Ghost Chimera Production Gap Scan")
+        print()
+        print(f"- Files scanned: {payload['counts']['files_scanned']}")
+        print(f"- Action required: {payload['counts']['action_required']}")
+        print(f"- Non-blocking: {payload['counts']['non_blocking']}")
+        print()
+        for gap in payload.get("gaps", [])[: max(1, int(args.limit))]:
+            print(
+                f"- [{gap['severity']}] `{gap['path']}:{gap['line']}` "
+                f"{gap['marker']} - {gap['snippet']}"
+            )
+    else:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if payload.get("ok") else 1
+
+
+def _run_live_presence_cli(args: argparse.Namespace) -> int:
+    state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
+    store = LivePresenceStore(state_dir)
+    action = args.action or "status"
+    try:
+        if action == "status":
+            payload = store.status()
+        elif action == "create":
+            participants = [
+                {"name": name, "role": "participant", "external": bool(args.external)}
+                for name in (args.participant or [])
+            ]
+            payload = store.create_session(
+                session_id=args.session_id,
+                title=args.title,
+                session_type=args.type,
+                participants=participants,
+            )
+        else:
+            if not args.session_id:
+                payload = {"ok": False, "error": "--session-id is required"}
+            elif action == "start":
+                payload = store.start_session(args.session_id)
+            elif action == "approve-disclosure":
+                payload = store.approve_disclosure(args.session_id, approved_by="cli")
+            elif action == "transcript":
+                payload = store.record_transcript(args.session_id, speaker=args.speaker, content=args.text)
+            elif action == "report":
+                payload = store.generate_report(args.session_id)
+            elif action == "bridge":
+                payload = store.configure_meeting_bridge(
+                    args.session_id,
+                    app=args.app,
+                    meeting_url=args.meeting_url,
+                    browser_session=args.browser_session,
+                )
+            elif action == "interrupt":
+                payload = store.interrupt_session(args.session_id, reason=args.reason or "CLI interrupted the live session.")
+            elif action == "draft":
+                payload = store.create_communication_draft(
+                    args.session_id,
+                    channel=args.channel,
+                    recipient=args.recipient,
+                    body=args.body,
+                    disclosure_template=args.disclosure_template,
+                )
+            elif action == "approve-recipient":
+                payload = store.approve_recipient(args.session_id, channel=args.channel, recipient=args.recipient, approved_by="cli")
+            elif action == "send":
+                payload = store.send_communication(args.session_id, args.draft_id)
+            elif action == "context":
+                payload = store.update_shared_context(
+                    args.session_id,
+                    agenda=args.agenda or [],
+                    minimind_hints=args.hint or [],
+                    rag_snippets=[{"source": "cli", "text": item} for item in (args.rag_snippet or [])],
+                    user_correction=args.correction,
+                )
+            elif action == "interview-configure":
+                payload = store.configure_interview(
+                    args.session_id,
+                    mode=args.mode,
+                    role=args.role,
+                    competencies=args.competency or [],
+                )
+            elif action == "interview-score":
+                payload = store.score_interview(args.session_id)
+            else:
+                payload = {"ok": False, "error": f"Unsupported action: {action}"}
+        if action == "eval":
+            payload = store.run_presence_eval_suite()
+    except KeyError:
+        payload = {"ok": False, "error": "Live Presence session not found"}
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if payload.get("ok") else 1
 
 
 def _run_trust_cli(args: argparse.Namespace) -> int:
@@ -1251,6 +1687,21 @@ def _run_minimind_cli(args: argparse.Namespace) -> int:
             )
             return 2
         payload = personal.build_handoff(args.objective)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 2
+    if args.action == "personal-train-neural":
+        payload = personal.train_neural_adapter(
+            epochs=args.epochs,
+            learning_rate=args.learning_rate,
+            max_vocab=args.max_vocab,
+        )
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 2
+    if args.action == "personal-infer":
+        if not args.objective:
+            print(json.dumps({"ok": False, "error": "Pass --objective for personal-infer."}, indent=2, sort_keys=True))
+            return 2
+        payload = personal.infer_neural_adapter(args.objective)
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0 if payload.get("ok") else 2
     if args.action == "personal-revoke":

@@ -5,23 +5,44 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![CI](https://img.shields.io/badge/CI-ubuntu%20%7C%20windows%20%7C%20macos-brightgreen)
 
-Ghost Chimera is a **local-first agent orchestration runtime** built around **Chimera Pilot** â€” a resource-control layer that compiles natural-language objectives into a task IR, schedules them across registered backends using weighted scoring, enforces safety policy, executes with fallback, and records telemetry.
+> **Ghost is background AI infrastructure.** Ghost Chimera observes events across your digital workflow, learns how you work, and quietly prepares the right context or action for whichever AI agent you're using — without fine-tuning or replacing the underlying model. Your AI agents do the thinking. Ghost remembers what matters and makes sure they know what they need.
+
+Ghost Chimera is a **local-first ambient intelligence runtime** built around the **Stealth Loop** — an event-driven learning and intervention cycle (`ghostchimera/stealth/`): EVENT → UNDERSTAND → UPDATE STATE → RECALL EXPERIENCE → MATCH WORKFLOW → PREDICT → DECIDE → PREPARE / INJECT / ACT → OBSERVE OUTCOME → LEARN. **Chimera Pilot** remains as the execution capability underneath it: a resource-control layer that compiles natural-language objectives into a task IR, schedules them across registered backends, enforces safety policy, executes with fallback, and records telemetry.
 
 Key capabilities:
+- **Stealth Loop** (\ghostchimera/stealth/\) — Event Fabric, WorldState, Experience Graph, Workflow Learner, Prediction Engine, Stealth Evaluator, Context Fabric, Background Runtime, host adapters, and local IPC transport. Silence is a successful outcome.
+- **Host adapters** — Claude Code (lifecycle hooks + context injection), OpenClaw (context-engine assemble/after-turn), OpenCode, with \/ghost status|memory|workflows|interventions|explain|pause|resume\ everywhere.
+- **Connectors** (\ghostchimera/connectors/\) — GitHub (poll + webhooks), generic OAuth2 + token vault (Slack, Notion, LinkedIn, GitHub, Google, Zendesk, Freshdesk, Gorgias, HubSpot, Salesforce, Airtable, Hubstaff, Time Doctor), and [Nango](docs/NANGO.md) 1-click OAuth + proxied actions across 13 providers.
+- **Durable local database** — SQLite/WAL journal for events, interventions, outcomes, and workflows (\StealthStore\), including the useful-intervention-rate metric. No server required.
 - **27 model providers** (OpenAI, Anthropic, Gemini, Groq, Mistral, Ollama, and 21 more) â€” swap or chain them without rewriting code.
 - **10 Chimera Pilot backends** â€” deterministic, Python, memory retrieval, Gemini reasoning, local GGUF, analytics, simulation, desktop control, MCP, and quantum simulator.
-- **Browser console (Ghost Console)** - full no-code operator dashboard with guided setup, provider/model configuration, RAG Builder, Self-Evolution, Trust Runtime, remote control, conversational loop, local models, and production readiness. No terminal needed for day-to-day use.
+- **Browser console (Ghost Console)** - full no-code operator dashboard with guided setup, provider/model configuration, RAG Builder, Self-Evolution, Trust Runtime, Live Presence meetings/interviews, remote control, conversational loop, local models, and production readiness. No terminal needed for day-to-day use.
+- **Opt-in host self-editing** - explicit, audited unrestricted host mode lets trusted admins allow Ghost to run host commands and apply source patches with revert artifacts. It is off by default and requires a visible confirmation phrase.
 - **Conservative safety defaults** â€” Python, shell, network, and desktop execution are all off by default. Production mode adds deployment-level guardrails.
 - **Personal MiniMind** â€” consent-gated local memory bootstrap with system specs, approved files/email exports, optional whole-machine/email-artifact crawling, MiniMind JSONL dataset generation, and primary-model RAG handoff.
 - **Native Chimera capability pack** - built-in cognition guardrails, tamper-evident handoffs, query-aware context compression, local model inventory/resolution, MCP normalization, and sandbox journeys with no external project dependency. [Details](docs/NATIVE_ABSORPTION.md)
 - **Trust Runtime** - durable local run journals, resumable approval checkpoints, MCP zero-trust envelopes, explicit capability admission, eval flywheels, and OTel-compatible JSON trace exports. [Details](docs/TRUST_RUNTIME.md) | [Capability Admission](docs/CAPABILITY_ADMISSION.md)
+- **Standing Orders** - scoped, reusable operator authority programs that can be enabled, disabled, run, and audited from Ghost Console. [Details](docs/STANDING_ORDERS.md)
+- **Production gap scanner** - local CLI and Console audit for scaffold, placeholder, stub, TODO, and demo-runtime markers before release. [Details](docs/PRODUCTION_GAPS.md)
 - **Daily production maintenance** - scheduled GitHub automation refreshes dependency audits and the compatible model-provider catalog, then opens a review PR without activating models automatically.
+- **Public Launch SaaS foundation** - OIDC-ready organizations, users, roles, workspaces, Postgres schema, approval-first runs, worker leases, and audit-safe tenant primitives on the `public` branch. [Details](docs/PUBLIC_LAUNCH_SAAS.md)
 
 - **Competitive capability intelligence** - CLI, console, docs, and eval gates compare Ghost Chimera against Codex, Claude Code, LangGraph, CrewAI, Hermes-style tool gateways, and OpenClaw-style local autonomy patterns.
+- **Public superiority scorecard** - bounded proof across Operator UX, platform breadth, and autonomy depth through `ghostchimera superiority score`, `GET /api/console/superiority`, and the Operator Workbench browser E2E proof.
 - **Automated PR review** - deterministic `ghostchimera review-pr` checks for secrets, destructive commands, missing tests, release-checklist drift, generated artifacts, and unfinished beta code.
 - **Optional IBM Bob Developer Accelerator** - repo-aware hackathon/developer tools that analyze codebase health, test coverage, documentation completeness, and onboarding guidance without being required by the Ghost Chimera runtime. **[Boundary](docs/BOB_OPTIONAL_TOOLING.md)** | **[Hackathon Submission](docs/IBM_BOB_SUBMISSION.md)** | [Workflow Guide](docs/IBM_BOB_WORKFLOW.md)
 
 This is beta-stage software for real, user-supervised work in local-first environments. It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
+
+## Install
+
+```bash
+pip install ghostchimera            # Python core
+npm install -g ghostchimera         # or: npx ghostchimera doctor
+brew tap fernandogarzaaa/ghostchimera && brew install ghostchimera
+```
+
+Full matrix (extras, publishing): [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Start Here
 
@@ -31,8 +52,11 @@ If you are new to Ghost Chimera, use the tutorial first:
 - [Quick Start](docs/quick-start.md) - fastest install and launch path
 - [Provider Auth Vault](docs/PROVIDER_AUTH_VAULT.md) - dashboard-based provider setup, OAuth connector slots, and local Ollama/LM Studio auth posture
 - [Remote Control](docs/REMOTE_CONTROL.md) - paired mobile/messaging commands with dashboard-controlled direct execution
+- [Standing Orders](docs/STANDING_ORDERS.md) - bounded reusable autonomy programs with explicit enable/run controls
 - [GitHub-Connected Workflow](docs/GITHUB_CONNECTED_AUTONOMOUS_ENGINEER.md) - optional GitHub planning and issue-to-objective flow
 - [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) - final deployment guardrails, smoke tests, and production blockers
+- [Production Gap Scanner](docs/PRODUCTION_GAPS.md) - local scanner for scaffold/demo placeholders before release
+- [Public Launch SaaS](docs/PUBLIC_LAUNCH_SAAS.md) - Enterprise SaaS launch-mode foundation for organizations, OIDC, Postgres, and workers
 - [Model Provider Catalog](docs/model_provider_catalog.md) - generated compatible/candidate model catalog
 - [Dependency Audit](docs/dependency_audit.md) - generated dependency-specification risk report
 
@@ -56,6 +80,7 @@ If you are new to Ghost Chimera, use the tutorial first:
 - [Desktop Control](#desktop-control)
 - [Execution Safety](#execution-safety)
 - [Production Mode](#production-mode)
+- [Public Launch SaaS](#public-launch-saas)
 - [Daily Production Maintenance](#daily-production-maintenance)
 - [Local Models](#local-models)
 - [Ghost MiniMind](#ghost-minimind)
@@ -79,7 +104,7 @@ Ghost Chimera is organized into independent layers. Each layer has a narrow cont
 | **Chimera Pilot** | `chimera_pilot` | Task IR (`TaskSpec`, `TaskKind`), rule-based compiler, backend registry, weighted scheduler, policy gate, fallback executor, verifier, telemetry, checkpointing, batch orchestration, subagent pool, Mixture-of-Agents, credential pool, context compressor, gateway server, cron scheduler, toolsets, lifecycle hooks, tool middleware, plugin manifests, and service registry. |
 | **Cognition Layer** | `cognition_layer` | Confidence values, hallucination flags, task ordering, self-model, working memory, attention, reflection primitives, and durable operator workspace state. |
 | **Control Plane** | `control_plane` | User-facing CLIs (`ghostchimera`, `chimera-pilot`, `ghostchimera-parallel`, `ghostchimera-eval`), setup wizard, doctor/health checks, model picker, policy management, parallel execution, and the Ghost Console gateway server + static UI. |
-| **Evals** | `evals` | 11 built-in evaluation suites: `smoke`, `safety`, `autonomy`, `user-journey`, `workspace`, `competitive`, `coverage`, `redteam`, `track2`, `track3`, `track4`. |
+| **Evals** | `evals` | 12 built-in evaluation suites: `smoke`, `safety`, `autonomy`, `user-journey`, `workspace`, `competitive`, `superiority`, `coverage`, `redteam`, `track2`, `track3`, `track4`. |
 | **Harness** | `harness` | Offline-first regression harness for deterministic case runs. Emits structured JSONL artifacts with compile events, execution traces, fallback records, and pass/fail metadata. |
 | **MCP** | `mcp` | Lightweight JSON-RPC MCP server/client surfaces and the `MCPBackend` Chimera Pilot backend. |
 | **Memory Layer** | `memory_layer` | SQLite FTS5 local memory store. Namespaced documents, freshness scoring (exponential decay), citation quality, `stale_after_days` filter, and `count()`. |
@@ -108,7 +133,7 @@ Objective
 
 ## One-Line Install
 
-The user-facing install path creates a local checkout, builds a virtual environment, installs the full Ghost Chimera runtime profile (`.[all]`), verifies the CLI, and prints the launch command. This includes Ghost Console, MCP, local GGUF/llama.cpp support, MiniMind PyTorch/Transformers support, quantum simulator support, and platform-compatible specialization helpers.
+The user-facing install path creates a local checkout, builds a virtual environment, installs the full Ghost Chimera runtime profile (`.[all]`), verifies the CLI, and prints the launch command. This includes Ghost Console, MCP, desktop control dependencies, browser/local voice dependencies, local GGUF/llama.cpp support, MiniMind PyTorch/Transformers support, quantum simulator support, and platform-compatible specialization helpers.
 
 **Windows PowerShell:**
 
@@ -141,14 +166,14 @@ Installer options are environment variables so the one-line command stays copy/p
 | Variable | Default | Purpose |
 |---|---|---|
 | `GHOSTCHIMERA_INSTALL_DIR` | `~/ghost-chimera` | Install/update directory. |
-| `GHOSTCHIMERA_EXTRAS` | `all` | Runtime profile to install. Defaults to the full Ghost Chimera runtime; advanced users may override this only for constrained development installs. |
+| `GHOSTCHIMERA_EXTRAS` | `all,dev` | Runtime profile to install. Defaults to the full Ghost Chimera runtime plus verification tools; advanced users may override this only for constrained development installs. |
 | `GHOSTCHIMERA_REF` | `main` | GitHub branch or ref to install. |
 | `GHOSTCHIMERA_DRY_RUN` | `0` | Bash dry run when set to `1`. |
 
 PowerShell also supports:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -InstallDir D:\GhostChimera -Extras all
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -InstallDir D:\GhostChimera -Extras all,dev
 ```
 
 ---
@@ -171,6 +196,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -InstallDir D:\Gh
 | Capability | Extra | Practical spec |
 |---|---|---|
 | Ghost Console, cron, WebSocket gateway | `gateway` | Installed by default. |
+| Live desktop control runtime | base install | Installed by default through `pyautogui`; live control is still blocked unless explicitly enabled. |
+| Browser/local voice fallback | `voice` | Installed by default where Python version markers allow local STT engines; browser speech still works without local engines. |
 | MCP package integration | `mcp` | Installed by default. |
 | Personal MiniMind PyTorch/Transformers inference | `minimind` | Installed by default where Python version markers allow it; 8+ GB RAM recommended. |
 | GGUF / llama.cpp local model runtime | `local` | Installed by default; 8+ GB RAM for small quantized models, more for larger models. |
@@ -210,6 +237,7 @@ python -m pip install -e .
 
 ```bash
 python -m pip install -e ".[gateway]"   # WebSocket gateway + cron scheduling (required for console)
+python -m pip install -e ".[voice]"     # Local speech-to-text fallback providers
 python -m pip install -e ".[mcp]"       # MCP package integration
 python -m pip install -e ".[local]"     # llama.cpp / GGUF local model runtime
 python -m pip install -e ".[minimind]"  # MiniMind PyTorch/Transformers inference adapter
@@ -219,7 +247,7 @@ python -m pip install -e ".[dev]"       # ruff, pytest, build tools
 python -m pip install -e ".[all]"       # everything
 ```
 
-The base package is stdlib-first with zero mandatory dependencies. Heavy runtimes (`llama-cpp-python`, PyTorch, `nvidia-cutlass-dsl`, `pyqpanda3`) are opt-in.
+The base package installs the lightweight runtime dependencies needed for Ghost Console, gateway scheduling, desktop control, certificate fallback, and plugin validation. Heavy runtimes (`llama-cpp-python`, PyTorch, `nvidia-cutlass-dsl`, `pyqpanda3`) remain opt-in through extras or the default one-line `.[all]` install.
 
 ---
 
@@ -246,6 +274,7 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 |---|---|
 | **Home** | Operator readiness cards, active Ghost Path, active model/provider, config health, MiniMind/RAG, MCP, skills, Self-Evolution, Trust Runtime, production warnings, and Guided Setup entry points. |
 | **Ghost Conversation** | Always-available text/voice conversation panel with transcript, operational trace, hands-free mode, approval prompts, Stop All, and explicit True Autonomy / Full Bypass controls. |
+| **Live Presence** | Disclosure-gated meeting and interview sessions, external participant consent status, transcript turns, action item extraction, post-session reports, and Trust Runtime journaling. |
 | **Setup Ghost** | No-code setup wizard: choose path, configure provider/model, confirm MiniMind permissions, select learning sources, generate RAG plan, review MCP/tools, review skills, and run readiness checks. |
 | **Run** | Quick Actions, custom objective box with **Ctrl+Enter / Cmd+Enter**, run output, durable run history, and sandbox-safe execution previews. |
 | **Jobs** | Profile-aware autonomy jobs (`self-audit`, `dependency-scan`, `test-regression`, `memory-refresh`, `model-health-check`, `repair-preview`) with durable history. |
@@ -255,7 +284,8 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 | **MCP** | MCP server review, capability normalization, zero-trust status, approval boundaries, health checks, and enable/disable controls. |
 | **Skills** | Bundled/workspace skill browser, GitHub skill discovery queue, compatibility notes, generated skill previews, and approval-before-activation controls. |
 | **Self-Evolution** | Learning sources, evolution candidates, lifecycle status, review/promote/reject actions, model recommendations, RAG updates, skill candidates, and activity provenance. |
-| **Remote Control** | Pair mobile or messaging senders, review safe slash commands, toggle global direct-execution policy, enable direct execution per paired admin, and approve or deny remote `/run` requests. |
+| **Remote Control** | Pair mobile or messaging senders, review safe slash commands, inspect channel health, verify provider webhooks, toggle global direct-execution policy, enable direct execution per paired admin, and approve or deny remote `/run` requests. |
+| **Unrestricted Host Execution** | Explicitly arm host command execution and source self-editing from the Status tab. Default is OFF; arming requires the exact phrase `I ACCEPT HOST EXECUTION RISK`, an allowed root, and an audit directory. Every self-edit writes the requested patch, applied patch, and revert patch. |
 | **Trust Runtime** | Durable run journals, pending approvals, resumable checkpoints, MCP trust registry, eval baselines, capability admission records, and redacted OTel-style trace exports. |
 | **Latency** | Cost/latency posture, context-compression recommendations, provider timing, model health, and slow-path diagnostics. |
 | **Cognitive Guardrails** | Belief confidence, variance guards, provenance handoff verification, hallucination risk signals, and safe operational trace nodes. |
@@ -263,7 +293,17 @@ The token is printed on startup and entered in the browser prompt once. All `/ap
 | **Sandbox / Local Models** | User-journey sandbox reports, local hardware profile, GGUF/SafeTensors discovery, Hugging Face model resolver, license posture, and quantization recommendations. |
 | **Security / Schedules / Review / Capabilities / Readiness** | Security metrics, HMAC audit chain, cron schedules, deterministic PR review, competitive matrix, and final release-readiness commands. |
 
+The **Home** tab is the Operator Workbench: command search, next best actions, superiority scorecards, browser E2E status, guided setup, and the conversational loop are surfaced before the advanced tabs.
+
 **All actions produce toast notifications** (green ok / yellow warn / red error), activity timeline entries, and trust/runtime records where relevant. You should not need to watch the terminal for normal operation.
+
+### Unrestricted Host Execution Disclaimer
+
+Ghost Chimera ships with sandboxed execution by default. The optional **Unrestricted Host Execution** mode is for trusted local operators who intentionally want Ghost to run host commands, install packages, send through configured channels, and apply source patches to the repository. This mode can overwrite files inside the configured root.
+
+To reduce accidental damage, it stays off until an admin enables it in Ghost Console and types the exact confirmation phrase `I ACCEPT HOST EXECUTION RISK`. When enabled, Ghost writes local audit artifacts under the configured audit directory, including command results and self-edit revert patches. Keep this mode disabled for shared machines, untrusted prompts, production hosts without isolation, or any workspace where you cannot review and revert diffs.
+
+For outbound messaging, configure the **Remote Control** channel, write-only credentials, and a **Default Reply Target**. If no target or channel is configured, Ghost records message intent locally instead of pretending that a real message was sent.
 
 ### Multi-Purpose Ghost Paths
 
@@ -327,6 +367,9 @@ ghostchimera console --state-dir /data/ghost-state --no-open
 
 ```bash
 ghostchimera setup                    # interactive setup wizard
+ghostchimera start                    # guided start (runs setup if needed, then opens console)
+ghostchimera ask "Plan my day"        # plain-language one-liner objective
+ghost "Plan my day"                   # short alias for non-technical users
 ghostchimera doctor                   # health checks
 ghostchimera doctor --production      # production-mode gate
 ghostchimera model                    # list / switch model provider
@@ -364,6 +407,12 @@ ghostchimera minimind personal-handoff --objective "What should Ghost do next?"
 ghostchimera capabilities --format json
 ghostchimera capabilities --format markdown --save docs/capability-report.md
 
+# Public superiority scorecard
+ghostchimera superiority score --format json
+ghostchimera superiority score --format markdown --save docs/superiority-scorecard.md
+python scripts/run_operator_workbench_e2e.py --no-screenshot
+ghostchimera production-gaps --format markdown --limit 50
+
 # PR / diff review
 ghostchimera review-pr --base origin/main --head HEAD
 ghostchimera review-pr --base origin/main --head WORKTREE  # include staged/unstaged changes
@@ -379,6 +428,9 @@ ghostchimera runtime-warmup --runtime-specialization-cache-dir .ghost/rs --local
 
 # Desktop kill switch
 ghostchimera desktop-stop --desktop-kill-switch-path .ghost/DESKTOP_STOP
+
+# UX audit (OpenClaw/Hermes-inspired recommendations)
+ghostchimera ux-audit --format markdown
 ```
 
 ### `chimera-pilot` â€” Pilot-specific CLI
@@ -413,6 +465,7 @@ ghostchimera-eval run --suite autonomy
 ghostchimera-eval run --suite user-journey
 ghostchimera-eval run --suite workspace
 ghostchimera-eval run --suite competitive
+ghostchimera-eval run --suite superiority
 ghostchimera-eval run --suite coverage
 ghostchimera-eval run --suite redteam
 ghostchimera-eval run --suite track2   # Gemini integration
@@ -645,6 +698,35 @@ See [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) for the env-file flow
 
 ---
 
+## Public Launch SaaS
+
+The `public` branch adds a SaaS launch foundation while preserving local-first mode. SaaS mode is designed around OIDC identity, organization/user/role tenancy, Postgres as source of truth, queued worker execution, approval-first governance, and Docker Compose VPS deployment.
+
+Inspect readiness:
+
+```bash
+ghostchimera saas status
+ghostchimera saas init-db --print-sql
+ghostchimera worker status
+```
+
+Render the Docker Compose VPS launch shape:
+
+```bash
+cp .env.saas.example .env.saas
+docker compose --env-file .env.saas -f docker-compose.saas.yml config
+```
+
+Create a local bootstrap owner record for smoke testing:
+
+```bash
+ghostchimera saas create-admin --email owner@example.com --org "Acme"
+```
+
+Set `GHOSTCHIMERA_DEPLOYMENT_TARGET=saas` only when Postgres, OIDC, session secret, secrets encryption key, and worker token are configured. See [Public Launch SaaS](docs/PUBLIC_LAUNCH_SAAS.md).
+
+---
+
 ## Daily Production Maintenance
 
 Ghost Chimera includes GitHub automation for keeping production support files current without silently changing runtime behavior:
@@ -728,25 +810,35 @@ ghostchimera minimind log-failure --prompt "..." --response "..." --confidence 0
 ghostchimera minimind personal-consent --admin-controls --allow-system-specs --allow-files --allow-email --allow-autonomy --allow-training --file-path ~/Documents --email-path ~/mail/export.mbox
 ghostchimera minimind personal-consent --admin-controls --allow-machine-crawl --allow-email-crawl --allow-training --crawl-root ~ --exclude-path ~/.ssh
 ghostchimera minimind personal-bootstrap --include-system-specs
+ghostchimera minimind personal-train-neural --epochs 12 --learning-rate 0.25
+ghostchimera minimind personal-infer --objective "What did my Ghost learn about release readiness?"
 ghostchimera minimind personal-handoff --objective "Review my personal context and identify pending work."
+
+# Live Presence
+ghostchimera live-presence status
+ghostchimera live-presence create --session-id interview-1 --type interview --title "Hiring interview" --participant "Candidate" --external
+ghostchimera live-presence approve-disclosure --session-id interview-1
+ghostchimera live-presence start --session-id interview-1
+ghostchimera live-presence transcript --session-id interview-1 --speaker Ghost --text "Action item: send follow-up notes tomorrow."
+ghostchimera live-presence report --session-id interview-1
 ```
 
-Training data accumulates (append-only) at `~/.ghostchimera/minimind/datasets/dataset.jsonl`. `MINIMIND_ROOT` is optional for users who keep an upstream MiniMind workspace nearby.
+Training data accumulates (append-only) at `~/.ghostchimera/minimind/datasets/dataset.jsonl`. The `personal-train-neural` command trains a local neural Personal MiniMind adapter at `~/.ghostchimera/minimind/adapters/neural_adapter.json` using gradient descent over approved prompt/response records. The adapter stores learned numeric weights, a weight checksum, training metadata, and local inference records. `MINIMIND_ROOT` is optional for users who keep an upstream MiniMind workspace nearby.
 
 Personal MiniMind in `0.4.0-beta` is the local-first bridge between the user's private context and the configured primary AI model:
 
 - Admin controls are off until the operator grants consent from the MiniMind tab, CLI, or SDK.
 - System specs, explicit files, explicit email exports, whole-machine crawling, email-artifact crawling, autonomy handoff, and training are separate consent scopes.
 - Whole-machine crawl uses the current OS user permissions, default exclusions, configured roots, and file/email limits. It does not bypass permissions or decrypt protected stores.
-- The local memory corpus becomes both RAG context and MiniMind JSONL training data.
+- The local memory corpus becomes RAG context, MiniMind JSONL training data, and optional local neural adapter weights when training consent is enabled.
 - `personal-handoff` returns a ready prompt bundle containing relevant memory snippets, task hints, and the active Ghost Path policy for the configured main model.
 - See `docs/PERSONAL_MINIMIND_PRIVACY.md` before enabling broad crawl on a machine that contains sensitive or regulated data.
 
-MiniMind does not require a cloud AI provider for local personalization. The memory store, dataset generation, and handoff prompt are local. Real MiniMind inference can run on the user's machine when weights and runtime dependencies are installed, including a Transformers/PyTorch checkpoint via `.[minimind]` or compatible quantized local weights through the llama.cpp/GGUF path when available. The primary Ghost model can be a remote provider or a local model; Personal MiniMind only supplies the personal RAG context and task hints.
+MiniMind does not require a cloud AI provider for local personalization. The memory store, dataset generation, neural personal adapter, and handoff prompt are local. Real MiniMind inference can run on the user's machine through the trained neural adapter, and full checkpoint inference can run when weights and runtime dependencies are installed, including a Transformers/PyTorch checkpoint via `.[minimind]` or compatible quantized local weights through the llama.cpp/GGUF path when available. The primary Ghost model can be a remote provider or a local model; Personal MiniMind supplies personal RAG context, task hints, and an optional local neural adapter.
 
 The integration is derived from the public Apache-2.0 MiniMind project and attributed in `NOTICE`.
 
-**Important safety boundary:** Personal MiniMind is powerful and privacy-sensitive. It only reads local sources after explicit admin consent and approved path scopes, keeps the resulting memory/datasets local, and exposes revocation through the dashboard and CLI. Operators still provide MiniMind weights for real local inference and run any fine-tuning workflow in their own environment.
+**Important safety boundary:** Personal MiniMind is powerful and privacy-sensitive. It only reads local sources after explicit admin consent and approved path scopes, keeps the resulting memory/datasets/adapter weights local, and exposes revocation through the dashboard and CLI. The built-in neural adapter is real local weight training, but it is intentionally a small personal adapter rather than full upstream MiniMind checkpoint fine-tuning. Operators still provide MiniMind checkpoint weights when they want full local model inference or external full-model fine-tuning.
 
 ---
 
@@ -772,6 +864,18 @@ pushing a beta branch:
 ```bash
 ghostchimera review-pr --base origin/main --head HEAD
 ```
+
+## Public Superiority Scorecard
+
+Ghost Chimera uses a bounded scorecard instead of vague claims. It measures Operator UX, platform breadth, and autonomy depth from real Console, CLI, eval, and browser-facing surfaces.
+
+```bash
+ghostchimera superiority score --format json
+python -m ghostchimera.evals run --suite superiority
+python scripts/run_operator_workbench_e2e.py --no-screenshot
+```
+
+The same scorecard is available through `GET /api/console/superiority` and the Home tab Operator Workbench. It does not claim sentience, consciousness, AGI, or universal superiority over every AI system.
 
 ---
 
@@ -824,6 +928,7 @@ python -m ghostchimera.evals run --suite autonomy
 python -m ghostchimera.evals run --suite user-journey
 python -m ghostchimera.evals run --suite workspace
 python -m ghostchimera.evals run --suite competitive
+python -m ghostchimera.evals run --suite superiority
 python -m ghostchimera.evals run --suite coverage
 python -m ghostchimera.evals run --suite redteam
 python -m ghostchimera.evals run --suite track2
@@ -832,6 +937,8 @@ python -m ghostchimera.evals run --suite track4
 python scripts/smoke_installed_wheel.py
 python scripts/smoke_installed_wheel.py --extras gateway
 ghostchimera capabilities --format json
+ghostchimera superiority score --format json
+python scripts/run_operator_workbench_e2e.py --no-screenshot
 ghostchimera review-pr --base HEAD --head HEAD
 ```
 
@@ -845,6 +952,7 @@ ghostchimera review-pr --base HEAD --head HEAD
 | `user-journey` | End-to-end workspace evidence â†’ CWR retrieval â†’ task context injection. |
 | `workspace` | Workspace context injection, freshness scoring, citation quality, count(). |
 | `competitive` | Capability matrix score, console route, and CLI report against Codex/Claude/LangGraph/CrewAI/Hermes/OpenClaw-style benchmarks. |
+| `superiority` | Operator Workbench, scorecard CLI/API, platform breadth, autonomy-depth proof, and browser-facing E2E contract. |
 | `github-connected` | GitHub auth detection, issue planning, console routes, and policy simulation. |
 | `path-synthesis` | Role profiles, path synthesis, active path console route, path CLI, and source licensing policy. |
 | `coverage` | SSRF policy, approval token, material policy, error classifier, MoA scoring, context compressor, autonomy queue, checkpoint save/restore, telemetry export. |
@@ -948,4 +1056,3 @@ The full test suite requires `.[gateway]` (croniter) and `.[mcp]` (mcp) to be in
 ## License
 
 MIT â€” see `LICENSE`. Third-party attribution in `NOTICE`.
-

@@ -10,6 +10,7 @@ from pathlib import Path
 from ghostchimera.chimera_pilot import ChimeraPilotKernel, TaskKind, TaskSpec
 from ghostchimera.chimera_pilot.backends.cwr import CWRBackend
 from ghostchimera.memory_layer.store import MemoryStore
+from ghostchimera.memory_layer.temporal_graph import TemporalGraphStore
 
 
 class ConsciousWorkspaceRetrievalTests(unittest.TestCase):
@@ -48,6 +49,46 @@ class ConsciousWorkspaceRetrievalTests(unittest.TestCase):
         self.assertEqual(result.output["query"], "retrieve chimera pilot backend")
         self.assertEqual(result.output["citations"], ["architecture"])
         self.assertIn("Chimera Pilot", result.output["results"][0]["content"])
+
+    def test_cwr_without_graph_has_no_facts_key(self) -> None:
+        store = MemoryStore(self.db_path)
+        store.add_document("architecture", "Chimera Pilot runs retrieval through a real backend.")
+        backend = CWRBackend(store=store)
+        result = backend.execute(
+            TaskSpec.create(kind=TaskKind.RAG_QUERY, objective="chimera pilot backend")
+        )
+        self.assertNotIn("facts", result.output)
+        self.assertEqual(result.metrics["retrieval"], "sqlite_fts")
+
+    def test_cwr_fuses_temporal_graph_facts(self) -> None:
+        store = MemoryStore(self.db_path)
+        store.add_document("note", "Globex onboarding chat about benefits and tooling.")
+        graph = TemporalGraphStore(Path(self.tmp.name) / "graph.sqlite3")
+        graph.add_fact("Globex", "located_in", obj="Springfield", confidence=0.9)
+        graph.add_fact("Globex", "industry", obj="energy", confidence=0.8)
+        backend = CWRBackend(store=store, graph=graph)
+
+        result = backend.execute(
+            TaskSpec.create(kind=TaskKind.RAG_QUERY, objective="what about Globex")
+        )
+
+        self.assertTrue(result.ok)
+        self.assertIn("facts", result.output)
+        predicates = {f["predicate"] for f in result.output["facts"]}
+        self.assertEqual(predicates, {"located_in", "industry"})
+        self.assertEqual(result.metrics["retrieval"], "sqlite_fts+temporal_graph")
+        self.assertTrue(any(c.startswith("graph:Globex/") for c in result.output["citations"]))
+        # Highest-confidence fact ranks first.
+        self.assertEqual(result.output["facts"][0]["predicate"], "located_in")
+
+    def test_cwr_graph_ignores_stopword_only_query(self) -> None:
+        store = MemoryStore(self.db_path)
+        store.add_document("note", "some content")
+        graph = TemporalGraphStore(Path(self.tmp.name) / "graph2.sqlite3")
+        graph.add_fact("Globex", "located_in", obj="Springfield")
+        backend = CWRBackend(store=store, graph=graph)
+        result = backend.execute(TaskSpec.create(kind=TaskKind.RAG_QUERY, objective="what is it"))
+        self.assertNotIn("facts", result.output)
 
     def test_memory_store_records_orchestration_outcomes(self) -> None:
         store = MemoryStore(self.db_path)

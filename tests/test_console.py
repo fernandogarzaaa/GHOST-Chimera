@@ -12,7 +12,14 @@ from unittest.mock import patch
 from ghostchimera.chimera_pilot.gateway_server import GatewayServer, HttpResponse
 from ghostchimera.config import GhostChimeraConfig
 from ghostchimera.control_plane.cli import _main
-from ghostchimera.control_plane.console import _default_run_objective, register_console_routes, run_console
+from ghostchimera.control_plane.console import (
+    _compact_operator_context,
+    _default_run_objective,
+    _objective_with_operator_context,
+    _safe_config_payload,
+    register_console_routes,
+    run_console,
+)
 from ghostchimera.memory_layer.store import MemoryStore
 from ghostchimera.model_layer.model_discovery import save_model_discovery_cache
 from ghostchimera.tool_layer.browser_workspace import AgentBrowserWorkspace
@@ -43,6 +50,58 @@ class FakeModelProvider:
 
 
 class ConsoleRouteTests(unittest.TestCase):
+    def test_operator_context_for_model_is_human_readable_and_redacted(self) -> None:
+        summary = {
+            "active_path": {"label": "Manager Operator", "profile_id": "manager"},
+            "model": {
+                "provider": "codex_cli",
+                "model": "gpt-5.4-mini",
+                "api_key_configured": True,
+                "api_key": "sk-secret",
+            },
+            "counts": {
+                "learning_sources": 3,
+                "approved_sources": 2,
+                "candidates": 4,
+                "pending_candidates": 1,
+            },
+            "trust": {"ready": True},
+            "production_readiness": {"status": "review", "ready": False},
+            "capability_admission": {"production_ready": True},
+            "remote": {"counts": {"paired_peers": 1}},
+            "warnings": ["Review MCP trust registry."],
+        }
+
+        context = _compact_operator_context(summary)
+        enriched = _objective_with_operator_context("Tell me what you can do.", summary)
+
+        self.assertIn("Manager Operator", context)
+        self.assertIn("codex_cli / gpt-5.4-mini", context)
+        self.assertIn("2 approved of 3 total", context)
+        self.assertIn("Tell me what you can do.", enriched)
+        self.assertNotIn("sk-secret", context)
+        self.assertNotIn("sk-secret", enriched)
+
+    def test_safe_config_payload_treats_codex_cli_login_as_auth(self) -> None:
+        with (
+            tempfile.TemporaryDirectory(prefix="ghostchimera-codex-safe-config-") as tmp,
+            patch("ghostchimera.control_plane.console.get_codex_cli_status") as status_mock,
+        ):
+            status_mock.return_value = type(
+                "Status",
+                (),
+                {"available": True, "logged_in": True, "detail": "Logged in using ChatGPT"},
+            )()
+
+            payload = _safe_config_payload(
+                {"model": {"provider": "codex_cli", "model": "gpt-5.4-mini"}},
+                Path(tmp) / "config.json",
+            )
+
+        self.assertTrue(payload["model"]["api_key_configured"])
+        self.assertTrue(payload["model"]["auth_configured"])
+        self.assertEqual(payload["model"]["auth_detail"], "Logged in using ChatGPT")
+
     def test_console_registers_browser_ui_and_status_routes(self) -> None:
         server = GatewayServer()
         register_console_routes(server)
@@ -327,15 +386,19 @@ class ConsoleRouteTests(unittest.TestCase):
             status = status_route.handler(
                 {"method": "GET", "path": "/api/console/github/status", "headers": {}, "body": "", "query": {}}
             )
-            start = device_start_route.handler(
-                {
-                    "method": "POST",
-                    "path": "/api/console/github/device/start",
-                    "headers": {},
-                    "body": "{}",
-                    "query": {},
-                }
-            )
+            with patch(
+                "ghostchimera.integrations.github_client.GitHubClient.get_json",
+                side_effect=RuntimeError("gh auth unavailable"),
+            ):
+                start = device_start_route.handler(
+                    {
+                        "method": "POST",
+                        "path": "/api/console/github/device/start",
+                        "headers": {},
+                        "body": "{}",
+                        "query": {},
+                    }
+                )
         self.assertTrue(status["ok"])
         self.assertIn(status["auth_mode"], {"token", "gh-cli"})
         self.assertIn("self_evolution_policy", status)
@@ -378,6 +441,35 @@ class ConsoleRouteTests(unittest.TestCase):
             }
         )
         self.assertFalse(policy["allowed"])
+
+    def test_github_device_start_uses_gh_cli_when_client_id_is_missing(self) -> None:
+        server = GatewayServer()
+        register_console_routes(server)
+        route = server.routes.find("POST", "/api/console/github/device/start")
+        self.assertIsNotNone(route)
+
+        with (
+            patch.dict("os.environ", {"GHOSTCHIMERA_GITHUB_CLIENT_ID": "", "GITHUB_CLIENT_ID": ""}, clear=False),
+            patch(
+                "ghostchimera.integrations.github_client.GitHubClient.get_json",
+                return_value={"login": "octocat", "name": "Octo Cat", "html_url": "https://github.com/octocat"},
+            ),
+        ):
+            started = route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/github/device/start",
+                    "headers": {},
+                    "body": "{}",
+                    "query": {},
+                }
+            )
+
+        self.assertTrue(started["ok"])
+        self.assertEqual(started["auth_mode"], "gh-cli")
+        self.assertTrue(started["has_token"])
+        self.assertEqual(started["user"]["login"], "octocat")
+        self.assertIn("GitHub CLI", started["message"])
 
     def test_console_config_route_persists_provider_without_echoing_secret(self) -> None:
         server = GatewayServer()
@@ -1093,6 +1185,8 @@ class ConsoleRouteTests(unittest.TestCase):
                 result = _default_run_objective("open settings and configure sync")
                 self.assertTrue(result["ok"])
                 kwargs = factory.call_args.kwargs
+                self.assertTrue(kwargs["include_model_provider_backend"])
+                self.assertFalse(kwargs["include_deterministic_backend"])
                 self.assertTrue(kwargs["allow_desktop_control"])
                 self.assertTrue(kwargs["enable_live_desktop"])
                 self.assertEqual(kwargs["ghost_mode"], "possess")
@@ -1462,10 +1556,14 @@ class ConsoleRouteTests(unittest.TestCase):
             consent_route = server.routes.find("POST", "/api/console/minimind/personal/consent")
             bootstrap_route = server.routes.find("POST", "/api/console/minimind/personal/bootstrap")
             handoff_route = server.routes.find("POST", "/api/console/minimind/personal/handoff")
+            train_neural_route = server.routes.find("POST", "/api/console/minimind/personal/train-neural")
+            infer_route = server.routes.find("POST", "/api/console/minimind/personal/infer")
             self.assertIsNotNone(status_route)
             self.assertIsNotNone(consent_route)
             self.assertIsNotNone(bootstrap_route)
             self.assertIsNotNone(handoff_route)
+            self.assertIsNotNone(train_neural_route)
+            self.assertIsNotNone(infer_route)
 
             initial = status_route.handler(
                 {
@@ -1530,6 +1628,30 @@ class ConsoleRouteTests(unittest.TestCase):
             self.assertTrue(handoff["ok"])
             self.assertIn("primary_model_prompt", handoff)
 
+            neural = train_neural_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/minimind/personal/train-neural",
+                    "headers": {},
+                    "body": json.dumps({"epochs": 6, "learning_rate": 0.35}),
+                    "query": {},
+                }
+            )
+            self.assertTrue(neural["ok"])
+            self.assertTrue(neural["training"]["adapter"]["metadata"]["neural_weight_training"])
+            self.assertTrue(neural["status"]["neural_adapter_trained"])
+
+            inferred = infer_route.handler(
+                {
+                    "method": "POST",
+                    "path": "/api/console/minimind/personal/infer",
+                    "headers": {},
+                    "body": json.dumps({"query": "beta release"}),
+                }
+            )
+            self.assertTrue(inferred["ok"])
+            self.assertEqual(inferred["adapter_kind"], "neural-personal-adapter")
+
     def test_console_readiness_route_returns_release_runbook(self) -> None:
         server = GatewayServer()
         register_console_routes(server)
@@ -1580,6 +1702,27 @@ class ConsoleCliTests(unittest.TestCase):
         self.assertEqual(result, 0)
         parallel_main.assert_not_called()
         autonomy_main.assert_called_once()
+
+    def test_cli_treats_freeform_prompt_as_one_liner_ask(self) -> None:
+        with patch("ghostchimera.control_plane.cli._run_ask_cli", return_value=0) as ask_main:
+            result = _main(["Plan my week with 3 priorities"])
+
+        self.assertEqual(result, 0)
+        ask_main.assert_called_once()
+        namespace = ask_main.call_args.args[0]
+        self.assertEqual(namespace.objective, ["Plan my week with 3 priorities"])
+
+    def test_start_command_skips_setup_when_config_exists(self) -> None:
+        with (
+            patch("ghostchimera.control_plane.cli.load_config", return_value={"model": {"provider": "openai"}}),
+            patch("ghostchimera.control_plane.setup_wizard.run_setup_wizard") as setup_wizard,
+            patch("ghostchimera.control_plane.console.run_console") as run_console_mock,
+        ):
+            result = _main(["start", "--no-open"])
+
+        self.assertEqual(result, 0)
+        setup_wizard.assert_not_called()
+        run_console_mock.assert_called_once()
 
     def test_run_console_registers_routes_without_blocking(self) -> None:
         server = run_console(host="127.0.0.1", port=0, http_port=0, open_browser=False, block=False)
