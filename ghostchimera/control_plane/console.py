@@ -10,9 +10,9 @@ import json
 import os
 import re
 import shutil
-import threading
 import sys
 import textwrap
+import threading
 import time
 import urllib.parse
 import webbrowser
@@ -5418,10 +5418,8 @@ def run_console(
         _voice = LocalVoiceTranscriber(Path(state_dir or config.state_dir) / "local_voice")
 
         def _warm_voice() -> None:
-            try:
+            with contextlib.suppress(Exception):
                 _voice.warmup()
-            except Exception:
-                pass
 
         threading.Thread(target=_warm_voice, name="ghost-voice-warmup", daemon=True).start()
     except Exception:
