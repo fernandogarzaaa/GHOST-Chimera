@@ -1941,6 +1941,30 @@ def register_console_routes(
             provider=str(body.get("provider") or "auto"),
         )
 
+    def conversation_flow_dictate(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Wispr-style flow: transcribe + format + history, no audio stored."""
+        from .flow_dictation import FlowHistory, transcribe_and_format
+
+        body = _json_body(ctx)
+        history = FlowHistory(console_state_dir / "local_voice")
+        return transcribe_and_format(
+            local_voice,
+            str(body.get("audio_base64") or body.get("audio") or "").strip(),
+            mime_type=str(body.get("mime_type") or ""),
+            profile=str(body.get("profile") or "dictation"),
+            history=history,
+        )
+
+    def conversation_flow_history(ctx: dict[str, Any]) -> dict[str, Any]:
+        from .flow_dictation import FlowHistory
+
+        try:
+            limit = max(1, min(50, int((_json_body(ctx) or {}).get("limit", 10))))
+        except (TypeError, ValueError):
+            limit = 10
+        return {"ok": True,
+                "history": FlowHistory(console_state_dir / "local_voice").recent(limit)}
+
     def live_presence_status(ctx: dict[str, Any]) -> dict[str, Any]:
         return live_presence_store.status()
 
@@ -4583,6 +4607,18 @@ def register_console_routes(
         conversation_local_voice_transcribe,
         method="POST",
         description="Transcribe a short local voice audio clip without storing raw audio",
+    )
+    _api_register(
+        "/api/console/voice/flow",
+        conversation_flow_dictate,
+        method="POST",
+        description="Wispr-style flow: transcribe, format, journal (no audio stored)",
+    )
+    _api_register(
+        "/api/console/voice/flow/history",
+        conversation_flow_history,
+        method="POST",
+        description="Recent flow dictation transcripts",
     )
     _api_register(
         "/api/console/live-presence/status",

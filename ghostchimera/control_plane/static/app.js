@@ -344,19 +344,153 @@
     return state.conversationSessionId;
   }
 
+  // ── Ghost voice playback (chunked queue, persisted voice + rate) ──────
+  var TTS_VOICE_KEY = "ghostchimera_tts_voice";
+  var TTS_RATE_KEY = "ghostchimera_tts_rate";
+  var ttsQueue = [];
+  var ttsSpeaking = false;
+
+  function ttsVoiceName() {
+    try { return localStorage.getItem(TTS_VOICE_KEY) || ""; } catch (_) { return ""; }
+  }
+  function ttsRate() {
+    var slider = $("#conversationTtsRate");
+    var pct = slider ? Number(slider.value || 100) : 100;
+    try {
+      var saved = Number(localStorage.getItem(TTS_RATE_KEY) || "0");
+      if (saved >= 70 && saved <= 130) {
+        pct = saved;
+        if (slider) slider.value = String(saved);
+      } else if (slider) {
+        localStorage.setItem(TTS_RATE_KEY, String(pct));
+      }
+    } catch (_) {}
+    return Math.min(1.3, Math.max(0.7, pct / 100));
+  }
+  function pickTtsVoice() {
+    try {
+      var voices = window.speechSynthesis.getVoices() || [];
+      if (!voices.length) return null;
+      var wanted = ttsVoiceName();
+      if (wanted) {
+        var exact = voices.find(function(v) { return v.name === wanted; });
+        if (exact) return exact;
+      }
+      var local = voices.find(function(v) { return v.localService && v.lang.indexOf("en") === 0; });
+      return local || voices.find(function(v) { return v.lang.indexOf("en") === 0; }) || voices[0];
+    } catch (_) { return null; }
+  }
+  function speakNextChunk() {
+    if (ttsSpeaking || !ttsQueue.length) return;
+    if (!("speechSynthesis" in window)) { ttsQueue = []; return; }
+    ttsSpeaking = true;
+    var text = ttsQueue.shift();
+    try {
+      var utterance = new SpeechSynthesisUtterance(text);
+      var voice = pickTtsVoice();
+      if (voice) {
+        utterance.voice = voice;
+        try { localStorage.setItem(TTS_VOICE_KEY, voice.name); } catch (_) {}
+      }
+      utterance.rate = ttsRate();
+      utterance.onstart = function() { setConversationMicState("Speaking", "ok"); };
+      utterance.onend = function() {
+        ttsSpeaking = false;
+        if (ttsQueue.length) speakNextChunk();
+        else if ($("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked && !state.voiceRestartBlocked) startConversationListening();
+      };
+      utterance.onerror = function() { ttsSpeaking = false; ttsQueue = []; };
+      window.speechSynthesis.speak(utterance);
+    } catch (_) { ttsSpeaking = false; ttsQueue = []; }
+  }
   function speakGhost(text) {
     if (!text || !("speechSynthesis" in window)) return;
     var settings = (state.conversation && state.conversation.settings) || {};
     if (!settings.hands_free && !($("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked)) return;
     try {
       window.speechSynthesis.cancel();
-      var utterance = new SpeechSynthesisUtterance(String(text).slice(0, 900));
-      utterance.onstart = function() { setConversationMicState("Speaking", "ok"); };
-      utterance.onend = function() {
-        if ($("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked && !state.voiceRestartBlocked) startConversationListening();
-      };
-      window.speechSynthesis.speak(utterance);
+      ttsQueue = [];
+      ttsSpeaking = false;
+      // Chunk on sentence boundaries so long replies play fully (no 900-char clip).
+      var chunks = String(text).match(/[^.!?]+[.!?]+["”)]?|\S[^.!?]*$/g) || [String(text)];
+      chunks.forEach(function(c) {
+        var piece = c.trim();
+        if (piece) ttsQueue.push(piece.slice(0, 400));
+      });
+      speakNextChunk();
     } catch (_) {}
+  }
+  function stopGhostVoice() {
+    ttsQueue = [];
+    ttsSpeaking = false;
+    try { window.speechSynthesis.cancel(); } catch (_) {}
+  }
+
+  // ── Hold-to-talk flow dictation (Wispr-style) ──────────────────────────
+  var flowRecorder = null;
+  var flowChunks = [];
+  var flowActive = false;
+
+  async function flowSetTalking(on) {
+    var btn = $("#conversationHoldToTalk");
+    if (btn) {
+      btn.classList.toggle("primary", on);
+      btn.innerHTML = on ? "Listening…" : "Hold&nbsp;🎙";
+    }
+    setConversationMicState(on ? "Dictating" : "Muted", on ? "ok" : "warn");
+  }
+  async function flowStart() {
+    if (flowActive) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+      toast("Hold-to-talk needs microphone recording support in this browser.", "warn");
+      return;
+    }
+    var mime = mediaRecorderMimeType();
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      flowChunks = [];
+      flowRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      flowRecorder.ondataavailable = function(e) { if (e.data && e.data.size) flowChunks.push(e.data); };
+      flowRecorder.onstop = function() {
+        stream.getTracks().forEach(function(t) { try { t.stop(); } catch (_) {} });
+        flowFinish();
+      };
+      flowActive = true;
+      await flowSetTalking(true);
+      flowRecorder.start();
+    } catch (e) {
+      toast("Microphone unavailable for dictation.", "error");
+    }
+  }
+  async function flowFinish() {
+    flowActive = false;
+    await flowSetTalking(false);
+    if (!flowChunks.length) return;
+    var blob = new Blob(flowChunks, { type: (flowRecorder && flowRecorder.mimeType) || "audio/webm" });
+    flowChunks = [];
+    try {
+      toast("Transcribing…", "");
+      var b64 = await blobToBase64(blob);
+      var data = await api("/api/console/voice/flow",
+        { method: "POST", body: { audio_base64: b64, mime_type: blob.type, profile: "dictation" } });
+      if (data.ok && data.text) {
+        var input = $("#conversationTextInput");
+        if (input) {
+          input.value = (input.value ? input.value.replace(/\s+$/, "") + " " : "") + data.text;
+          input.focus();
+        }
+        toast("Dictated (" + (data.provider || "local") + "). Review and Send.", "ok");
+      } else {
+        toast(data.error || "Dictation failed — type instead.", "warn", 7000);
+      }
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+  function flowStop() {
+    if (flowRecorder && flowActive) {
+      try { flowRecorder.stop(); } catch (_) { flowActive = false; flowSetTalking(false); }
+    }
   }
 
   function speechErrorGuidance(error) {
@@ -2866,6 +3000,33 @@
   });
   $("#conversationWake").addEventListener("click", function() { sendConversationMessage("Hey Ghost wake up", "text"); });
   $("#conversationMinimize").addEventListener("click", toggleConversationMinimized);
+  (function wireHoldToTalk() {
+    var btn = $("#conversationHoldToTalk");
+    if (!btn) return;
+    btn.addEventListener("mousedown", function(e) { e.preventDefault(); flowStart(); });
+    btn.addEventListener("mouseup", function() { flowStop(); });
+    btn.addEventListener("mouseleave", function() { if (flowActive) flowStop(); });
+    btn.addEventListener("touchstart", function(e) { e.preventDefault(); flowStart(); }, { passive: false });
+    btn.addEventListener("touchend", function() { flowStop(); });
+  })();
+  (function wireTtsControls() {
+    var rate = $("#conversationTtsRate");
+    if (rate) rate.addEventListener("change", function() {
+      try { localStorage.setItem(TTS_RATE_KEY, String(rate.value)); } catch (_) {}
+    });
+    var test = $("#conversationTtsTest");
+    if (test) test.addEventListener("click", function() {
+      if (!("speechSynthesis" in window)) { toast("No speech synthesis in this browser.", "warn"); return; }
+      stopGhostVoice();
+      ttsQueue.push("Ghost voice check. This is how I will sound.");
+      speakNextChunk();
+    });
+    try {
+      if (window.speechSynthesis && window.speechSynthesis.onvoiceschanged !== undefined) {
+        window.speechSynthesis.onvoiceschanged = function() { pickTtsVoice(); };
+      }
+    } catch (_) {}
+  })();
   $$$("[data-conversation-prompt]").forEach(function(btn) {
     btn.addEventListener("click", function() {
       var prompt = btn.getAttribute("data-conversation-prompt") || "";
@@ -2875,6 +3036,7 @@
   });
   $("#conversationStopAll").addEventListener("click", async function() {
     try {
+      stopGhostVoice();
       stopConversationListening();
       var sessionId = await ensureConversationSession();
       var data = await api("/api/console/conversation/sessions/" + encodeURIComponent(sessionId) + "/stop", { method: "POST", body: {} });
