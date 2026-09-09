@@ -53,8 +53,8 @@ ghostchimera doctor    # health checks: providers, models, gateway, skills
 
 First run? The Console's Operator Workbench shows a 3-step checklist:
 connect a model provider → run the readiness check → connect integrations
-(Slack, Notion, GitHub…) from the **Integrations** tab or 1-click via Nango
-(see `docs/NANGO.md`).
+(Slack, Notion, GitHub…) from the **Integrations** tab, which runs Ghost's
+built-in OAuth engine (see `docs/CUSTOM_AUTH.md`).
 
 ## Local voice (Wispr-style dictation + Ghost speech)
 

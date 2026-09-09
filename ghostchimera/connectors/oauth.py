@@ -72,7 +72,7 @@ OAUTH_PRESETS: dict[str, ProviderPreset] = {
         scopes=("openid", "email", "profile"),
         extra_authorize={"access_type": "offline", "prompt": "consent"},
     ),
-    # Help / support desks (native OAuth where available; Nango covers the rest)
+    # Help / support desks (browser PKCE; server-side exchange via auth engine)
     "zendesk": ProviderPreset(
         id="zendesk",
         display="Zendesk",

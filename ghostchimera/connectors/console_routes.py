@@ -1,4 +1,4 @@
-"""Ghost Console routes for connectors (OAuth + Nango + status).
+"""Ghost Console routes for connectors (OAuth + Custom Auth Engine + status).
 
 Additive: register via register_connector_routes(server, state_dir).
 Handlers follow the console ctx-dict convention and return redacted
@@ -22,10 +22,6 @@ def _body(ctx: dict[str, Any]) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return data if isinstance(data, dict) else {}
-
-
-def _inbox_path(state_dir: Path) -> Path:
-    return Path(state_dir) / "connector_oauth" / "nango_webhooks.jsonl"
 
 
 def first_run_status(state_dir: str | Path) -> dict[str, Any]:
@@ -60,7 +56,7 @@ def first_run_status(state_dir: str | Path) -> dict[str, Any]:
          "detail": "Operator Workbench → Run Readiness Check.",
          "done": False, "tab": "operator"},
         {"id": "integrations", "title": "Connect Slack, Notion, GitHub…",
-         "detail": "Integrations tab, or 1-click via Nango.",
+         "detail": "Integrations tab with built-in OAuth.",
          "done": integrations_connected > 0, "tab": "integrations"},
     ]
     done = sum(1 for s in steps if s["done"])
@@ -70,85 +66,98 @@ def first_run_status(state_dir: str | Path) -> dict[str, Any]:
 
 def register_connector_routes(server: Any, state_dir: str | Path, *,
                               auth: str = "open", token: str = "") -> None:
-    """Register /api/connectors/* routes on a GatewayServer."""
-    from .nango import NANGO_CATALOG, NangoClient, NangoError
+    """Register /api/connectors/* and /api/auth/* routes on a GatewayServer."""
+    from .auth_engine import PROVIDERS, AuthEngineError, CustomAuthEngine
     from .oauth import oauth_status
 
     base = Path(state_dir)
 
-    def providers(_ctx: dict[str, Any]) -> dict[str, Any]:
-        from .nango import nango_secret_key
+    def _engine() -> Any:
+        return CustomAuthEngine(base)
 
+    def providers(_ctx: dict[str, Any]) -> dict[str, Any]:
         items = []
         statuses = oauth_status(base)
-        for key, provider in NANGO_CATALOG.items():
+        for key, provider in PROVIDERS.items():
             items.append({
                 "key": key, "display": provider.display, "category": provider.category,
-                "docs": provider.docs,
+                "api_base": provider.api_base,
                 "native_oauth": statuses.get(key, {"connected": False}),
             })
-        return {"ok": True, "providers": items,
-                "nango_configured": bool(nango_secret_key())}
+        return {"ok": True, "providers": items, "auth_engine": "custom"}
 
     def status(_ctx: dict[str, Any]) -> dict[str, Any]:
-        from .nango import nango_secret_key
+        return {"ok": True, "native": oauth_status(base), "auth_engine": "custom"}
 
-        return {"ok": True, "native": oauth_status(base),
-                "nango_configured": bool(nango_secret_key())}
-
-    def nango_session(ctx: dict[str, Any]) -> dict[str, Any]:
+    def auth_authorize(ctx: dict[str, Any]) -> dict[str, Any]:
         data = _body(ctx)
-        provider_config_key = str(data.get("providerConfigKey", ""))
-        connection_id = str(data.get("connectionId", ""))
-        if not provider_config_key or not connection_id:
-            return {"ok": False, "error": "providerConfigKey and connectionId are required"}
+        provider = str(data.get("provider", ""))
+        entity_id = str(data.get("entity_id", ""))
+        redirect_uri = str(data.get("redirect_uri", ""))
+        if not provider or not entity_id or not redirect_uri:
+            return {"ok": False,
+                    "error": "provider, entity_id, and redirect_uri are required"}
+        engine = _engine()
         try:
-            client = NangoClient()
-        except NangoError as exc:
+            result = engine.authorize_url(
+                provider, entity_id, redirect_uri,
+                scopes=data.get("scopes") if isinstance(data.get("scopes"), list) else None)
+            return {"ok": True, **result}
+        except (AuthEngineError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_callback(ctx: dict[str, Any]) -> dict[str, Any]:
+        data = _body(ctx)
+        engine = _engine()
         try:
-            return {"ok": True, "session": client.frontend_session(
-                provider_config_key=provider_config_key, connection_id=connection_id)}
-        except NangoError as exc:
+            return engine.handle_callback(
+                str(data.get("provider", "")), str(data.get("code", "")),
+                str(data.get("state", "")), str(data.get("redirect_uri", "")))
+        except (AuthEngineError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
+        finally:
+            with suppress(Exception):
+                engine.close()
 
-    def nango_webhook(ctx: dict[str, Any]) -> dict[str, Any]:
-        from .nango import NangoClient
-
-        record = NangoClient.normalize_webhook(_body(ctx))
+    def auth_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        data = _body(ctx)
+        query = ctx.get("query") if isinstance(ctx.get("query"), dict) else {}
+        entity_id = str(data.get("entity_id", "") or (query or {}).get("entity_id", ""))
+        if not entity_id:
+            return {"ok": False, "error": "entity_id is required"}
+        engine = _engine()
         try:
-            path = _inbox_path(base)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(record) + "\n")
-        except OSError as exc:
-            return {"ok": False, "error": f"inbox write failed: {exc}"}
-        return {"ok": True, "record": record}
+            return {"ok": True, **engine.status(entity_id)}
+        finally:
+            with suppress(Exception):
+                engine.close()
 
-    def webhook_inbox(_ctx: dict[str, Any]) -> dict[str, Any]:
-        path = _inbox_path(base)
-        records: list[dict[str, Any]] = []
+    def auth_revoke(ctx: dict[str, Any]) -> dict[str, Any]:
+        data = _body(ctx)
+        engine = _engine()
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()[-50:]
-        except OSError:
-            lines = []
-        for line in lines:
-            try:
-                records.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-        return {"ok": True, "records": records}
+            revoked = engine.revoke(str(data.get("entity_id", "")),
+                                    str(data.get("provider", "")))
+            return {"ok": True, "revoked": revoked}
+        finally:
+            with suppress(Exception):
+                engine.close()
 
     server.routes.register("/api/connectors/providers", providers, method="GET",
                            auth=auth, token=token, description="Connector catalog + redacted status")
     server.routes.register("/api/connectors/status", status, method="GET",
                            auth=auth, token=token, description="Connector connection status")
-    server.routes.register("/api/connectors/nango/session", nango_session, method="POST",
-                           auth=auth, token=token, description="Nango frontend session bundle")
-    server.routes.register("/api/connectors/nango/webhook", nango_webhook, method="POST",
-                           auth="open", description="Nango webhook inbox (redacted)")
-    server.routes.register("/api/connectors/nango/inbox", webhook_inbox, method="GET",
-                           auth=auth, token=token, description="Recent Nango webhook records")
+    server.routes.register("/api/auth/authorize", auth_authorize, method="POST",
+                           auth=auth, token=token, description="OAuth authorize URL + state")
+    server.routes.register("/api/auth/callback", auth_callback, method="POST",
+                           auth=auth, token=token, description="OAuth callback + token exchange")
+    server.routes.register("/api/auth/status", auth_status, method="POST",
+                           auth=auth, token=token, description="Redacted connection status")
+    server.routes.register("/api/auth/revoke", auth_revoke, method="POST",
+                           auth=auth, token=token, description="Revoke a connection")
     server.routes.register("/api/connectors/first-run",
                            lambda _ctx: first_run_status(base), method="GET",
                            auth=auth, token=token, description="Guided first-run checklist")
