@@ -97,7 +97,13 @@
     </div>
     <div class="conversation-input-row">
       <input id="conversationTextInput" placeholder="Talk to Ghost or type a message">
+      <button id="conversationHoldToTalk" title="Hold to dictate (Wispr-style flow)">Hold&nbsp;🎙</button>
       <button id="conversationSend" class="primary">Send</button>
+    </div>
+    <div class="conversation-input-row">
+      <label class="hint" for="conversationTtsRate" style="font-size:11px;">Ghost voice speed</label>
+      <input id="conversationTtsRate" type="range" min="70" max="130" value="100" style="flex:1;" title="Playback speed %">
+      <button id="conversationTtsTest" title="Preview Ghost voice">Test voice</button>
     </div>
     <div class="conversation-actions">
       <button id="conversationStartListening" class="primary">Start Listening</button>
