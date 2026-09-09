@@ -1,0 +1,15 @@
+/* Ghost Writer overlay: unmistakably Ghost's, never the page's own text. */
+.ghost-writer-overlay {
+  position: absolute;
+  z-index: 2147483647;
+  background: #101418;
+  color: #9aa4b0;
+  border: 1px dashed #3b4651;
+  border-left: 3px solid #2bd587;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  cursor: pointer;
+  white-space: pre-wrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}

@@ -20,6 +20,7 @@ from .agent_prompt import (
     render_system_prompt,
 )
 from .eval import EvalReport, StealthEval
+from .bpo_store import BpoStore
 from .event_bus import EventBus, read_only_consumer
 from .events import Event, new_event
 from .experience import ExperienceGraph
@@ -48,6 +49,7 @@ __all__ = [
     "AgentAction",
     "AgentActionType",
     "AdapterRegistry",
+    "BpoStore",
     "ClaudeCodeAdapter",
     "CodexAdapter",
     "Decision",

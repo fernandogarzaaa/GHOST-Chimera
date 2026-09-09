@@ -283,5 +283,66 @@ def register_connector_routes(server: Any, state_dir: str | Path, *,
     server.routes.register("/api/stealth/simplify", stealth_simplify, method="POST",
                            auth=auth, token=token, description="STE-check arbitrary text")
 
+    # -- Ghost-writer: gray completions for VA text fields ------------------
+    def ghost_write(ctx: dict[str, Any]) -> dict[str, Any]:
+        """POST /api/stealth/ghost-write {prompt_context, url?}.
+
+        Model-backed when a provider is configured; otherwise an honest
+        no-model response (the extension then stays silent — it never
+        hallucinates completions locally).
+        """
+        data = _body(ctx)
+        context = str(data.get("prompt_context", ""))[:4000]
+        if len(context.strip()) < 5:
+            return {"ok": False, "error": "prompt_context too short"}
+        try:
+            from ..model_layer.llm import LLM
+
+            llm = LLM()
+            if not llm.available:
+                raise RuntimeError("no model provider available")
+            suggestion = llm.chat(
+                "You are a ghost-writer for support agents. Continue the draft below with "
+                "the next 1-2 sentences only: plain, human, concise. No preamble.",
+                context)
+            return {"ok": True, "ghost_suggestion": str(suggestion)[:500],
+                    "provider": llm.provider_name}
+        except Exception as exc:
+            return {"ok": False, "error": f"no completion available: {type(exc).__name__}"}
+
+    server.routes.register("/api/stealth/ghost-write", ghost_write, method="POST",
+                           auth=auth, token=token, description="Ghost-writer completions")
+    def inbound_webhook(ctx: dict[str, Any]) -> dict[str, Any]:
+        import time as _time
+        import uuid as _uuid
+
+        from .stealth_service import get_service_loop
+        from .webhooks import NORMALIZERS, normalize_webhook
+
+        parts = str(ctx.get("path", "")).strip("/").split("/")
+        # ["api", "webhooks", source, va_id]
+        if len(parts) != 4 or parts[0] != "api" or parts[1] != "webhooks":
+            return {"ok": False, "error": "use POST /api/webhooks/{source}/{va_id}"}
+        source, va_id = parts[2], parts[3]
+        if source not in NORMALIZERS:
+            return {"ok": False, "error": f"unknown source '{source}'"}
+        delivery_id = str(ctx.get("headers", {}).get("x-delivery-id", "")
+                          or _uuid.uuid4().hex[:12])
+        event = normalize_webhook(source, delivery_id, va_id, _body(ctx))
+        if event is None:
+            # Verification pings, bot echoes, empty payloads: ack, don't learn.
+            return {"ok": True, "queued": False, "reason": "ignored (ping/echo/empty)"}
+        loop = get_service_loop(base)
+        delivered = loop.emit(event)
+        result = loop.last_result
+        return {"ok": True, "queued": True, "event_id": event.event_id,
+                "delivered": delivered,
+                "decision": str(result.decision) if result else "none",
+                "intervention_id": result.intervention_id if result else "",
+                "received_at": _time.time()}
+
+    server.routes.register("/api/webhooks/", inbound_webhook, method="POST", prefix=True,
+                           auth="open", description="Unified inbound webhooks per VA")
+
 
 __all__ = ["register_connector_routes"]

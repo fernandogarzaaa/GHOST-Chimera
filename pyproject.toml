@@ -26,8 +26,9 @@ classifiers = [
 dependencies = [
   "certifi>=2024.2.2",
   "croniter>=6.0.0",
+  "cryptography>=42.0",
   "jsonschema>=4.0",
-  "websockets>=12.0,<17",
+  "websockets>=12.0,<16",
 ]
 
 [project.urls]
@@ -59,6 +60,7 @@ voice = [
 all = [
   "certifi>=2024.2.2",
   "croniter>=6.0.0",
+  "cryptography>=42.0",
   "jsonschema>=4.0",
   "pyautogui>=0.9.54",
   "websockets>=12.0,<17",
