@@ -467,7 +467,7 @@ def check_production_maintenance_artifacts() -> dict[str, Any]:
         "scripts/update_model_provider_catalog.py",
         "scripts/audit_dependencies.py --format markdown --output docs/dependency_audit.md",
         "tests/test_update_model_provider_catalog.py tests/test_model_discovery.py -q",
-        "peter-evans/create-pull-request@v6",
+        "peter-evans/create-pull-request@v8",
         "No secrets are committed.",
     ):
         if token not in daily_workflow:
