@@ -54,9 +54,9 @@ header h1 {
   display: flex; gap: 6px; border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(17, 21, 26, .9), rgba(13, 16, 20, .7));
   backdrop-filter: blur(8px);
-  padding: 10px 24px; overflow-x: auto; flex-wrap: nowrap;
+  padding: 10px 24px; flex-wrap: wrap;
   position: sticky; top: 56px; z-index: 25;
-  scrollbar-width: thin;
+  scroll-behavior: smooth;
 }
 .tab {
   padding: 7px 13px; cursor: pointer; border: 1px solid transparent; background: transparent;
@@ -283,9 +283,9 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow
   display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: var(--radius-pill); font-size: 11px;
   font-weight: 600; border: 1px solid var(--line); color: var(--muted); background: rgba(255, 255, 255, .02);
 }
-.badge.ok { color: var(--accent); border-color: rgba(95, 224, 168, .4); background: rgba(43, 213, 135, .08); }
-.badge.warn { color: var(--warn); border-color: rgba(244, 194, 90, .4); background: rgba(244, 194, 90, .08); }
-.badge.error { color: var(--danger); border-color: rgba(251, 113, 133, .4); background: rgba(251, 113, 133, .08); }
+.badge.ok { color: #05140d; border-color: transparent; background: linear-gradient(180deg, var(--accent), var(--accent-strong)); }
+.badge.warn { color: #1a1206; border-color: transparent; background: linear-gradient(180deg, #f7d47e, var(--warn)); }
+.badge.error { color: #22060b; border-color: transparent; background: linear-gradient(180deg, #fda4b3, var(--danger)); }
 .list-item {
   display: flex; align-items: center; gap: 10px; padding: 11px 13px;
   border: 1px solid var(--line); border-radius: var(--radius-sm); margin-bottom: 6px;

@@ -303,9 +303,17 @@
     var transcript = $("#conversationTranscript");
     if (transcript && session) {
       var turns = session.turns || [];
-      transcript.textContent = turns.slice(-8).map(function(t) {
+      var text = turns.slice(-8).map(function(t) {
         return (t.role === "ghost" ? "Ghost: " : "You: ") + (t.content || "");
-      }).join("\n") || "Transcript will appear here after Ghost hears you.";
+      }).join("\n");
+      // Preserve a locally-echoed user turn until the server round-trip
+      // returns it, so Send never looks dead while the API is in flight.
+      if (state.pendingEcho && text.indexOf(state.pendingEcho) === -1) {
+        text = (text ? text + "\n" : "") + state.pendingEcho;
+      } else if (state.pendingEcho && text.indexOf(state.pendingEcho) !== -1) {
+        state.pendingEcho = "";
+      }
+      transcript.textContent = text || "Transcript will appear here after Ghost hears you.";
     }
     var reply = $("#conversationReply");
     if (reply && session) reply.textContent = session.last_reply || "Ghost is listening for your next instruction.";
@@ -503,8 +511,23 @@
   async function sendConversationMessage(message, inputMode) {
     message = (message || "").trim();
     if (!message) return;
-    var sessionId = await ensureConversationSession();
+    // Optimistic ack: show the user's turn immediately so the control
+    // never feels dead while the session/API round-trip is in flight.
+    try {
+      state.pendingEcho = "You: " + message;
+      var transcriptEl = $("#conversationTranscript");
+      if (transcriptEl) {
+        var existing = transcriptEl.textContent || "";
+        if (existing === "Transcript will appear here after Ghost hears you.") existing = "";
+        if (existing.indexOf(state.pendingEcho) === -1) {
+          transcriptEl.textContent = (existing ? existing + "\n" : "") + state.pendingEcho;
+        }
+      }
+      var replyEl = $("#conversationReply");
+      if (replyEl) replyEl.textContent = "Ghost is thinking…";
+    } catch (_) {}
     setConversationMicState("Processing", "warn");
+    var sessionId = await ensureConversationSession();
     var path = "/api/console/conversation/sessions/" + encodeURIComponent(sessionId) + (inputMode === "voice" ? "/voice-turn" : "/turn");
     try {
       var data = await api(path, { method: "POST", body: { message: message } });
@@ -2821,7 +2844,9 @@
     var text = (input.value || "").trim();
     if (!text) { toast("Enter a message for Ghost.", "warn"); return; }
     input.value = "";
-    sendConversationMessage(text, "text");
+    var btn = $("#conversationSend");
+    if (btn) btn.disabled = true;
+    sendConversationMessage(text, "text").finally(function() { if (btn) btn.disabled = false; });
   });
   $("#conversationTextInput").addEventListener("keydown", function(e) {
     if (e.key === "Enter") {
@@ -4231,12 +4256,18 @@
       ["minimind", "minimind"], ["mcp", "mcp"], ["skill", "skills"],
       ["evolution", "evolution"], ["remote", "remote"], ["sandbox", "sandbox"],
       ["meeting", "live-presence"], ["interview", "live-presence"], ["presence", "live-presence"],
-      ["run", "run"], ["latency", "latency"], ["local", "local-models"]
+      ["run", "run"], ["latency", "latency"], ["local", "local-models"],
+      ["slack", "integrations"], ["notion", "integrations"], ["connect", "integrations"],
+      ["integration", "integrations"], ["github login", "integrations"], ["gmail", "integrations"],
+      ["stealth", "stealth"], ["draft", "stealth"], ["activity", "stealth"], ["approve", "stealth"]
     ];
     var hit = targets.find(function(item) { return q.indexOf(item[0]) !== -1; });
     openTab(hit ? hit[1] : "operator");
   });
   $("#addEvolutionSource").addEventListener("click", addLearningSource);
+  $("#integrationsRefresh").addEventListener("click", refreshIntegrations);
+  $("#stealthRefresh").addEventListener("click", refreshStealth);
+  $("#steCheck").addEventListener("click", steCheckNow);
   $("#refreshActivity").addEventListener("click", refreshTimeline);
   $("#refreshLatency").addEventListener("click", refreshLatency);
   $("#operatorReadiness").addEventListener("click", async function() {
@@ -4249,6 +4280,240 @@
       toast(e.message, "error");
     }
   });
+
+  // ── Integrations (connectors: native OAuth + Nango) ────────────────────
+  async function refreshIntegrations() {
+    var list = $("#integrationList");
+    var out = $("#integrationOutput");
+    try {
+      var data = await api("/api/connectors/providers");
+      badge($("#integrationsNango"), data.nango_configured ? "nango ready" : "nango not configured",
+        data.nango_configured ? "ok" : "warn");
+      if (!list) return;
+      list.innerHTML = "";
+      (data.providers || []).forEach(function(p) {
+        var connected = p.native_oauth && p.native_oauth.connected;
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "badge " + (connected ? "ok" : "warn") },
+          connected ? "connected" : "not connected"));
+        var main = el("div", { style: "flex:1;min-width:180px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = p.display + "  ·  " + p.category;
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        meta.textContent = p.key;
+        main.appendChild(meta);
+        item.appendChild(main);
+        var actions = el("div", { class: "actions" });
+        var docs = el("button", {});
+        docs.textContent = "Docs";
+        docs.addEventListener("click", function() { window.open(p.docs, "_blank"); });
+        actions.appendChild(docs);
+        var connect = el("button", { class: "primary" });
+        connect.textContent = connected ? "Reconnect" : "Connect";
+        connect.addEventListener("click", function() { connectIntegration(p, out); });
+        actions.appendChild(connect);
+        item.appendChild(actions);
+        list.appendChild(item);
+      });
+      if (out) out.textContent = (data.providers || []).length + " providers loaded.";
+    } catch (e) {
+      if (out) out.textContent = "Error: " + e.message;
+    }
+  }
+
+  async function connectIntegration(p, out) {
+    try {
+      var connectionId = "console-" + Date.now().toString(36);
+      var data = await api("/api/connectors/nango/session",
+        { method: "POST", body: { providerConfigKey: p.key, connectionId: connectionId } });
+      if (!data.ok) {
+        if (out) out.textContent = "Direct OAuth for " + p.display +
+          ": add provider credentials in Config, or set NANGO_SECRET_KEY for 1-click connect. (" +
+          (data.error || "unavailable") + ")";
+        else toast("Direct OAuth for " + p.display + ".", "warn");
+        return;
+      }
+      if (out) out.textContent = "Nango session ready for " + p.display +
+        " (connection " + data.session.connectionId + "). " +
+        "In a Nango-enabled dashboard call nango.auth('" + data.session.providerConfigKey +
+        "', '" + data.session.connectionId + "'). Docs: " + p.docs;
+      toast("Connection session prepared for " + p.display + ".", "ok");
+    } catch (e) {
+      if (out) out.textContent = "Error: " + e.message;
+    }
+  }
+
+  async function refreshFirstRun() {
+    var banner = $("#firstRunBanner");
+    if (!banner) return;
+    try {
+      var data = await api("/api/connectors/first-run");
+      if (!data.first_run && data.done_count >= data.total) {
+        banner.style.display = "none";
+        return;
+      }
+      banner.style.display = "flex";
+      $("#firstRunSummary").textContent = data.done_count + " of " + data.total + " setup steps done.";
+      $("#firstRunSteps").textContent = (data.steps || []).map(function(s) {
+        return (s.done ? "✓ " : "○ ") + s.title;
+      }).join("   ");
+      var go = $("#firstRunGo");
+      if (go) go.onclick = function() {
+        var next = (data.steps || []).find(function(s) { return !s.done; });
+        openTab(next ? next.tab : "config");
+      };
+    } catch (e) {
+      banner.style.display = "none";
+    }
+  }
+
+  // ── Stealth activity monitor + STE pre-fill drafts ─────────────────────
+  var STEALTH_POLL_MS = 15000;
+  var stealthTimer = null;
+
+  async function refreshStealth() {
+    var feed = $("#stealthFeed");
+    try {
+      var data = await api("/api/stealth/activity");
+      badge($("#stealthAutonomy"), "autonomy: " + (data.enabled ? data.autonomy.toLowerCase() : "paused"),
+        data.enabled ? "ok" : "warn");
+      badge($("#stealthEvents"), "events: " + data.events_processed, "");
+      if (feed) {
+        feed.innerHTML = "";
+        var events = (data.recent_events || []).slice().reverse();
+        if (!events.length && !(data.interventions || []).length) {
+          feed.appendChild(el("div", { class: "empty" },
+            "No activity yet. Emit events via POST /api/stealth/emit or connect a host adapter."));
+        }
+        events.slice(0, 12).forEach(function(e) {
+          var item = el("div", { class: "list-item compact-list-item" });
+          item.appendChild(el("span", { class: "badge" }, e.event_type));
+          var meta = el("div", { class: "meta" });
+          meta.textContent = (e.actor ? e.actor + " · " : "") + e.source;
+          item.appendChild(meta);
+          feed.appendChild(item);
+        });
+        (data.interventions || []).slice(-8).reverse().forEach(function(i) {
+          var item = el("div", { class: "list-item compact-list-item" });
+          item.appendChild(el("span", {
+            class: "badge " + (i.outcome !== "pending" ? "ok" : i.state === "outcome" ? "" : "warn")
+          }, i.state + (i.outcome !== "pending" ? "/" + i.outcome : "")));
+          var main = el("div", { style: "flex:1;min-width:180px;" });
+          var title = el("div", { class: "name" });
+          title.textContent = i.workflow;
+          main.appendChild(title);
+          var meta2 = el("div", { class: "meta" });
+          meta2.textContent = i.id + " · conf " + Number(i.confidence).toFixed(2) +
+            (i.drafts ? " · " + i.drafts + " draft(s)" : "");
+          main.appendChild(meta2);
+          item.appendChild(main);
+          feed.appendChild(item);
+        });
+      }
+      await refreshStealthDrafts();
+    } catch (e) {
+      if (feed) {
+        feed.innerHTML = "";
+        feed.appendChild(el("div", { class: "empty" }, "Stealth service unavailable: " + e.message));
+      }
+    }
+  }
+
+  async function refreshStealthDrafts() {
+    var box = $("#stealthDrafts");
+    if (!box) return;
+    try {
+      var data = await api("/api/stealth/drafts");
+      box.innerHTML = "";
+      if (!(data.drafts || []).length) {
+        box.appendChild(el("div", { class: "empty" },
+          "No drafts. Drafts appear here when the loop prepares replies for review."));
+        return;
+      }
+      data.drafts.forEach(function(d) {
+        var card = el("div", { class: "card", style: "margin-bottom:12px;" });
+        var head = el("h3", {});
+        head.textContent = d.workflow + "  ·  " + d.state +
+          (d.approval ? (d.approval.sent ? "  ·  sent" : "  ·  approved, manual send") : "");
+        card.appendChild(head);
+        (d.actions || []).forEach(function(a, idx) {
+          var label = el("div", { class: "meta", style: "margin:8px 0 4px;" });
+          label.textContent = a.provider + " " + a.endpoint;
+          card.appendChild(label);
+          var area = document.createElement("textarea");
+          area.value = a.ste_text || a.original || "";
+          area.rows = 4;
+          card.appendChild(area);
+          var rules = el("div", { class: "meta", style: "margin:4px 0 8px;" });
+          rules.textContent = "STE rules: " + ((a.ste_rules || []).join(", ") || "none — already plain");
+          card.appendChild(rules);
+          var row = el("div", { class: "row" });
+          var save = el("button", {});
+          save.textContent = "Save edit";
+          save.addEventListener("click", async function() {
+            save.disabled = true;
+            try {
+              var res = await api("/api/stealth/drafts/" + d.id + "/edit",
+                { method: "POST", body: { action_index: idx, text: area.value } });
+              if (res.ok) {
+                area.value = res.ste_text;
+                rules.textContent = "STE rules: " + ((res.ste_rules || []).join(", ") || "none — already plain");
+                toast("Edit saved and STE-checked.", "ok");
+              } else toast(res.error || "Save failed.", "error");
+            } catch (e) { toast(e.message, "error"); }
+            save.disabled = false;
+          });
+          row.appendChild(save);
+          var copy = el("button", {});
+          copy.textContent = "Copy";
+          copy.addEventListener("click", function() {
+            area.select();
+            try { document.execCommand("copy"); toast("Copied to clipboard.", "ok"); }
+            catch (e) { toast("Select the text and copy manually.", "warn"); }
+          });
+          row.appendChild(copy);
+          var approve = el("button", { class: "primary" });
+          approve.textContent = "Approve & send";
+          approve.addEventListener("click", async function() {
+            approve.disabled = true;
+            try {
+              var res2 = await api("/api/stealth/drafts/" + d.id + "/approve",
+                { method: "POST", body: { text: area.value, connections: {} } });
+              if (res2.ok) {
+                area.value = res2.final_text;
+                toast(res2.sent ? "Approved and sent." : "Approved. " + res2.detail, res2.sent ? "ok" : "warn");
+                await refreshStealth();
+              } else toast(res2.error || "Approve failed.", "error");
+            } catch (e) { toast(e.message, "error"); }
+            approve.disabled = false;
+          });
+          row.appendChild(approve);
+          card.appendChild(row);
+        });
+        box.appendChild(card);
+      });
+    } catch (e) {
+      box.innerHTML = "";
+      box.appendChild(el("div", { class: "empty" }, "Drafts unavailable: " + e.message));
+    }
+  }
+
+  async function steCheckNow() {
+    var out = $("#steOutput");
+    try {
+      var data = await api("/api/stealth/simplify",
+        { method: "POST", body: { text: $("#steInput").value || "" } });
+      if (out) out.textContent = data.ste_text + "\n\nRules: " + ((data.ste_rules || []).join(", ") || "none");
+    } catch (e) {
+      if (out) out.textContent = "Error: " + e.message;
+    }
+  }
+
+  function maybePollStealth() {
+    var active = document.querySelector(".tab-content.active");
+    if (active && active.id === "tab-stealth") refreshStealth();
+  }
 
   // ── Boot ──────────────────────────────────────────────────────────────────
   applyConversationMinimized();
@@ -4284,6 +4549,10 @@
     refreshTrust();
     refreshLivePresence();
     refreshConversationStatus();
+    refreshIntegrations();
+    refreshFirstRun();
+    refreshStealth();
   });
   setInterval(refreshStatus, 30000);
+  setInterval(maybePollStealth, STEALTH_POLL_MS);
 })();
