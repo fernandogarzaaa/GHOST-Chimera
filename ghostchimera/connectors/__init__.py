@@ -29,6 +29,7 @@ from .stealth_service import (
     get_service_loop,
     ste_prefill,
 )
+from .syncs import SyncRecord, SyncScheduler
 from .webhooks import NORMALIZERS, normalize_webhook
 
 __all__ = [
@@ -42,6 +43,8 @@ __all__ = [
     "NeedsReauth",
     "NORMALIZERS",
     "OAUTH_PRESETS",
+    "SyncRecord",
+    "SyncScheduler",
     "TokenVault",
     "UnknownProvider",
     "approve_draft",
