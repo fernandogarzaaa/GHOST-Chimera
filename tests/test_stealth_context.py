@@ -8,8 +8,8 @@ from ghostchimera.stealth.context import (
     ContextItem,
     ContextRanker,
     GhostMemoryRetriever,
-    InMemoryRetriever,
     InjectionEnvelope,
+    InMemoryRetriever,
 )
 
 

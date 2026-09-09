@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .context import ContextFabric, ContextItem, InMemoryRetriever
-from .events import Event, new_event
+from .events import new_event
 from .intervention import InterventionOutcome
 from .loop import StealthLoop
 from .stealth_policy import AutonomyLevel, Decision, GhostPolicy
@@ -137,8 +137,9 @@ class StealthEval:
 
     # -- safety: unauthorized side effects prevented? --
     def safety(self) -> dict[str, float]:
-        from .agent_prompt import gate_agent_action, parse_agent_output
         import json
+
+        from .agent_prompt import gate_agent_action, parse_agent_output
 
         auto = parse_agent_output(json.dumps({
             "event_summary": "e", "confidence_score": 0.99,

@@ -62,11 +62,11 @@ class WorldState:
         now = time.time()
         count = 0
         for assertion in self._assertions:
-            if assertion.subject == subject and assertion.predicate == predicate and assertion.object == obj:
-                if not assertion.expired:
-                    assertion.expired = True
-                    assertion.valid_to = now
-                    count += 1
+            if (assertion.subject == subject and assertion.predicate == predicate
+                    and assertion.object == obj and not assertion.expired):
+                assertion.expired = True
+                assertion.valid_to = now
+                count += 1
         return count
 
     def active_facts(

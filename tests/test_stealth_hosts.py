@@ -10,7 +10,6 @@ import pytest
 from ghostchimera.stealth import (
     AutonomyLevel,
     GhostPolicy,
-    InterventionOutcome,
     StealthLoop,
     new_event,
 )
@@ -100,6 +99,7 @@ def test_openclaw_assemble_and_feedback() -> None:
         assert res["intervention_id"]
         # PREPARE is asynchronous: poll for readiness, then inject.
         import time
+
         from ghostchimera.stealth.intervention import InterventionState
 
         iid = res["intervention_id"]
@@ -181,15 +181,17 @@ def test_transport_round_trip() -> None:
 
 
 def test_transport_auth_and_unknown_routes() -> None:
+    import urllib.error
+
     loop = _loop()
     transport = GhostTransport(loop, token="s3cret")
     url = transport.start()
     try:
-        with pytest.raises(Exception):
+        with pytest.raises(urllib.error.URLError):
             _post(url + "/emit", {"event": new_event("x.y", source="t").to_dict()})
         r = _post(url + "/emit", {"event": new_event("x.y", source="t").to_dict()}, token="s3cret")
         assert r["ok"]
-        with pytest.raises(Exception):
+        with pytest.raises(urllib.error.URLError):
             _get(url + "/nope", token="s3cret")
     finally:
         transport.stop()

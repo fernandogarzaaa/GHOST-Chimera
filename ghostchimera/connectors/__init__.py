@@ -11,6 +11,7 @@ from .base import Connector, ConnectorStatus
 from .github_events import GitHubEventConnector, normalize_github_webhook
 from .nango import NANGO_CATALOG, NangoAction, NangoClient, NangoError
 from .nango_events import NangoInboxConnector
+from .oauth import OAUTH_PRESETS, TokenVault, get_preset, oauth_status
 from .stealth_service import (
     approve_draft,
     draft_actions,
@@ -18,7 +19,6 @@ from .stealth_service import (
     get_service_loop,
     ste_prefill,
 )
-from .oauth import OAUTH_PRESETS, TokenVault, get_preset, oauth_status
 
 __all__ = [
     "Connector",

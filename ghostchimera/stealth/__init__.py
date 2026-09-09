@@ -19,8 +19,8 @@ from .agent_prompt import (
     parse_agent_output,
     render_system_prompt,
 )
-from .event_bus import EventBus, read_only_consumer
 from .eval import EvalReport, StealthEval
+from .event_bus import EventBus, read_only_consumer
 from .events import Event, new_event
 from .experience import ExperienceGraph
 from .hooks import StealthHook, StealthHookRegistry, define_hook, ghost_on
@@ -37,11 +37,11 @@ from .hosts import (
 from .intervention import Intervention, InterventionOutcome, InterventionState
 from .loop import LoopResult, StealthLoop
 from .prediction import Prediction, PredictionEngine
-from .stealth_policy import AutonomyLevel, Decision, GhostPolicy, StealthEvaluator
 from .ste import SimplifyResult, simplify, simplify_sentence
+from .stealth_policy import AutonomyLevel, Decision, GhostPolicy, StealthEvaluator
 from .store import StealthStore
-from .world_state import WorldState
 from .workflow_learner import WorkflowHypothesis, WorkflowLearner
+from .world_state import WorldState
 
 __all__ = [
     "AutonomyLevel",

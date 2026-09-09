@@ -9,7 +9,6 @@ import stat
 import pytest
 
 from ghostchimera.connectors import (
-    OAUTH_PRESETS,
     GitHubEventConnector,
     TokenVault,
     get_preset,
@@ -232,6 +231,7 @@ def test_store_workflows_round_trip_and_loop_wiring(tmp_path) -> None:
         assert store.load_workflows()
         iid = next(iter(loop.interventions))
         import time
+
         from ghostchimera.stealth.intervention import InterventionState
 
         for _ in range(100):

@@ -127,11 +127,11 @@ class NangoClient:
                 with urllib.request.urlopen(req, timeout=30.0) as resp:
                     status, payload = resp.status, resp.read()
         except Exception as exc:
-            raise NangoError(f"Nango request failed: {type(exc).__name__}: {exc}")
+            raise NangoError(f"Nango request failed: {type(exc).__name__}: {exc}") from exc
         try:
             decoded = json.loads(payload or b"{}")
-        except json.JSONDecodeError:
-            raise NangoError(f"Nango returned non-JSON (status={status})")
+        except json.JSONDecodeError as exc:
+            raise NangoError(f"Nango returned non-JSON (status={status})") from exc
         if not 200 <= status < 300:
             raise NangoError(f"Nango error {status}: {decoded}")
         return decoded if isinstance(decoded, dict) else {"data": decoded}
@@ -163,11 +163,11 @@ class NangoClient:
                 with urllib.request.urlopen(req, timeout=30.0) as resp:
                     status, payload = resp.status, resp.read()
         except Exception as exc:
-            raise NangoError(f"Nango proxy failed: {type(exc).__name__}: {exc}")
+            raise NangoError(f"Nango proxy failed: {type(exc).__name__}: {exc}") from exc
         try:
             decoded = json.loads(payload or b"{}")
-        except json.JSONDecodeError:
-            raise NangoError(f"Nango proxy returned non-JSON (status={status})")
+        except json.JSONDecodeError as exc:
+            raise NangoError(f"Nango proxy returned non-JSON (status={status})") from exc
         if not 200 <= status < 300:
             raise NangoError(f"Nango proxy error {status}: {decoded}")
         return decoded if isinstance(decoded, dict) else {"data": decoded}

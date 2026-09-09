@@ -11,7 +11,7 @@ from __future__ import annotations
 import threading
 from collections import defaultdict
 from collections.abc import Callable
-from typing import Any
+from contextlib import suppress
 
 from ..logging_config import get_logger
 from .events import Event, normalize_event
@@ -44,10 +44,8 @@ class EventBus:
     def unsubscribe(self, event_type: str, consumer: Consumer) -> None:
         with self._lock:
             targets = self._wildcards if event_type == "*" else self._subs.get(event_type, [])
-            try:
+            with suppress(ValueError):
                 targets.remove(consumer)
-            except ValueError:
-                pass
 
     # -- emission -----------------------------------------------------
     def emit(self, event: Event) -> bool:

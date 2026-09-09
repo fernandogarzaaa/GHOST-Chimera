@@ -77,9 +77,9 @@ def _swap_vocab(sentence: str, applied: list[str]) -> str:
     for complex_, simple in VOCABULARY:
         pattern = re.compile(r"\b" + re.escape(complex_) + r"\b", re.IGNORECASE)
 
-        def _one(match: re.Match[str]) -> str:
-            word = _preserve_case(match.group(0), simple)
-            applied.append(f"R1:{match.group(0).lower()}->{simple or '(removed)'}")
+        def _one(match: re.Match[str], _simple: str = simple) -> str:
+            word = _preserve_case(match.group(0), _simple)
+            applied.append(f"R1:{match.group(0).lower()}->{_simple or '(removed)'}")
             return word
 
         sentence = pattern.sub(_one, sentence)
@@ -102,9 +102,9 @@ def _contract(sentence: str, applied: list[str]) -> str:
     for full, short in CONTRACTIONS:
         pattern = re.compile(r"\b" + re.escape(full) + r"\b", re.IGNORECASE)
 
-        def _one(match: re.Match[str]) -> str:
-            applied.append(f"R5:{match.group(0).lower()}->{short}")
-            return _preserve_case(match.group(0), short)
+        def _one(match: re.Match[str], _short: str = short) -> str:
+            applied.append(f"R5:{match.group(0).lower()}->{_short}")
+            return _preserve_case(match.group(0), _short)
 
         sentence = pattern.sub(_one, sentence)
     return sentence

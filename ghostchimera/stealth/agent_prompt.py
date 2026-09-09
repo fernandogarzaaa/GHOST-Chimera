@@ -101,17 +101,17 @@ def parse_agent_output(text: str) -> AgentAction:
     try:
         data = json.loads(text.strip())
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Agent output is not valid JSON: {exc}")
+        raise ValueError(f"Agent output is not valid JSON: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError("Agent output must be a JSON object")
     try:
         action_type = AgentActionType(str(data["action_type"]))
-    except (KeyError, ValueError):
-        raise ValueError(f"Invalid action_type: {data.get('action_type')!r}")
+    except (KeyError, ValueError) as exc:
+        raise ValueError(f"Invalid action_type: {data.get('action_type')!r}") from exc
     try:
         confidence = float(data.get("confidence_score", 0.0))
-    except (TypeError, ValueError):
-        raise ValueError("confidence_score must be a number")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("confidence_score must be a number") from exc
     if not 0.0 <= confidence <= 1.0:
         raise ValueError("confidence_score must be between 0.0 and 1.0")
     actions = data.get("actions", [])

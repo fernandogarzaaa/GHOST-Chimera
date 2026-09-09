@@ -8,7 +8,7 @@ JSON — raw tokens and secret keys never leave these routes.
 from __future__ import annotations
 
 import json
-import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -155,7 +155,7 @@ def register_connector_routes(server: Any, state_dir: str | Path, *,
 
     # -- Stealth activity monitor + pre-fill drafts (STE-checked) ----------
     def stealth_activity(_ctx: dict[str, Any]) -> dict[str, Any]:
-        from .stealth_service import draft_actions, get_service_loop, ste_prefill
+        from .stealth_service import draft_actions, get_service_loop
 
         loop = get_service_loop(base)
         interventions = []
@@ -211,8 +211,8 @@ def register_connector_routes(server: Any, state_dir: str | Path, *,
                                  data.get("connections"), dict) else None)
 
     def stealth_edit(ctx: dict[str, Any]) -> dict[str, Any]:
-        from .stealth_service import draft_actions, get_service_loop
         from ..stealth.ste import simplify
+        from .stealth_service import draft_actions, get_service_loop
 
         data = _body(ctx)
         iid = str(ctx.get("path", "")).rsplit("/", 2)[-2]
@@ -235,16 +235,14 @@ def register_connector_routes(server: Any, state_dir: str | Path, *,
         checked = simplify(payload["body"])
         payload["body"] = checked.text or payload["body"]
         if loop.store is not None:
-            try:
+            with suppress(Exception):
                 loop.store.record_intervention(item)
-            except Exception:
-                pass
         return {"ok": True, "ste_text": payload["body"],
                 "ste_rules": checked.rules_applied, "ste_warnings": checked.warnings}
 
     def stealth_emit(ctx: dict[str, Any]) -> dict[str, Any]:
-        from .stealth_service import get_service_loop
         from ..stealth.events import Event
+        from .stealth_service import get_service_loop
 
         data = _body(ctx)
         loop = get_service_loop(base)

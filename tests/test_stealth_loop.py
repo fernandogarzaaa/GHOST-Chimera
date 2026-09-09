@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
-
 from ghostchimera.stealth import (
-    GhostPolicy,
     AutonomyLevel,
+    GhostPolicy,
     InterventionOutcome,
     InterventionState,
     StealthLoop,
@@ -105,7 +103,7 @@ def test_loop_meeting_preparation_end_to_end() -> None:
     loop = StealthLoop(policy=policy, fabric=_meeting_fabric())
     try:
         # Train the workflow: calendar -> email -> session, several times.
-        for i in range(5):
+        for _ in range(5):
             loop.emit(new_event("calendar.event_starting", source="calendar", actor="alex",
                                 payload={"project": "moovsoon", "relevance": 0.9,
                                          "confidence": 0.9, "benefit": 0.9},

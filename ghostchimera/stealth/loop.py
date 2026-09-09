@@ -10,19 +10,20 @@ from __future__ import annotations
 
 import time
 from collections import deque
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
-from .context import ContextFabric, InMemoryRetriever, InjectionEnvelope
-from .events import Event
+from .context import ContextFabric, InjectionEnvelope, InMemoryRetriever
 from .event_bus import EventBus
+from .events import Event
 from .experience import ExperienceGraph
 from .intervention import Intervention, InterventionOutcome, InterventionState
 from .prediction import PredictionEngine
 from .runtime import BackgroundRuntime
 from .stealth_policy import Decision, EvaluationSignals, GhostPolicy, StealthEvaluator
-from .world_state import WorldState
 from .workflow_learner import WorkflowLearner
+from .world_state import WorldState
 
 
 @dataclass
@@ -81,10 +82,8 @@ class StealthLoop:
         self.world.observe_event(event.event_type, {"actor": event.actor, **event.payload})
         self.graph.record_event(event)
         if self.store is not None:
-            try:
+            with suppress(Exception):
                 self.store.record_event(event)
-            except Exception:
-                pass  # durability is best-effort; memory stays authoritative
         stream = event.session_id or event.correlation_id or "global"
         history = self._recent.setdefault(stream, deque(maxlen=20))
         history.append(event.event_type)
@@ -94,7 +93,6 @@ class StealthLoop:
         # 4-5. match + predict.
         hypothesis = self.learner.match(list(history))
         preds = self.predictions.predict(list(history), hypothesis)
-        recent_pred = next((p.probability for p in preds if not p.action.endswith(":none")), 0.0)
 
         # 6. decide (conservative; silence is success).
         now = time.time()
@@ -126,10 +124,8 @@ class StealthLoop:
             self.interventions[intervention.id] = intervention
             self.graph.record_intervention(intervention.workflow, intervention.id)
             if self.store is not None:
-                try:
+                with suppress(Exception):  # durability is best-effort; memory stays authoritative
                     self.store.record_intervention(intervention)
-                except Exception:
-                    pass
             self._interventions_1h.append(now)
             intervention_id = intervention.id
             if decision == Decision.PREPARE and self._own_runtime:
@@ -261,10 +257,8 @@ class StealthLoop:
         self.interventions[intervention.id] = intervention
         self.graph.record_intervention(intervention.workflow, intervention.id)
         if self.store is not None:
-            try:
+            with suppress(Exception):  # durability is best-effort
                 self.store.record_intervention(intervention)
-            except Exception:
-                pass
         if decision == Decision.ASK and executor is None:
             intervention.provenance["needs_approval"] = True
             return {"ok": True, "decision": "ask", "intervention_id": intervention.id}

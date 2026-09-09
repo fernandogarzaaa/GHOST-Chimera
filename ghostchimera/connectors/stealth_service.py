@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import threading
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -133,15 +134,11 @@ def approve_draft(loop: Any, intervention_id: str, *, final_text: str = "",
         "approved_at": time.time(), "sent": sent, "detail": detail, "final_text": final,
     }
     if loop.store is not None:
-        try:
+        with suppress(Exception):
             loop.store.record_intervention(intervention)
-        except Exception:
-            pass
     if sent:
-        try:
+        with suppress(ValueError):
             loop.observe_outcome(intervention_id, InterventionOutcome.SUCCESSFUL)
-        except ValueError:
-            pass
     return {"ok": True, "approved": True, "sent": sent, "detail": detail,
             "final_text": final, "ste_rules": checked.rules_applied,
             "results": results}

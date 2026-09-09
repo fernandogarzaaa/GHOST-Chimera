@@ -11,7 +11,6 @@ from ghostchimera.chimera_pilot.gateway_server import GatewayServer
 from ghostchimera.config import GhostChimeraConfig
 from ghostchimera.connectors.console_routes import register_connector_routes
 
-
 _PORT = [19073]
 
 
@@ -77,7 +76,6 @@ def test_providers_and_status_are_redacted(tmp_path) -> None:
 
 
 def test_nango_session_needs_keys_but_never_leaks(tmp_path, monkeypatch) -> None:
-    import ghostchimera.connectors.nango as nango_mod
 
     monkeypatch.setenv("NANGO_SECRET_KEY", "test-secret")
     monkeypatch.setenv("NANGO_PUBLIC_KEY", "test-public")

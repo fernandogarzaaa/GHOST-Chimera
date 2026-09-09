@@ -12,7 +12,6 @@ from ghostchimera.stealth import (
     InterventionOutcome,
     InterventionState,
     StealthLoop,
-    new_event,
 )
 
 

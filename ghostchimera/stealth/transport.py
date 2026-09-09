@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from ..logging_config import get_logger
-from .context import ContextItem, ContextPackage, InjectionEnvelope
+from .context import InjectionEnvelope
 from .events import Event
 from .intervention import InterventionOutcome
 from .loop import StealthLoop
@@ -115,7 +115,7 @@ class GhostTransport:
 
     # -- route implementations -------------------------------------------
     def _emit(self, data: dict[str, Any]) -> dict[str, Any]:
-        event = Event.from_dict(data["event"] if "event" in data else data)
+        event = Event.from_dict(data.get("event", data))
         delivered = self.loop.emit(event)
         result = self.loop.last_result
         return {"delivered": delivered,
@@ -123,7 +123,7 @@ class GhostTransport:
                 "intervention_id": result.intervention_id if result else ""}
 
     def _query_context(self, data: dict[str, Any]) -> dict[str, Any]:
-        event = Event.from_dict(data["event"] if "event" in data else data)
+        event = Event.from_dict(data.get("event", data))
         package = self.loop.fabric.assemble(
             event, workflow=str(data.get("workflow", "")),
             confidence=float(data.get("confidence", 0.0)))

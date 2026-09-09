@@ -16,6 +16,7 @@ import secrets
 import time
 import urllib.parse
 import urllib.request
+from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -139,8 +140,8 @@ OAUTH_PRESETS: dict[str, ProviderPreset] = {
 def get_preset(provider: str) -> ProviderPreset:
     try:
         return OAUTH_PRESETS[provider]
-    except KeyError:
-        raise ValueError(f"Unknown OAuth provider: {provider}. Known: {sorted(OAUTH_PRESETS)}")
+    except KeyError as exc:
+        raise ValueError(f"Unknown OAuth provider: {provider}. Known: {sorted(OAUTH_PRESETS)}") from exc
 
 
 # -- PKCE -----------------------------------------------------------------
@@ -230,10 +231,8 @@ class TokenVault:
     def save(self, provider: str, token: dict[str, Any]) -> None:
         path = self._path(provider)
         path.write_text(json.dumps(token), encoding="utf-8")
-        try:
+        with suppress(OSError):  # owner-only perms; best-effort on Windows
             os.chmod(path, 0o600)
-        except OSError:
-            pass
 
     def load(self, provider: str) -> dict[str, Any] | None:
         path = self._path(provider)
