@@ -1,6 +1,11 @@
 # Install Ghost Chimera
 
-Three doors, one runtime. Pick the one that matches your machine.
+Two doors, one runtime. Pick the one that matches your machine.
+
+> **npm (`npm install -g ghostchimera`) is paused**: the npmjs account needs
+> 2FA recovery first (npmjs.com → Sign In → account recovery via email).
+> The wrapper in `npm/` is finished and tested — publishing is a single
+> `npm publish --access public` once access is restored.
 
 ## pip (Python, recommended for developers)
 
@@ -22,24 +27,11 @@ Requires Python ≥ 3.11. The core has exactly 4 required packages
 (certifi, croniter, jsonschema, websockets); everything else is optional
 and lazy-loaded, so missing extras degrade — never crash.
 
-## npm (Node users, works with npx — no global install needed)
-
-```bash
-npm install -g ghostchimera   # global `ghostchimera` + `ghost` commands
-npx ghostchimera doctor       # zero-install run
-```
-
-The npm package is a thin launcher (`npm/`): it checks for Python ≥ 3.11
-and pip-installs the **full** `ghostchimera[all]` backend on postinstall
-(falling back to the lean core if a heavy platform extra fails).
-Set `GHOSTCHIMERA_SKIP_PIP=1` if you manage Python yourself
-(pyenv, Homebrew, system pip).
-
 ## Homebrew (macOS / Linux)
 
 ```bash
 brew tap fernandogarzaaa/ghostchimera
-brew install ghostchimera
+brew install --HEAD ghostchimera
 ghostchimera doctor
 ```
 
@@ -69,8 +61,8 @@ twine check dist/*
 # 2. PyPI  (needs a trusted-publisher or API token)
 twine upload dist/*
 
-# 3. npm  (needs `npm login`; name `ghostchimera` is currently free)
-cd npm && npm version 0.4.0-beta --no-git-tag-version && npm publish --access public
+# 3. npm  (PAUSED: needs npmjs 2FA recovery; name `ghostchimera` is free)
+#    cd npm && npm publish --access public
 
 # 4. Homebrew tap
 #    - update url + sha256 in homebrew/ghostchimera.rb (shasum of the tag tarball)
