@@ -48,7 +48,7 @@ def test_daily_maintenance_workflow_refreshes_catalog_and_dependency_audit():
         "docs/model_provider_catalog.md",
         "python scripts/audit_dependencies.py --format markdown --output docs/dependency_audit.md",
         "python -m pytest tests/test_update_model_provider_catalog.py tests/test_model_discovery.py -q",
-        "peter-evans/create-pull-request@v6",
+        "peter-evans/create-pull-request@v8",
         "No secrets are committed.",
     ]:
         assert item in content
