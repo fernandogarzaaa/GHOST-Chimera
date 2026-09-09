@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shutil
+import threading
 import sys
 import textwrap
 import time
@@ -5409,6 +5410,22 @@ def run_console(
             get_logger("console").warning("Connector routes unavailable: %s", exc)
         except Exception:
             print(f"Connector routes unavailable: {exc}")
+    # Warm the local STT model in the background so the first dictation
+    # doesn't pay the weight-loading latency (never blocks startup).
+    try:
+        from .local_voice import LocalVoiceTranscriber
+
+        _voice = LocalVoiceTranscriber(Path(state_dir or config.state_dir) / "local_voice")
+
+        def _warm_voice() -> None:
+            try:
+                _voice.warmup()
+            except Exception:
+                pass
+
+        threading.Thread(target=_warm_voice, name="ghost-voice-warmup", daemon=True).start()
+    except Exception:
+        pass
     server.start()
     url = _console_url(server)
     print(f"Ghost Console: {url}")

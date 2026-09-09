@@ -610,7 +610,10 @@
       });
       if (!data.ok) {
         var providerErrors = (data.provider_errors || []).slice(0, 3).join("; ");
-        throw new Error(data.error || providerErrors || "Local voice transcription failed.");
+        var detail = data.error || "Local voice transcription failed.";
+        if (providerErrors) detail += " [" + providerErrors + "]";
+        if (data.hint) detail += " " + data.hint;
+        throw new Error(detail);
       }
       renderConversationStatus({ ok: true, settings: ((state.conversation || {}).settings || {}), active_session: data.session, voice_catalog: ((state.conversation || {}).voice_catalog || []) });
       if (data.reply) {

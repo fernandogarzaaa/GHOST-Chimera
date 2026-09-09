@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
 import time
 import wave
 from dataclasses import dataclass, field
@@ -102,6 +103,33 @@ class LocalVoiceTranscriber:
 
     def __init__(self, state_dir: str | Path) -> None:
         self.state_dir = Path(state_dir).expanduser()
+        self._model_lock = threading.Lock()
+        self._whisper_model: Any = None
+        self._whisper_key: str = ""
+
+    def warmup(self) -> dict[str, Any]:
+        """Pre-load the faster-whisper model in background (first hit is slow).
+
+        Safe to call repeatedly and from any thread; failures are reported,
+        never raised, so startup never depends on model weights.
+        """
+        model_path = _env_path("GHOSTCHIMERA_LOCAL_STT_MODEL")
+        if model_path is None or not _module_installed("faster_whisper"):
+            return {"ok": False, "warmed": False, "reason": "no faster-whisper model configured"}
+        key = f"{model_path}|{os.environ.get('GHOSTCHIMERA_LOCAL_STT_DEVICE', 'cpu')}"
+        with self._model_lock:
+            if self._whisper_model is not None and self._whisper_key == key:
+                return {"ok": True, "warmed": True, "cached": True}
+            try:
+                from faster_whisper import WhisperModel  # type: ignore
+
+                self._whisper_model = WhisperModel(
+                    str(model_path), device=os.environ.get("GHOSTCHIMERA_LOCAL_STT_DEVICE", "cpu"))
+                self._whisper_key = key
+                return {"ok": True, "warmed": True, "cached": False}
+            except Exception as exc:
+                self._whisper_model = None
+                return {"ok": False, "warmed": False, "reason": f"{type(exc).__name__}: {exc}"[:200]}
 
     def status(self) -> dict[str, Any]:
         custom_command = os.environ.get("GHOSTCHIMERA_LOCAL_STT_COMMAND", "").strip()
@@ -208,6 +236,10 @@ class LocalVoiceTranscriber:
     ) -> dict[str, Any]:
         if not audio:
             return {"ok": False, "error": "audio payload is empty", "transcript": ""}
+        if len(audio) < 1024:
+            return {"ok": False, "error": "recording was empty (under 1 KB captured)",
+                    "hint": "Hold the talk button longer and check the microphone level.",
+                    "transcript": ""}
         suffix = _audio_suffix(mime_type, filename)
         self.state_dir.mkdir(parents=True, exist_ok=True)
         tmp_dir = Path(tempfile.mkdtemp(prefix="ghost-local-voice-", dir=str(self.state_dir)))
@@ -289,12 +321,12 @@ class LocalVoiceTranscriber:
         return (completed.stdout or "").strip()
 
     def _transcribe_faster_whisper(self, audio_path: Path) -> str:
-        model_path = _env_path("GHOSTCHIMERA_LOCAL_STT_MODEL")
-        if model_path is None:
-            raise RuntimeError("GHOSTCHIMERA_LOCAL_STT_MODEL must point to a local faster-whisper model")
-        from faster_whisper import WhisperModel  # type: ignore
-
-        model = WhisperModel(str(model_path), device=os.environ.get("GHOSTCHIMERA_LOCAL_STT_DEVICE", "cpu"))
+        # Warm (or reuse) the cached model: first hit loads weights once.
+        warmed = self.warmup()
+        if not warmed["ok"]:
+            raise RuntimeError(warmed.get("reason") or "faster-whisper model unavailable")
+        with self._model_lock:
+            model = self._whisper_model
         segments, _info = model.transcribe(str(audio_path), beam_size=1)
         return " ".join(segment.text.strip() for segment in segments if segment.text.strip())
 
