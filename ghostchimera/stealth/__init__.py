@@ -19,11 +19,52 @@ from .agent_prompt import (
     parse_agent_output,
     render_system_prompt,
 )
+from .attention import AttentionContext, AttentionEngine, AttentionSignal
 from .bpo_store import BpoStore
+from .computer import (
+    ComputerAction,
+    ComputerApproval,
+    ComputerCapability,
+    ComputerModality,
+    ComputerRisk,
+    ComputerUseManager,
+    ComputerUsePlan,
+    ComputerUseProvider,
+    DelegatingComputerProvider,
+    classify_risk,
+)
 from .eval import EvalReport, StealthEval
+from .eve_model import (
+    EnvironmentState,
+    Evidence,
+    ExperienceEvent,
+    ExperienceEventType,
+    ExperienceState,
+    ExperienceStream,
+    FrictionState,
+    IntentHypothesis,
+    InterventionMode,
+    OutcomeState,
+    PerceptionLevel,
+    TrajectoryState,
+    WorkflowMaturity,
+)
+from .eve_model import (
+    Intervention as EveIntervention,
+)
+from .eve_model import (
+    Prediction as EvePrediction,
+)
 from .event_bus import EventBus, read_only_consumer
 from .events import Event, new_event
 from .experience import ExperienceGraph
+from .governance import (
+    GovernedDecision,
+    MaturityThresholds,
+    WorkflowAutonomyGovernor,
+    WorkflowMaturityState,
+    WorkflowMaturityTracker,
+)
 from .hooks import StealthHook, StealthHookRegistry, define_hook, ghost_on
 from .hosts import (
     AdapterRegistry,
@@ -35,9 +76,22 @@ from .hosts import (
     OpenClawAdapter,
     OpenCodeAdapter,
 )
+from .intent import FrictionDetector, IntentEngine
 from .intervention import Intervention, InterventionOutcome, InterventionState
 from .loop import LoopResult, StealthLoop
+from .perception import (
+    AccessibilityPerceptionProvider,
+    BackendFn,
+    BrowserPerceptionProvider,
+    EventPerceptionProvider,
+    PerceptionManager,
+    PerceptionProvider,
+    PerceptionResult,
+    StructuredPerceptionProvider,
+    VisionPerceptionProvider,
+)
 from .prediction import Prediction, PredictionEngine
+from .project_scan import ProjectFinding, ProjectScanReport, scan_project
 from .ste import SimplifyResult, simplify, simplify_sentence
 from .stealth_policy import AutonomyLevel, Decision, GhostPolicy, StealthEvaluator
 from .store import StealthStore
@@ -49,36 +103,82 @@ __all__ = [
     "AgentAction",
     "AgentActionType",
     "AdapterRegistry",
+    "AttentionEngine",
+    "AttentionSignal",
+    "AttentionContext",
     "BpoStore",
+    "BackendFn",
     "ClaudeCodeAdapter",
     "CodexAdapter",
+    "ComputerAction",
+    "ComputerApproval",
+    "ComputerCapability",
+    "ComputerModality",
+    "ComputerRisk",
+    "ComputerUseManager",
+    "ComputerUsePlan",
+    "ComputerUseProvider",
     "Decision",
+    "DelegatingComputerProvider",
     "Event",
     "EventBus",
     "EvalReport",
     "StealthEval",
     "ExperienceGraph",
+    "ExperienceEventType",
+    "ExperienceEvent",
+    "ExperienceState",
+    "ExperienceStream",
+    "Evidence",
+    "EnvironmentState",
+    "EvePrediction",
+    "EveIntervention",
+    "FrictionDetector",
+    "FrictionState",
+    "GovernedDecision",
     "GeminiAdapter",
     "GhostPolicy",
     "HermesAdapter",
     "HostAdapter",
+    "IntentEngine",
+    "IntentHypothesis",
     "Intervention",
+    "InterventionMode",
     "InterventionOutcome",
     "InterventionState",
     "LoopResult",
+    "MaturityThresholds",
     "OpenClawAdapter",
     "OpenCodeAdapter",
+    "OutcomeState",
+    "AccessibilityPerceptionProvider",
+    "BrowserPerceptionProvider",
+    "EventPerceptionProvider",
+    "PerceptionLevel",
+    "PerceptionManager",
+    "PerceptionProvider",
+    "PerceptionResult",
+    "StructuredPerceptionProvider",
+    "VisionPerceptionProvider",
     "Prediction",
     "PredictionEngine",
+    "ProjectFinding",
+    "ProjectScanReport",
     "SimplifyResult",
     "StealthEvaluator",
     "StealthHook",
     "StealthHookRegistry",
     "StealthLoop",
     "StealthStore",
+    "TrajectoryState",
+    "WorkflowAutonomyGovernor",
     "WorkflowHypothesis",
     "WorkflowLearner",
+    "WorkflowMaturity",
+    "WorkflowMaturityState",
+    "WorkflowMaturityTracker",
     "WorldState",
+    "classify_risk",
     "define_hook",
     "gate_agent_action",
     "ghost_on",
@@ -86,6 +186,7 @@ __all__ = [
     "parse_agent_output",
     "read_only_consumer",
     "render_system_prompt",
+    "scan_project",
     "simplify",
     "simplify_sentence",
 ]

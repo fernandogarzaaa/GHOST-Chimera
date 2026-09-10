@@ -137,15 +137,17 @@ class ExperienceGraph:
         event_key = f"event:{event_type}"
         sessions = {
             edge.source for edge in self.edges.values() if edge.target == event_key and edge.relation == "contains"
-        } | {edge.target for edge in self.edges.values() if edge.source == event_key and edge.relation == "contains"}
-        # Fall back to direct co-occurrence through shared people/projects.
+        }
         neighbors: dict[str, float] = {}
+        for edge in self.edges.values():
+            if edge.relation != "contains" or edge.source not in sessions:
+                continue
+            if edge.target.startswith("event:") and edge.target != event_key:
+                neighbors[edge.target] = neighbors.get(edge.target, 0.0) + edge.confidence * edge.count
         for edge in self.related(event_key, limit=50):
             other = edge.target if edge.source == event_key else edge.source
             if other.startswith("event:") and other != event_key:
                 neighbors[other] = neighbors.get(other, 0.0) + edge.confidence * edge.count
-        void_sessions = sessions  # sessions usable once session edges exist
-        _ = void_sessions
         ranked = sorted(neighbors.items(), key=lambda item: item[1], reverse=True)
         total = sum(score for _, score in ranked) or 1.0
         return [(key.split("event:", 1)[1], score / total) for key, score in ranked[:limit]]

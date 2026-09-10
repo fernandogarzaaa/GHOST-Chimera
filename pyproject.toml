@@ -91,6 +91,7 @@ ghost = "ghostchimera.control_plane.cli:_main"
 ghostchimera-parallel = "ghostchimera.control_plane.parallel_cli:_main"
 chimera-pilot = "ghostchimera.chimera_pilot.cli:main"
 ghostchimera-eval = "ghostchimera.evals.__main__:main"
+ghost-eve-scan = "ghostchimera.stealth.project_scan:main"
 
 
 [tool.setuptools.packages.find]

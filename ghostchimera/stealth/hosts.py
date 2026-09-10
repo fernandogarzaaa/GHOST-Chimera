@@ -76,6 +76,15 @@ class HostAdapter:
         """Render prepared context for this host. Returns host-ready text."""
         return self.loop.inject(intervention_id, host=self.id)
 
+    def wait_for_ready(self, intervention_id: str, *, timeout: float = 5.0) -> Any:
+        from .intervention import InterventionState
+
+        intervention = self.loop.interventions[intervention_id]
+        deadline = time.time() + timeout
+        while intervention.state != InterventionState.READY and time.time() < deadline:
+            time.sleep(0.02)
+        return intervention
+
     # -- /ghost UX convention (spec section 16) ------------------------------
     def handle_command(self, text: str) -> str:
         parts = text.strip().split()
@@ -278,6 +287,7 @@ class CodexAdapter(HostAdapter):
 
     def context_block(self, intervention_id: str) -> str:
         """Plugin context block prepended to the Codex session prompt."""
+        self.wait_for_ready(intervention_id)
         markdown = self.inject_context(intervention_id)
         return f"<ghost-context>\n{markdown}\n</ghost-context>"
 
@@ -375,7 +385,7 @@ class HermesAdapter(HostAdapter):
         result = self.loop.last_result
         if result is None or not result.intervention_id:
             return ""
-        intervention = self.loop.interventions[result.intervention_id]
+        intervention = self.wait_for_ready(result.intervention_id)
         from .intervention import InterventionState
 
         if intervention.state != InterventionState.READY:
