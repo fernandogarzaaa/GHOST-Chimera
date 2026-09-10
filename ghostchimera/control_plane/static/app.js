@@ -164,7 +164,7 @@
     var content = $("#tab-" + target);
     if (tab) tab.classList.add("active");
     if (content) content.classList.add("active");
-    showTabGroup(groupOfTab(target));
+    showTabGroup(target === "operator" ? persistedGroup() : groupOfTab(target));
     if (!options.skipPersist) {
       try { localStorage.setItem(ACTIVE_TAB_KEY, target); } catch (_) {}
     }
@@ -191,6 +191,13 @@
       if (TAB_GROUPS[i][2].indexOf(name) !== -1) return TAB_GROUPS[i][0];
     }
     return "advanced";
+  }
+
+  function persistedGroup() {
+    var group = "";
+    try { group = localStorage.getItem(TAB_GROUP_KEY) || ""; } catch (_) {}
+    if (group === "all" || TAB_GROUPS.some(function(g) { return g[0] === group; })) return group;
+    return "setup";
   }
 
   function showTabGroup(group) {

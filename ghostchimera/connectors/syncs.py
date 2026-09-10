@@ -15,7 +15,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
-from .base import Connector, EmitFn
+from .base import Connector, ConnectorStatus, EmitFn
 
 
 @dataclass
@@ -36,52 +36,72 @@ class SyncScheduler:
         self._tick_s = max(1.0, tick_s)
         self._registry: dict[str, tuple[Connector, float]] = {}
         self._records: dict[str, SyncRecord] = {}
+        self._in_flight: set[str] = set()
         self._lock = threading.Lock()
+        self._lifecycle = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def register(self, connector: Connector, *, interval_s: float = 300.0) -> None:
+        effective = max(5.0, interval_s)
         with self._lock:
-            self._registry[connector.id] = (connector, max(5.0, interval_s))
-            self._records.setdefault(connector.id, SyncRecord(connector.id, interval_s))
+            self._registry[connector.id] = (connector, effective)
+            record = self._records.get(connector.id)
+            if record is None:
+                self._records[connector.id] = SyncRecord(connector.id, effective)
+            else:
+                record.interval_s = effective
 
     def unregister(self, connector_id: str) -> bool:
         with self._lock:
             self._records.pop(connector_id, None)
+            self._in_flight.discard(connector_id)
             return self._registry.pop(connector_id, None) is not None
 
     def start(self) -> None:
-        if self._thread is not None and self._thread.is_alive():
-            return
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, name="ghost-syncs", daemon=True)
-        self._thread.start()
+        with self._lifecycle:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._stop.clear()
+            self._thread = threading.Thread(target=self._loop, name="ghost-syncs", daemon=True)
+            self._thread.start()
 
     def stop(self, *, timeout: float = 5.0) -> None:
         self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=timeout)
-            self._thread = None
+        with self._lifecycle:
+            thread = self._thread
+            if thread is None:
+                return
+            thread.join(timeout=timeout)
+            if not thread.is_alive():
+                self._thread = None
 
     def run_due_now(self) -> dict[str, int]:
         """Poll every due connector once. Returns {connector_id: delivered}."""
         now = time.time()
-        due: list[tuple[str, Connector]] = []
+        due: list[tuple[str, Connector, SyncRecord]] = []
         with self._lock:
-            items = list(self._registry.items())
-        for connector_id, (connector, interval) in items:
-            record = self._records[connector_id]
-            if now - record.last_run_at >= interval:
-                due.append((connector_id, connector))
+            for connector_id, (connector, interval) in self._registry.items():
+                record = self._records.get(connector_id)
+                if record is None or connector_id in self._in_flight:
+                    continue
+                if now - record.last_run_at >= interval:
+                    self._in_flight.add(connector_id)
+                    due.append((connector_id, connector, record))
         results: dict[str, int] = {}
-        for connector_id, connector in due:
+        for connector_id, connector, record in due:
             try:
                 delivered = connector.poll(self._emit)
-                error = ""
+                error = connector.last_error if connector.status == ConnectorStatus.ERROR else ""
             except Exception as exc:  # last-resort guard; poll() already isolates
                 delivered, error = 0, f"{type(exc).__name__}: {exc}"
+            finally:
+                with self._lock:
+                    self._in_flight.discard(connector_id)
             with self._lock:
-                record = self._records[connector_id]
+                current = self._registry.get(connector_id)
+                if current is None or current[0] is not connector or connector_id not in self._records:
+                    continue
                 record.last_run_at = time.time()
                 record.last_delivered = delivered
                 record.last_error = error
@@ -97,12 +117,20 @@ class SyncScheduler:
 
     def status(self) -> dict[str, Any]:
         with self._lock:
-            return {"running": self._thread is not None and self._thread.is_alive(),
-                    "syncs": [
-                        {"connector_id": r.connector_id, "interval_s": r.interval_s,
-                         "runs": r.runs, "last_delivered": r.last_delivered,
-                         "last_error": r.last_error, "last_run_at": r.last_run_at}
-                        for r in self._records.values()]}
+            return {
+                "running": self._thread is not None and self._thread.is_alive(),
+                "syncs": [
+                    {
+                        "connector_id": r.connector_id,
+                        "interval_s": r.interval_s,
+                        "runs": r.runs,
+                        "last_delivered": r.last_delivered,
+                        "last_error": r.last_error,
+                        "last_run_at": r.last_run_at,
+                    }
+                    for r in self._records.values()
+                ],
+            }
 
 
 __all__ = ["SyncRecord", "SyncScheduler"]

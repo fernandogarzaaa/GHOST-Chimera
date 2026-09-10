@@ -61,6 +61,7 @@ header h1 {
 /* Grouped navigation: one category row, one tab row. Home always visible. */
 .tab-group-bar {
   display: flex; gap: 6px; align-items: center;
+  flex-wrap: nowrap; overflow-x: auto;
   padding: 8px 24px 0;
   background: linear-gradient(180deg, rgba(17, 21, 26, .9), rgba(13, 16, 20, .7));
   position: sticky; top: 56px; z-index: 26;

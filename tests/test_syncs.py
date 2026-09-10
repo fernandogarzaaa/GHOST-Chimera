@@ -10,8 +10,7 @@ from ghostchimera.connectors import Connector, GitHubEventConnector, SyncRecord,
 def _github():
     def fetch(path: str):
         if "/commits" in path:
-            return [{"sha": "abc123def456", "commit": {"author": {"name": "octocat"},
-                     "message": "fix"}}]
+            return [{"sha": "abc123def456", "commit": {"author": {"name": "octocat"}, "message": "fix"}}]
         return []
 
     return GitHubEventConnector("o/r", fetcher=fetch)
@@ -48,6 +47,9 @@ def test_failing_connector_does_not_stop_schedule() -> None:
         results = scheduler.run_due_now()
         assert results == {"dead": 0, "github": 1}  # dead isolated, healthy flows
         assert seen  # github event reached the emitter
+        status = scheduler.status()
+        dead_record = next(item for item in status["syncs"] if item["connector_id"] == "dead")
+        assert dead_record["last_error"] == "ConnectionError: down"
     finally:
         scheduler.stop()
 
@@ -82,12 +84,129 @@ def test_lifecycle_and_unregister() -> None:
 
         scheduler.stop(timeout=0.25)
         threads[0].join.assert_called_once_with(timeout=0.25)
-        assert scheduler.status()["running"] is False
+        # The mocked worker never exits, so the timed stop retains the thread
+        # and a restart cannot overlap the live worker.
+        assert scheduler.status()["running"] is True
+        scheduler.start()
+        assert len(threads) == 1
 
-        scheduler.stop()  # safe before a subsequent restart
+        # Once the worker has exited, stop clears the thread and restart works.
+        threads[0].is_alive.return_value = False
+        scheduler.stop()
+        assert scheduler.status()["running"] is False
         scheduler.start()
         assert len(threads) == 2
         threads[1].start.assert_called_once_with()
+        threads[1].is_alive.return_value = False
+        scheduler.stop()
+
+
+def test_effective_interval_stored_and_updated_on_reregister() -> None:
+    scheduler = SyncScheduler(lambda e: None, tick_s=60.0)
+    try:
+        connector = _github()
+        scheduler.register(connector, interval_s=1.0)
+        status = scheduler.status()
+        assert status["syncs"][0]["interval_s"] == 5.0
+        scheduler.register(connector, interval_s=60.0)
+        status = scheduler.status()
+        assert len(status["syncs"]) == 1
+        assert status["syncs"][0]["interval_s"] == 60.0
+    finally:
+        scheduler.stop()
+
+
+def test_concurrent_unregister_during_run_is_safe() -> None:
+    import threading
+
+    from ghostchimera.connectors import Connector
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    class Slow(Connector):
+        def poll_once(self):
+            entered.set()
+            release.wait(5.0)
+            return []
+
+    slow = Slow()
+    slow.id = "slow"
+    scheduler = SyncScheduler(lambda e: None, tick_s=60.0)
+    scheduler.register(slow, interval_s=5.0)
+    errors: list = []
+
+    def run() -> None:
+        try:
+            scheduler.run_due_now()
+        except Exception as exc:  # noqa: BLE001 - the test must surface any leak
+            errors.append(exc)
+
+    worker = threading.Thread(target=run)
+    try:
+        worker.start()
+        assert entered.wait(5.0)
+        assert scheduler.unregister("slow") is True
+        results = scheduler.run_due_now()
+        assert results == {}
+    finally:
+        release.set()
+        worker.join(5.0)
+        scheduler.stop()
+    assert not worker.is_alive()
+    assert errors == []
+    assert scheduler.status()["syncs"] == []
+
+
+def test_start_stop_restart_runs_single_worker() -> None:
+    import threading
+
+    from ghostchimera.connectors import Connector
+
+    state = {"active": 0, "max_active": 0}
+    entered = threading.Event()
+    release = threading.Event()
+
+    class Blocking(Connector):
+        def poll_once(self):
+            state["active"] += 1
+            state["max_active"] = max(state["max_active"], state["active"])
+            entered.set()
+            try:
+                release.wait(5.0)
+            finally:
+                state["active"] -= 1
+            return []
+
+    connector = Blocking()
+    connector.id = "blocking"
+    scheduler = SyncScheduler(lambda e: None, tick_s=0.02)
+    scheduler.register(connector, interval_s=5.0)
+    try:
+        scheduler.start()
+        assert entered.wait(5.0)
+        first_thread = scheduler._thread
+        starters = [threading.Thread(target=scheduler.start) for _ in range(4)]
+        for starter in starters:
+            starter.start()
+        for starter in starters:
+            starter.join(5.0)
+        assert scheduler._thread is first_thread
+        scheduler.stop(timeout=0.05)
+        assert scheduler._thread is first_thread
+        scheduler.start()
+        assert scheduler._thread is first_thread
+        release.set()
+    finally:
+        scheduler.stop()
+        release.set()
+    assert state["max_active"] == 1
+    assert scheduler.status()["running"] is False
+    scheduler.start()
+    try:
+        assert scheduler.status()["running"] is True
+        assert scheduler._thread is not first_thread
+    finally:
         scheduler.stop()
 
 

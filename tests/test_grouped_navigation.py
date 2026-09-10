@@ -114,15 +114,18 @@ def test_tab_activation_keeps_group_chip_visibility_and_deep_links_in_sync() -> 
 
     activate_tab = re.search(r"function activateTab\(name, opts\) \{(.*?)\n  \}", javascript, re.DOTALL)
     assert activate_tab is not None
-    assert "showTabGroup(groupOfTab(target));" in activate_tab.group(1)
-    assert activate_tab.group(1).index("showTabGroup(groupOfTab(target));") < activate_tab.group(1).index(
+    assert 'showTabGroup(target === "operator" ? persistedGroup() : groupOfTab(target));' in activate_tab.group(1)
+    assert activate_tab.group(1).index("persistedGroup() : groupOfTab(target));") < activate_tab.group(1).index(
         "localStorage.setItem(ACTIVE_TAB_KEY, target)"
     )
+    assert "function persistedGroup()" in javascript
 
     assert 'if (name === "operator") return "home";' in javascript
     assert 'var visible = key === "operator" || groupOfTab(key) === group || group === "all";' in javascript
     assert "var initialTab = normalizeTabName(window.location.hash);" in javascript
-    assert 'activateTab(initialTab || "operator", { skipHash: !!normalizeTabName(window.location.hash) });' in javascript
+    assert (
+        'activateTab(initialTab || "operator", { skipHash: !!normalizeTabName(window.location.hash) });' in javascript
+    )
 
 
 def test_group_visibility_and_conversation_deoverlap_css_contracts() -> None:
