@@ -170,7 +170,8 @@ class LocalVoiceConsoleRouteTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertEqual(result["local_voice"]["provider"], "custom-command")
             self.assertFalse(result["local_voice"]["raw_audio_stored"])
-            self.assertIn("Readiness check", result["reply"])
+            self.assertIn("autonomous-engineer", result["reply"])
+            self.assertIn("Warnings:", result["reply"])
 
 
 if __name__ == "__main__":

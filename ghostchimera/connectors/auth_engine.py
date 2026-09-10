@@ -80,7 +80,12 @@ PROVIDERS: dict[str, EngineProvider] = {
                                "https://api.linkedin.com/v2"),
 }
 
-# oauth.py preset id per engine key (PKCE/token URLs/scopes live there).
+# Shipped shared logins: project-owned OAuth client IDs (Desktop/native type,
+# PKCE, no secret) keyed by oauth preset id. Empty until the maintainer
+# registers one app per provider — then every user gets 1-click login with
+# zero setup. See docs/CUSTOM_AUTH.md ("Shared project logins").
+#   Example: SHIPPED_CLIENT_IDS = {"github": "Iv1.abc123...", "slack": "1234.5678..."}
+SHIPPED_CLIENT_IDS: dict[str, str] = {}
 _PRESET_FOR = {
     "google-mail": "google", "slack": "slack", "zendesk": "zendesk",
     "freshdesk": "freshdesk", "gorgias": "gorgias", "hubspot": "hubspot",
@@ -233,6 +238,9 @@ class CustomAuthEngine:
         return get_preset(_PRESET_FOR[provider])
 
     def _client_id(self, preset_id: str) -> str:
+        # 1. Environment always wins (production / containers).
+        # 2. Console-saved IDs (per-user setup, no terminal).
+        # 3. Shipped project defaults (shared Ghost logins, see below).
         env_names = {
             "slack": ("SLACK_CLIENT_ID",), "google": ("GOOGLE_OAUTH_CLIENT_ID", "GMAIL_OAUTH_CLIENT_ID"),
             "github": ("GHOSTCHIMERA_GITHUB_CLIENT_ID", "GITHUB_CLIENT_ID"),
@@ -246,7 +254,41 @@ class CustomAuthEngine:
             value = os.environ.get(name, "").strip()
             if value:
                 return value
-        return ""
+        # 2. Console-saved client IDs (~/.ghostchimera/config.json provider_oauth).
+        try:
+            from ..control_plane.config import load_config
+
+            saved = load_config().get("provider_oauth", {})
+            if isinstance(saved, dict):
+                entry = saved.get(preset_id, {})
+                if isinstance(entry, dict) and str(entry.get("client_id", "")).strip():
+                    return str(entry["client_id"]).strip()
+        except Exception:
+            pass
+        # 3. Shipped shared logins: one project-owned OAuth app per provider,
+        #    so users get 1-click without registering anything. Desktop/native
+        #    app type (PKCE, no secret) — safe to embed; see docs/CUSTOM_AUTH.md
+        #    for the per-provider registration + verification notes.
+        return SHIPPED_CLIENT_IDS.get(preset_id, "")
+
+    def client_id_source(self, preset_id: str) -> str:
+        """Where the effective client ID comes from (for honest UI)."""
+        env_names = {"google": ("GOOGLE_OAUTH_CLIENT_ID", "GMAIL_OAUTH_CLIENT_ID")}
+        for name in env_names.get(preset_id, (f"{preset_id.upper()}_CLIENT_ID",)):
+            if os.environ.get(name, "").strip():
+                return "environment"
+        try:
+            from ..control_plane.config import load_config
+
+            saved = load_config().get("provider_oauth", {})
+            if (isinstance(saved, dict) and isinstance(saved.get(preset_id), dict)
+                    and str(saved[preset_id].get("client_id", "")).strip()):
+                return "saved"
+        except Exception:
+            pass
+        if SHIPPED_CLIENT_IDS.get(preset_id):
+            return "shared"
+        return "none"
 
     # -- Step 1: authorize URL ------------------------------------------------
     def authorize_url(self, provider: str, entity_id: str, redirect_uri: str,

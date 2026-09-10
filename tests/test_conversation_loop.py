@@ -129,7 +129,7 @@ class ConversationRuntimeTests(unittest.TestCase):
 
         reply = summarize_run_result(result, ok=True, objective="inspect status")
 
-        self.assertIn("1/1 task", reply)
+        self.assertIn("1/1 passed", reply)
         self.assertIn("deterministic.local", reply)
         self.assertIn("run-123", reply)
         self.assertNotIn("Done. I recorded the run in Trust Runtime and I am listening for the next step.", reply)
@@ -156,9 +156,9 @@ class ConversationRuntimeTests(unittest.TestCase):
             result = controller.handle_turn(session["session_id"], "show evidence")
 
             self.assertTrue(result["ok"])
-            self.assertIn("Recent Trust Runtime evidence", result["reply"])
+            self.assertIn("Recent runs", result["reply"])
             self.assertIn("inspect live status", result["reply"])
-            self.assertNotIn("Evidence is available in the Trust Runtime", result["reply"])
+            self.assertIn("Open Trust Runtime tab", result["reply"])
 
     def test_readiness_intent_returns_status_provider_summary(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-conversation-readiness-") as tmp:
@@ -178,9 +178,9 @@ class ConversationRuntimeTests(unittest.TestCase):
 
             self.assertTrue(result["ok"])
             self.assertEqual(result["intent"], "readiness")
-            self.assertIn("Readiness check", result["reply"])
+            self.assertIn("autonomous-engineer", result["reply"])
             self.assertIn("codex_cli / gpt-5.4-mini", result["reply"])
-            self.assertIn("Pending evolution candidates: 1", result["reply"])
+            self.assertIn("Candidates: 1", result["reply"])
 
 
 class ConversationConsoleRouteTests(unittest.TestCase):

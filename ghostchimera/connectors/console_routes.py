@@ -8,6 +8,8 @@ JSON — raw tokens and secret keys never leave these routes.
 from __future__ import annotations
 
 import json
+import os
+import time
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -22,6 +24,36 @@ def _body(ctx: dict[str, Any]) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _provider_from_state(state: str) -> str | None:
+    """Read the provider claim out of an authorize state blob (untrusted)."""
+    import base64 as _b64
+
+    try:
+        padded = state + "=" * (-len(state) % 4)
+        payload = json.loads(_b64.urlsafe_b64decode(padded).decode())
+    except (ValueError, json.JSONDecodeError):
+        return None
+    provider = payload.get("provider") if isinstance(payload, dict) else None
+    return str(provider) if provider else None
+
+
+def _callback_html(ok: bool, title: str, detail: str) -> Any:
+    """Minimal result page for the OAuth browser landing."""
+    import html as _html
+
+    from ..chimera_pilot.gateway_server import HttpResponse
+
+    color = "#2bd587" if ok else "#fb7185"
+    return HttpResponse(
+        body=f"""<!doctype html><html><body style="background:#0a0c10;color:#eef2f7;
+font:16px/1.5 system-ui,sans-serif;display:flex;min-height:90vh;
+align-items:center;justify-content:center;margin:0">
+<div style="border:1px solid #262d36;border-radius:12px;padding:32px;max-width:480px;text-align:center">
+<div style="font-size:40px;color:{color}">{'✓' if ok else '✕'}</div>
+<h2>{_html.escape(title)}</h2><p>{_html.escape(detail)}</p></div></body></html>""",
+        content_type="text/html; charset=utf-8")
 
 
 def first_run_status(state_dir: str | Path) -> dict[str, Any]:
@@ -97,17 +129,57 @@ def register_connector_routes(server: Any, state_dir: str | Path, *,
         if not provider or not entity_id or not redirect_uri:
             return {"ok": False,
                     "error": "provider, entity_id, and redirect_uri are required"}
+        scopes = data.get("scopes") if isinstance(data.get("scopes"), list) else None
+        if scopes is None and provider in ("google-mail",):
+            # Gmail needs its API scope on top of the preset identity scopes.
+            from .oauth import get_preset
+
+            scopes = list(get_preset("google").scopes) + [
+                "https://www.googleapis.com/auth/gmail.readonly"]
         engine = _engine()
         try:
-            result = engine.authorize_url(
-                provider, entity_id, redirect_uri,
-                scopes=data.get("scopes") if isinstance(data.get("scopes"), list) else None)
+            result = engine.authorize_url(provider, entity_id, redirect_uri, scopes=scopes)
             return {"ok": True, **result}
         except (AuthEngineError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
         finally:
             with suppress(Exception):
                 engine.close()
+
+    def auth_client_id(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Save a provider OAuth client ID from the console (no terminal).
+
+        Client IDs are public identifiers, not secrets — safe to store in
+        the local config file. Secrets stay in environment variables.
+        """
+        data = _body(ctx)
+        provider = str(data.get("provider", "")).strip()
+        client_id = str(data.get("client_id", "")).strip()
+        if not provider or not client_id:
+            return {"ok": False, "error": "provider and client_id are required"}
+        if len(client_id) > 200 or "/" in client_id or "\\" in client_id:
+            return {"ok": False, "error": "that does not look like a client ID"}
+        try:
+            from ..control_plane.config import load_config, save_config
+
+            config = load_config()
+            section = config.get("provider_oauth")
+            if not isinstance(section, dict):
+                section = {}
+                config["provider_oauth"] = section
+            # Map engine key -> oauth preset id for storage.
+            from .auth_engine import _PRESET_FOR
+
+            preset_id = _PRESET_FOR.get(provider, provider)
+            entry = section.get(preset_id)
+            if not isinstance(entry, dict):
+                entry = {}
+                section[preset_id] = entry
+            entry["client_id"] = client_id
+            save_config(config)
+            return {"ok": True, "provider": provider, "saved": True}
+        except Exception as exc:
+            return {"ok": False, "error": f"could not save: {type(exc).__name__}"}
 
     def auth_callback(ctx: dict[str, Any]) -> dict[str, Any]:
         data = _body(ctx)
@@ -146,14 +218,57 @@ def register_connector_routes(server: Any, state_dir: str | Path, *,
             with suppress(Exception):
                 engine.close()
 
+    def auth_callback_page(ctx: dict[str, Any]) -> Any:
+        """Browser landing for provider redirects.
+
+        GET /api/auth/callback?code=...&state=... — finishes the exchange
+        and shows a plain result page. Open auth (providers can't hold our
+        token); the single-use state nonce is the CSRF protection.
+        """
+        import html as _html
+
+
+        query = ctx.get("query") if isinstance(ctx.get("query"), dict) else {}
+        query = query or {}
+        if query.get("error"):
+            return _callback_html(False, "Login cancelled",
+                                  str(query.get("error_description") or query.get("error")))
+        code, state = str(query.get("code", "")), str(query.get("state", ""))
+        if not code or not state:
+            return _callback_html(False, "Incomplete login",
+                                  "Missing code or state. Start over from the Integrations tab.")
+        host = str((ctx.get("headers") or {}).get("host", "127.0.0.1:8766"))
+        redirect_uri = os.environ.get(
+            "GHOSTCHIMERA_OAUTH_CALLBACK",
+            f"http://{host}/api/auth/callback")
+        provider = _provider_from_state(state)
+        if provider is None:
+            return _callback_html(False, "Bad login state", "Start over from the Integrations tab.")
+        engine = _engine()
+        try:
+            result = engine.handle_callback(provider, code, state, redirect_uri)
+            return _callback_html(True, f"Connected: {provider}",
+                                  f"Account {result['entity_id']} connected. "
+                                  f"Expires in {max(0, int(result['expires_at'] - time.time()))}s. "
+                                  "You can close this tab and press Refresh Status in Ghost.")
+        except (AuthEngineError, ValueError) as exc:
+            return _callback_html(False, "Login failed", _html.escape(str(exc))[:300])
+        finally:
+            with suppress(Exception):
+                engine.close()
+
     server.routes.register("/api/connectors/providers", providers, method="GET",
                            auth=auth, token=token, description="Connector catalog + redacted status")
     server.routes.register("/api/connectors/status", status, method="GET",
                            auth=auth, token=token, description="Connector connection status")
     server.routes.register("/api/auth/authorize", auth_authorize, method="POST",
                            auth=auth, token=token, description="OAuth authorize URL + state")
+    server.routes.register("/api/auth/client-id", auth_client_id, method="POST",
+                           auth=auth, token=token, description="Save provider client ID")
     server.routes.register("/api/auth/callback", auth_callback, method="POST",
                            auth=auth, token=token, description="OAuth callback + token exchange")
+    server.routes.register("/api/auth/callback", auth_callback_page, method="GET",
+                           auth="open", description="OAuth browser landing page")
     server.routes.register("/api/auth/status", auth_status, method="POST",
                            auth=auth, token=token, description="Redacted connection status")
     server.routes.register("/api/auth/revoke", auth_revoke, method="POST",

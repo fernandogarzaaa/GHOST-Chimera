@@ -26,6 +26,7 @@ EXPECTED_GROUPS = {
         "live-presence",
         "latency",
         "stealth",
+        "conversation",
     ],
     "advanced": [
         "trust",
