@@ -122,6 +122,7 @@ def register_connector_routes(server: Any, state_dir: str | Path, *,
         return {"ok": True, "native": oauth_status(base), "auth_engine": "custom"}
 
     def auth_authorize(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Create a provider authorization URL from a validated console request."""
         data = _body(ctx)
         provider = str(data.get("provider", ""))
         entity_id = str(data.get("entity_id", ""))

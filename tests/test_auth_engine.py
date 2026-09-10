@@ -243,6 +243,7 @@ def test_redaction_everywhere(tmp_path, monkeypatch) -> None:
 
 
 def test_client_id_fallback_chain_and_source(tmp_path, monkeypatch) -> None:
+    """Prefer environment client IDs and fall back to shipped shared IDs."""
     from ghostchimera.connectors import auth_engine as engine_mod
     from ghostchimera.connectors.auth_engine import CustomAuthEngine
 

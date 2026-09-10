@@ -238,6 +238,7 @@ class CustomAuthEngine:
         return get_preset(_PRESET_FOR[provider])
 
     def _client_id(self, preset_id: str) -> str:
+        """Resolve a provider client ID using environment, saved, then shipped values."""
         # 1. Environment always wins (production / containers).
         # 2. Console-saved IDs (per-user setup, no terminal).
         # 3. Shipped project defaults (shared Ghost logins, see below).

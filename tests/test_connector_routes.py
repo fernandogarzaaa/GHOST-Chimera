@@ -208,12 +208,14 @@ def test_stealth_simplify_endpoint(tmp_path) -> None:
 
 
 def test_auth_callback_page_error_paths(tmp_path) -> None:
+    """Render safe browser responses for cancelled, incomplete, and invalid callbacks."""
     server = _server(tmp_path)
     try:
         route = server.routes.find("GET", "/api/auth/callback")
         assert route is not None
 
         def get(query):
+            """Invoke the browser callback route with the supplied query values."""
             return route.handler({"method": "GET", "path": "/api/auth/callback",
                                   "headers": {"host": "127.0.0.1:8766"},
                                   "query": query, "body": ""})
@@ -233,6 +235,7 @@ def test_auth_callback_page_error_paths(tmp_path) -> None:
 
 
 def test_auth_client_id_saved_then_authorizes(tmp_path, monkeypatch) -> None:
+    """Use a console-saved Google client ID and include the Gmail read scope."""
     import ghostchimera.control_plane.config as cfg
 
     monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)

@@ -562,6 +562,7 @@ class ConversationalLoopController:
         return message
 
     def _evidence_reply(self) -> str:
+        """Format the most recent Trust Runtime runs for a conversation reply."""
         payload = self.trust_store.list_runs(limit=5)
         runs = payload.get("runs") if isinstance(payload.get("runs"), list) else []
         if not runs:
@@ -580,6 +581,7 @@ class ConversationalLoopController:
         return "\n".join(lines)
 
     def _readiness_reply(self) -> str:
+        """Summarize model, path, source, and production readiness for the operator."""
         try:
             status = self.status_provider()
         except Exception as exc:

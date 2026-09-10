@@ -119,6 +119,7 @@ class ConversationRuntimeTests(unittest.TestCase):
             self.assertIn("trust_run", result)
 
     def test_successful_run_reply_is_operator_report_not_generic_placeholder(self) -> None:
+        """Include execution and Trust Runtime details in a successful run reply."""
         result = {
             "ok": True,
             "executions": [
@@ -143,6 +144,7 @@ class ConversationRuntimeTests(unittest.TestCase):
         self.assertNotEqual(reply, "I could not complete that. Check Trust Runtime for details.")
 
     def test_show_evidence_returns_recent_trust_runs(self) -> None:
+        """Return recent Trust Runtime evidence for the evidence intent."""
         with tempfile.TemporaryDirectory(prefix="ghostchimera-conversation-evidence-") as tmp:
             trust = TrustRuntimeStore(tmp)
             trust.create_run(
@@ -161,6 +163,7 @@ class ConversationRuntimeTests(unittest.TestCase):
             self.assertIn("Open Trust Runtime tab", result["reply"])
 
     def test_readiness_intent_returns_status_provider_summary(self) -> None:
+        """Report configured path, model, and candidate counts for readiness requests."""
         with tempfile.TemporaryDirectory(prefix="ghostchimera-conversation-readiness-") as tmp:
             controller = ConversationalLoopController(
                 state_dir=tmp,
