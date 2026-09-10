@@ -210,24 +210,67 @@ class TestExperienceModel(unittest.TestCase):
         self.assertIn("Find invoice", [hypothesis.goal for hypothesis in hypotheses])
         self.assertLessEqual(len(hypotheses), engine.max_alternatives + 1)
 
-    def test_friction_detector_reports_repetition_retry_and_reversal(self):
+    def test_intent_engine_matches_workflow_from_recent_history(self):
+        engine = IntentEngine()
+        learner = WorkflowLearner()
+        learner.register_explicit("invoice-flow", ["file.created", "file.modified"], ["agent.tool_called"])
+        engine.update(new_event("file.created", source="fs", payload={}), ExperienceGraph(), learner)
+        hypotheses = engine.update(
+            new_event("file.modified", source="fs", payload={"summary": "invoice draft"}),
+            ExperienceGraph(),
+            learner,
+        )
+        goals = [hypothesis.goal for hypothesis in hypotheses]
+        self.assertIn("Continue invoice-flow", goals)
+        self.assertEqual(engine.get_primary().goal, "Continue invoice-flow")
+
+    def test_friction_detector_auto_counts_errors_and_deviation(self):
         detector = FrictionDetector()
-        first = new_event("file.modified", source="fs", payload={"error": "save failed"})
-        detector.observe(first)
-        detector.record_error()
-        detector.record_error()
-        detector.observe(new_event("file.modified", source="fs"))
-        detector.observe(new_event("file.modified", source="fs"))
-        detector.observe(new_event("browser.navigation", source="browser", payload={"url": "https://one.test"}))
-        detector.observe(new_event("browser.back", source="browser"))
+        detector.observe(new_event("file.modified", source="fs", payload={"status": "error: disk full"}))
         state = detector.get_state()
-        self.assertGreater(state.repetition, 0.5)
-        self.assertGreater(state.retry_rate, 0.3)
-        self.assertGreater(state.reversal_rate, 0.3)
-        self.assertIn("Repeated actions detected", state.signals)
-        self.assertIn("High retry rate", state.signals)
-        self.assertIn("Navigation reversals", state.signals)
-        self.assertIn("Frequent errors", state.to_dict()["signals"])
+        self.assertEqual(state.error_frequency, 1.0)
+        self.assertIn("Frequent errors", state.signals)
+
+        detector.observe(new_event("file.modified", source="fs"), predicted_actions=["event:file.modified"])
+        self.assertEqual(detector.get_state().task_deviation, 0.0)
+        detector.observe(new_event("email.received", source="gmail"), predicted_actions=["event:file.modified"])
+        deviated = detector.get_state()
+        self.assertEqual(deviated.task_deviation, 0.5)
+        self.assertIn("Actions deviating from predicted workflow", deviated.signals)
+
+    def test_registered_perception_backends_are_invoked(self):
+        manager = PerceptionManager()
+        structured = manager.providers[PerceptionLevel.STRUCTURED]
+        structured.register_mcp_client("repo", lambda event_view, context: {"files": 3})
+        structured.register_mcp_client("broken", self._failing_backend)
+        browser = manager.providers[PerceptionLevel.BROWSER]
+        browser.register_cdp_session("tab-1", lambda event_view, context: {"url": event_view["url"]})
+        vision = manager.providers[PerceptionLevel.VISION]
+        vision.register_vision_model("ocr", lambda event_view, context: {"text": "invoice"})
+
+        structured_result = asyncio.run(
+            manager.perceive(new_event("file.modified", source="fs", payload={}), PerceptionLevel.STRUCTURED, {})
+        )
+        self.assertEqual(structured_result.data["mcp_clients"], {"repo": {"files": 3}})
+        self.assertIn("broken", structured_result.data["mcp_errors"])
+
+        browser_result = asyncio.run(
+            manager.perceive(
+                new_event("browser.navigation", source="browser", payload={"url": "https://example.test"}),
+                PerceptionLevel.BROWSER,
+                {},
+            )
+        )
+        self.assertEqual(browser_result.data["cdp"], {"tab-1": {"url": "https://example.test"}})
+
+        vision_result = asyncio.run(
+            manager.perceive(new_event("dialog.appeared", source="os", payload={}), PerceptionLevel.VISION, {})
+        )
+        self.assertEqual(vision_result.data["vision_models"], {"ocr": {"text": "invoice"}})
+
+    @staticmethod
+    def _failing_backend(event_view, context):
+        raise RuntimeError("mcp unavailable")
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ Friction: measurable behavioral signals (not psychological diagnoses).
 from __future__ import annotations
 
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -23,9 +23,10 @@ class IntentEngine:
 
     min_confidence: float = 0.3
     max_alternatives: int = 3
-    decay_rate: float = 0.99  # per second
+    decay_rate: float = 0.99
     _hypotheses: list[IntentHypothesis] = field(default_factory=list)
     _last_update: float = field(default_factory=time.time)
+    _recent_event_types: deque[str] = field(default_factory=lambda: deque(maxlen=20))
 
     def update(
         self, event: Event, experience_graph: ExperienceGraph, workflow_learner: WorkflowLearner
@@ -33,8 +34,8 @@ class IntentEngine:
         """Update intent hypotheses based on new event."""
         now = time.time()
         self._decay(now)
+        self._recent_event_types.append(event.event_type)
 
-        # Get workflow hypothesis
         recent_events = self._get_recent_event_types(experience_graph, limit=20)
         workflow_hyp = workflow_learner.match(recent_events)
 
@@ -60,8 +61,7 @@ class IntentEngine:
             h.confidence *= self.decay_rate**dt
 
     def _get_recent_event_types(self, graph: ExperienceGraph, limit: int = 20) -> list[str]:
-        # This would need access to event stream; simplified for now
-        return []
+        return list(self._recent_event_types)[-limit:]
 
     def _generate_hypotheses(self, event: Event, workflow_hyp: WorkflowHypothesis | None) -> list[IntentHypothesis]:
         hypotheses = []
@@ -185,11 +185,12 @@ class FrictionDetector:
         self._action_counts: dict[str, int] = defaultdict(int)
         self._error_count = 0
         self._reversal_count = 0
+        self._navigation_count = 0
         self._last_event_time: float = 0
         self._session_start: float = time.time()
         self._navigation_stack: list[str] = []
 
-    def observe(self, event: Event) -> FrictionState:
+    def observe(self, event: Event, predicted_actions: list[str] | None = None) -> FrictionState:
         """Update friction state with new event."""
         now = time.time()
         self._event_history.append(event)
@@ -197,46 +198,44 @@ class FrictionDetector:
             self._event_history = self._event_history[-200:]
 
         self._action_counts[event.event_type] += 1
-        self._compute_friction(now)
+        if "error" in str(event.payload).lower() or event.event_type.endswith((".failed", ".error")):
+            self._error_count += 1
+        event_type = event.event_type.lower()
+        if "navigat" in event_type or "back" in event_type:
+            self._navigation_count += 1
+            self._navigation_stack.append(event.event_type)
+            if len(self._navigation_stack) > 50:
+                self._navigation_stack = self._navigation_stack[-50:]
+            if "back" in event_type or "reverse" in event_type:
+                self._reversal_count += 1
+        self._compute_friction(now, predicted_actions)
         self._last_event_time = now
         return self.get_state()
 
-    def _compute_friction(self, now: float) -> None:
+    def _compute_friction(self, now: float, predicted_actions: list[str] | None = None) -> None:
         state = FrictionState()
 
-        # Repetition: same action repeated
         total_actions = sum(self._action_counts.values())
         if total_actions > 0:
             max_repeats = max(self._action_counts.values())
             state.repetition = min(1.0, max_repeats / max(1, total_actions * 0.3))
 
-        # Retry rate: failed actions followed by same action
         state.retry_rate = self._calculate_retry_rate()
 
-        # Reversal rate: back/forward navigation
         state.reversal_rate = self._calculate_reversal_rate()
 
-        # Error frequency
         state.error_frequency = min(1.0, self._error_count / max(1, total_actions))
 
-        # Navigation complexity
         state.navigation_complexity = min(1.0, len(self._navigation_stack) / 10)
 
-        # Waiting time: long idle before action
         if self._last_event_time > 0:
             idle = now - self._last_event_time
-            state.waiting_time = min(1.0, idle / 30.0)  # 30s = max
+            state.waiting_time = min(1.0, idle / 30.0)
 
-        # Uncertainty: from intent engine (would be passed in)
-        # Placeholder - would integrate with IntentEngine
+        state.task_deviation = self._calculate_task_deviation(predicted_actions)
 
-        # Task deviation: actions not matching predicted workflow
-        state.task_deviation = self._calculate_task_deviation()
-
-        # Hesitation: repeated low-confidence actions
         state.hesitation = min(1.0, state.repetition * 0.5 + state.waiting_time * 0.5)
 
-        # Aggregate score
         state.score = (
             0.25 * state.repetition
             + 0.20 * state.retry_rate
@@ -247,7 +246,6 @@ class FrictionDetector:
             + 0.05 * state.task_deviation
         )
 
-        # Signals for explainability
         if state.repetition > 0.5:
             state.signals.append("Repeated actions detected")
         if state.retry_rate > 0.3:
@@ -258,6 +256,8 @@ class FrictionDetector:
             state.signals.append("Frequent errors")
         if state.waiting_time > 0.5:
             state.signals.append("Long pauses before actions")
+        if state.task_deviation > 0.3:
+            state.signals.append("Actions deviating from predicted workflow")
 
         self._last_state = state
 
@@ -277,18 +277,19 @@ class FrictionDetector:
         return retries / max(1, transitions)
 
     def _calculate_reversal_rate(self) -> float:
-        reversals = 0
-        navigations = 0
-        for event in self._event_history:
-            if "navigat" in event.event_type.lower() or "back" in event.event_type.lower():
-                navigations += 1
-                if "back" in event.event_type.lower() or "reverse" in event.event_type.lower():
-                    reversals += 1
-        return reversals / max(1, navigations)
+        return self._reversal_count / max(1, self._navigation_count)
 
-    def _calculate_task_deviation(self) -> float:
-        # Would compare against predicted workflow
-        return 0.0
+    def _calculate_task_deviation(self, predicted_actions: list[str] | None = None) -> float:
+        if not predicted_actions or not self._event_history:
+            return 0.0
+        expected = {
+            action.split("event:", 1)[1] if action.startswith("event:") else action for action in predicted_actions
+        }
+        expected.discard("none")
+        if not expected:
+            return 0.0
+        current = self._event_history[-1].event_type
+        return 0.0 if current in expected else 0.5
 
     def get_state(self) -> FrictionState:
         return getattr(self, "_last_state", FrictionState())
@@ -297,6 +298,7 @@ class FrictionDetector:
         self._error_count += 1
 
     def record_reversal(self) -> None:
+        self._navigation_count += 1
         self._reversal_count += 1
 
     def to_dict(self) -> dict[str, Any]:

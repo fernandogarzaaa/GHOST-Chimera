@@ -58,6 +58,10 @@ class GhostPolicy:
     def conservative_default(cls) -> GhostPolicy:
         return cls()
 
+    @classmethod
+    def strict_observe(cls) -> GhostPolicy:
+        return cls(autonomy=AutonomyLevel.OBSERVE, minimum_confidence=0.95, max_interventions_per_hour=10000)
+
     def allows(self, decision: Decision) -> bool:
         if not self.enabled:
             return decision == Decision.NONE

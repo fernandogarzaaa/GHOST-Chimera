@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from .eve_model import EnvironmentState, PerceptionLevel
 from .events import Event
+
+BackendFn = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
 
 
 @dataclass
@@ -84,7 +87,7 @@ class StructuredPerceptionProvider(PerceptionProvider):
     """Level 1: Structured information (DOM, A11y, UIA, MCP, APIs)."""
 
     def __init__(self):
-        self._mcp_clients: dict[str, Any] = {}
+        self._mcp_clients: dict[str, BackendFn] = {}
 
     @property
     def level(self) -> PerceptionLevel:
@@ -114,6 +117,19 @@ class StructuredPerceptionProvider(PerceptionProvider):
                 data["ui_elements"] = event.payload["ui_elements"]
             if "mcp_data" in event.payload:
                 data["mcp"] = event.payload["mcp_data"]
+            if self._mcp_clients:
+                event_view = {"event_type": event.event_type, "payload": event.payload}
+                clients: dict[str, Any] = {}
+                errors: dict[str, str] = {}
+                for name, client in self._mcp_clients.items():
+                    try:
+                        clients[name] = client(event_view, context)
+                    except Exception as exc:
+                        errors[name] = f"{type(exc).__name__}: {exc}"
+                if clients:
+                    data["mcp_clients"] = clients
+                if errors:
+                    data["mcp_errors"] = errors
 
             return PerceptionResult(
                 level=self.level,
@@ -133,15 +149,22 @@ class StructuredPerceptionProvider(PerceptionProvider):
     def is_available(self) -> bool:
         return True
 
-    def register_mcp_client(self, name: str, client: Any) -> None:
+    def register_mcp_client(self, name: str, client: BackendFn) -> None:
         self._mcp_clients[name] = client
+
+    def get_mcp_client(self, name: str) -> BackendFn | None:
+        return self._mcp_clients.get(name)
 
 
 class BrowserPerceptionProvider(PerceptionProvider):
-    """Level 1b: Browser DevTools / CDP perception."""
+    """Level 1b: Browser DevTools / CDP perception.
+
+    Structured data rides on the event payload; registered CDP sessions are
+    callables taking ``(event_view, context)`` and returning a JSON-like dict.
+    """
 
     def __init__(self):
-        self._cdp_sessions: dict[str, Any] = {}
+        self._cdp_sessions: dict[str, BackendFn] = {}
 
     @property
     def level(self) -> PerceptionLevel:
@@ -181,6 +204,19 @@ class BrowserPerceptionProvider(PerceptionProvider):
                 data["console"] = event.payload["console_logs"]
             if "network_requests" in event.payload:
                 data["network"] = event.payload["network_requests"]
+            if self._cdp_sessions:
+                event_view = {"event_type": event.event_type, "payload": event.payload, "url": url}
+                sessions: dict[str, Any] = {}
+                errors: dict[str, str] = {}
+                for session_id, session in self._cdp_sessions.items():
+                    try:
+                        sessions[session_id] = session(event_view, context)
+                    except Exception as exc:
+                        errors[session_id] = f"{type(exc).__name__}: {exc}"
+                if sessions:
+                    data["cdp"] = sessions
+                if errors:
+                    data["cdp_errors"] = errors
 
             return PerceptionResult(
                 level=self.level,
@@ -198,11 +234,13 @@ class BrowserPerceptionProvider(PerceptionProvider):
             )
 
     def is_available(self) -> bool:
-        # Would check for CDP connection in real implementation
         return True
 
-    def register_cdp_session(self, session_id: str, session: Any) -> None:
+    def register_cdp_session(self, session_id: str, session: BackendFn) -> None:
         self._cdp_sessions[session_id] = session
+
+    def get_cdp_session(self, session_id: str) -> BackendFn | None:
+        return self._cdp_sessions.get(session_id)
 
 
 class AccessibilityPerceptionProvider(PerceptionProvider):
@@ -250,15 +288,18 @@ class AccessibilityPerceptionProvider(PerceptionProvider):
             )
 
     def is_available(self) -> bool:
-        # Would check for UIA/AT-SPI availability
         return True
 
 
 class VisionPerceptionProvider(PerceptionProvider):
-    """Level 2: Visual perception (screenshots, OCR, vision models) - LAST RESORT."""
+    """Level 2: Visual perception (screenshots, OCR, vision models) - LAST RESORT.
+
+    Registered vision models are callables taking ``(event_view, context)``
+    and returning a JSON-like dict.
+    """
 
     def __init__(self):
-        self._vision_models: dict[str, Any] = {}
+        self._vision_models: dict[str, BackendFn] = {}
 
     @property
     def level(self) -> PerceptionLevel:
@@ -287,6 +328,19 @@ class VisionPerceptionProvider(PerceptionProvider):
                 data["vision_analysis"] = event.payload["vision_analysis"]
             if "cursor_location" in event.payload:
                 data["cursor"] = event.payload["cursor_location"]
+            if self._vision_models:
+                event_view = {"event_type": event.event_type, "payload": event.payload}
+                models: dict[str, Any] = {}
+                errors: dict[str, str] = {}
+                for name, model in self._vision_models.items():
+                    try:
+                        models[name] = model(event_view, context)
+                    except Exception as exc:
+                        errors[name] = f"{type(exc).__name__}: {exc}"
+                if models:
+                    data["vision_models"] = models
+                if errors:
+                    data["vision_errors"] = errors
 
             return PerceptionResult(
                 level=self.level,
@@ -304,11 +358,13 @@ class VisionPerceptionProvider(PerceptionProvider):
             )
 
     def is_available(self) -> bool:
-        # Would check for vision model availability
         return True
 
-    def register_vision_model(self, name: str, model: Any) -> None:
+    def register_vision_model(self, name: str, model: BackendFn) -> None:
         self._vision_models[name] = model
+
+    def get_vision_model(self, name: str) -> BackendFn | None:
+        return self._vision_models.get(name)
 
 
 class PerceptionManager:
@@ -365,6 +421,7 @@ class PerceptionManager:
 
 
 __all__ = [
+    "BackendFn",
     "PerceptionProvider",
     "PerceptionResult",
     "EventPerceptionProvider",

@@ -161,12 +161,11 @@ class StealthLoop:
         self.predictions.observe(event.event_type)
 
         intent_hypotheses = self.intent_engine.update(event, self.graph, self.learner)
-        friction = self.friction_detector.observe(event)
-        self.attention.update_friction(friction.score)
-        self._update_experience(event, perception_result, intent_hypotheses, friction)
-
         hypothesis = self.learner.match(list(history))
         preds = self.predictions.predict(list(history), hypothesis)
+        friction = self.friction_detector.observe(event, predicted_actions=[pred.action for pred in preds])
+        self.attention.update_friction(friction.score)
+        self._update_experience(event, perception_result, intent_hypotheses, friction)
 
         now = time.time()
         while self._interventions_1h and now - self._interventions_1h[0] > 3600:

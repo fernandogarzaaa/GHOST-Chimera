@@ -81,6 +81,7 @@ from .intervention import Intervention, InterventionOutcome, InterventionState
 from .loop import LoopResult, StealthLoop
 from .perception import (
     AccessibilityPerceptionProvider,
+    BackendFn,
     BrowserPerceptionProvider,
     EventPerceptionProvider,
     PerceptionManager,
@@ -90,6 +91,7 @@ from .perception import (
     VisionPerceptionProvider,
 )
 from .prediction import Prediction, PredictionEngine
+from .project_scan import ProjectFinding, ProjectScanReport, scan_project
 from .ste import SimplifyResult, simplify, simplify_sentence
 from .stealth_policy import AutonomyLevel, Decision, GhostPolicy, StealthEvaluator
 from .store import StealthStore
@@ -105,6 +107,7 @@ __all__ = [
     "AttentionSignal",
     "AttentionContext",
     "BpoStore",
+    "BackendFn",
     "ClaudeCodeAdapter",
     "CodexAdapter",
     "ComputerAction",
@@ -159,6 +162,8 @@ __all__ = [
     "VisionPerceptionProvider",
     "Prediction",
     "PredictionEngine",
+    "ProjectFinding",
+    "ProjectScanReport",
     "SimplifyResult",
     "StealthEvaluator",
     "StealthHook",
@@ -181,6 +186,7 @@ __all__ = [
     "parse_agent_output",
     "read_only_consumer",
     "render_system_prompt",
+    "scan_project",
     "simplify",
     "simplify_sentence",
 ]
