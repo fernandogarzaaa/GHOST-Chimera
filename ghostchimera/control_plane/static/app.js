@@ -164,6 +164,7 @@
     var content = $("#tab-" + target);
     if (tab) tab.classList.add("active");
     if (content) content.classList.add("active");
+    showTabGroup(target === "operator" ? persistedGroup() : groupOfTab(target));
     if (!options.skipPersist) {
       try { localStorage.setItem(ACTIVE_TAB_KEY, target); } catch (_) {}
     }
@@ -171,6 +172,69 @@
       if (window.history && window.history.replaceState) window.history.replaceState(null, "", "#" + target);
       else window.location.hash = target;
     }
+  }
+
+  // ── Grouped navigation: Setup / Connect / Operate / Advanced ─────────
+  var TAB_GROUPS = [
+    ["setup", "Setup", ["status", "config", "path", "local-models", "readiness"]],
+    ["connect", "Connect", ["connections", "integrations", "github", "mcp", "remote"]],
+    ["operate", "Operate", ["run", "jobs", "workspace", "memory", "minimind", "rag-builder",
+      "skills", "browser", "activity", "thinking", "live-presence", "latency", "stealth"]],
+    ["advanced", "Advanced", ["trust", "evolution", "cognition", "capability-pack", "sandbox",
+      "security", "schedules", "review", "capabilities"]],
+  ];
+  var TAB_GROUP_KEY = "ghostchimera_tab_group";
+
+  function groupOfTab(name) {
+    if (name === "operator") return "home";
+    for (var i = 0; i < TAB_GROUPS.length; i++) {
+      if (TAB_GROUPS[i][2].indexOf(name) !== -1) return TAB_GROUPS[i][0];
+    }
+    return "advanced";
+  }
+
+  function persistedGroup() {
+    var group = "";
+    try { group = localStorage.getItem(TAB_GROUP_KEY) || ""; } catch (_) {}
+    if (group === "all" || TAB_GROUPS.some(function(g) { return g[0] === group; })) return group;
+    return "setup";
+  }
+
+  function showTabGroup(group) {
+    var bar = $("#tabGroupBar");
+    if (bar) {
+      Array.prototype.forEach.call(bar.children, function(chip) {
+        chip.classList.toggle("active", chip.getAttribute("data-group") === group);
+      });
+    }
+    $$$("#tabBar .tab").forEach(function(tab) {
+      var key = tab.dataset.tab || "";
+      var visible = key === "operator" || groupOfTab(key) === group || group === "all";
+      tab.classList.toggle("group-visible", visible);
+    });
+    try { localStorage.setItem(TAB_GROUP_KEY, group); } catch (_) {}
+  }
+
+  function initTabGroups() {
+    var bar = $("#tabGroupBar");
+    if (!bar) return;
+    bar.innerHTML = "";
+    $$$("#tabBar .tab").forEach(function(tab) {
+      tab.setAttribute("data-group", groupOfTab(tab.dataset.tab || ""));
+    });
+    var persisted = "";
+    try { persisted = localStorage.getItem(TAB_GROUP_KEY) || ""; } catch (_) {}
+    var groups = [["all", "All"]].concat(TAB_GROUPS.map(function(g) { return [g[0], g[1]]; }));
+    groups.forEach(function(g) {
+      var chip = el("button", { class: "tab-group", "data-group": g[0] });
+      chip.textContent = g[1];
+      chip.addEventListener("click", function() { showTabGroup(g[0]); });
+      bar.appendChild(chip);
+    });
+    var initial = persisted || "setup";
+    var valid = initial === "all" || initial === "home" ||
+      TAB_GROUPS.some(function(g) { return g[0] === initial; });
+    showTabGroup(valid ? initial : "setup");
   }
 
   function initTabQuickJump() {
@@ -4678,6 +4742,7 @@
   // ── Boot ──────────────────────────────────────────────────────────────────
   applyConversationMinimized();
   initTabQuickJump();
+  initTabGroups();
   var initialTab = normalizeTabName(window.location.hash);
   if (!initialTab) {
     try { initialTab = localStorage.getItem(ACTIVE_TAB_KEY) || ""; } catch (_) {}
