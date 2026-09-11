@@ -23,6 +23,8 @@ jobs:
           python -m pip install -e ".[gateway,dev]"
       - name: Run lint
         run: python -m ruff check .
+      - name: Run strict project scan
+        run: ghost-eve-scan --root .
       - name: Run tests
         run: python -m pytest -q
       - name: Run release gate
