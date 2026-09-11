@@ -111,9 +111,20 @@ Full walkthrough with use cases, everyday recipes, and the safety model: **[docs
 - [Architecture](docs/ARCHITECTURE.md) — how the layers fit together
 - [Provider Auth Vault](docs/PROVIDER_AUTH_VAULT.md) — dashboard-based provider setup
 - [Remote Control](docs/REMOTE_CONTROL.md) — paired mobile/messaging commands
-- [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) — guardrails for always-on use
+- [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) — guardrails for
+  always-on use
 - [API Reference](docs/api-reference.md) — generated API docs
 
+## Production & SaaS pointers
+
+- Daily Production Maintenance refreshes the compatible model catalog and
+  dependency audits: `scripts/update_model_provider_catalog.py` produces
+  [docs/model_provider_catalog.md](docs/model_provider_catalog.md), and
+  `scripts/audit_dependencies.py` produces
+  [docs/dependency_audit.md](docs/dependency_audit.md).
+- Public Launch SaaS progress: `ghostchimera saas status`,
+  `ghostchimera worker status`, and `docker-compose.saas.yml`. Details:
+  [docs/PUBLIC_LAUNCH_SAAS.md](docs/PUBLIC_LAUNCH_SAAS.md).
 ## Appropriate Uses
 
 - User-supervised automation and assistance for real work in local-first mode.
