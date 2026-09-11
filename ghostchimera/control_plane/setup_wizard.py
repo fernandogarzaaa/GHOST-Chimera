@@ -147,6 +147,7 @@ _PROVIDER_CHOICES = [
     "OpenAI API          — gpt-4o, gpt-3.5-turbo  (https://platform.openai.com/api-keys)",
     "OpenRouter          — 200+ models via unified API  (https://openrouter.ai/keys)",
     "Anthropic           — Claude models  (https://console.anthropic.com/keys)",
+    "OpenCode CLI        — free opencode/* models via your login (no API key)",
     "Custom endpoint     — Ollama, LM Studio, vLLM, any OpenAI-compatible server",
     "Local profile       — tiny/balanced/stronger, no API key needed",
     "Skip                — use deterministic backend only (for testing/hackathons)",
@@ -169,6 +170,13 @@ _PROVIDER_MODELS: dict[str, list[tuple[str, str]]] = {
         ("claude-sonnet-4-6", "claude-sonnet-4-6"),
         ("claude-opus-4-6", "claude-opus-4-6"),
         ("claude-haiku-3-5", "claude-haiku-3-5"),
+    ],
+    "opencode_cli": [
+        ("opencode/mimo-v2.5-free (free)", "opencode/mimo-v2.5-free"),
+        ("opencode/ling-3.0-flash-fin-free (free)", "opencode/ling-3.0-flash-fin-free"),
+        ("opencode/nemotron-3.5-lightning-free (free)", "opencode/nemotron-3.5-lightning-free"),
+        ("opencode/muse-spark-1.3-contributor-free (free)", "opencode/muse-spark-1.3-contributor-free"),
+        ("Use a different model", ""),
     ],
     "local": [
         ("tiny (Qwen2.5 0.5B, 2GB RAM)", "tiny"),
@@ -199,7 +207,7 @@ def _setup_provider(config: dict) -> None:
 
     idx = prompt_choice("Select a provider:", _PROVIDER_CHOICES, 0)
 
-    providers = ["openai", "openrouter", "anthropic", "custom", "local", "skip"]
+    providers = ["openai", "openrouter", "anthropic", "opencode_cli", "custom", "local", "skip"]
     provider = providers[idx]
     config["model"]["provider"] = provider
 

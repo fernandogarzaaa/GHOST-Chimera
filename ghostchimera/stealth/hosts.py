@@ -255,6 +255,24 @@ class OpenCodeAdapter(HostAdapter):
 
         return shutil.which("opencode") is not None
 
+    def install(self) -> dict[str, Any]:
+        return {
+            "host": self.id,
+            "plugin": {
+                "name": "ghost",
+                "skills": ["ghost-context"],
+                "mcp": {"ghost": {"command": "ghost-hook", "args": ["mcp"]}},
+                "slash": {"/ghost": "Ghost status, memory, and workflow commands"},
+            },
+            "note": "Register the ghost plugin with OpenCode; context blocks come from inject_context().",
+        }
+
+    def context_block(self, intervention_id: str) -> str:
+        """Plugin context block prepended to the OpenCode session prompt."""
+        self.wait_for_ready(intervention_id)
+        markdown = self.inject_context(intervention_id)
+        return f"<ghost-context>\n{markdown}\n</ghost-context>"
+
 
 class CodexAdapter(HostAdapter):
     """Codex via plugin/MCP surface + prompt bridging.

@@ -31,6 +31,13 @@ _MODEL_LISTS: dict[str, list[tuple[str, str]]] = {
         ("balanced (SmolLM2 1.7B, 4GB RAM)", "balanced"),
         ("stronger (Phi-3.5 mini, 6GB RAM)", "stronger"),
     ],
+    "opencode_cli": [
+        ("opencode/mimo-v2.5-free (free)", "opencode/mimo-v2.5-free"),
+        ("opencode/ling-3.0-flash-fin-free (free)", "opencode/ling-3.0-flash-fin-free"),
+        ("opencode/nemotron-3.5-lightning-free (free)", "opencode/nemotron-3.5-lightning-free"),
+        ("opencode/muse-spark-1.3-contributor-free (free)", "opencode/muse-spark-1.3-contributor-free"),
+        ("Use a different model", ""),
+    ],
 }
 
 _PROVIDER_DISPLAY = {
@@ -39,6 +46,7 @@ _PROVIDER_DISPLAY = {
     "anthropic": "Anthropic",
     "custom": "Custom",
     "local": "Local",
+    "opencode_cli": "OpenCode CLI",
     "skip": "Deterministic",
 }
 
@@ -62,7 +70,7 @@ def run_model_picker() -> None:
         print()
 
     # Provider list
-    providers = ["openai", "openrouter", "anthropic", "custom", "local", "skip"]
+    providers = ["openai", "openrouter", "anthropic", "custom", "local", "opencode_cli", "skip"]
     provider_labels = [f"{_PROVIDER_DISPLAY.get(p, p).title()}" for p in providers]
 
     print("Available providers:")
@@ -77,14 +85,14 @@ def run_model_picker() -> None:
     print()
 
     # Switch provider
-    idx = input("  Select a provider [1-6]: ").strip()
+    idx = input(f"  Select a provider [1-{len(providers)}]: ").strip()
     try:
         idx = int(idx) - 1
         if not (0 <= idx < len(providers)):
             print_error("Invalid selection.")
             return
     except ValueError:
-        print_error("Please enter a number between 1 and 6.")
+        print_error(f"Please enter a number between 1 and {len(providers)}.")
         return
 
     new_provider = providers[idx]
