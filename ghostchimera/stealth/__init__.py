@@ -40,6 +40,7 @@ from .computer_live import (
     OpenCodeVisionExecutor,
     PyAutoGuiDesktopExecutor,
     attach_live_backends,
+    attach_managed_browser,
     live_capability,
 )
 from .eval import EvalReport, StealthEval
@@ -194,6 +195,7 @@ __all__ = [
     "LIVE_OPERATIONS",
     "PyAutoGuiDesktopExecutor",
     "attach_live_backends",
+    "attach_managed_browser",
     "classify_risk",
     "define_hook",
     "gate_agent_action",

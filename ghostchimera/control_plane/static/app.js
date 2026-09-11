@@ -4086,6 +4086,43 @@
     } catch (e) { $("#browserOutput").textContent = "Error: " + e.message; }
   });
 
+  // ── Debuggable Chrome (computer use, no terminal needed) ──────────────
+  async function refreshBrowserDebug() {
+    try {
+      var data = await api("/api/console/browser/debug");
+      var running = !!(data && (data.managed_running || data.debug_open));
+      badge($("#browserDebugBadge"), !data ? "error" : running ? "running" : "stopped", !data ? "error" : running ? "ok" : "warn");
+      var detail = "";
+      if (data) {
+        if (!data.installed) detail = "no Chrome found (set GHOSTCHIMERA_CHROME_BINARY)";
+        else if (data.debug_open) detail = "debug port " + data.debug_port + " open" + (data.pid ? " (pid " + data.pid + ")" : "");
+        else detail = "installed, not running";
+      }
+      $("#browserDebugDetail").textContent = detail;
+    } catch (e) { badge($("#browserDebugBadge"), "error", "error"); }
+  }
+  $("#browserDebugRefresh").addEventListener("click", refreshBrowserDebug);
+  $("#browserDebugLaunch").addEventListener("click", async function() {
+    var portRaw = $("#browserDebugPort").value.trim();
+    var body = { headless: $("#browserDebugHeadless").checked };
+    if (portRaw) body.port = parseInt(portRaw, 10);
+    $("#browserOutput").textContent = "Launching debuggable Chrome…";
+    try {
+      var r = await api("/api/console/browser/debug/launch", { method: "POST", body: body });
+      $("#browserOutput").textContent = JSON.stringify(r, null, 2);
+      toast(r.ok ? "Debuggable Chrome ready." : "Launch failed.", r.ok ? "ok" : "error");
+    } catch (e) { $("#browserOutput").textContent = "Error: " + e.message; toast(e.message, "error"); }
+    refreshBrowserDebug();
+  });
+  $("#browserDebugStop").addEventListener("click", async function() {
+    try {
+      var r = await api("/api/console/browser/debug/stop", { method: "POST", body: {} });
+      $("#browserOutput").textContent = JSON.stringify(r, null, 2);
+      toast("Debuggable Chrome stopped.", "ok");
+    } catch (e) { $("#browserOutput").textContent = "Error: " + e.message; toast(e.message, "error"); }
+    refreshBrowserDebug();
+  });
+
   // ── Security ──────────────────────────────────────────────────────────────
   async function refreshSecurity() {
     try {
@@ -5018,6 +5055,7 @@
     refreshConfig();
     refreshModelDiscovery(false);
     refreshBrowserStatus();
+    refreshBrowserDebug();
     refreshSecurity();
     refreshSkills();
     refreshCapabilities();

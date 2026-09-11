@@ -207,21 +207,13 @@ def attach_live_backends(
         )
         attached["browser"] = "live-browser"
     if desktop:
-        executor = (
-            desktop
-            if callable(desktop)
-            else PyAutoGuiDesktopExecutor(None if desktop is True else desktop)
-        )
+        executor = desktop if callable(desktop) else PyAutoGuiDesktopExecutor(None if desktop is True else desktop)
         manager.register(
             DelegatingComputerProvider(name="live-desktop", modality=ComputerModality.DESKTOP, executor=executor)
         )
         attached["desktop"] = "live-desktop"
     if vision is not None and vision is not False:
-        executor = (
-            vision
-            if callable(vision)
-            else OpenCodeVisionExecutor(None if vision is True else vision)
-        )
+        executor = vision if callable(vision) else OpenCodeVisionExecutor(None if vision is True else vision)
         manager.register(
             DelegatingComputerProvider(name="live-vision", modality=ComputerModality.VISION, executor=executor)
         )
@@ -231,11 +223,24 @@ def attach_live_backends(
     return attached
 
 
+def attach_managed_browser(loop: Any, manager: Any, *, capability: ComputerCapability | None = None) -> dict[str, Any]:
+    """Attach the console-managed debuggable Chrome to a loop.
+
+    The manager must already have debugging open (the operator launches it
+    from the console); this only connects, never launches.
+    """
+
+    from .cdp import CdpClient
+
+    return attach_live_backends(loop, browser=CdpClient(manager.debug_websocket_url()), capability=capability)
+
+
 __all__ = [
     "LIVE_OPERATIONS",
     "CdpBrowserExecutor",
     "OpenCodeVisionExecutor",
     "PyAutoGuiDesktopExecutor",
     "attach_live_backends",
+    "attach_managed_browser",
     "live_capability",
 ]

@@ -79,6 +79,7 @@ from ..superiority import build_local_operator_summary, build_superiority_scorec
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
 from ..trust_runtime import TrustRuntimeStore
+from .browser_debug import ChromeDebugManager
 from .config import CONFIG_FILE, config_to_env_vars, get_autonomy_config, get_default_config, load_config, save_config
 from .conversation import ConversationalLoopController, ConversationStore, summarize_run_result
 from .evolution import (
@@ -797,6 +798,7 @@ def register_console_routes(
     run_objective: RunObjective | None = None,
     fetch_url: FetchUrl | None = None,
     browser_workspace: AgentBrowserWorkspace | None = None,
+    browser_debug: ChromeDebugManager | None = None,
     state_dir: str | Path | None = None,
     autonomy_queue: AutonomyJobQueue | None = None,
     cron_scheduler: Any | None = None,
@@ -818,6 +820,7 @@ def register_console_routes(
     queue = autonomy_queue or AutonomyJobQueue(state_dir=state_dir or server.config.state_dir)
     workspace_store = operator_workspace or OperatorWorkspaceStore(state_dir=state_dir or server.config.state_dir)
     console_state_dir = Path(state_dir or server.config.state_dir)
+    debug_browser = browser_debug or ChromeDebugManager(console_state_dir)
     remote_store = RemoteControlStore(console_state_dir)
     standing_order_store = StandingOrderStore(console_state_dir)
     trust_store = TrustRuntimeStore(console_state_dir)
@@ -2203,10 +2206,39 @@ def register_console_routes(
 
     def browser_snapshot(ctx: dict[str, Any]) -> dict[str, Any]:
         body = _json_body(ctx)
-        url = str(body.get("url") or "").strip()
-        session = str(body.get("session") or "default").strip() or "default"
+        url = str(body.get("url", "")).strip()
+        session = str(body.get("session", "") or "default").strip() or "default"
         try:
             return workspace.snapshot(url=url, session=session)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def browser_debug_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        del ctx
+        try:
+            return {"ok": True, **debug_browser.status()}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def browser_debug_launch(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        try:
+            port = body.get("port", debug_browser.default_port)
+            headless = body.get("headless", True)
+            return {
+                "ok": True,
+                **debug_browser.launch(
+                    port=None if port in (None, "") else port,
+                    headless=bool(headless) if isinstance(headless, bool) else str(headless).lower() not in ("0", "false", "no"),
+                ),
+            }
+        except (ValueError, RuntimeError) as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def browser_debug_stop(ctx: dict[str, Any]) -> dict[str, Any]:
+        del ctx
+        try:
+            return {"ok": True, **debug_browser.stop()}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -5330,6 +5362,24 @@ def register_console_routes(
         browser_snapshot,
         method="POST",
         description="Capture an accessibility snapshot from the optional agent-browser workspace",
+    )
+    _api_register(
+        "/api/console/browser/debug",
+        browser_debug_status,
+        method="GET",
+        description="Inspect managed debuggable-Chrome status for computer use",
+    )
+    _api_register(
+        "/api/console/browser/debug/launch",
+        browser_debug_launch,
+        method="POST",
+        description="Launch Chrome with remote debugging for computer use",
+    )
+    _api_register(
+        "/api/console/browser/debug/stop",
+        browser_debug_stop,
+        method="POST",
+        description="Stop the managed debuggable-Chrome instance",
     )
     _api_register(
         "/api/console/security/events",
