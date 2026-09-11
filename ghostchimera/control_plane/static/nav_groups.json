@@ -1,0 +1,61 @@
+{
+  "groups": [
+    {
+      "id": "setup",
+      "label": "Setup",
+      "tabs": [
+        "status",
+        "config",
+        "path",
+        "local-models",
+        "readiness"
+      ]
+    },
+    {
+      "id": "connect",
+      "label": "Connect",
+      "tabs": [
+        "connections",
+        "integrations",
+        "github",
+        "mcp",
+        "remote"
+      ]
+    },
+    {
+      "id": "operate",
+      "label": "Operate",
+      "tabs": [
+        "run",
+        "jobs",
+        "workspace",
+        "memory",
+        "minimind",
+        "rag-builder",
+        "skills",
+        "browser",
+        "activity",
+        "thinking",
+        "live-presence",
+        "latency",
+        "stealth",
+        "conversation"
+      ]
+    },
+    {
+      "id": "advanced",
+      "label": "Advanced",
+      "tabs": [
+        "trust",
+        "evolution",
+        "cognition",
+        "capability-pack",
+        "sandbox",
+        "security",
+        "schedules",
+        "review",
+        "capabilities"
+      ]
+    }
+  ]
+}

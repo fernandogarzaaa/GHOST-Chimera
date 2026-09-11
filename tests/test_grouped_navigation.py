@@ -2,44 +2,47 @@
 
 from __future__ import annotations
 
+import json
 import re
+import subprocess
+import sys
 from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC_ROOT = ROOT / "ghostchimera" / "control_plane" / "static"
 
-EXPECTED_GROUPS = {
-    "setup": ["status", "config", "path", "local-models", "readiness"],
-    "connect": ["connections", "integrations", "github", "mcp", "remote"],
-    "operate": [
-        "run",
-        "jobs",
-        "workspace",
-        "memory",
-        "minimind",
-        "rag-builder",
-        "skills",
-        "browser",
-        "activity",
-        "thinking",
-        "live-presence",
-        "latency",
-        "stealth",
-        "conversation",
-    ],
-    "advanced": [
-        "trust",
-        "evolution",
-        "cognition",
-        "capability-pack",
-        "sandbox",
-        "security",
-        "schedules",
-        "review",
-        "capabilities",
-    ],
-}
+
+def _expected_groups() -> dict[str, list[str]]:
+    """Load the navigation manifest — the single source of truth."""
+
+    manifest = json.loads((STATIC_ROOT / "nav_groups.json").read_text(encoding="utf-8"))
+    return {group["id"]: list(group["tabs"]) for group in manifest["groups"]}
+
+
+def test_navigation_manifest_is_well_formed() -> None:
+    manifest = json.loads((STATIC_ROOT / "nav_groups.json").read_text(encoding="utf-8"))
+    assert isinstance(manifest.get("groups"), list) and manifest["groups"]
+    seen_ids: set[str] = set()
+    seen_tabs: set[str] = set()
+    for group in manifest["groups"]:
+        assert group["id"] not in seen_ids
+        seen_ids.add(group["id"])
+        assert group["label"] and group["tabs"]
+        for tab in group["tabs"]:
+            assert tab not in seen_tabs
+            seen_tabs.add(tab)
+
+
+def test_app_js_matches_generated_navigation() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "sync_nav_groups.py"), "--check"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=str(ROOT),
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
 class _NavigationParser(HTMLParser):
@@ -87,9 +90,10 @@ def test_every_console_tab_belongs_to_exactly_one_expected_group() -> None:
     parser = _NavigationParser()
     parser.feed(_read_static("index.html"))
     groups = _declared_tab_groups(_read_static("app.js"))
+    expected_groups = _expected_groups()
 
     assert parser.navs["tabGroupBar"]["aria-label"] == "Tab groups"
-    assert groups == EXPECTED_GROUPS
+    assert groups == expected_groups
     assert parser.tabs[0] == "operator"
     assert len(parser.tabs) == len(set(parser.tabs))
 
