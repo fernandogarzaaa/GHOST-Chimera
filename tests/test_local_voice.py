@@ -127,6 +127,7 @@ class LocalVoiceConsoleRouteTests(unittest.TestCase):
             os.environ["GHOSTCHIMERA_LOCAL_STT_COMMAND"] = self._old_command
 
     def test_console_routes_local_voice_turn_through_conversation_runtime(self) -> None:
+        """Route local speech transcription through the conversation readiness flow."""
         with tempfile.TemporaryDirectory(prefix="ghost-console-local-voice-") as tmp:
             os.environ["GHOSTCHIMERA_LOCAL_STT_COMMAND"] = f'"{sys.executable}" -c "print(\'run readiness check\')"'
             server = GatewayServer()
@@ -170,7 +171,8 @@ class LocalVoiceConsoleRouteTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertEqual(result["local_voice"]["provider"], "custom-command")
             self.assertFalse(result["local_voice"]["raw_audio_stored"])
-            self.assertIn("Readiness check", result["reply"])
+            self.assertIn("autonomous-engineer", result["reply"])
+            self.assertIn("Warnings:", result["reply"])
 
 
 if __name__ == "__main__":

@@ -67,6 +67,7 @@
     <button class="tab" data-tab="capabilities">Capabilities</button>
     <button class="tab" data-tab="readiness">Readiness</button>
     <button class="tab" data-tab="stealth">Stealth</button>
+    <button class="tab" data-tab="conversation">Conversation</button>
   </nav>
 
   <aside id="ghostConversationPanel" class="ghost-conversation-panel" aria-live="polite">
@@ -79,6 +80,7 @@
       <div class="conversation-head-actions">
         <span id="conversationMicState" class="badge warn">Muted</span>
         <button id="conversationMinimize" class="icon-btn" type="button" title="Minimize Ghost Conversation">_</button>
+        <button id="conversationHide" class="icon-btn" type="button" title="Hide Ghost Conversation (reopen from the Conversation tab)">×</button>
       </div>
     </div>
     <div class="conversation-controls">
@@ -1389,6 +1391,19 @@
       <button id="steCheck" class="primary">Simplify</button>
     </div>
     <pre class="output compact-output" id="steOutput">Simplified text and applied rules appear here.</pre>
+  </div>
+
+  <!-- ── CONVERSATION ──────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-conversation">
+    <div class="section-hdr" style="margin-top:0;">Ghost Conversation</div>
+    <p class="hint" style="margin-bottom:12px;">
+      The full chat also lives in the draggable bubble (bottom-right). Hide it any
+      time — this tab always brings it back. Long replies collapse to one line here.
+    </p>
+    <div class="row" style="margin-bottom:10px;">
+      <button id="conversationOpenBubble" class="primary">Open Ghost chat bubble</button>
+    </div>
+    <div id="conversationMirror" class="conversation-mirror"></div>
   </div>
 
   <script src="/static/app.js"></script>

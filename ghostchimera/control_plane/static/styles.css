@@ -241,6 +241,18 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow
   background: #07090c; color: var(--muted); font-size: 12px; margin-bottom: 8px;
   max-height: 120px; overflow: auto; white-space: pre-wrap;
 }
+.conversation-mirror {
+  padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: #07090c; font-size: 12px; margin-bottom: 8px;
+  max-height: 50vh; overflow: auto;
+}
+/* Collapsible turns: summary first, verbose body on demand. */
+.turn { padding: 7px 9px; border-radius: var(--radius-sm); margin-bottom: 6px; background: rgba(255,255,255,.02); }
+.turn-you { border-left: 3px solid var(--accent-2); }
+.turn-ghost { border-left: 3px solid var(--accent-strong); }
+.turn-role { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); margin-bottom: 2px; }
+.turn-text { color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.turn-toggle { margin-top: 4px; padding: 3px 9px; font-size: 11px; }
 .conversation-reply { color: var(--text); }
 .conversation-quick-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .conversation-quick-actions button { padding: 6px 9px; font-size: 12px; max-width: 100%;

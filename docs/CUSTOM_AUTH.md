@@ -71,3 +71,45 @@ Cloud as a proxy, so existing grants live in Nango, not here. Reconnect
 each provider once through the Integrations tab; the old `NANGO_*`
 environment variables are ignored and can be deleted. `docs/NANGO.md`
 has been removed; this file replaces it.
+
+## Shared project logins (why users don't all register apps)
+
+OAuth always needs *an* app registration — the only question is who owns
+it. Platforms with 1-click login (Nango, Zapier) operate **one shared,
+verified app per provider** and proxy every user through it. Ghost does
+the same thing without the proxy company:
+
+1. The maintainer registers **one OAuth app per provider** (Desktop/native
+   type, PKCE, no secret to leak) and drops its public client ID into
+   `SHIPPED_CLIENT_IDS` in `connectors/auth_engine.py`.
+2. Every user then gets 1-click login: the engine resolves client IDs as
+   environment → console-saved → shipped default, and the UI can show
+   which source is active via `client_id_source()`.
+
+Per-provider reality check:
+
+| Provider | Shared login friction |
+|---|---|
+| GitHub, Slack | none — register the app, embed the ID, done |
+| Notion | public integration needs Notion approval for distribution |
+| Google (Gmail) | **sensitive scopes**: brand verification + privacy policy + review (weeks); 100 test-user cap until verified |
+| LinkedIn, HubSpot, Salesforce | developer program signup each; verify per product |
+
+Public clients (PKCE, no secret) vs confidential clients: the engine reads
+`<PRESET>_CLIENT_SECRET` from the environment at token-exchange time and omits
+it when empty. Providers whose preset sets `use_pkce` (`oauth.py`) work with a
+public Desktop/native client and no secret:
+
+GitHub, Slack, Notion, LinkedIn, Google, Zendesk, Gorgias, HubSpot,
+Salesforce, Airtable, Time Doctor.
+
+These two require a confidential client **plus** its secret in the
+environment — a public client alone cannot complete login:
+
+| Provider | Secret env var |
+|---|---|
+| Freshdesk | `FRESHDESK_CLIENT_SECRET` |
+| Hubstaff | `HUBSTAFF_CLIENT_SECRET` |
+
+Until a shared ID ships for a provider, users paste their own client ID
+once in the Integrations tab (bring-your-own, same UX, their quota).

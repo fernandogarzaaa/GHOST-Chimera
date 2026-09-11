@@ -80,7 +80,31 @@ PROVIDERS: dict[str, EngineProvider] = {
                                "https://api.linkedin.com/v2"),
 }
 
-# oauth.py preset id per engine key (PKCE/token URLs/scopes live there).
+# Shipped shared logins: project-owned OAuth client IDs (Desktop/native type,
+# PKCE, no secret) keyed by oauth preset id. Empty until the maintainer
+# registers one app per provider — then every user gets 1-click login with
+# zero setup. See docs/CUSTOM_AUTH.md ("Shared project logins").
+#   Example: SHIPPED_CLIENT_IDS = {"github": "Iv1.abc123...", "slack": "1234.5678..."}
+SHIPPED_CLIENT_IDS: dict[str, str] = {}
+_CLIENT_ID_ENV: dict[str, tuple[str, ...]] = {
+    "slack": ("SLACK_CLIENT_ID",),
+    "google": ("GOOGLE_OAUTH_CLIENT_ID", "GMAIL_OAUTH_CLIENT_ID"),
+    "github": ("GHOSTCHIMERA_GITHUB_CLIENT_ID", "GITHUB_CLIENT_ID"),
+    "notion": ("NOTION_CLIENT_ID",),
+    "linkedin": ("LINKEDIN_CLIENT_ID",),
+    "hubspot": ("HUBSPOT_CLIENT_ID",),
+    "salesforce": ("SALESFORCE_CLIENT_ID",),
+    "zendesk": ("ZENDESK_CLIENT_ID",),
+    "freshdesk": ("FRESHDESK_CLIENT_ID",),
+    "gorgias": ("GORGIAS_CLIENT_ID",),
+    "airtable": ("AIRTABLE_CLIENT_ID",),
+    "hubstaff": ("HUBSTAFF_CLIENT_ID",),
+    "time-doctor": ("TIMEDOCTOR_CLIENT_ID",),
+}
+
+
+def _env_client_id_names(preset_id: str) -> tuple[str, ...]:
+    return _CLIENT_ID_ENV.get(preset_id, (f"{preset_id.upper()}_CLIENT_ID",))
 _PRESET_FOR = {
     "google-mail": "google", "slack": "slack", "zendesk": "zendesk",
     "freshdesk": "freshdesk", "gorgias": "gorgias", "hubspot": "hubspot",
@@ -233,20 +257,48 @@ class CustomAuthEngine:
         return get_preset(_PRESET_FOR[provider])
 
     def _client_id(self, preset_id: str) -> str:
-        env_names = {
-            "slack": ("SLACK_CLIENT_ID",), "google": ("GOOGLE_OAUTH_CLIENT_ID", "GMAIL_OAUTH_CLIENT_ID"),
-            "github": ("GHOSTCHIMERA_GITHUB_CLIENT_ID", "GITHUB_CLIENT_ID"),
-            "notion": ("NOTION_CLIENT_ID",), "linkedin": ("LINKEDIN_CLIENT_ID",),
-            "hubspot": ("HUBSPOT_CLIENT_ID",), "salesforce": ("SALESFORCE_CLIENT_ID",),
-            "zendesk": ("ZENDESK_CLIENT_ID",), "freshdesk": ("FRESHDESK_CLIENT_ID",),
-            "gorgias": ("GORGIAS_CLIENT_ID",), "airtable": ("AIRTABLE_CLIENT_ID",),
-            "hubstaff": ("HUBSTAFF_CLIENT_ID",), "time-doctor": ("TIMEDOCTOR_CLIENT_ID",),
-        }
-        for name in env_names.get(preset_id, (f"{preset_id.upper()}_CLIENT_ID",)):
+        """Resolve a provider client ID using environment, saved, then shipped values."""
+        # 1. Environment always wins (production / containers).
+        # 2. Console-saved IDs (per-user setup, no terminal).
+        # 3. Shipped project defaults (shared Ghost logins, see below).
+        for name in _env_client_id_names(preset_id):
             value = os.environ.get(name, "").strip()
             if value:
                 return value
-        return ""
+        # 2. Console-saved client IDs (~/.ghostchimera/config.json provider_oauth).
+        try:
+            from ..control_plane.config import load_config
+
+            saved = load_config().get("provider_oauth", {})
+            if isinstance(saved, dict):
+                entry = saved.get(preset_id, {})
+                if isinstance(entry, dict) and str(entry.get("client_id", "")).strip():
+                    return str(entry["client_id"]).strip()
+        except Exception:
+            pass
+        # 3. Shipped shared logins: one project-owned OAuth app per provider,
+        #    so users get 1-click without registering anything. Desktop/native
+        #    app type (PKCE, no secret) — safe to embed; see docs/CUSTOM_AUTH.md
+        #    for the per-provider registration + verification notes.
+        return SHIPPED_CLIENT_IDS.get(preset_id, "")
+
+    def client_id_source(self, preset_id: str) -> str:
+        """Where the effective client ID comes from (for honest UI)."""
+        for name in _env_client_id_names(preset_id):
+            if os.environ.get(name, "").strip():
+                return "environment"
+        try:
+            from ..control_plane.config import load_config
+
+            saved = load_config().get("provider_oauth", {})
+            if (isinstance(saved, dict) and isinstance(saved.get(preset_id), dict)
+                    and str(saved[preset_id].get("client_id", "")).strip()):
+                return "saved"
+        except Exception:
+            pass
+        if SHIPPED_CLIENT_IDS.get(preset_id):
+            return "shared"
+        return "none"
 
     # -- Step 1: authorize URL ------------------------------------------------
     def authorize_url(self, provider: str, entity_id: str, redirect_uri: str,
@@ -266,8 +318,18 @@ class CustomAuthEngine:
         pending_file = self.state_dir / "connector_oauth" / f"pkce-{nonce}.json"
         try:
             pending_file.parent.mkdir(parents=True, exist_ok=True)
-            pending_file.write_text(json.dumps({"verifier": verifier, "ts": time.time()}),
-                                    encoding="utf-8")
+            pending_file.write_text(
+                json.dumps(
+                    {
+                        "verifier": verifier,
+                        "ts": time.time(),
+                        "provider": provider,
+                        "entity_id": entity_id,
+                        "redirect_uri": redirect_uri,
+                    }
+                ),
+                encoding="utf-8",
+            )
         except OSError as exc:
             raise AuthEngineError(f"Cannot persist PKCE state: {exc}") from exc
         url = build_authorize_url(preset, client_id=client_id, redirect_uri=redirect_uri,
@@ -276,7 +338,7 @@ class CustomAuthEngine:
         return {"authorize_url": url, "state": state, "provider": provider, "entity_id": entity_id}
 
     # -- Step 2: callback + exchange -------------------------------------------
-    def _pop_verifier(self, nonce: str) -> str:
+    def _pop_pkce(self, nonce: str) -> dict[str, Any]:
         pending_file = self.state_dir / "connector_oauth" / f"pkce-{nonce}.json"
         try:
             data = json.loads(pending_file.read_text(encoding="utf-8"))
@@ -285,7 +347,9 @@ class CustomAuthEngine:
             raise AuthEngineError(f"PKCE state missing/expired for this login: {exc}") from exc
         if time.time() - float(data.get("ts", 0)) > STATE_TTL_SECONDS:
             raise AuthEngineError("Login session expired; start over")
-        return str(data["verifier"])
+        if not isinstance(data, dict) or not str(data.get("verifier", "")):
+            raise AuthEngineError("PKCE state missing/expired for this login")
+        return data
 
     def handle_callback(self, provider: str, code: str, state: str,
                         redirect_uri: str) -> dict[str, Any]:
@@ -306,10 +370,13 @@ class CustomAuthEngine:
             self._used_nonces.add(nonce)
         entity_id = str(payload["entity_id"])
         preset = self._preset(provider)
-        verifier = self._pop_verifier(nonce)
+        pending = self._pop_pkce(nonce)
+        if pending.get("provider") != provider or str(pending.get("entity_id", "")) != entity_id:
+            raise AuthEngineError("OAuth state mismatch (provider/entity)")
+        verifier = str(pending["verifier"])
         exchange = {"grant_type": "authorization_code", "client_id": self._client_id(preset.id),
                     "client_secret": os.environ.get(f"{preset.id.upper()}_CLIENT_SECRET", ""),
-                    "code": code, "redirect_uri": redirect_uri,
+                    "code": code, "redirect_uri": str(pending.get("redirect_uri") or redirect_uri),
                     "code_verifier": verifier}
         token = self._post_form(preset.token_url, exchange)
         if "access_token" not in token:

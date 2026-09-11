@@ -118,7 +118,26 @@ class ConversationRuntimeTests(unittest.TestCase):
             self.assertEqual(runs[0]["source"], "conversation")
             self.assertIn("trust_run", result)
 
+    def test_run_reply_includes_trust_run_id_when_runner_omits_it(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-conversation-") as tmp:
+            trust = TrustRuntimeStore(Path(tmp) / "trust")
+            controller = ConversationalLoopController(
+                state_dir=tmp,
+                trust_store=trust,
+                objective_runner=lambda objective: {
+                    "ok": True,
+                    "executions": [{"ok": True, "backend_id": "deterministic.local", "output": "ok"}],
+                },
+            )
+            session = controller.create_session(always_listening=True)
+            result = controller.handle_turn(session["session_id"], "inspect runtime")
+
+            run_id = trust.list_runs()["runs"][0]["run_id"]
+            self.assertTrue(result["ok"])
+            self.assertIn(run_id, result["reply"])
+
     def test_successful_run_reply_is_operator_report_not_generic_placeholder(self) -> None:
+        """Include execution and Trust Runtime details in a successful run reply."""
         result = {
             "ok": True,
             "executions": [
@@ -129,7 +148,7 @@ class ConversationRuntimeTests(unittest.TestCase):
 
         reply = summarize_run_result(result, ok=True, objective="inspect status")
 
-        self.assertIn("1/1 task", reply)
+        self.assertIn("1/1 passed", reply)
         self.assertIn("deterministic.local", reply)
         self.assertIn("run-123", reply)
         self.assertNotIn("Done. I recorded the run in Trust Runtime and I am listening for the next step.", reply)
@@ -142,7 +161,23 @@ class ConversationRuntimeTests(unittest.TestCase):
         self.assertIn("provider failed", reply)
         self.assertNotEqual(reply, "I could not complete that. Check Trust Runtime for details.")
 
+    def test_error_replies_redact_secret_like_text(self) -> None:
+        reply = summarize_run_result({"ok": False, "error": "boom token sk-testsecret123456"}, ok=False)
+
+        self.assertNotIn("sk-testsecret123456", reply)
+        self.assertIn("[redacted]", reply)
+
+        def _boom():
+            raise RuntimeError("readiness blew up on sk-testsecret123456")
+
+        with tempfile.TemporaryDirectory(prefix="ghost-conversation-") as tmp:
+            controller = ConversationalLoopController(state_dir=tmp, status_provider=_boom)
+            session = controller.create_session(always_listening=True)
+            result = controller.handle_turn(session["session_id"], "readiness status")
+            self.assertNotIn("sk-testsecret123456", result["reply"])
+
     def test_show_evidence_returns_recent_trust_runs(self) -> None:
+        """Return recent Trust Runtime evidence for the evidence intent."""
         with tempfile.TemporaryDirectory(prefix="ghostchimera-conversation-evidence-") as tmp:
             trust = TrustRuntimeStore(tmp)
             trust.create_run(
@@ -156,11 +191,12 @@ class ConversationRuntimeTests(unittest.TestCase):
             result = controller.handle_turn(session["session_id"], "show evidence")
 
             self.assertTrue(result["ok"])
-            self.assertIn("Recent Trust Runtime evidence", result["reply"])
+            self.assertIn("Recent runs", result["reply"])
             self.assertIn("inspect live status", result["reply"])
-            self.assertNotIn("Evidence is available in the Trust Runtime", result["reply"])
+            self.assertIn("Open Trust Runtime tab", result["reply"])
 
     def test_readiness_intent_returns_status_provider_summary(self) -> None:
+        """Report configured path, model, and candidate counts for readiness requests."""
         with tempfile.TemporaryDirectory(prefix="ghostchimera-conversation-readiness-") as tmp:
             controller = ConversationalLoopController(
                 state_dir=tmp,
@@ -178,9 +214,9 @@ class ConversationRuntimeTests(unittest.TestCase):
 
             self.assertTrue(result["ok"])
             self.assertEqual(result["intent"], "readiness")
-            self.assertIn("Readiness check", result["reply"])
+            self.assertIn("autonomous-engineer", result["reply"])
             self.assertIn("codex_cli / gpt-5.4-mini", result["reply"])
-            self.assertIn("Pending evolution candidates: 1", result["reply"])
+            self.assertIn("Candidates: 1", result["reply"])
 
 
 class ConversationConsoleRouteTests(unittest.TestCase):

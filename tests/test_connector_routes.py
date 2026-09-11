@@ -205,3 +205,60 @@ def test_stealth_simplify_endpoint(tmp_path) -> None:
         assert code == 200 and "utilize" not in data["ste_text"]
     finally:
         server.stop()
+
+
+def test_auth_callback_page_error_paths(tmp_path) -> None:
+    """Render safe browser responses for cancelled, incomplete, and invalid callbacks."""
+    server = _server(tmp_path)
+    try:
+        route = server.routes.find("GET", "/api/auth/callback")
+        assert route is not None
+
+        def get(query):
+            """Invoke the browser callback route with the supplied query values."""
+            return route.handler({"method": "GET", "path": "/api/auth/callback",
+                                  "headers": {"host": "127.0.0.1:8766"},
+                                  "query": query, "body": ""})
+
+        cancelled = get({"error": "access_denied", "error_description": "user said no"})
+        assert "user said no" in cancelled.body
+        assert cancelled.content_type.startswith("text/html")
+        missing = get({})
+        assert "Incomplete login" in missing.body
+        tampered = get({"code": "x", "state": "!!!not-base64!!!"})
+        assert "Bad login state" in tampered.body
+        # No key material or tracebacks in any page.
+        for page in (cancelled, missing, tampered):
+            assert "Traceback" not in page.body
+    finally:
+        server.stop()
+
+
+def test_auth_client_id_saved_then_authorizes(tmp_path, monkeypatch) -> None:
+    """Use a console-saved Google client ID and include the Gmail read scope."""
+    import ghostchimera.control_plane.config as cfg
+
+    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GMAIL_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.setattr(cfg, "CONFIG_FILE", tmp_path / "config.json")
+    server = _server(tmp_path)
+    BASE = _base(server)
+    try:
+        code, missing = _post(BASE + "/api/auth/client-id", {"provider": "", "client_id": ""})
+        assert missing["ok"] is False
+        code, bad = _post(BASE + "/api/auth/client-id",
+                          {"provider": "google-mail", "client_id": "a/b"})
+        assert bad["ok"] is False
+        code, saved = _post(BASE + "/api/auth/client-id",
+                            {"provider": "google-mail", "client_id": "cid.apps.googleusercontent.com"})
+        assert code == 200 and saved == {"ok": True, "provider": "google-mail", "saved": True}
+        # Saved ID is used without any environment variable...
+        code, auth = _post(BASE + "/api/auth/authorize",
+                           {"provider": "google-mail", "entity_id": "va-1",
+                            "redirect_uri": "http://127.0.0.1:8766/api/auth/callback"})
+        assert code == 200 and auth["ok"] is True
+        assert "client_id=cid.apps.googleusercontent.com" in auth["authorize_url"]
+        # ...and the Gmail API scope rides along by default.
+        assert "gmail.readonly" in auth["authorize_url"]
+    finally:
+        server.stop()

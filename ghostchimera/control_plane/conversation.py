@@ -147,13 +147,13 @@ def classify_conversation_intent(message: str) -> dict[str, Any]:
 
 
 def summarize_run_result(result: Any, *, ok: bool, intent: str = "run", objective: str = "") -> str:
-    """Create the operator-facing reply for a run result."""
+    """Create the operator-facing reply for a run result. Returns concise summary; full detail in expandable section."""
 
     if isinstance(result, dict) and result.get("operator_report"):
         return str(result["operator_report"])
     if not ok:
         if isinstance(result, dict) and result.get("error"):
-            return f"I could not complete that: {result.get('error')}"
+            return f"Failed: {_redact_text(str(result.get('error'))).strip()[:200]}"
         if isinstance(result, dict) and isinstance(result.get("executions"), list):
             errors = [
                 _redact_text(str(item.get("error") or "").strip())
@@ -161,16 +161,13 @@ def summarize_run_result(result: Any, *, ok: bool, intent: str = "run", objectiv
                 if isinstance(item, dict) and str(item.get("error") or "").strip()
             ]
             if errors:
-                return f"I could not complete that: {errors[0][:1200]}"
-        return "I could not complete that. Check Trust Runtime for details."
+                return f"Failed: {errors[0][:200]}"
+        return "Failed. Check Trust Runtime for details."
     if intent == "sandbox":
-        return "Sandbox journey completed. I recorded the run in Trust Runtime. Review findings and approve any follow-up before changes."
+        return "Sandbox completed. Review findings in Trust Runtime before approving follow-up."
     if intent == "self_evolution":
-        return "Self-Evolution review completed. I recorded the run and staged recommendations for approval instead of activating them."
+        return "Self-Evolution review done. Recommendations staged for approval."
 
-    lines = ["I completed the run and recorded it in Trust Runtime."]
-    if objective:
-        lines.append(f"Objective: {_redact_text(str(objective).strip())[:180]}")
     if isinstance(result, dict):
         executions = result.get("executions") if isinstance(result.get("executions"), list) else []
         if executions:
@@ -182,28 +179,18 @@ def summarize_run_result(result: Any, *, ok: bool, intent: str = "run", objectiv
                     if isinstance(item, dict) and str(item.get("backend_id") or item.get("backend") or "").strip()
                 }
             )
-            outputs = [
-                _redact_text(str(item.get("output") or item.get("result") or "").strip())
-                for item in executions
-                if isinstance(item, dict) and str(item.get("output") or item.get("result") or "").strip()
-            ]
-            lines.append(f"Execution: {passed}/{len(executions)} task(s) passed" + (f" via {', '.join(backends[:3])}" if backends else "") + ".")
-            if outputs:
-                result_preview = outputs[0][:3000]
-                lines.append(f"Result:\n{result_preview}")
-        trust_run = result.get("trust_run") if isinstance(result.get("trust_run"), dict) else {}
-        run_meta = trust_run.get("run") if isinstance(trust_run.get("run"), dict) else {}
-        run_id = str(run_meta.get("run_id") or "").strip()
-        if run_id:
-            lines.append(f"Evidence: Trust run {run_id} is available in the Trust Runtime tab.")
-        tool_calls = trust_run.get("tool_calls") if isinstance(trust_run.get("tool_calls"), list) else []
-        approvals = trust_run.get("approvals") if isinstance(trust_run.get("approvals"), list) else []
-        if not tool_calls:
-            lines.append("Side effects: no tool calls were reported by this run.")
-        if approvals:
-            lines.append(f"Approval: {len(approvals)} approval checkpoint(s) are attached to the run.")
-    lines.append("Next: ask me to show evidence, run a readiness check, or approve a specific follow-up.")
-    return " ".join(lines)
+            trust_run = result.get("trust_run") if isinstance(result.get("trust_run"), dict) else {}
+            run_meta = trust_run.get("run") if isinstance(trust_run.get("run"), dict) else {}
+            run_id = str(run_meta.get("run_id") or "").strip()
+            parts = [f"Done ({passed}/{len(executions)} passed"]
+            if backends:
+                parts.append(f"via {', '.join(backends[:3])}")
+            if run_id:
+                parts.append(f"run {run_id}")
+            parts.append(")")
+            return " ".join(parts)
+
+    return "Done. Ask for evidence, readiness, or sandbox if needed."
 
 
 class ConversationStore:
@@ -530,7 +517,12 @@ class ConversationalLoopController:
                 outputs=result if isinstance(result, dict) else {"result": result},
                 idempotency_key=f"{trust_run['run_id']}:conversation-result",
             )
-            reply = self._summarize_result(result, ok=ok, intent=intent, objective=objective)
+            reply = self._summarize_result(
+                self._with_trust_run(result, trust_run["run_id"]),
+                ok=ok,
+                intent=intent,
+                objective=objective,
+            )
             self.store.update_session(session_id, mode="listening", last_reply=reply, pending_approval=None)
             self.store.append_turn(
                 session_id,
@@ -575,11 +567,12 @@ class ConversationalLoopController:
         return message
 
     def _evidence_reply(self) -> str:
+        """Format the most recent Trust Runtime runs for a conversation reply."""
         payload = self.trust_store.list_runs(limit=5)
         runs = payload.get("runs") if isinstance(payload.get("runs"), list) else []
         if not runs:
-            return "I do not have Trust Runtime runs to show yet. Run an objective first, then ask me to show evidence."
-        lines = ["Recent Trust Runtime evidence:"]
+            return "No Trust Runtime runs yet. Run an objective first."
+        lines = ["Recent runs:"]
         for run in runs[:5]:
             if not isinstance(run, dict):
                 continue
@@ -588,39 +581,42 @@ class ConversationalLoopController:
             source = str(run.get("source") or "unknown").strip()
             objective = _redact_text(str(run.get("objective") or "").strip())
             steps = run.get("step_count", 0)
-            lines.append(f"- {run_id}: {status} from {source}, steps={steps}, objective={objective[:140]}")
-        lines.append("Open the Trust Runtime tab for full redacted traces and replay/export controls.")
+            lines.append(f"- {run_id}: {status} ({source}, {steps} steps) {objective[:100]}")
+        lines.append("Open Trust Runtime tab for full traces and replay.")
         return "\n".join(lines)
 
     def _readiness_reply(self) -> str:
+        """Summarize model, path, source, and production readiness for the operator."""
         try:
             status = self.status_provider()
         except Exception as exc:
-            return f"I could not read operator readiness: {exc}"
+            return f"Could not read readiness: {_redact_text(str(exc)).strip()[:200]}"
         model = status.get("model") if isinstance(status.get("model"), dict) else {}
         active_path = status.get("active_path") if isinstance(status.get("active_path"), dict) else {}
         production = status.get("production_readiness") if isinstance(status.get("production_readiness"), dict) else {}
         counts = status.get("counts") if isinstance(status.get("counts"), dict) else {}
         warnings = [str(item) for item in (status.get("warnings") or []) if str(item).strip()]
+        path_label = active_path.get('label') or active_path.get('profile_id') or 'not selected'
+        model_str = f"{model.get('provider') or 'none'} / {model.get('model') or 'default'}"
+        auth_ok = bool(model.get('auth_configured', model.get('api_key_configured')))
+        prod_status = production.get('status') or ('ready' if production.get('ready') else 'review')
         lines = [
-            "Readiness check:",
-            f"- Active path: {active_path.get('label') or active_path.get('profile_id') or 'not selected'}",
-            f"- Model: {model.get('provider') or 'not configured'} / {model.get('model') or 'default'}",
-            f"- Model auth configured: {bool(model.get('auth_configured', model.get('api_key_configured')))}",
-            f"- Production readiness: {production.get('status') or ('ready' if production.get('ready') else 'review')}",
-            f"- Learning sources: {counts.get('approved_sources', 0)} approved of {counts.get('learning_sources', 0)} total",
-            f"- Pending evolution candidates: {counts.get('pending_candidates', 0)}",
+            f"Path: {path_label} | Model: {model_str} | Auth: {'ok' if auth_ok else 'missing'} | Prod: {prod_status}",
+            f"Sources: {counts.get('approved_sources', 0)}/{counts.get('learning_sources', 0)} | Candidates: {counts.get('pending_candidates', 0)}",
         ]
         if warnings:
-            lines.append("- Warnings: " + "; ".join(warnings[:5]))
-            lines.append("Next action: resolve the first warning above, then rerun readiness.")
+            lines.append("Warnings: " + "; ".join(warnings[:3]))
         else:
-            lines.append("- Warnings: none reported")
-            lines.append("Next action: run a small sandbox workflow or review the next pending evolution candidate.")
-        return "\n".join(lines)
+            lines.append("Warnings: none")
+        return " | ".join(lines)
 
     def _summarize_result(self, result: Any, *, ok: bool, intent: str, objective: str = "") -> str:
         return summarize_run_result(result, ok=ok, intent=intent, objective=objective)
+
+    def _with_trust_run(self, result: Any, run_id: str) -> Any:
+        if isinstance(result, dict) and "trust_run" not in result:
+            return {**result, "trust_run": self.trust_store.get_run(run_id)}
+        return result
 
     def _next_suggestions(self, intent: str, ok: bool) -> list[str]:
         if not ok:

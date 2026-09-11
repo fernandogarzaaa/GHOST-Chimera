@@ -1,3 +1,4 @@
+/** Initialize the local operator console and wire its browser interactions. */
 (function () {
   "use strict";
   var state = {
@@ -27,6 +28,7 @@
     voiceRestartBlocked: false,
     localVoiceRecording: false,
     conversationMinimized: localStorage.getItem("ghostConversationMinimized") === "1",
+    conversationHidden: localStorage.getItem("ghostConversationHidden") === "1",
   };
 
   function $(sel) { return document.querySelector(sel); }
@@ -179,7 +181,8 @@
     ["setup", "Setup", ["status", "config", "path", "local-models", "readiness"]],
     ["connect", "Connect", ["connections", "integrations", "github", "mcp", "remote"]],
     ["operate", "Operate", ["run", "jobs", "workspace", "memory", "minimind", "rag-builder",
-      "skills", "browser", "activity", "thinking", "live-presence", "latency", "stealth"]],
+      "skills", "browser", "activity", "thinking", "live-presence", "latency", "stealth",
+      "conversation"]],
     ["advanced", "Advanced", ["trust", "evolution", "cognition", "capability-pack", "sandbox",
       "security", "schedules", "review", "capabilities"]],
   ];
@@ -321,6 +324,7 @@
     mic.className = "badge " + (cls || "warn");
   }
 
+  /** Apply the persisted minimized state to the floating conversation panel. */
   function applyConversationMinimized() {
     var panel = $("#ghostConversationPanel");
     var btn = $("#conversationMinimize");
@@ -330,6 +334,158 @@
       btn.textContent = state.conversationMinimized ? "+" : "_";
       btn.title = state.conversationMinimized ? "Expand Ghost Conversation" : "Minimize Ghost Conversation";
     }
+    applyConversationHidden(false);
+  }
+
+  /** Apply the hidden state and optionally tell the operator how to reopen chat. */
+  function applyConversationHidden(notify) {
+    var panel = $("#ghostConversationPanel");
+    if (!panel) return;
+    panel.style.display = state.conversationHidden ? "none" : "";
+    if (notify && state.conversationHidden) {
+      toast("Ghost chat hidden. Reopen it any time from the Conversation tab.", "warn", 5000);
+    }
+  }
+
+  /** Persist and apply whether the floating conversation panel is hidden. */
+  function setConversationHidden(hidden) {
+    state.conversationHidden = !!hidden;
+    try { localStorage.setItem("ghostConversationHidden", state.conversationHidden ? "1" : "0"); } catch (_) {}
+    applyConversationHidden(true);
+  }
+
+  /** Reveal the floating conversation panel and focus its text input. */
+  function showConversationBubble() {
+    state.conversationHidden = false;
+    try { localStorage.removeItem("ghostConversationHidden"); } catch (_) {}
+    var panel = $("#ghostConversationPanel");
+    if (panel) {
+      panel.style.display = "";
+      panel.style.zIndex = "60";
+    }
+    var input = $("#conversationTextInput");
+    if (input) input.focus();
+  }
+
+  /** Make the conversation panel draggable and restore its saved browser position. */
+  function initConversationDrag() {
+    var panel = $("#ghostConversationPanel");
+    if (!panel) return;
+    var header = panel.querySelector(".conversation-head");
+    if (!header) return;
+    try {
+      var savedLeft = localStorage.getItem("ghostConversationLeft");
+      var savedTop = localStorage.getItem("ghostConversationTop");
+      if (savedLeft !== null && savedTop !== null) {
+        panel.style.left = savedLeft + "px";
+        panel.style.top = savedTop + "px";
+        panel.style.right = "auto";
+        panel.style.bottom = "auto";
+      }
+    } catch (_) {}
+    header.style.cursor = "move";
+    var dragging = false, startX = 0, startY = 0, origLeft = 0, origTop = 0;
+    header.addEventListener("pointerdown",
+      /** Begin dragging unless the pointer event came from a panel button. */
+      function(e) {
+      if (e.target.closest("button")) return;
+      dragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      var rect = panel.getBoundingClientRect();
+      origLeft = rect.left;
+      origTop = rect.top;
+      panel.style.left = origLeft + "px";
+      panel.style.top = origTop + "px";
+      panel.style.right = "auto";
+      panel.style.bottom = "auto";
+      try { header.setPointerCapture(e.pointerId); } catch (_) {}
+      });
+    header.addEventListener("pointermove",
+      /** Move the panel with the active pointer while keeping it on screen. */
+      function(e) {
+      if (!dragging) return;
+      var maxLeft = Math.max(0, window.innerWidth - panel.offsetWidth);
+      var maxTop = Math.max(0, window.innerHeight - panel.offsetHeight);
+      panel.style.left = Math.min(maxLeft, Math.max(0, origLeft + e.clientX - startX)) + "px";
+      panel.style.top = Math.min(maxTop, Math.max(0, origTop + e.clientY - startY)) + "px";
+    });
+    header.addEventListener("pointerup",
+      /** Finish dragging and save the resulting panel position. */
+      function() {
+      if (!dragging) return;
+      dragging = false;
+      try {
+        localStorage.setItem("ghostConversationLeft", String(parseInt(panel.style.left, 10) || 0));
+        localStorage.setItem("ghostConversationTop", String(parseInt(panel.style.top, 10) || 0));
+      } catch (_) {}
+      });
+    try {
+      state.conversationHidden = localStorage.getItem("ghostConversationHidden") === "1";
+    } catch (_) {}
+    try {
+      state.conversationHidden = localStorage.getItem("ghostConversationHidden") === "1";
+    } catch (_) {}
+    applyConversationHidden(false);
+  }
+
+  // Collapsible turns: one-line summary + expandable verbose body.
+  var TURN_PREVIEW_CHARS = 240;
+
+  /** Return a compact first-sentence preview for a conversation turn. */
+  function firstSentence(text) {
+    var match = String(text).match(/^(.{20,280}?[.!?])(\s|$)/);
+    return match ? match[1].trim() : String(text).slice(0, TURN_PREVIEW_CHARS).trim();
+  }
+
+  /** Build a conversation turn node with expandable content when needed. */
+  function renderTurnNode(role, content) {
+    var wrap = el("div", { class: "turn turn-" + (role === "ghost" ? "ghost" : "you") });
+    var head = el("div", { class: "turn-role" });
+    head.textContent = role === "ghost" ? "Ghost" : "You";
+    wrap.appendChild(head);
+    var text = String(content || "");
+    if (text.length <= TURN_PREVIEW_CHARS) {
+      var short = el("div", { class: "turn-text" });
+      short.textContent = text;
+      wrap.appendChild(short);
+      return wrap;
+    }
+    var preview = el("div", { class: "turn-text" });
+    preview.textContent = firstSentence(text);
+    wrap.appendChild(preview);
+    var full = el("div", { class: "turn-text turn-full" });
+    full.textContent = text;
+    full.style.display = "none";
+    wrap.appendChild(full);
+    var toggle = el("button", { class: "turn-toggle", type: "button" });
+    toggle.textContent = "Show full reply";
+    toggle.addEventListener("click",
+      /** Toggle between the compact preview and complete turn content. */
+      function() {
+      var open = full.style.display === "none";
+      full.style.display = open ? "" : "none";
+      preview.style.display = open ? "none" : "";
+      toggle.textContent = open ? "Show less" : "Show full reply";
+      });
+    wrap.appendChild(toggle);
+    return wrap;
+  }
+
+  /** Replace a transcript container with the most recent conversation turns. */
+  function renderTurnList(container, turns) {
+    if (!container) return;
+    container.innerHTML = "";
+    if (!turns.length) {
+      container.textContent = "Transcript will appear here after Ghost hears you.";
+      return;
+    }
+    turns.slice(-8).forEach(
+      /** Append one rendered turn to the transcript. */
+      function(t) {
+      container.appendChild(renderTurnNode(t.role, t.content));
+      });
+    container.scrollTop = container.scrollHeight;
   }
 
   function toggleConversationMinimized() {
@@ -338,6 +494,7 @@
     applyConversationMinimized();
   }
 
+  /** Render conversation settings, transcript, reply, and microphone status. */
   function renderConversationStatus(data) {
     state.conversation = data;
     var session = data && data.active_session;
@@ -377,10 +534,21 @@
       } else if (state.pendingEcho && text.indexOf(state.pendingEcho) !== -1) {
         state.pendingEcho = "";
       }
-      transcript.textContent = text || "Transcript will appear here after Ghost hears you.";
+      var list = turns.slice(-8).map(
+        /** Normalize an API turn for the shared transcript renderer. */
+        function(t) {
+        return { role: t.role, content: t.content };
+        });
+      if (state.pendingEcho) list.push({ role: "you", content: state.pendingEcho.replace(/^You:\s*/, "") });
+      renderTurnList(transcript, list);
+      renderTurnList($("#conversationMirror"), list);
     }
     var reply = $("#conversationReply");
-    if (reply && session) reply.textContent = session.last_reply || "Ghost is listening for your next instruction.";
+    if (reply && session) {
+      var lastReply = session.last_reply || "Ghost is listening for your next instruction.";
+      reply.innerHTML = "";
+      reply.appendChild(renderTurnNode("ghost", lastReply));
+    }
     var mode = session && session.mode ? session.mode : (settings.always_listening ? "listening" : "muted");
     if (settings.full_bypass) setConversationMicState("Bypass Armed", "error");
     else if (mode === "listening") setConversationMicState("Listening", "ok");
@@ -3067,6 +3235,13 @@
   });
   $("#conversationWake").addEventListener("click", function() { sendConversationMessage("Hey Ghost wake up", "text"); });
   $("#conversationMinimize").addEventListener("click", toggleConversationMinimized);
+  $("#conversationHide").addEventListener("click",
+    /** Hide the conversation panel from its close control. */
+    function() { setConversationHidden(true); });
+  $("#conversationOpenBubble").addEventListener("click",
+    /** Reopen the conversation panel from the dedicated tab. */
+    function() { showConversationBubble(); });
+  initConversationDrag();
   (function wireHoldToTalk() {
     var btn = $("#conversationHoldToTalk");
     if (!btn) return;
@@ -4476,7 +4651,9 @@
       recordSetupStep(btn.getAttribute("data-step"), btn.getAttribute("data-target"));
     });
   });
-  $("#operatorCommandSearch").addEventListener("keydown", function(e) {
+  $("#operatorCommandSearch").addEventListener("keydown",
+    /** Route an entered operator keyword to the most relevant console tab. */
+    function(e) {
     if (e.key !== "Enter") return;
     var q = ($("#operatorCommandSearch").value || "").toLowerCase();
     var targets = [
@@ -4488,11 +4665,12 @@
       ["run", "run"], ["latency", "latency"], ["local", "local-models"],
       ["slack", "integrations"], ["notion", "integrations"], ["connect", "integrations"],
       ["integration", "integrations"], ["github login", "integrations"], ["gmail", "integrations"],
-      ["stealth", "stealth"], ["draft", "stealth"], ["activity", "stealth"], ["approve", "stealth"]
+      ["stealth", "stealth"], ["draft", "stealth"], ["activity", "stealth"], ["approve", "stealth"],
+      ["chat", "conversation"], ["conversation", "conversation"], ["talk", "conversation"]
     ];
     var hit = targets.find(function(item) { return q.indexOf(item[0]) !== -1; });
     openTab(hit ? hit[1] : "operator");
-  });
+    });
   $("#addEvolutionSource").addEventListener("click", addLearningSource);
   $("#integrationsRefresh").addEventListener("click", refreshIntegrations);
   $("#stealthRefresh").addEventListener("click", refreshStealth);
@@ -4547,6 +4725,7 @@
     }
   }
 
+  /** Start provider authorization and poll for the completed connection. */
   async function connectIntegration(p, out) {
     try {
       var entityId = "console-user";
@@ -4554,18 +4733,102 @@
       var data = await api("/api/auth/authorize",
         { method: "POST", body: { provider: p.key, entity_id: entityId, redirect_uri: redirect } });
       if (!data.ok) {
-        if (out) out.textContent = "Cannot start " + p.display + " login: " +
-          (data.error || "unavailable") + ". Add the provider client ID to the environment first.";
-        else toast("Login unavailable for " + p.display + ".", "warn");
+        if (data.error && data.error.indexOf("No client ID") !== -1) {
+          showClientIdSetup(p, out, entityId, redirect);
+        } else if (out) {
+          out.textContent = "Cannot start " + p.display + " login: " + (data.error || "unavailable");
+        } else {
+          toast("Login unavailable for " + p.display + ".", "warn");
+        }
         return;
       }
       window.open(data.authorize_url, "_blank");
       if (out) out.textContent = "Login window opened for " + p.display +
-        ". Approve access, then press Refresh Status. Tokens stay encrypted on this machine.";
-      toast("Complete the " + p.display + " login, then Refresh Status.", "ok");
+        ". Approve access — this tab will detect the connection automatically.";
+      toast("Complete the " + p.display + " login.", "ok");
+      pollForConnection(p, out, entityId);
     } catch (e) {
       if (out) out.textContent = "Error: " + e.message;
     }
+  }
+
+  /** Render the one-time provider client ID setup form in the console. */
+  function showClientIdSetup(p, out, entityId, redirect) {
+    // One-time setup, in-UI: paste the provider's public client ID once,
+    // Ghost saves it locally and retries the login automatically.
+    var host = out || $("#integrationOutput");
+    if (!host) { toast("Add a client ID for " + p.display + " first.", "warn"); return; }
+    host.innerHTML = "";
+    var title = el("div", { class: "name" });
+    title.textContent = "One-time setup for " + p.display;
+    host.appendChild(title);
+    var help = el("div", { class: "meta" });
+    var needsSecret = (p.key === "freshdesk" || p.key === "hubstaff");
+    help.textContent = needsSecret
+      ? "This provider needs a confidential OAuth client: create it in the provider console, then set its secret in the <PRESET>_CLIENT_SECRET environment variable (FRESHDESK_CLIENT_SECRET or HUBSTAFF_CLIENT_SECRET). Paste its Client ID below."
+      : "Create a free OAuth client (Desktop app type, no secret needed), then paste its Client ID. Full walkthrough shown below after saving.";
+    host.appendChild(help);
+    var row = el("div", { class: "row" });
+    var input = document.createElement("input");
+    input.placeholder = p.key + " client ID (public, safe to paste)";
+    input.style.flex = "3";
+    row.appendChild(input);
+    var save = el("button", { class: "primary" });
+    save.textContent = "Save & connect";
+    save.addEventListener("click",
+      /** Save the entered client ID and retry the provider connection. */
+      async function() {
+      var clientId = (input.value || "").trim();
+      if (!clientId) { toast("Paste the client ID first.", "warn"); return; }
+      save.disabled = true;
+      try {
+        var res = await api("/api/auth/client-id",
+          { method: "POST", body: { provider: p.key, client_id: clientId } });
+        if (!res.ok) throw new Error(res.error || "save failed");
+        toast("Client ID saved. Opening login…", "ok");
+        connectIntegration(p, out);
+      } catch (e) {
+        toast(e.message, "error");
+        save.disabled = false;
+      }
+      });
+    row.appendChild(save);
+    host.appendChild(row);
+    var steps = el("div", { class: "meta" });
+    steps.textContent = "Where to get it: provider developer console → create OAuth client " +
+      "(Desktop/native app type) → copy the Client ID. Approve the login in the popup; " +
+      "tokens stay encrypted on this machine.";
+    host.appendChild(steps);
+    input.focus();
+  }
+
+  var connectPollTimer = null;
+  /** Poll connection status until the provider becomes active or attempts expire. */
+  function pollForConnection(p, out, entityId) {
+    if (connectPollTimer) clearInterval(connectPollTimer);
+    var attempts = 0;
+    connectPollTimer = setInterval(
+      /** Check one connection polling interval and refresh the UI on success. */
+      async function() {
+      attempts++;
+      if (attempts > 40) { clearInterval(connectPollTimer); connectPollTimer = null; return; }
+      try {
+        var status = await api("/api/auth/status",
+          { method: "POST", body: { entity_id: entityId } });
+        var found = ((status && status.connections) || []).some(
+          /** Identify the active connection for the provider being authorized. */
+          function(c) {
+          return c.provider === p.key && c.status === "ACTIVE";
+          });
+        if (found) {
+          clearInterval(connectPollTimer);
+          connectPollTimer = null;
+          toast(p.display + " connected.", "ok");
+          refreshIntegrations();
+          refreshFirstRun();
+        }
+      } catch (_) {}
+      }, 3000);
   }
 
   async function refreshFirstRun() {

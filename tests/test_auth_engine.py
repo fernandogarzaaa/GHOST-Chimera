@@ -102,6 +102,36 @@ def test_callback_replay_and_tamper_guards(tmp_path, monkeypatch) -> None:
         engine.close()
 
 
+def test_callback_rejects_rebound_entity_and_reuses_stored_redirect(tmp_path, monkeypatch) -> None:
+    from ghostchimera.connectors.auth_engine import _b64url_decode, _b64url_encode
+
+    calls: list = []
+    engine = _engine(tmp_path, monkeypatch, calls)
+    try:
+        auth = engine.authorize_url("slack", "va-1", "https://app.example/cb")
+        forged_payload = _b64url_decode(auth["state"])
+        forged_payload["entity_id"] = "mallory"
+        with pytest.raises(AuthEngineError):
+            engine.handle_callback("slack", "code-x", _b64url_encode(forged_payload), "https://app.example/cb")
+
+        posted: list = []
+
+        def capture(kind: str, url: str, payload):
+            posted.append(payload if isinstance(payload, dict) else {})
+            return 200, json.dumps({"access_token": "at-9", "expires_in": 3600}).encode()
+
+        engine2 = CustomAuthEngine(tmp_path, transport=capture)
+        try:
+            auth2 = engine2.authorize_url("slack", "va-1", "https://app.example/cb")
+            done = engine2.handle_callback("slack", "code-y", auth2["state"], "http://rogue/cb")
+            assert done["ok"] is True and done["entity_id"] == "va-1"
+            assert posted and posted[0]["redirect_uri"] == "https://app.example/cb"
+        finally:
+            engine2.close()
+    finally:
+        engine.close()
+
+
 def test_valid_token_without_refresh(tmp_path, monkeypatch) -> None:
     calls: list = []
     engine = _engine(tmp_path, monkeypatch, calls)
@@ -238,6 +268,33 @@ def test_redaction_everywhere(tmp_path, monkeypatch) -> None:
         assert engine.revoke("va-1", "slack") is False
         with pytest.raises(NeedsReauth):
             engine.get_valid_token("va-1", "slack")
+    finally:
+        engine.close()
+
+
+def test_client_id_fallback_chain_and_source(tmp_path, monkeypatch) -> None:
+    """Prefer environment client IDs and fall back to shipped shared IDs."""
+    from ghostchimera.connectors import auth_engine as engine_mod
+    from ghostchimera.connectors.auth_engine import CustomAuthEngine
+    from ghostchimera.control_plane import config as config_mod
+
+    monkeypatch.setattr(config_mod, "CONFIG_FILE", tmp_path / "config.json")
+    calls: list = []
+    engine = CustomAuthEngine(tmp_path, transport=_transport_factory(calls))
+    try:
+        for var in ("SLACK_CLIENT_ID",):
+            monkeypatch.delenv(var, raising=False)
+        assert engine.client_id_source("slack") in ("saved", "none", "shared")
+        monkeypatch.setenv("SLACK_CLIENT_ID", "cid-env")
+        assert engine._client_id("slack") == "cid-env"
+        assert engine.client_id_source("slack") == "environment"
+        monkeypatch.setitem(engine_mod.SHIPPED_CLIENT_IDS, "slack", "cid-shipped")
+        try:
+            monkeypatch.delenv("SLACK_CLIENT_ID", raising=False)
+            assert engine._client_id("slack") == "cid-shipped"
+            assert engine.client_id_source("slack") == "shared"
+        finally:
+            engine_mod.SHIPPED_CLIENT_IDS.pop("slack", None)
     finally:
         engine.close()
 
