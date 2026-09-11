@@ -153,7 +153,7 @@ def summarize_run_result(result: Any, *, ok: bool, intent: str = "run", objectiv
         return str(result["operator_report"])
     if not ok:
         if isinstance(result, dict) and result.get("error"):
-            return f"Failed: {result.get('error')[:200]}"
+            return f"Failed: {_redact_text(str(result.get('error'))).strip()[:200]}"
         if isinstance(result, dict) and isinstance(result.get("executions"), list):
             errors = [
                 _redact_text(str(item.get("error") or "").strip())
@@ -517,7 +517,12 @@ class ConversationalLoopController:
                 outputs=result if isinstance(result, dict) else {"result": result},
                 idempotency_key=f"{trust_run['run_id']}:conversation-result",
             )
-            reply = self._summarize_result(result, ok=ok, intent=intent, objective=objective)
+            reply = self._summarize_result(
+                self._with_trust_run(result, trust_run["run_id"]),
+                ok=ok,
+                intent=intent,
+                objective=objective,
+            )
             self.store.update_session(session_id, mode="listening", last_reply=reply, pending_approval=None)
             self.store.append_turn(
                 session_id,
@@ -585,7 +590,7 @@ class ConversationalLoopController:
         try:
             status = self.status_provider()
         except Exception as exc:
-            return f"Could not read readiness: {exc}"
+            return f"Could not read readiness: {_redact_text(str(exc)).strip()[:200]}"
         model = status.get("model") if isinstance(status.get("model"), dict) else {}
         active_path = status.get("active_path") if isinstance(status.get("active_path"), dict) else {}
         production = status.get("production_readiness") if isinstance(status.get("production_readiness"), dict) else {}
@@ -607,6 +612,11 @@ class ConversationalLoopController:
 
     def _summarize_result(self, result: Any, *, ok: bool, intent: str, objective: str = "") -> str:
         return summarize_run_result(result, ok=ok, intent=intent, objective=objective)
+
+    def _with_trust_run(self, result: Any, run_id: str) -> Any:
+        if isinstance(result, dict) and "trust_run" not in result:
+            return {**result, "trust_run": self.trust_store.get_run(run_id)}
+        return result
 
     def _next_suggestions(self, intent: str, ok: bool) -> list[str]:
         if not ok:

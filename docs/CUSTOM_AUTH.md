@@ -95,5 +95,21 @@ Per-provider reality check:
 | Google (Gmail) | **sensitive scopes**: brand verification + privacy policy + review (weeks); 100 test-user cap until verified |
 | LinkedIn, HubSpot, Salesforce | developer program signup each; verify per product |
 
+Public clients (PKCE, no secret) vs confidential clients: the engine reads
+`<PRESET>_CLIENT_SECRET` from the environment at token-exchange time and omits
+it when empty. Providers whose preset sets `use_pkce` (`oauth.py`) work with a
+public Desktop/native client and no secret:
+
+GitHub, Slack, Notion, LinkedIn, Google, Zendesk, Gorgias, HubSpot,
+Salesforce, Airtable, Time Doctor.
+
+These two require a confidential client **plus** its secret in the
+environment — a public client alone cannot complete login:
+
+| Provider | Secret env var |
+|---|---|
+| Freshdesk | `FRESHDESK_CLIENT_SECRET` |
+| Hubstaff | `HUBSTAFF_CLIENT_SECRET` |
+
 Until a shared ID ships for a provider, users paste their own client ID
 once in the Integrations tab (bring-your-own, same UX, their quota).

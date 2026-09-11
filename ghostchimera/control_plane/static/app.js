@@ -405,9 +405,11 @@
       /** Move the panel with the active pointer while keeping it on screen. */
       function(e) {
       if (!dragging) return;
-      panel.style.left = Math.max(0, origLeft + e.clientX - startX) + "px";
-      panel.style.top = Math.max(0, origTop + e.clientY - startY) + "px";
-      });
+      var maxLeft = Math.max(0, window.innerWidth - panel.offsetWidth);
+      var maxTop = Math.max(0, window.innerHeight - panel.offsetHeight);
+      panel.style.left = Math.min(maxLeft, Math.max(0, origLeft + e.clientX - startX)) + "px";
+      panel.style.top = Math.min(maxTop, Math.max(0, origTop + e.clientY - startY)) + "px";
+    });
     header.addEventListener("pointerup",
       /** Finish dragging and save the resulting panel position. */
       function() {
@@ -4761,7 +4763,10 @@
     title.textContent = "One-time setup for " + p.display;
     host.appendChild(title);
     var help = el("div", { class: "meta" });
-    help.textContent = "Create a free OAuth client (Desktop app type, no secret needed), then paste its Client ID. Full walkthrough shown below after saving.";
+    var needsSecret = (p.key === "freshdesk" || p.key === "hubstaff");
+    help.textContent = needsSecret
+      ? "This provider needs a confidential OAuth client: create it in the provider console, then set its secret in the <PRESET>_CLIENT_SECRET environment variable (FRESHDESK_CLIENT_SECRET or HUBSTAFF_CLIENT_SECRET). Paste its Client ID below."
+      : "Create a free OAuth client (Desktop app type, no secret needed), then paste its Client ID. Full walkthrough shown below after saving.";
     host.appendChild(help);
     var row = el("div", { class: "row" });
     var input = document.createElement("input");

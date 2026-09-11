@@ -118,6 +118,24 @@ class ConversationRuntimeTests(unittest.TestCase):
             self.assertEqual(runs[0]["source"], "conversation")
             self.assertIn("trust_run", result)
 
+    def test_run_reply_includes_trust_run_id_when_runner_omits_it(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-conversation-") as tmp:
+            trust = TrustRuntimeStore(Path(tmp) / "trust")
+            controller = ConversationalLoopController(
+                state_dir=tmp,
+                trust_store=trust,
+                objective_runner=lambda objective: {
+                    "ok": True,
+                    "executions": [{"ok": True, "backend_id": "deterministic.local", "output": "ok"}],
+                },
+            )
+            session = controller.create_session(always_listening=True)
+            result = controller.handle_turn(session["session_id"], "inspect runtime")
+
+            run_id = trust.list_runs()["runs"][0]["run_id"]
+            self.assertTrue(result["ok"])
+            self.assertIn(run_id, result["reply"])
+
     def test_successful_run_reply_is_operator_report_not_generic_placeholder(self) -> None:
         """Include execution and Trust Runtime details in a successful run reply."""
         result = {
@@ -142,6 +160,21 @@ class ConversationRuntimeTests(unittest.TestCase):
 
         self.assertIn("provider failed", reply)
         self.assertNotEqual(reply, "I could not complete that. Check Trust Runtime for details.")
+
+    def test_error_replies_redact_secret_like_text(self) -> None:
+        reply = summarize_run_result({"ok": False, "error": "boom token sk-testsecret123456"}, ok=False)
+
+        self.assertNotIn("sk-testsecret123456", reply)
+        self.assertIn("[redacted]", reply)
+
+        def _boom():
+            raise RuntimeError("readiness blew up on sk-testsecret123456")
+
+        with tempfile.TemporaryDirectory(prefix="ghost-conversation-") as tmp:
+            controller = ConversationalLoopController(state_dir=tmp, status_provider=_boom)
+            session = controller.create_session(always_listening=True)
+            result = controller.handle_turn(session["session_id"], "readiness status")
+            self.assertNotIn("sk-testsecret123456", result["reply"])
 
     def test_show_evidence_returns_recent_trust_runs(self) -> None:
         """Return recent Trust Runtime evidence for the evidence intent."""
