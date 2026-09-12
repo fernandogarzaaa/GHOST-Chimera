@@ -1310,6 +1310,19 @@
       <button id="browserOpen" class="primary">Open</button>
       <button id="browserSnapshot">Snapshot</button>
     </div>
+    <div class="section-hdr">Debuggable Chrome (computer use)</div>
+    <div id="browserDebugRow" class="list-item" style="margin-bottom:10px;">
+      <span class="name">Debug Chrome</span>
+      <span id="browserDebugBadge" class="badge">checking</span>
+      <span id="browserDebugDetail" class="meta"></span>
+    </div>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="browserDebugPort" placeholder="9222" style="flex:1;">
+      <label class="inline-check"><input id="browserDebugHeadless" type="checkbox" checked> headless</label>
+      <button id="browserDebugLaunch" class="primary">Launch</button>
+      <button id="browserDebugStop">Stop</button>
+      <button id="browserDebugRefresh">↺ Refresh</button>
+    </div>
     <pre class="output" id="browserOutput">Ready.</pre>
   </div>
 

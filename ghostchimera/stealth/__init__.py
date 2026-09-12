@@ -21,6 +21,7 @@ from .agent_prompt import (
 )
 from .attention import AttentionContext, AttentionEngine, AttentionSignal
 from .bpo_store import BpoStore
+from .cdp import CdpClient, CdpError
 from .computer import (
     ComputerAction,
     ComputerApproval,
@@ -32,6 +33,15 @@ from .computer import (
     ComputerUseProvider,
     DelegatingComputerProvider,
     classify_risk,
+)
+from .computer_live import (
+    LIVE_OPERATIONS,
+    CdpBrowserExecutor,
+    OpenCodeVisionExecutor,
+    PyAutoGuiDesktopExecutor,
+    attach_live_backends,
+    attach_managed_browser,
+    live_capability,
 )
 from .eval import EvalReport, StealthEval
 from .eve_model import (
@@ -108,6 +118,9 @@ __all__ = [
     "AttentionContext",
     "BpoStore",
     "BackendFn",
+    "CdpBrowserExecutor",
+    "CdpClient",
+    "CdpError",
     "ClaudeCodeAdapter",
     "CodexAdapter",
     "ComputerAction",
@@ -148,6 +161,7 @@ __all__ = [
     "InterventionState",
     "LoopResult",
     "MaturityThresholds",
+    "OpenCodeVisionExecutor",
     "OpenClawAdapter",
     "OpenCodeAdapter",
     "OutcomeState",
@@ -178,10 +192,15 @@ __all__ = [
     "WorkflowMaturityState",
     "WorkflowMaturityTracker",
     "WorldState",
+    "LIVE_OPERATIONS",
+    "PyAutoGuiDesktopExecutor",
+    "attach_live_backends",
+    "attach_managed_browser",
     "classify_risk",
     "define_hook",
     "gate_agent_action",
     "ghost_on",
+    "live_capability",
     "new_event",
     "parse_agent_output",
     "read_only_consumer",

@@ -57,6 +57,7 @@ from .openai_compatible_providers import (
     VultrInferenceProvider,
     XAIProvider,
 )
+from .opencode_cli_provider import OpenCodeCliProvider
 
 if TYPE_CHECKING:
     from .auth_profiles import AuthProfile
@@ -332,6 +333,7 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
     NvidiaProvider.name: NvidiaProvider,
     OllamaProvider.name: OllamaProvider,
     OpenAIProvider.name: OpenAIProvider,
+    OpenCodeCliProvider.name: OpenCodeCliProvider,
     OpenRouterProvider.name: OpenRouterProvider,
     PerplexityProvider.name: PerplexityProvider,
     QwenProvider.name: QwenProvider,
@@ -366,6 +368,7 @@ TEXT_PROVIDERS: dict[str, type[BaseProvider]] = {
     NvidiaProvider.name: NvidiaProvider,
     OllamaProvider.name: OllamaProvider,
     OpenAIProvider.name: OpenAIProvider,
+    OpenCodeCliProvider.name: OpenCodeCliProvider,
     OpenRouterProvider.name: OpenRouterProvider,
     PerplexityProvider.name: PerplexityProvider,
     QwenProvider.name: QwenProvider,
