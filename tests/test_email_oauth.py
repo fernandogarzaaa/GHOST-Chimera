@@ -159,9 +159,7 @@ class EmailOAuthTests(unittest.TestCase):
         def fake_urlopen(request: object, *, timeout: float, context: object | None = None) -> FakeResponse:
             calls.append(context)
             if context is not windows_context:
-                raise urllib.error.URLError(
-                    ssl.SSLCertVerificationError("unable to get local issuer certificate")
-                )
+                raise urllib.error.URLError(ssl.SSLCertVerificationError("unable to get local issuer certificate"))
             return FakeResponse()
 
         with (
@@ -180,7 +178,9 @@ class EmailOAuthTests(unittest.TestCase):
         windows_context = ssl.create_default_context()
 
         def fake_urlopen(_request: object, *, timeout: float, context: object | None = None) -> object:
-            raise urllib.error.URLError(ssl.SSLCertVerificationError("Basic Constraints of CA cert not marked critical"))
+            raise urllib.error.URLError(
+                ssl.SSLCertVerificationError("Basic Constraints of CA cert not marked critical")
+            )
 
         completed = subprocess.CompletedProcess(
             args=["powershell"],

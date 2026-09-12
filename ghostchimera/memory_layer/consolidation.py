@@ -201,9 +201,7 @@ class MemoryConsolidator:
         report.expired_stale = self.expire_stale(now=now)
         return report
 
-    def _extract_triple(
-        self, content: str, metadata: dict[str, Any]
-    ) -> tuple[str, str, str] | None:
+    def _extract_triple(self, content: str, metadata: dict[str, Any]) -> tuple[str, str, str] | None:
         """Derive a (subject, predicate, object) triple for the semantic graph.
 
         Structured metadata wins; otherwise a minimal triple grammar is applied

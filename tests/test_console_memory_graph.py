@@ -59,9 +59,7 @@ def test_consolidation_promotes_and_graph_surfaces_fact(tmp_path, monkeypatch):
     )
 
     consolidate = server.routes.find("POST", "/api/console/memory/consolidate")
-    result = consolidate.handler(
-        _ctx("POST", "/api/console/memory/consolidate", body={"promotion_threshold": 0.3})
-    )
+    result = consolidate.handler(_ctx("POST", "/api/console/memory/consolidate", body={"promotion_threshold": 0.3}))
     assert result["ok"] is True
     assert result["report"]["promoted"] == 1
 

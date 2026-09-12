@@ -183,7 +183,9 @@ class MCPClient:
                     ],
                     "is_error": result.get("isError", False),
                 }
-                envelope = build_tool_trust_envelope(name, arguments=arguments, source=f"mcp:{self.name}", output=payload)
+                envelope = build_tool_trust_envelope(
+                    name, arguments=arguments, source=f"mcp:{self.name}", output=payload
+                )
                 payload["trust_envelope"] = envelope.to_dict()
                 run_id = os.environ.get("GHOSTCHIMERA_TRUST_RUN_ID", "").strip()
                 if run_id:

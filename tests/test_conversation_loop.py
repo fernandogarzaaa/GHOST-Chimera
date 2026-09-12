@@ -140,9 +140,7 @@ class ConversationRuntimeTests(unittest.TestCase):
         """Include execution and Trust Runtime details in a successful run reply."""
         result = {
             "ok": True,
-            "executions": [
-                {"ok": True, "backend_id": "deterministic.local", "output": "workspace status inspected"}
-            ],
+            "executions": [{"ok": True, "backend_id": "deterministic.local", "output": "workspace status inspected"}],
             "trust_run": {"run": {"run_id": "run-123"}, "tool_calls": [], "approvals": []},
         }
 

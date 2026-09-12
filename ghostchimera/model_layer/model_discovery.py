@@ -184,7 +184,9 @@ def refresh_model_discovery(
             }
             continue
         new_models = [model.to_dict() for model in models]
-        refresh_alerts.extend(_detect_model_alerts(source, cache.get("models", {}).get(source, []), new_models, timestamp))
+        refresh_alerts.extend(
+            _detect_model_alerts(source, cache.get("models", {}).get(source, []), new_models, timestamp)
+        )
         cache["models"][source] = new_models
         cache["sources"][source] = {
             "ok": True,
@@ -242,11 +244,17 @@ def select_discovered_model(
     }
 
 
-def normalize_openrouter_models(payload: dict[str, Any], *, has_api_key: bool, timestamp: float) -> list[DiscoveredModel]:
+def normalize_openrouter_models(
+    payload: dict[str, Any], *, has_api_key: bool, timestamp: float
+) -> list[DiscoveredModel]:
     models = payload.get("data", [])
     if not isinstance(models, list):
         raise ValueError("OpenRouter response missing data list")
-    return [_openrouter_model(item, has_api_key=has_api_key, timestamp=timestamp) for item in models if isinstance(item, dict)]
+    return [
+        _openrouter_model(item, has_api_key=has_api_key, timestamp=timestamp)
+        for item in models
+        if isinstance(item, dict)
+    ]
 
 
 def normalize_vultr_models(payload: dict[str, Any], *, timestamp: float) -> list[DiscoveredModel]:
@@ -256,7 +264,9 @@ def normalize_vultr_models(payload: dict[str, Any], *, timestamp: float) -> list
     return [_vultr_model(item, timestamp=timestamp) for item in models if isinstance(item, dict)]
 
 
-def normalize_huggingface_models(payload: dict[str, Any] | list[Any], *, has_api_key: bool, timestamp: float) -> list[DiscoveredModel]:
+def normalize_huggingface_models(
+    payload: dict[str, Any] | list[Any], *, has_api_key: bool, timestamp: float
+) -> list[DiscoveredModel]:
     models = payload if isinstance(payload, list) else payload.get("models", [])
     if not isinstance(models, list):
         raise ValueError("Hugging Face response missing models list")
@@ -267,7 +277,9 @@ def normalize_huggingface_models(payload: dict[str, Any] | list[Any], *, has_api
     ]
 
 
-def normalize_local_models(payload: dict[str, Any], *, provider: str, base_url: str, timestamp: float) -> list[DiscoveredModel]:
+def normalize_local_models(
+    payload: dict[str, Any], *, provider: str, base_url: str, timestamp: float
+) -> list[DiscoveredModel]:
     models = payload.get("data") or payload.get("models") or []
     if not isinstance(models, list):
         raise ValueError("Local model response missing models list")
@@ -301,7 +313,9 @@ def normalize_local_models(payload: dict[str, Any], *, provider: str, base_url: 
     return normalized
 
 
-def _discover_source(source: str, *, config: dict[str, Any], fetch_json: FetchJson, timestamp: float) -> list[DiscoveredModel]:
+def _discover_source(
+    source: str, *, config: dict[str, Any], fetch_json: FetchJson, timestamp: float
+) -> list[DiscoveredModel]:
     if source == "openrouter":
         api_key = _configured_secret(config, "openrouter")
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
@@ -316,7 +330,9 @@ def _discover_source(source: str, *, config: dict[str, Any], fetch_json: FetchJs
     if source == "huggingface":
         api_key = _configured_secret(config, "huggingface")
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        params = urllib_parse.urlencode({"filter": "text-generation", "sort": "downloads", "direction": "-1", "limit": "50"})
+        params = urllib_parse.urlencode(
+            {"filter": "text-generation", "sort": "downloads", "direction": "-1", "limit": "50"}
+        )
         payload = fetch_json(f"https://huggingface.co/api/models?{params}", headers, 10.0)
         return normalize_huggingface_models(payload, has_api_key=bool(api_key), timestamp=timestamp)
     if source == "local":
@@ -334,7 +350,9 @@ def _discover_local(*, fetch_json: FetchJson, timestamp: float) -> list[Discover
     for provider, base_url, models_url in endpoints:
         try:
             payload = fetch_json(models_url, {}, 2.0)
-            discovered.extend(normalize_local_models(_ensure_dict(payload), provider=provider, base_url=base_url, timestamp=timestamp))
+            discovered.extend(
+                normalize_local_models(_ensure_dict(payload), provider=provider, base_url=base_url, timestamp=timestamp)
+            )
         except Exception as exc:  # pragma: no cover - depends on local services
             errors.append(_safe_error(exc))
     if not discovered and errors:
@@ -350,7 +368,9 @@ def _openrouter_model(item: dict[str, Any], *, has_api_key: bool, timestamp: flo
     modalities = sorted({*(input_modalities or ["text"]), *output_modalities})
     pricing = item.get("pricing") if isinstance(item.get("pricing"), dict) else {}
     supported = _listify(item.get("supported_parameters"))
-    badges = _capability_badges(model_id, item.get("name", model_id), modalities, supported, int(item.get("context_length") or 0), pricing)
+    badges = _capability_badges(
+        model_id, item.get("name", model_id), modalities, supported, int(item.get("context_length") or 0), pricing
+    )
     return DiscoveredModel(
         source="openrouter",
         provider="openrouter",
@@ -467,7 +487,9 @@ def _configured_secret(config: dict[str, Any], provider: str) -> str:
     return ""
 
 
-def _find_cached_model(cache: dict[str, Any], *, provider: str, model_id: str, source: str = "") -> dict[str, Any] | None:
+def _find_cached_model(
+    cache: dict[str, Any], *, provider: str, model_id: str, source: str = ""
+) -> dict[str, Any] | None:
     for cached_source, items in cache.get("models", {}).items():
         if source and cached_source != source:
             continue
@@ -600,7 +622,13 @@ def _detect_model_alerts(
         gained = sorted(new_badges - old_badges)
         if gained:
             alerts.append(
-                {"source": source, "model_id": model_id, "kind": "capabilities_added", "added": gained, "timestamp": timestamp}
+                {
+                    "source": source,
+                    "model_id": model_id,
+                    "kind": "capabilities_added",
+                    "added": gained,
+                    "timestamp": timestamp,
+                }
             )
     for model_id in sorted(set(next_by_id) - set(previous_by_id)):
         alerts.append({"source": source, "model_id": model_id, "kind": "added", "timestamp": timestamp})

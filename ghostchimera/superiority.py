@@ -276,7 +276,9 @@ def format_superiority_markdown(payload: dict[str, Any]) -> str:
         "## Dimensions",
     ]
     for dimension in payload.get("dimensions", []):
-        lines.append(f"- {dimension['label']}: {dimension['score']} ({len(dimension.get('evidence', []))} evidence items)")
+        lines.append(
+            f"- {dimension['label']}: {dimension['score']} ({len(dimension.get('evidence', []))} evidence items)"
+        )
     lines.append("")
     lines.append("## Next Best Actions")
     for action in payload.get("next_best_actions", [])[:8]:
@@ -288,12 +290,32 @@ def _operator_ux_dimension(summary: dict[str, Any], routes: set[str], html: str,
     checks = [
         ("operator_workbench", "Operator Workbench shell", "operatorWorkbench" in html, "static/index.html"),
         ("command_search", "Command/search intake", "operatorCommandSearch" in html, "static/index.html"),
-        ("next_actions", "Next best actions", "nextBestActions" in html and "/api/console/superiority" in app, "Console"),
+        (
+            "next_actions",
+            "Next best actions",
+            "nextBestActions" in html and "/api/console/superiority" in app,
+            "Console",
+        ),
         ("guided_setup", "Guided no-code setup", "setupSteps" in html and "operator/setup-step" in app, "Console"),
         ("conversation", "Always-on conversation", "ghostConversationPanel" in html, "Console"),
-        ("config_no_code", "No-code config and model discovery", "modelDiscoveryGrid" in html and "providerAuthGrid" in html, "Config"),
-        ("trust_visibility", "Trust and evidence visibility", "trust" in html and "/api/console/trust/summary" in app, "Trust Runtime"),
-        ("recovery_guidance", "Warnings and recovery guidance", bool(summary.get("warnings") is not None), "operator summary"),
+        (
+            "config_no_code",
+            "No-code config and model discovery",
+            "modelDiscoveryGrid" in html and "providerAuthGrid" in html,
+            "Config",
+        ),
+        (
+            "trust_visibility",
+            "Trust and evidence visibility",
+            "trust" in html and "/api/console/trust/summary" in app,
+            "Trust Runtime",
+        ),
+        (
+            "recovery_guidance",
+            "Warnings and recovery guidance",
+            bool(summary.get("warnings") is not None),
+            "operator summary",
+        ),
         ("recent_runs", "Run/history surfaces", "runHistory" in html and "homeRunObjective" in html, "Run"),
         ("browser_e2e", "Browser E2E proof marker", "browserE2EStatus" in html, "E2E"),
     ]
@@ -305,16 +327,46 @@ def _platform_breadth_dimension(
 ) -> SuperiorityDimension:
     capability_count = int(capabilities.get("capability_count") or 0)
     checks = [
-        ("capability_matrix", "Competitive capability matrix", bool(capabilities.get("ok")) and capability_count >= 10, "capabilities"),
-        ("models", "Model discovery/provider modularity", "/api/console/models/discovery" in routes or "modelDiscoveryGrid" in html, "Models"),
+        (
+            "capability_matrix",
+            "Competitive capability matrix",
+            bool(capabilities.get("ok")) and capability_count >= 10,
+            "capabilities",
+        ),
+        (
+            "models",
+            "Model discovery/provider modularity",
+            "/api/console/models/discovery" in routes or "modelDiscoveryGrid" in html,
+            "Models",
+        ),
         ("rag", "MiniMind and RAG builder", "ragBuildPlan" in html and "personalMiniMindStatus" in html, "RAG"),
         ("mcp", "MCP and trust registry", "/api/console/mcp/trust" in routes or "mcpStatus" in html, "MCP"),
-        ("skills", "Skill discovery/evolution", "discoverSkills" in html and "evolutionCandidateList" in html, "Skills"),
-        ("remote", "Remote control surface", "/api/console/remote/status" in routes or "Remote Control" in html, "Remote"),
-        ("local_models", "Local model inventory", "/api/console/local-models/inventory" in routes or "localModelCards" in html, "Local Models"),
+        (
+            "skills",
+            "Skill discovery/evolution",
+            "discoverSkills" in html and "evolutionCandidateList" in html,
+            "Skills",
+        ),
+        (
+            "remote",
+            "Remote control surface",
+            "/api/console/remote/status" in routes or "Remote Control" in html,
+            "Remote",
+        ),
+        (
+            "local_models",
+            "Local model inventory",
+            "/api/console/local-models/inventory" in routes or "localModelCards" in html,
+            "Local Models",
+        ),
         ("saas", "Public SaaS foundation", (ROOT / "ghostchimera" / "saas").is_dir(), "SaaS"),
         ("voice_conversation", "Voice/conversation hooks", "conversationVoiceSelect" in html, "Conversation"),
-        ("capability_pack", "Native capability pack", "/api/console/capability-pack" in routes or "capabilityPackList" in html, "Capability Pack"),
+        (
+            "capability_pack",
+            "Native capability pack",
+            "/api/console/capability-pack" in routes or "capabilityPackList" in html,
+            "Capability Pack",
+        ),
     ]
     return _dimension("platform_breadth", "Platform Breadth", checks, weight=0.3)
 
@@ -323,12 +375,37 @@ def _autonomy_depth_dimension(summary: dict[str, Any], routes: set[str], html: s
     trust_ready = bool((summary.get("trust") or {}).get("ready"))
     checks = [
         ("durable_trust", "Durable Trust Runtime", trust_ready or "/api/console/trust/runs" in routes, "Trust Runtime"),
-        ("approval_queue", "Resumable approval queue", "/api/console/trust/approvals" in routes or "trustApprovals" in html, "Approvals"),
-        ("autonomy_jobs", "Autonomy jobs and schedules", "/api/console/autonomy/jobs" in routes and "/api/console/autonomy/schedules" in routes, "Autonomy"),
+        (
+            "approval_queue",
+            "Resumable approval queue",
+            "/api/console/trust/approvals" in routes or "trustApprovals" in html,
+            "Approvals",
+        ),
+        (
+            "autonomy_jobs",
+            "Autonomy jobs and schedules",
+            "/api/console/autonomy/jobs" in routes and "/api/console/autonomy/schedules" in routes,
+            "Autonomy",
+        ),
         ("sandbox", "Sandbox journey", "/api/console/sandbox/journey" in routes or "sandboxSteps" in html, "Sandbox"),
-        ("self_evolution", "Consent-gated self-evolution", "/api/console/evolution/candidates" in routes or "evolutionCandidateList" in html, "Self-Evolution"),
-        ("remote_execution_gates", "Remote execution gates", "/api/console/remote/approvals/" in routes or "remoteApprovals" in html, "Remote"),
-        ("full_bypass_visible", "Visible bypass controls", "conversationFullBypass" in html and "conversationBypassBanner" in html, "Conversation"),
+        (
+            "self_evolution",
+            "Consent-gated self-evolution",
+            "/api/console/evolution/candidates" in routes or "evolutionCandidateList" in html,
+            "Self-Evolution",
+        ),
+        (
+            "remote_execution_gates",
+            "Remote execution gates",
+            "/api/console/remote/approvals/" in routes or "remoteApprovals" in html,
+            "Remote",
+        ),
+        (
+            "full_bypass_visible",
+            "Visible bypass controls",
+            "conversationFullBypass" in html and "conversationBypassBanner" in html,
+            "Conversation",
+        ),
         ("trace_export", "Trace export", "/api/console/trust/traces/" in routes or "trustTrace" in app, "Trace"),
         ("eval_baseline", "Trust/eval baseline", "/api/console/trust/evals" in routes or "trustEvals" in html, "Evals"),
         ("stop_all", "Emergency stop", "conversationStopAll" in html, "Safety"),
@@ -357,7 +434,9 @@ def _dimension(
     score = (len(checks) - len(missing)) / len(checks) if checks else 0.0
     blockers = missing[:3] if score < 0.7 else []
     warnings = missing[:5] if missing and not blockers else []
-    return SuperiorityDimension(id=id_, label=label, score=score, weight=weight, evidence=evidence, blockers=blockers, warnings=warnings)
+    return SuperiorityDimension(
+        id=id_, label=label, score=score, weight=weight, evidence=evidence, blockers=blockers, warnings=warnings
+    )
 
 
 def _next_best_actions(summary: dict[str, Any], dimensions: list[SuperiorityDimension]) -> list[NextBestAction]:
@@ -366,13 +445,46 @@ def _next_best_actions(summary: dict[str, Any], dimensions: list[SuperiorityDime
     counts = summary.get("counts") if isinstance(summary.get("counts"), dict) else {}
 
     if not model.get("provider"):
-        actions.append(NextBestAction("connect_model", "Connect or select a model provider", "config", 100, "No active provider is configured."))
+        actions.append(
+            NextBestAction(
+                "connect_model",
+                "Connect or select a model provider",
+                "config",
+                100,
+                "No active provider is configured.",
+            )
+        )
     if counts.get("approved_sources", 0) == 0:
-        actions.append(NextBestAction("approve_learning_source", "Approve a learning source", "evolution", 90, "Self-Evolution needs an approved source before recommendations matter."))
+        actions.append(
+            NextBestAction(
+                "approve_learning_source",
+                "Approve a learning source",
+                "evolution",
+                90,
+                "Self-Evolution needs an approved source before recommendations matter.",
+            )
+        )
     if (summary.get("trust") or {}).get("ready") is not True:
-        actions.append(NextBestAction("create_trust_baseline", "Create a trust baseline", "trust", 80, "Production readiness depends on fresh Trust Runtime evidence.", "ghostchimera trust eval baseline"))
+        actions.append(
+            NextBestAction(
+                "create_trust_baseline",
+                "Create a trust baseline",
+                "trust",
+                80,
+                "Production readiness depends on fresh Trust Runtime evidence.",
+                "ghostchimera trust eval baseline",
+            )
+        )
     if summary.get("warnings"):
-        actions.append(NextBestAction("resolve_readiness", "Resolve readiness warnings", "operator", 70, str(summary.get("warnings", ["Review warnings"])[0])))
+        actions.append(
+            NextBestAction(
+                "resolve_readiness",
+                "Resolve readiness warnings",
+                "operator",
+                70,
+                str(summary.get("warnings", ["Review warnings"])[0]),
+            )
+        )
 
     for dimension in dimensions:
         if dimension.score < 1.0:

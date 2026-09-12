@@ -90,9 +90,7 @@ def test_stealth_evaluator_defaults_to_silence() -> None:
     # external side effect with medium risk -> ASK or STORE, never direct ACT
     policy = GhostPolicy(autonomy=AutonomyLevel.PREPARE)
     decision, _ = StealthEvaluator(policy).evaluate(
-        EvaluationSignals(
-            relevance=0.9, confidence=0.8, user_benefit=0.8, risk=0.5, external_side_effect=True
-        )
+        EvaluationSignals(relevance=0.9, confidence=0.8, user_benefit=0.8, risk=0.5, external_side_effect=True)
     )
     assert decision in (Decision.ASK, Decision.STORE)
 

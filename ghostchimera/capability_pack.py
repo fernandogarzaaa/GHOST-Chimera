@@ -33,10 +33,18 @@ class CapabilityPackTool:
 
 def list_capability_tools() -> list[CapabilityPackTool]:
     return [
-        CapabilityPackTool("ghost.guard", "Confidence Guard", "Checks confidence and variance before promotion.", "cognition"),
-        CapabilityPackTool("ghost.compress", "Query-Aware Compression", "Compresses context with code-block preservation.", "latency"),
-        CapabilityPackTool("ghost.handoff_pack", "Pack Handoff", "Creates a tamper-evident subsystem handoff.", "provenance"),
-        CapabilityPackTool("ghost.handoff_verify", "Verify Handoff", "Verifies a Ghost handoff hash and payload.", "provenance"),
+        CapabilityPackTool(
+            "ghost.guard", "Confidence Guard", "Checks confidence and variance before promotion.", "cognition"
+        ),
+        CapabilityPackTool(
+            "ghost.compress", "Query-Aware Compression", "Compresses context with code-block preservation.", "latency"
+        ),
+        CapabilityPackTool(
+            "ghost.handoff_pack", "Pack Handoff", "Creates a tamper-evident subsystem handoff.", "provenance"
+        ),
+        CapabilityPackTool(
+            "ghost.handoff_verify", "Verify Handoff", "Verifies a Ghost handoff hash and payload.", "provenance"
+        ),
         CapabilityPackTool(
             "ghost.local_model_inventory",
             "Local Model Inventory",
@@ -44,9 +52,18 @@ def list_capability_tools() -> list[CapabilityPackTool]:
             "models",
             consent_required=True,
         ),
-        CapabilityPackTool("ghost.local_model_resolve", "Resolve Model Source", "Classifies HF/local model sources.", "models"),
-        CapabilityPackTool("ghost.normalize_mcp", "Normalize MCP Entry", "Sanitizes MCP server capability metadata.", "mcp"),
-        CapabilityPackTool("ghost.operational_trace", "Operational Trace", "Shows safe execution stages without chain-of-thought.", "cognition"),
+        CapabilityPackTool(
+            "ghost.local_model_resolve", "Resolve Model Source", "Classifies HF/local model sources.", "models"
+        ),
+        CapabilityPackTool(
+            "ghost.normalize_mcp", "Normalize MCP Entry", "Sanitizes MCP server capability metadata.", "mcp"
+        ),
+        CapabilityPackTool(
+            "ghost.operational_trace",
+            "Operational Trace",
+            "Shows safe execution stages without chain-of-thought.",
+            "cognition",
+        ),
     ]
 
 

@@ -52,8 +52,7 @@ def _safe_model(model_id: str, model: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_snapshot(data: dict[str, Any], *, providers: list[str] | None,
-                   max_models: int) -> dict[str, Any]:
+def build_snapshot(data: dict[str, Any], *, providers: list[str] | None, max_models: int) -> dict[str, Any]:
     snapshot_providers: dict[str, Any] = {}
     for provider_id, entry in sorted(data.items()):
         if providers and provider_id not in providers:
@@ -83,8 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--input", default="", help="Local models.dev api.json (offline mode)")
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="Snapshot output path")
     parser.add_argument("--max-models", type=int, default=25, help="Models kept per provider")
-    parser.add_argument("--provider", default="",
-                        help="Comma-separated provider ids to include (default: all)")
+    parser.add_argument("--provider", default="", help="Comma-separated provider ids to include (default: all)")
     args = parser.parse_args(argv)
     try:
         data = _load(args.input or None)

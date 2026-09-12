@@ -13,7 +13,9 @@ class LatencyTelemetryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ghostchimera-latency-") as tmp:
             record_latency_event(tmp, route="/api/console/status", method="GET", duration_ms=25, ok=True)
             record_latency_event(tmp, route="/api/console/status", method="GET", duration_ms=300, ok=True)
-            record_latency_event(tmp, route="/api/console/run", method="POST", duration_ms=3200, ok=False, error="Timeout")
+            record_latency_event(
+                tmp, route="/api/console/run", method="POST", duration_ms=3200, ok=False, error="Timeout"
+            )
 
             summary = latency_summary(tmp)
 

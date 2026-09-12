@@ -162,7 +162,9 @@ def verify_handoff(handoff: GhostHandoff) -> GhostHandoffVerification:
     if actual_hash != handoff.program_hash:
         return GhostHandoffVerification(False, "program hash mismatch", program_hash=actual_hash)
     if envelope.get("payload") != handoff.payload:
-        return GhostHandoffVerification(False, "payload hash mismatch against replay envelope", program_hash=actual_hash)
+        return GhostHandoffVerification(
+            False, "payload hash mismatch against replay envelope", program_hash=actual_hash
+        )
     return GhostHandoffVerification(True, program_hash=actual_hash, payload=dict(handoff.payload))
 
 

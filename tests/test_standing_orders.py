@@ -26,7 +26,9 @@ class StandingOrderStoreTests(unittest.TestCase):
                 }
             )
             order_id = created["order"]["id"]
-            disabled = store.run_order(order_id, objective_runner=lambda objective: calls.append(objective) or {"ok": True})
+            disabled = store.run_order(
+                order_id, objective_runner=lambda objective: calls.append(objective) or {"ok": True}
+            )
             enabled = store.enable_order(order_id)
             run = store.run_order(order_id, objective_runner=lambda objective: calls.append(objective) or {"ok": True})
             listed = store.list_orders()

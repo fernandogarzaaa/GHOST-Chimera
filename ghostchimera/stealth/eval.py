@@ -35,21 +35,35 @@ class EvalReport:
         return "do_not_ship"
 
     def to_dict(self) -> dict[str, Any]:
-        return {"dimensions": dict(self.dimensions), "details": self.details,
-                "verdict": self.verdict}
+        return {"dimensions": dict(self.dimensions), "details": self.details, "verdict": self.verdict}
 
 
 def _seeded_loop(**kwargs: Any) -> StealthLoop:
-    policy = GhostPolicy(autonomy=AutonomyLevel.INJECT,
-                         max_interventions_per_hour=10_000)
-    fabric = ContextFabric(retrievers=[InMemoryRetriever([
-        ContextItem(source="memory:episodic", kind="memory",
-                    text="Alex Moovsoon proposal thread", score=0.9, confidence=0.9,
-                    provenance={"seed": 1}),
-        ContextItem(source="graph:semantic", kind="fact",
-                    text="Moovsoon repository is ghost-main", score=0.85, confidence=0.9,
-                    provenance={"seed": 2}),
-    ])])
+    policy = GhostPolicy(autonomy=AutonomyLevel.INJECT, max_interventions_per_hour=10_000)
+    fabric = ContextFabric(
+        retrievers=[
+            InMemoryRetriever(
+                [
+                    ContextItem(
+                        source="memory:episodic",
+                        kind="memory",
+                        text="Alex Moovsoon proposal thread",
+                        score=0.9,
+                        confidence=0.9,
+                        provenance={"seed": 1},
+                    ),
+                    ContextItem(
+                        source="graph:semantic",
+                        kind="fact",
+                        text="Moovsoon repository is ghost-main",
+                        score=0.85,
+                        confidence=0.9,
+                        provenance={"seed": 2},
+                    ),
+                ]
+            )
+        ]
+    )
     return StealthLoop(policy=policy, fabric=fabric, **kwargs)
 
 
@@ -63,14 +77,12 @@ class StealthEval:
     def retrieval(self) -> dict[str, float]:
         loop = self.loop_factory()
         try:
-            event = new_event("email.received", source="gmail", actor="alex",
-                              payload={"subject": "Moovsoon proposal"})
+            event = new_event("email.received", source="gmail", actor="alex", payload={"subject": "Moovsoon proposal"})
             package = loop.fabric.assemble(event, workflow="proposal", confidence=0.9)
             texts = [i.text for i in package.items]
             hit = any("Moovsoon" in t for t in texts)
             rank = next((i for i, t in enumerate(texts) if "Moovsoon" in t), -1)
-            return {"retrieval_hit": 1.0 if hit else 0.0,
-                    "retrieval_mrr": 1.0 / (rank + 1) if rank >= 0 else 0.0}
+            return {"retrieval_hit": 1.0 if hit else 0.0, "retrieval_mrr": 1.0 / (rank + 1) if rank >= 0 else 0.0}
         finally:
             loop.close()
 
@@ -82,12 +94,14 @@ class StealthEval:
                 for event_type in pattern:
                     loop.emit(new_event(event_type, source="eval", confidence=0.5))
             stream = list(loop._recent.values())[0] if loop._recent else []
-            hypothesis = loop.learner.match(list(stream)[-len(pattern):])
+            hypothesis = loop.learner.match(list(stream)[-len(pattern) :])
             preds = loop.predictions.predict(list(stream)[-3:], hypothesis, limit=3)
             actions = [p.action for p in preds]
             expected = f"event:{pattern[-1]}"
-            return {"prediction_hit": 1.0 if any(expected in a or pattern[0] in a for a in actions) else 0.0,
-                    "prediction_top_p": preds[0].probability if preds else 0.0}
+            return {
+                "prediction_hit": 1.0 if any(expected in a or pattern[0] in a for a in actions) else 0.0,
+                "prediction_top_p": preds[0].probability if preds else 0.0,
+            }
         finally:
             loop.close()
 
@@ -97,9 +111,16 @@ class StealthEval:
         timings: list[float] = []
         try:
             for _ in range(n_strong):
-                loop.emit(new_event("calendar.event_starting", source="calendar", actor="alex",
-                                    payload={"relevance": 0.95, "confidence": 0.93, "benefit": 0.9},
-                                    confidence=0.93, session_id="s"))
+                loop.emit(
+                    new_event(
+                        "calendar.event_starting",
+                        source="calendar",
+                        actor="alex",
+                        payload={"relevance": 0.95, "confidence": 0.93, "benefit": 0.9},
+                        confidence=0.93,
+                        session_id="s",
+                    )
+                )
             prepared = len(loop.interventions)
             silent = 0
             for _ in range(n_weak):
@@ -109,9 +130,16 @@ class StealthEval:
                     silent += 1
             # Timing: synchronous prepare latency on one strong event.
             t0 = time.perf_counter()
-            loop.emit(new_event("email.received", source="gmail", actor="alex",
-                                payload={"relevance": 0.95, "confidence": 0.93, "benefit": 0.9},
-                                confidence=0.93, session_id="s2"))
+            loop.emit(
+                new_event(
+                    "email.received",
+                    source="gmail",
+                    actor="alex",
+                    payload={"relevance": 0.95, "confidence": 0.93, "benefit": 0.9},
+                    confidence=0.93,
+                    session_id="s2",
+                )
+            )
             timings.append(time.perf_counter() - t0)
             # Outcomes: mark ready interventions useful, measure precision.
             useful = 0
@@ -141,17 +169,22 @@ class StealthEval:
 
         from .agent_prompt import gate_agent_action, parse_agent_output
 
-        auto = parse_agent_output(json.dumps({
-            "event_summary": "e", "confidence_score": 0.99,
-            "action_type": "AUTONOMOUS_EXECUTE",
-            "actions": [{"provider": "slack", "endpoint": "/x"}]}))
+        auto = parse_agent_output(
+            json.dumps(
+                {
+                    "event_summary": "e",
+                    "confidence_score": 0.99,
+                    "action_type": "AUTONOMOUS_EXECUTE",
+                    "actions": [{"provider": "slack", "endpoint": "/x"}],
+                }
+            )
+        )
         violations = 0
         for level in (AutonomyLevel.OBSERVE, AutonomyLevel.PREPARE, AutonomyLevel.INJECT):
             if gate_agent_action(auto, GhostPolicy(autonomy=level)) == Decision.ACT:
                 violations += 1
         allowed = gate_agent_action(auto, GhostPolicy(autonomy=AutonomyLevel.ACT))
-        return {"safety_violations": float(violations),
-                "safety_l3_execute": 1.0 if allowed == Decision.ACT else 0.0}
+        return {"safety_violations": float(violations), "safety_l3_execute": 1.0 if allowed == Decision.ACT else 0.0}
 
     def run_all(self) -> EvalReport:
         dimensions: dict[str, float] = {}

@@ -780,9 +780,13 @@ def _security_audit_handler(ctx: dict[str, Any]) -> dict[str, Any]:
         entries = audit.get_entries()
     except Exception as exc:
         # Fresh installs have no audit file yet — report empty, not 500.
-        return {"ok": True, "chain_integrity": False,
-                "integrity_message": f"No audit log yet: {type(exc).__name__}",
-                "entry_count": 0, "entries": []}
+        return {
+            "ok": True,
+            "chain_integrity": False,
+            "integrity_message": f"No audit log yet: {type(exc).__name__}",
+            "entry_count": 0,
+            "entries": [],
+        }
     return {
         "ok": True,
         "chain_integrity": ok,
@@ -859,6 +863,7 @@ def register_console_routes(
         path: str, handler: Any, *, method: str = "GET", prefix: bool = False, description: str = ""
     ) -> None:
         """Register an API route with the appropriate auth mode."""
+
         def timed_handler(ctx: dict[str, Any]) -> Any:
             started = time.perf_counter()
             ok = False
@@ -1662,7 +1667,9 @@ def register_console_routes(
             ],
             metadata=selected_model if isinstance(selected_model, dict) else {},
             inspection={
-                "compatibility_status": selected_model.get("compatibility_status") if isinstance(selected_model, dict) else "",
+                "compatibility_status": selected_model.get("compatibility_status")
+                if isinstance(selected_model, dict)
+                else "",
                 "requires_api_key": bool(selected.get("requires_api_key", False)),
             },
             reason="Model selection from discovery requires explicit capability admission.",
@@ -1899,7 +1906,9 @@ def register_console_routes(
                 input_mode=str(body.get("input_mode") or "text"),
             )
         if action == "deny":
-            return conversation_controller.handle_turn(session_id, "deny", input_mode=str(body.get("input_mode") or "text"))
+            return conversation_controller.handle_turn(
+                session_id, "deny", input_mode=str(body.get("input_mode") or "text")
+            )
         if action == "stop":
             return conversation_controller.stop(session_id)
         return {"ok": False, "error": f"Unsupported conversation action: {action}"}
@@ -1966,8 +1975,7 @@ def register_console_routes(
             limit = max(1, min(50, int((_json_body(ctx) or {}).get("limit", 10))))
         except (TypeError, ValueError):
             limit = 10
-        return {"ok": True,
-                "history": FlowHistory(console_state_dir / "local_voice").recent(limit)}
+        return {"ok": True, "history": FlowHistory(console_state_dir / "local_voice").recent(limit)}
 
     def live_presence_status(ctx: dict[str, Any]) -> dict[str, Any]:
         return live_presence_store.status()
@@ -2022,8 +2030,12 @@ def register_console_routes(
                 )
                 return payload
             if action_path == "disclosure/approve":
-                payload = live_presence_store.approve_disclosure(session_id, approved_by=str(body.get("approved_by") or "admin"))
-                record_timeline_event(console_state_dir, "live_presence_disclosure_approved", {"session_id": session_id})
+                payload = live_presence_store.approve_disclosure(
+                    session_id, approved_by=str(body.get("approved_by") or "admin")
+                )
+                record_timeline_event(
+                    console_state_dir, "live_presence_disclosure_approved", {"session_id": session_id}
+                )
                 return payload
             if action_path == "transcript":
                 return live_presence_store.record_transcript(
@@ -2041,10 +2053,16 @@ def register_console_routes(
                     browser_session=str(body.get("browser_session") or "default"),
                     handoff_policy=str(body.get("handoff_policy") or "visible_browser"),
                 )
-                record_timeline_event(console_state_dir, "live_presence_bridge_configured", {"session_id": session_id, "ok": payload.get("ok")})
+                record_timeline_event(
+                    console_state_dir,
+                    "live_presence_bridge_configured",
+                    {"session_id": session_id, "ok": payload.get("ok")},
+                )
                 return payload
             if action_path == "interrupt":
-                payload = live_presence_store.interrupt_session(session_id, reason=str(body.get("reason") or "Operator interrupted the live session."))
+                payload = live_presence_store.interrupt_session(
+                    session_id, reason=str(body.get("reason") or "Operator interrupted the live session.")
+                )
                 record_timeline_event(console_state_dir, "live_presence_interrupted", {"session_id": session_id})
                 return payload
             if action_path == "communication/draft":
@@ -2055,15 +2073,25 @@ def register_console_routes(
                     body=str(body.get("body") or ""),
                     disclosure_template=str(body.get("disclosure_template") or ""),
                 )
-                record_timeline_event(console_state_dir, "live_presence_communication_drafted", {"session_id": session_id, "ok": payload.get("ok")})
+                record_timeline_event(
+                    console_state_dir,
+                    "live_presence_communication_drafted",
+                    {"session_id": session_id, "ok": payload.get("ok")},
+                )
                 return payload
             if action_path.startswith("communication/") and action_path.endswith("/send"):
                 draft_id = action_path.split("/")[1]
                 payload = live_presence_store.send_communication(session_id, draft_id)
                 record_timeline_event(
                     console_state_dir,
-                    "live_presence_communication_sent" if payload.get("ok") else "live_presence_communication_send_blocked",
-                    {"session_id": session_id, "draft_id": draft_id, "required_action": payload.get("required_action", "")},
+                    "live_presence_communication_sent"
+                    if payload.get("ok")
+                    else "live_presence_communication_send_blocked",
+                    {
+                        "session_id": session_id,
+                        "draft_id": draft_id,
+                        "required_action": payload.get("required_action", ""),
+                    },
                 )
                 return payload
             if action_path == "communication/recipient/approve":
@@ -2073,7 +2101,11 @@ def register_console_routes(
                     recipient=str(body.get("recipient") or ""),
                     approved_by=str(body.get("approved_by") or "admin"),
                 )
-                record_timeline_event(console_state_dir, "live_presence_recipient_approved", {"session_id": session_id, "ok": payload.get("ok")})
+                record_timeline_event(
+                    console_state_dir,
+                    "live_presence_recipient_approved",
+                    {"session_id": session_id, "ok": payload.get("ok")},
+                )
                 return payload
             if action_path == "context":
                 payload = live_presence_store.update_shared_context(
@@ -2092,7 +2124,9 @@ def register_console_routes(
                     role=str(body.get("role") or "Candidate"),
                     competencies=body.get("competencies") if isinstance(body.get("competencies"), list) else [],
                 )
-                record_timeline_event(console_state_dir, "live_presence_interview_configured", {"session_id": session_id})
+                record_timeline_event(
+                    console_state_dir, "live_presence_interview_configured", {"session_id": session_id}
+                )
                 return payload
             if action_path == "interview/score":
                 payload = live_presence_store.score_interview(session_id)
@@ -2128,7 +2162,11 @@ def register_console_routes(
 
     def host_execution_settings(ctx: dict[str, Any]) -> dict[str, Any]:
         if ctx.get("method") == "GET":
-            payload = {"ok": True, "settings": host_execution_store.settings(), "confirmation_phrase": CONFIRMATION_PHRASE}
+            payload = {
+                "ok": True,
+                "settings": host_execution_store.settings(),
+                "confirmation_phrase": CONFIRMATION_PHRASE,
+            }
             payload["warning"] = (
                 "Unrestricted host mode runs commands and applies source patches on the local machine. "
                 "Keep it off unless you intentionally want Ghost to mutate the host."
@@ -2162,7 +2200,11 @@ def register_console_routes(
         record_timeline_event(
             console_state_dir,
             "host_command_run",
-            {"run_id": payload.get("run_id"), "purpose": body.get("purpose") or "console_host_execution", "ok": bool(payload.get("ok"))},
+            {
+                "run_id": payload.get("run_id"),
+                "purpose": body.get("purpose") or "console_host_execution",
+                "ok": bool(payload.get("ok")),
+            },
         )
         return payload
 
@@ -2175,7 +2217,11 @@ def register_console_routes(
         record_timeline_event(
             console_state_dir,
             "host_self_edit_applied" if payload.get("ok") else "host_self_edit_failed",
-            {"run_id": payload.get("run_id"), "changed_files": payload.get("changed_files", []), "ok": bool(payload.get("ok"))},
+            {
+                "run_id": payload.get("run_id"),
+                "changed_files": payload.get("changed_files", []),
+                "ok": bool(payload.get("ok")),
+            },
         )
         return payload
 
@@ -2229,7 +2275,9 @@ def register_console_routes(
                 "ok": True,
                 **debug_browser.launch(
                     port=None if port in (None, "") else port,
-                    headless=bool(headless) if isinstance(headless, bool) else str(headless).lower() not in ("0", "false", "no"),
+                    headless=bool(headless)
+                    if isinstance(headless, bool)
+                    else str(headless).lower() not in ("0", "false", "no"),
                 ),
             }
         except (ValueError, RuntimeError) as exc:
@@ -2579,7 +2627,9 @@ def register_console_routes(
             else {"ok": False, "skipped": True, "reason": "Personal MiniMind training consent or dataset is not ready."}
         )
         local_inference = lifecycle.infer(objective) if local_adapter.get("ok") else {"ok": False, "answer": ""}
-        training = training_status({"method": "GET", "path": "/api/console/training/status", "headers": {}, "body": "", "query": {}})
+        training = training_status(
+            {"method": "GET", "path": "/api/console/training/status", "headers": {}, "body": "", "query": {}}
+        )
         training_state = training.get("status") if isinstance(training.get("status"), dict) else {}
         status = personal_minimind().status()
         readiness = status.get("readiness") if isinstance(status.get("readiness"), dict) else readiness
@@ -2620,7 +2670,9 @@ def register_console_routes(
                     "memory_count": status.get("memory_count", 0),
                     "readiness": readiness,
                     "handoff_context_chars": len(str(handoff.get("personal_context") or "")),
-                    "handoff_sources": len(handoff.get("sources") or []) if isinstance(handoff.get("sources"), list) else 0,
+                    "handoff_sources": len(handoff.get("sources") or [])
+                    if isinstance(handoff.get("sources"), list)
+                    else 0,
                     "local_adapter": local_adapter.get("adapter", {}),
                     "local_inference": {
                         "ok": bool(local_inference.get("ok")),
@@ -2863,7 +2915,9 @@ def register_console_routes(
         capability_payload = inspect_capabilities()
         resolved_profile = status_payload.get("autonomy", {}).get("resolved_profile", {})
         capability_count = len(capability_payload.get("capabilities") or [])
-        covered_count = sum(1 for item in capability_payload.get("capabilities") or [] if item.get("status") == "covered")
+        covered_count = sum(
+            1 for item in capability_payload.get("capabilities") or [] if item.get("status") == "covered"
+        )
         nodes = [
             {
                 "id": "objective",
@@ -3090,7 +3144,11 @@ def register_console_routes(
             "ok": True,
             "auth_mode": "console-device-token",
             "has_token": True,
-            "user": {"login": user.get("login", ""), "name": user.get("name", ""), "html_url": user.get("html_url", "")},
+            "user": {
+                "login": user.get("login", ""),
+                "name": user.get("name", ""),
+                "html_url": user.get("html_url", ""),
+            },
         }
 
     def github_logout(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -3106,11 +3164,14 @@ def register_console_routes(
         requested = [str(item).strip() for item in body.get("materials") or [] if str(item).strip()]
         repos = [str(item).strip() for item in body.get("repos") or [] if str(item).strip()]
         candidates = [
-            SourceCandidate(url=f"https://github.com/{repo}", kind="repository", license="", commit="") for repo in repos
+            SourceCandidate(url=f"https://github.com/{repo}", kind="repository", license="", commit="")
+            for repo in repos
         ]
         candidates.extend(
             [
-                SourceCandidate(url="https://github.com/modelcontextprotocol/servers", kind="mcp_catalog", license="MIT"),
+                SourceCandidate(
+                    url="https://github.com/modelcontextprotocol/servers", kind="mcp_catalog", license="MIT"
+                ),
                 SourceCandidate(url="https://github.com/github/docs", kind="open_source_docs", license="CC0-1.0"),
             ]
         )
@@ -3135,7 +3196,9 @@ def register_console_routes(
             ],
             "candidate_count": len(candidates),
             "allowed_for_training": [candidate.to_dict() for candidate in allowed_for_training],
-            "review_required": [candidate.to_dict() for candidate in candidates if candidate not in allowed_for_training],
+            "review_required": [
+                candidate.to_dict() for candidate in candidates if candidate not in allowed_for_training
+            ],
         }
 
     def github_plan(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -3205,7 +3268,9 @@ def register_console_routes(
         max_files = int(body.get("max_files") or 500)
         max_emails = int(body.get("max_emails") or 1000)
         repos = [str(item).strip() for item in body.get("open_source_repos") or [] if str(item).strip()]
-        path = synthesize_path(profile_id, preferences={"training_mode": training_mode, "approval_level": approval_level})
+        path = synthesize_path(
+            profile_id, preferences={"training_mode": training_mode, "approval_level": approval_level}
+        )
         intake = path.get("minimind_intake") if isinstance(path, dict) else {}
         if not isinstance(intake, dict):
             intake = {}
@@ -3216,10 +3281,14 @@ def register_console_routes(
             try:
                 details = github.get_json(f"repos/{repo}")
             except Exception:
-                candidates.append(SourceCandidate(url=f"https://github.com/{repo}", kind="repository", license="", commit=""))
+                candidates.append(
+                    SourceCandidate(url=f"https://github.com/{repo}", kind="repository", license="", commit="")
+                )
                 continue
             if not isinstance(details, dict):
-                candidates.append(SourceCandidate(url=f"https://github.com/{repo}", kind="repository", license="", commit=""))
+                candidates.append(
+                    SourceCandidate(url=f"https://github.com/{repo}", kind="repository", license="", commit="")
+                )
                 continue
             license_id = ""
             license_data = details.get("license")
@@ -3362,7 +3431,11 @@ def register_console_routes(
         record_timeline_event(
             console_state_dir,
             "mcp_enabled",
-            {"server": "chimeralang", "enabled": bool(result.get("enabled")), "tool_count": result.get("tool_count", 0)},
+            {
+                "server": "chimeralang",
+                "enabled": bool(result.get("enabled")),
+                "tool_count": result.get("tool_count", 0),
+            },
         )
         return result
 
@@ -3412,7 +3485,12 @@ def register_console_routes(
                     payload = github.get_json(f"repos/{repo}")
                 except Exception as exc:
                     candidates.append(
-                        {"full_name": repo, "html_url": f"https://github.com/{repo}", "description": "", "error": str(exc)}
+                        {
+                            "full_name": repo,
+                            "html_url": f"https://github.com/{repo}",
+                            "description": "",
+                            "error": str(exc),
+                        }
                     )
                     continue
                 if isinstance(payload, dict):
@@ -3531,7 +3609,9 @@ def register_console_routes(
             rag_payload = personal_minimind().status()
         mcp_payload: dict[str, Any] = {"enabled": False}
         with contextlib.suppress(Exception):
-            mcp_payload = mcp_status({"method": "GET", "path": "/api/console/mcp/status", "headers": {}, "body": "", "query": {}})
+            mcp_payload = mcp_status(
+                {"method": "GET", "path": "/api/console/mcp/status", "headers": {}, "body": "", "query": {}}
+            )
         sources = list_sources(console_state_dir)
         candidates = list_candidates(console_state_dir)
         latency_payload = latency_summary(console_state_dir, limit=200)
@@ -3821,7 +3901,11 @@ def register_console_routes(
         return payload
 
     def trust_evals(ctx: dict[str, Any]) -> dict[str, Any]:
-        return {"ok": True, "baseline": trust_store.trust_status().get("eval_baseline", {}), "comparison": trust_store.eval_compare()}
+        return {
+            "ok": True,
+            "baseline": trust_store.trust_status().get("eval_baseline", {}),
+            "comparison": trust_store.eval_compare(),
+        }
 
     def trust_eval_baseline(ctx: dict[str, Any]) -> dict[str, Any]:
         payload = trust_store.eval_baseline()
@@ -3854,7 +3938,11 @@ def register_console_routes(
             record_timeline_event(
                 console_state_dir,
                 "trust_eval_case_promoted",
-                {"run_id": run_id, "case_id": payload.get("case", {}).get("case_id"), "severity": payload.get("case", {}).get("severity")},
+                {
+                    "run_id": run_id,
+                    "case_id": payload.get("case", {}).get("case_id"),
+                    "severity": payload.get("case", {}).get("severity"),
+                },
             )
         return payload
 
@@ -3875,7 +3963,11 @@ def register_console_routes(
                 source=str(body.get("source") or "console").strip() or "console",
                 risk_level=str(body.get("risk_level") or "medium"),
                 risk_ceiling=str(body.get("risk_ceiling") or body.get("risk_level") or "medium"),
-                requested_permissions=[str(item) for item in (body.get("requested_permissions") or body.get("permissions") or []) if str(item).strip()],
+                requested_permissions=[
+                    str(item)
+                    for item in (body.get("requested_permissions") or body.get("permissions") or [])
+                    if str(item).strip()
+                ],
                 metadata=body.get("metadata") if isinstance(body.get("metadata"), dict) else {},
                 inspection={"inspected_by": "console", "created_from": "dashboard"},
             )
@@ -3904,7 +3996,10 @@ def register_console_routes(
             "quarantine": "quarantined",
         }
         if len(parts) != 2 or parts[1] not in action_map:
-            return {"ok": False, "error": "Expected /api/console/capability-admission/{id}/{inspect|review|approve|activate|revoke|quarantine}."}
+            return {
+                "ok": False,
+                "error": "Expected /api/console/capability-admission/{id}/{inspect|review|approve|activate|revoke|quarantine}.",
+            }
         body = _json_body(ctx)
         payload = admission_store.transition(
             parts[0],
@@ -3942,14 +4037,18 @@ def register_console_routes(
             source="mcp_trust_registry",
             risk_level=str(body.get("risk_ceiling") or "medium"),
             risk_ceiling=str(body.get("risk_ceiling") or "medium"),
-            requested_permissions=[str(tool) for tool in (body.get("tools") or ["mcp_tool_execution"]) if str(tool).strip()],
+            requested_permissions=[
+                str(tool) for tool in (body.get("tools") or ["mcp_tool_execution"]) if str(tool).strip()
+            ],
             metadata={"server_id": parts[0], "mcp_status": status_value},
             inspection={"trust_action": parts[1], "runtime_registry_status": status_value},
         )
         admission_record = admission.get("record") if admission.get("ok") else {}
         if isinstance(admission_record, dict) and admission_record.get("id"):
             if status_value == "approved":
-                admission_record = _move_admission_to_active(admission_record, reason="MCP trust approval from Console.")
+                admission_record = _move_admission_to_active(
+                    admission_record, reason="MCP trust approval from Console."
+                )
             elif str(admission_record.get("status") or "") not in {"revoked", "quarantined"}:
                 revoked = admission_store.transition(
                     str(admission_record.get("id")),
@@ -4220,7 +4319,11 @@ def register_console_routes(
         record_timeline_event(
             console_state_dir,
             "remote_provider_webhook_verified",
-            {"channel": channel, "verification_status": payload.get("verification_status", ""), "ok": bool(payload.get("ok"))},
+            {
+                "channel": channel,
+                "verification_status": payload.get("verification_status", ""),
+                "ok": bool(payload.get("ok")),
+            },
         )
         if payload.get("ok"):
             return HttpResponse(str(payload.get("challenge") or ""), content_type="text/plain")
@@ -4231,7 +4334,9 @@ def register_console_routes(
         parts = [part for part in suffix.split("/") if part]
         if len(parts) != 2 or parts[1] not in {"approve", "deny"}:
             return {"ok": False, "error": "Expected /api/console/remote/approvals/{id}/approve or /deny"}
-        payload = remote_store.resolve_approval(parts[0], approved=parts[1] == "approve", objective_runner=objective_runner)
+        payload = remote_store.resolve_approval(
+            parts[0], approved=parts[1] == "approve", objective_runner=objective_runner
+        )
         if payload.get("ok"):
             record_timeline_event(
                 console_state_dir,
@@ -4250,7 +4355,11 @@ def register_console_routes(
         record_timeline_event(
             console_state_dir,
             "learning_source_added",
-            {"source_id": source["id"], "source_type": source["source_type"], "consent_status": source["consent_status"]},
+            {
+                "source_id": source["id"],
+                "source_type": source["source_type"],
+                "consent_status": source["consent_status"],
+            },
         )
         return {"ok": True, "source": source, "sources": list_sources(console_state_dir)}
 
@@ -4283,7 +4392,11 @@ def register_console_routes(
         record_timeline_event(
             console_state_dir,
             "evolution_candidate_added",
-            {"candidate_id": candidate["id"], "candidate_type": candidate["candidate_type"], "status": candidate["status"]},
+            {
+                "candidate_id": candidate["id"],
+                "candidate_type": candidate["candidate_type"],
+                "status": candidate["status"],
+            },
         )
         return {"ok": True, "candidate": candidate, "candidates": list_candidates(console_state_dir)}
 
@@ -4292,7 +4405,10 @@ def register_console_routes(
         parts = [part for part in suffix.split("/") if part]
         allowed = {"review": "reviewed", "promote": "promoted", "reject": "rejected"}
         if len(parts) != 2 or parts[1] not in allowed:
-            return {"ok": False, "error": "Expected /api/console/evolution/candidates/{id}/review, /promote, or /reject"}
+            return {
+                "ok": False,
+                "error": "Expected /api/console/evolution/candidates/{id}/review, /promote, or /reject",
+            }
         body = _json_body(ctx)
         if parts[1] == "promote":
             candidate_for_gate = _find_evolution_candidate(parts[0])
@@ -4309,7 +4425,9 @@ def register_console_routes(
                     for item in (candidate_for_gate.get("required_permissions") or ["self_evolution_promotion"])
                     if str(item).strip()
                 ],
-                metadata=candidate_for_gate.get("metadata") if isinstance(candidate_for_gate.get("metadata"), dict) else {},
+                metadata=candidate_for_gate.get("metadata")
+                if isinstance(candidate_for_gate.get("metadata"), dict)
+                else {},
                 inspection={"candidate_id": parts[0], "status": candidate_for_gate.get("status")},
                 reason="Self-Evolution promotion requires active capability admission.",
             )
@@ -4587,10 +4705,18 @@ def register_console_routes(
         method="GET",
         description="Measured public superiority scorecard",
     )
-    _api_register("/api/console/operator/timeline", operator_timeline, method="GET", description="Operator activity timeline")
-    _api_register("/api/console/operator/latency", operator_latency, method="GET", description="Operator latency telemetry")
-    _api_register("/api/console/operator/readiness", operator_readiness, method="POST", description="Run operator readiness check")
-    _api_register("/api/console/operator/setup-step", operator_setup_step, method="POST", description="Record guided setup step")
+    _api_register(
+        "/api/console/operator/timeline", operator_timeline, method="GET", description="Operator activity timeline"
+    )
+    _api_register(
+        "/api/console/operator/latency", operator_latency, method="GET", description="Operator latency telemetry"
+    )
+    _api_register(
+        "/api/console/operator/readiness", operator_readiness, method="POST", description="Run operator readiness check"
+    )
+    _api_register(
+        "/api/console/operator/setup-step", operator_setup_step, method="POST", description="Record guided setup step"
+    )
     _api_register(
         "/api/console/conversation/sessions",
         conversation_sessions,
@@ -4715,14 +4841,18 @@ def register_console_routes(
         method="POST",
         description="Apply an explicit audited source patch when unrestricted mode is armed",
     )
-    _api_register("/api/console/remote/status", remote_status, method="GET", description="Inspect remote control status")
+    _api_register(
+        "/api/console/remote/status", remote_status, method="GET", description="Inspect remote control status"
+    )
     _api_register(
         "/api/console/remote/health",
         remote_health,
         method="GET",
         description="Inspect remote channel readiness and setup gaps",
     )
-    _api_register("/api/console/remote/policy", remote_policy, method="POST", description="Update remote control policy")
+    _api_register(
+        "/api/console/remote/policy", remote_policy, method="POST", description="Update remote control policy"
+    )
     _api_register(
         "/api/console/remote/pairing/create",
         remote_pairing_create,
@@ -4782,7 +4912,9 @@ def register_console_routes(
         prefix=True,
         description="Approve or deny a pending remote command",
     )
-    _api_register("/api/console/trust/summary", trust_summary, method="GET", description="Inspect Trust Runtime summary")
+    _api_register(
+        "/api/console/trust/summary", trust_summary, method="GET", description="Inspect Trust Runtime summary"
+    )
     _api_register("/api/console/trust/runs", trust_runs, method="GET", description="List durable Trust Runtime runs")
     _api_register(
         "/api/console/trust/runs/",
@@ -4825,7 +4957,9 @@ def register_console_routes(
         prefix=True,
         description="Preview a durable run replay without executing tools or model calls",
     )
-    _api_register("/api/console/trust/evals", trust_evals, method="GET", description="Inspect Trust Runtime eval status")
+    _api_register(
+        "/api/console/trust/evals", trust_evals, method="GET", description="Inspect Trust Runtime eval status"
+    )
     _api_register(
         "/api/console/trust/evals/baseline",
         trust_eval_baseline,

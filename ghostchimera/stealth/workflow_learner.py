@@ -48,7 +48,9 @@ class WorkflowLearner:
         self._feedback: dict[str, float] = defaultdict(float)  # name -> confidence adjustment
 
     # -- explicit workflows -------------------------------------------
-    def register_explicit(self, name: str, pattern: list[str], expected_next: list[str] | None = None) -> WorkflowHypothesis:
+    def register_explicit(
+        self, name: str, pattern: list[str], expected_next: list[str] | None = None
+    ) -> WorkflowHypothesis:
         hypothesis = WorkflowHypothesis(
             name=name,
             pattern=tuple(pattern),
@@ -101,7 +103,7 @@ class WorkflowLearner:
             pattern = list(hypothesis.pattern)
             if len(pattern) > len(recent):
                 continue
-            if recent[-len(pattern):] != pattern:
+            if recent[-len(pattern) :] != pattern:
                 continue
             if best is None or (hypothesis.confidence, hypothesis.explicit) > (best.confidence, best.explicit):
                 best = hypothesis

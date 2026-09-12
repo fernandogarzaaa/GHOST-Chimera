@@ -42,9 +42,7 @@ def test_system_time_travel_sees_prior_belief(tmp_path):
     store.add_fact("user", "works_at", obj="Globex", exclusive=True, recorded_at="2026-06-01T00:00:00+00:00")
 
     # As the system knew it on 2026-03-01, only "Acme" had been recorded.
-    past = store.active_facts(
-        subject="user", predicate="works_at", system_time="2026-03-01T00:00:00+00:00"
-    )
+    past = store.active_facts(subject="user", predicate="works_at", system_time="2026-03-01T00:00:00+00:00")
     assert len(past) == 1
     assert past[0].obj == "Acme"
 
@@ -103,9 +101,7 @@ def test_timestamps_normalized_to_utc_for_correct_ordering(tmp_path):
     # Same instant expressed in two different offsets; the later real instant
     # is the +09:00 one recorded earlier in wall-clock but they must order by
     # true UTC instant, not lexicographically by raw string.
-    store.add_fact(
-        "user", "status", obj="old", exclusive=True, recorded_at="2026-06-16T09:00:00+09:00"
-    )  # == 00:00:00Z
+    store.add_fact("user", "status", obj="old", exclusive=True, recorded_at="2026-06-16T09:00:00+09:00")  # == 00:00:00Z
     store.add_fact(
         "user", "status", obj="new", exclusive=True, recorded_at="2026-06-16T01:00:00+00:00"
     )  # == 01:00:00Z (later)

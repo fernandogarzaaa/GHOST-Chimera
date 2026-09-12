@@ -65,7 +65,10 @@ class PredictionEngine:
 
         ranked = sorted(scored.items(), key=lambda kv: kv[1][0], reverse=True)[:limit]
         total = sum(prob for _, (prob, _) in ranked) or 1.0
-        return [Prediction(action=action, probability=round(prob / total, 3), basis=basis) for action, (prob, basis) in ranked]
+        return [
+            Prediction(action=action, probability=round(prob / total, 3), basis=basis)
+            for action, (prob, basis) in ranked
+        ]
 
     def to_dict(self, predictions: list[Prediction]) -> dict[str, Any]:
         return {"predictions": [{"action": p.action, "p": p.probability, "basis": p.basis} for p in predictions]}

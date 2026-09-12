@@ -128,7 +128,11 @@ def latency_summary(state_dir: str | Path, *, limit: int = 200) -> dict[str, Any
         "max_ms": round(max(durations), 3) if durations else 0.0,
         "over_budget_count": sum(1 for event in events if event.get("over_budget")),
         "error_count": sum(1 for event in events if not event.get("ok", True)),
-        "status": "fast" if p95 <= DEFAULT_BUDGETS_MS["fast"] else "watch" if p95 <= DEFAULT_BUDGETS_MS["interactive"] else "slow",
+        "status": "fast"
+        if p95 <= DEFAULT_BUDGETS_MS["fast"]
+        else "watch"
+        if p95 <= DEFAULT_BUDGETS_MS["interactive"]
+        else "slow",
         "budgets_ms": DEFAULT_BUDGETS_MS,
         "routes": route_summaries[:20],
         "slow_events": slow_events,

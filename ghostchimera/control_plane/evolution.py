@@ -21,7 +21,17 @@ LEARNING_SOURCE_TYPES = {
 SOURCE_SCOPES = {"path-specific", "role-specific", "global"}
 CONSENT_STATUSES = {"pending", "approved", "denied", "revoked"}
 RISK_LEVELS = {"low", "medium", "high"}
-EVOLUTION_STATUSES = {"discovered", "reviewed", "approved", "indexed", "evaluated", "promoted", "active", "revoked", "rejected"}
+EVOLUTION_STATUSES = {
+    "discovered",
+    "reviewed",
+    "approved",
+    "indexed",
+    "evaluated",
+    "promoted",
+    "active",
+    "revoked",
+    "rejected",
+}
 PROMOTABLE_STATUSES = {"reviewed", "approved", "evaluated"}
 SECRET_MARKERS = ("token", "secret", "api_key", "apikey", "password", "credential", "authorization")
 
@@ -227,7 +237,9 @@ def set_candidate_status(state_dir: str | Path, candidate_id: str, status: str, 
     return _redact_value(candidate)
 
 
-def record_timeline_event(state_dir: str | Path, event_type: str, detail: dict[str, Any] | None = None) -> dict[str, Any]:
+def record_timeline_event(
+    state_dir: str | Path, event_type: str, detail: dict[str, Any] | None = None
+) -> dict[str, Any]:
     event = {
         "id": _stable_id(event_type, str(_now()), json.dumps(detail or {}, sort_keys=True, default=str)),
         "timestamp": _now(),
@@ -269,13 +281,17 @@ def readiness_summary(
 ) -> dict[str, Any]:
     model = config.get("model", {}) if isinstance(config.get("model"), dict) else {}
     approved_sources = [source for source in sources if source.get("consent_status") == "approved"]
-    pending_candidates = [candidate for candidate in candidates if candidate.get("status") in {"discovered", "reviewed"}]
+    pending_candidates = [
+        candidate for candidate in candidates if candidate.get("status") in {"discovered", "reviewed"}
+    ]
     warnings: list[str] = []
     if not active_path or not active_path.get("profile_id"):
         warnings.append("Choose and save a Ghost Path.")
     if not model.get("provider"):
         warnings.append("Configure a model provider.")
-    if model.get("provider") in {"openai", "anthropic", "openrouter", "vultr", "huggingface"} and not model.get("api_key"):
+    if model.get("provider") in {"openai", "anthropic", "openrouter", "vultr", "huggingface"} and not model.get(
+        "api_key"
+    ):
         warnings.append("Add the provider API key in Config before live model runs.")
     if not approved_sources:
         warnings.append("Approve at least one learning source before Self-Evolution.")
@@ -284,13 +300,48 @@ def readiness_summary(
     return {
         "ok": True,
         "cards": [
-            {"id": "path", "label": "Ghost Path", "status": "ready" if active_path and active_path.get("profile_id") else "needs_setup", "action": "path"},
-            {"id": "model", "label": "Model", "status": "ready" if model.get("provider") else "needs_setup", "action": "config"},
-            {"id": "rag", "label": "RAG + MiniMind", "status": "ready" if rag_status and rag_status.get("enabled") else "guarded", "action": "rag-builder"},
-            {"id": "mcp", "label": "MCP", "status": "enabled" if mcp_status and mcp_status.get("enabled") else "review", "action": "mcp"},
-            {"id": "evolution", "label": "Self-Evolution", "status": "ready" if approved_sources else "needs_approval", "action": "evolution"},
-            {"id": "skills", "label": "Skills", "status": "review" if pending_candidates else "ready", "action": "skills"},
-            {"id": "latency", "label": "Latency", "status": latency.get("status", "unknown") if latency else "unknown", "action": "latency"},
+            {
+                "id": "path",
+                "label": "Ghost Path",
+                "status": "ready" if active_path and active_path.get("profile_id") else "needs_setup",
+                "action": "path",
+            },
+            {
+                "id": "model",
+                "label": "Model",
+                "status": "ready" if model.get("provider") else "needs_setup",
+                "action": "config",
+            },
+            {
+                "id": "rag",
+                "label": "RAG + MiniMind",
+                "status": "ready" if rag_status and rag_status.get("enabled") else "guarded",
+                "action": "rag-builder",
+            },
+            {
+                "id": "mcp",
+                "label": "MCP",
+                "status": "enabled" if mcp_status and mcp_status.get("enabled") else "review",
+                "action": "mcp",
+            },
+            {
+                "id": "evolution",
+                "label": "Self-Evolution",
+                "status": "ready" if approved_sources else "needs_approval",
+                "action": "evolution",
+            },
+            {
+                "id": "skills",
+                "label": "Skills",
+                "status": "review" if pending_candidates else "ready",
+                "action": "skills",
+            },
+            {
+                "id": "latency",
+                "label": "Latency",
+                "status": latency.get("status", "unknown") if latency else "unknown",
+                "action": "latency",
+            },
         ],
         "warnings": warnings,
         "counts": {

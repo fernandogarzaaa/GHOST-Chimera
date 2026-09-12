@@ -59,8 +59,7 @@ def test_pipeline_with_stub_transcriber(tmp_path) -> None:
     class Stub:
         def transcribe_base64(self, audio_base64, *, mime_type=""):
             assert audio_base64
-            return {"ok": True, "provider": "stub",
-                    "transcript": "hello um comma world"}
+            return {"ok": True, "provider": "stub", "transcript": "hello um comma world"}
 
     history = FlowHistory(tmp_path)
     result = transcribe_and_format(Stub(), "QUJD", profile="dictation", history=history)
@@ -81,15 +80,21 @@ def test_pipeline_propagates_transcriber_failure(tmp_path) -> None:
 def _live_console(tmp_path, port_base: int = 18771):
     from ghostchimera.control_plane.console import run_console
 
-    return run_console(host="127.0.0.1", port=port_base, http_port=port_base + 1,
-                       state_dir=str(tmp_path), open_browser=False, block=False)
+    return run_console(
+        host="127.0.0.1",
+        port=port_base,
+        http_port=port_base + 1,
+        state_dir=str(tmp_path),
+        open_browser=False,
+        block=False,
+    )
 
 
 def _api(method: str, url: str, payload: dict | None = None) -> dict:
     data = json.dumps(payload or {}).encode()
-    req = urllib.request.Request(url, data=data if method == "POST" else None,
-                                 headers={"Content-Type": "application/json"},
-                                 method=method)
+    req = urllib.request.Request(
+        url, data=data if method == "POST" else None, headers={"Content-Type": "application/json"}, method=method
+    )
     with urllib.request.urlopen(req, timeout=60) as resp:
         return json.load(resp)
 
@@ -101,8 +106,7 @@ def test_console_flow_routes_contract(tmp_path) -> None:
         base = "http://127.0.0.1:18772"
         status = _api("GET", base + "/api/console/conversation/local-voice/status")
         assert status["ok"] is True and "providers" in status
-        flow = _api("POST", base + "/api/console/voice/flow",
-                    {"audio_base64": "", "profile": "dictation"})
+        flow = _api("POST", base + "/api/console/voice/flow", {"audio_base64": "", "profile": "dictation"})
         assert flow["ok"] is False and "text" in flow  # empty audio, honest error
         history = _api("POST", base + "/api/console/voice/flow/history", {"limit": 5})
         assert history["ok"] is True and history["history"] == []

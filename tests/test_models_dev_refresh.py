@@ -71,12 +71,19 @@ def test_openrouter_provider_accepts_muse_spark_model(monkeypatch) -> None:
 def test_refresh_models_dev_offline(tmp_path) -> None:
     fixture = {
         "openai": {
-            "name": "OpenAI", "env": ["OPENAI_API_KEY"], "doc": "https://x",
+            "name": "OpenAI",
+            "env": ["OPENAI_API_KEY"],
+            "doc": "https://x",
             "models": {
-                "gpt-5.2": {"name": "GPT 5.2", "limit": {"context": 400000, "output": 128000},
-                            "tool_call": True, "reasoning": True,
-                            "modalities": {"input": ["text"], "output": ["text"]},
-                            "cost": {"input": 1.75, "output": 14}, "release_date": "2026-01-01"},
+                "gpt-5.2": {
+                    "name": "GPT 5.2",
+                    "limit": {"context": 400000, "output": 128000},
+                    "tool_call": True,
+                    "reasoning": True,
+                    "modalities": {"input": ["text"], "output": ["text"]},
+                    "cost": {"input": 1.75, "output": 14},
+                    "release_date": "2026-01-01",
+                },
             },
         }
     }
@@ -84,9 +91,11 @@ def test_refresh_models_dev_offline(tmp_path) -> None:
     src.write_text(json.dumps(fixture), encoding="utf-8")
     out = tmp_path / "snapshot.json"
     result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "refresh_models_dev.py"),
-         "--input", str(src), "--out", str(out)],
-        capture_output=True, text=True, timeout=60)
+        [sys.executable, str(REPO_ROOT / "scripts" / "refresh_models_dev.py"), "--input", str(src), "--out", str(out)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert result.returncode == 0, result.stderr
     snapshot = json.loads(out.read_text(encoding="utf-8"))
     assert snapshot["source"] == "models.dev"

@@ -45,9 +45,7 @@ def run_memory_consolidation(
     """Run one consolidation pass and return a JSON-serializable report."""
 
     episodic = MemoryStore(_resolve(memory_db, "GHOSTCHIMERA_MEMORY_DB", DEFAULT_MEMORY_DB))
-    semantic = TemporalGraphStore(
-        _resolve(graph_db, "GHOSTCHIMERA_TEMPORAL_GRAPH_DB", DEFAULT_TEMPORAL_GRAPH_DB)
-    )
+    semantic = TemporalGraphStore(_resolve(graph_db, "GHOSTCHIMERA_TEMPORAL_GRAPH_DB", DEFAULT_TEMPORAL_GRAPH_DB))
     consolidator = MemoryConsolidator(
         episodic,
         semantic,

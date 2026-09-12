@@ -24,8 +24,10 @@ def test_npm_package_valid_and_version_synced() -> None:
     assert "GHOSTCHIMERA_SKIP_PIP" in launcher
     # npm semver prerelease mirrors the Python beta version.
     py_version = re.search(r'^version = "([^"]+)"', _pyproject(), re.M).group(1)
-    assert pkg["version"].replace("-", ".").startswith(py_version.replace("-beta", "").replace("-", ".")) \
+    assert (
+        pkg["version"].replace("-", ".").startswith(py_version.replace("-beta", "").replace("-", "."))
         or pkg["version"] == py_version
+    )
 
 
 def test_brew_formula_shape() -> None:
@@ -83,6 +85,11 @@ def test_npm_launcher_delegates_to_backend() -> None:
     env = dict(__import__("os").environ, GHOSTCHIMERA_SKIP_PIP="1")
     result = subprocess.run(
         ["node", str(REPO_ROOT / "npm" / "bin" / "ghostchimera.js"), "--help"],
-        capture_output=True, text=True, timeout=120, cwd=str(REPO_ROOT), env=env)
+        capture_output=True,
+        text=True,
+        timeout=120,
+        cwd=str(REPO_ROOT),
+        env=env,
+    )
     assert result.returncode == 0
     assert "usage:" in result.stdout.lower()

@@ -25,11 +25,12 @@ def _transport_factory(calls: list, *, refresh=None, proxy=None):
             if body.get("grant_type") == "refresh_token":
                 if callable(refresh):
                     return refresh(body)
-                return 200, json.dumps({"access_token": "new-at",
-                                        "refresh_token": "new-rt",
-                                        "expires_in": 3600}).encode()
-            return 200, json.dumps({"access_token": "at-1", "refresh_token": "rt-1",
-                                    "expires_in": 3600, "scope": "chat:write"}).encode()
+                return 200, json.dumps(
+                    {"access_token": "new-at", "refresh_token": "new-rt", "expires_in": 3600}
+                ).encode()
+            return 200, json.dumps(
+                {"access_token": "at-1", "refresh_token": "rt-1", "expires_in": 3600, "scope": "chat:write"}
+            ).encode()
         if kind == "PROXY":
             if callable(proxy):
                 return proxy(payload)
@@ -47,9 +48,21 @@ def _engine(tmp_path, monkeypatch, calls, **kw):
 
 
 def test_catalog_covers_providers() -> None:
-    for key in ("google-mail", "slack", "zendesk", "freshdesk", "gorgias",
-                "hubspot", "salesforce", "notion", "airtable",
-                "hubstaff", "time-doctor", "github", "linkedin"):
+    for key in (
+        "google-mail",
+        "slack",
+        "zendesk",
+        "freshdesk",
+        "gorgias",
+        "hubspot",
+        "salesforce",
+        "notion",
+        "airtable",
+        "hubstaff",
+        "time-doctor",
+        "github",
+        "linkedin",
+    ):
         assert key in PROVIDERS
 
 
@@ -158,8 +171,7 @@ def test_proactive_refresh_on_expiry(tmp_path, monkeypatch) -> None:
         # instead expire via a zero-lifetime exchange below.
         engine.handle_callback("slack", "code", auth["state"], "http://localhost/cb")
         # Manually backdate expiry to force refresh on next read.
-        engine.store._conn.execute(
-            "UPDATE integration_auth_tokens SET expires_at = 1.0 WHERE entity_id='va-1'")
+        engine.store._conn.execute("UPDATE integration_auth_tokens SET expires_at = 1.0 WHERE entity_id='va-1'")
         engine.store._conn.commit()
         assert engine.get_valid_token("va-1", "slack") == "new-at"
         assert engine.get_valid_token("va-1", "slack") == "new-at"  # cached now
@@ -176,16 +188,15 @@ def test_single_flight_refresh_under_concurrency(tmp_path, monkeypatch) -> None:
     def refresh(body):
         refresh_count[0] += 1
         import time as _t
+
         _t.sleep(0.05)
-        return 200, json.dumps({"access_token": "race-at",
-                                "refresh_token": "race-rt", "expires_in": 3600}).encode()
+        return 200, json.dumps({"access_token": "race-at", "refresh_token": "race-rt", "expires_in": 3600}).encode()
 
     engine = _engine(tmp_path, monkeypatch, calls, refresh=refresh)
     try:
         auth = engine.authorize_url("slack", "va-1", "http://localhost/cb")
         engine.handle_callback("slack", "code", auth["state"], "http://localhost/cb")
-        engine.store._conn.execute(
-            "UPDATE integration_auth_tokens SET expires_at = 1.0 WHERE entity_id='va-1'")
+        engine.store._conn.execute("UPDATE integration_auth_tokens SET expires_at = 1.0 WHERE entity_id='va-1'")
         engine.store._conn.commit()
         results = []
 
@@ -213,8 +224,7 @@ def test_invalid_grant_demotes_to_needs_reauth(tmp_path, monkeypatch) -> None:
     try:
         auth = engine.authorize_url("slack", "va-1", "http://localhost/cb")
         engine.handle_callback("slack", "code", auth["state"], "http://localhost/cb")
-        engine.store._conn.execute(
-            "UPDATE integration_auth_tokens SET expires_at = 1.0 WHERE entity_id='va-1'")
+        engine.store._conn.execute("UPDATE integration_auth_tokens SET expires_at = 1.0 WHERE entity_id='va-1'")
         engine.store._conn.commit()
         with pytest.raises(NeedsReauth):
             engine.get_valid_token("va-1", "slack")
@@ -241,13 +251,13 @@ def test_proxy_request_and_action(tmp_path, monkeypatch) -> None:
     try:
         auth = engine.authorize_url("slack", "va-1", "http://localhost/cb")
         engine.handle_callback("slack", "code", auth["state"], "http://localhost/cb")
-        result = engine.proxy_request("slack", "va-1", "POST",
-                                      "https://slack.com/api/chat.postMessage",
-                                      data={"channel": "#ops"})
+        result = engine.proxy_request(
+            "slack", "va-1", "POST", "https://slack.com/api/chat.postMessage", data={"channel": "#ops"}
+        )
         assert result == {"ok": True}
-        action = EngineAction(provider="slack",
-                              url="https://slack.com/api/chat.postMessage",
-                              payload={"channel": "#ops"})
+        action = EngineAction(
+            provider="slack", url="https://slack.com/api/chat.postMessage", payload={"channel": "#ops"}
+        )
         assert action.execute(engine, "va-1") == {"ok": True}
         assert seen and seen[0]["method"] == "POST"
     finally:
@@ -304,6 +314,14 @@ def test_postgres_migration_exists() -> None:
 
     migration = Path(__file__).resolve().parents[1] / "migrations" / "0001_integration_auth_tokens.sql"
     text = migration.read_text(encoding="utf-8")
-    for marker in ("integration_auth_tokens", "entity_id", "provider", "access_token",
-                   "refresh_token", "expires_at", "scopes", "UNIQUE(entity_id, provider)"):
+    for marker in (
+        "integration_auth_tokens",
+        "entity_id",
+        "provider",
+        "access_token",
+        "refresh_token",
+        "expires_at",
+        "scopes",
+        "UNIQUE(entity_id, provider)",
+    ):
         assert marker in text

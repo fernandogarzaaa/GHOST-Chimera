@@ -35,10 +35,12 @@ from ghostchimera.connectors import CustomAuthEngine, EngineAction
 
 engine = CustomAuthEngine(state_dir)
 try:
-    action = EngineAction(provider="slack",
-                          url="https://slack.com/api/chat.postMessage",
-                          payload={"channel": "#ops", "text": "Update sent."})
-    action.execute(engine, "va-1")   # Bearer header, fresh token, no middleman
+    action = EngineAction(
+        provider="slack",
+        url="https://slack.com/api/chat.postMessage",
+        payload={"channel": "#ops", "text": "Update sent."},
+    )
+    action.execute(engine, "va-1")  # Bearer header, fresh token, no middleman
 finally:
     engine.close()
 ```

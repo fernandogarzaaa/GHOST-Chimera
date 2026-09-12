@@ -534,7 +534,9 @@ class RemoteControlConsoleRouteTests(unittest.TestCase):
                     "method": "POST",
                     "path": "/api/console/remote/channels/whatsapp",
                     "headers": {},
-                    "body": json.dumps({"verify_token": "ghost-token", "api_token": "wa-token", "phone_number_id": "123"}),
+                    "body": json.dumps(
+                        {"verify_token": "ghost-token", "api_token": "wa-token", "phone_number_id": "123"}
+                    ),
                     "query": {},
                 }
             )
@@ -575,7 +577,9 @@ class RemoteControlConsoleRouteTests(unittest.TestCase):
                     "method": "POST",
                     "path": "/api/console/remote/channels/slack",
                     "headers": {},
-                    "body": json.dumps({"bot_token": "xoxb-secret-token", "signing_secret": "slack-signing", "send_enabled": True}),
+                    "body": json.dumps(
+                        {"bot_token": "xoxb-secret-token", "signing_secret": "slack-signing", "send_enabled": True}
+                    ),
                     "query": {},
                 }
             )
@@ -663,14 +667,27 @@ class RemoteControlConsoleRouteTests(unittest.TestCase):
 
     def test_cli_remote_simulate_uses_local_state(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghost-remote-cli-") as tmp:
-            pair_code_result = _main(["remote", "pair-code", "--state-dir", tmp, "--channel", "webhook", "--peer", "cli-admin"])
+            pair_code_result = _main(
+                ["remote", "pair-code", "--state-dir", tmp, "--channel", "webhook", "--peer", "cli-admin"]
+            )
             self.assertEqual(pair_code_result, 0)
 
             status_result = _main(["remote", "status", "--state-dir", tmp])
             self.assertEqual(status_result, 0)
 
             simulate_result = _main(
-                ["remote", "simulate", "--state-dir", tmp, "--channel", "webhook", "--peer", "new-admin", "--text", "/status"]
+                [
+                    "remote",
+                    "simulate",
+                    "--state-dir",
+                    tmp,
+                    "--channel",
+                    "webhook",
+                    "--peer",
+                    "new-admin",
+                    "--text",
+                    "/status",
+                ]
             )
             self.assertEqual(simulate_result, 1)
             self.assertTrue((Path(tmp) / "remote_control_state.json").exists())

@@ -133,8 +133,12 @@ class GhostMemoryRetriever:
                     source="memory:episodic",
                     kind="memory",
                     text=text[:2000],
-                    score=float(provenance.get("score", 0.5)) if isinstance(provenance.get("score"), (int, float)) else 0.5,
-                    confidence=float(provenance.get("confidence", 0.6)) if isinstance(provenance.get("confidence"), (int, float)) else 0.6,
+                    score=float(provenance.get("score", 0.5))
+                    if isinstance(provenance.get("score"), (int, float))
+                    else 0.5,
+                    confidence=float(provenance.get("confidence", 0.6))
+                    if isinstance(provenance.get("confidence"), (int, float))
+                    else 0.6,
                     provenance={"retriever": self.name, "query": query[:120], **provenance},
                     privacy_class=str(provenance.get("privacy_class", "internal")),
                 )

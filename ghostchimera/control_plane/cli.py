@@ -153,9 +153,13 @@ def _main(argv: list[str] | None = None) -> int:
     start_parser.add_argument("--host", default="127.0.0.1", help="Gateway bind host for the console.")
     start_parser.add_argument("--port", type=int, default=8765, help="Gateway WebSocket port.")
     start_parser.add_argument("--http-port", type=int, default=8766, help="Console HTTP port.")
-    start_parser.add_argument("--state-dir", default="", help="Optional state directory for console jobs and schedules.")
+    start_parser.add_argument(
+        "--state-dir", default="", help="Optional state directory for console jobs and schedules."
+    )
     start_parser.add_argument("--no-open", action="store_true", help="Print the console URL without opening a browser.")
-    start_parser.add_argument("--skip-setup", action="store_true", help="Skip setup wizard even when config is missing.")
+    start_parser.add_argument(
+        "--skip-setup", action="store_true", help="Skip setup wizard even when config is missing."
+    )
     start_parser.add_argument(
         "--auth-token", default="", help="Require this bearer token on all /api/* routes (X-Gateway-Token header)."
     )
@@ -223,10 +227,14 @@ def _main(argv: list[str] | None = None) -> int:
     remote_parser.add_argument("--phone-number-id", default="", help="Write-only WhatsApp phone number id.")
     remote_parser.add_argument("--signing-secret", default="", help="Write-only provider signing secret.")
     remote_parser.add_argument("--verify-token", default="", help="Write-only provider webhook verification token.")
-    remote_parser.add_argument("--send-enabled", action="store_true", help="Enable outbound sending for channel-config.")
+    remote_parser.add_argument(
+        "--send-enabled", action="store_true", help="Enable outbound sending for channel-config."
+    )
     remote_parser.add_argument("--clear-secrets", action="store_true", help="Clear stored channel secrets.")
     remote_parser.add_argument("--direct-execution", action="store_true", help="Enable global direct execution policy.")
-    remote_parser.add_argument("--no-direct-execution", action="store_true", help="Disable global direct execution policy.")
+    remote_parser.add_argument(
+        "--no-direct-execution", action="store_true", help="Disable global direct execution policy."
+    )
     production_gaps_parser = sub.add_parser("production-gaps", help="Scan for scaffold/demo markers before production")
     production_gaps_parser.add_argument("--root", default="", help="Checkout root to scan.")
     production_gaps_parser.add_argument("--limit", type=int, default=200, help="Maximum findings to return.")
@@ -240,7 +248,9 @@ def _main(argv: list[str] | None = None) -> int:
     conversation_parser.add_argument("--voice", action="store_true", help="Treat send input as a voice turn.")
     conversation_parser.add_argument("--full-bypass", action="store_true", help="Arm Full Bypass before sending.")
     conversation_parser.add_argument("--no-listen", action="store_true", help="Start without always-listening mode.")
-    live_presence_parser = sub.add_parser("live-presence", help="Manage live meetings, interviews, and delegated presence")
+    live_presence_parser = sub.add_parser(
+        "live-presence", help="Manage live meetings, interviews, and delegated presence"
+    )
     live_presence_parser.add_argument(
         "action",
         choices=[
@@ -266,27 +276,50 @@ def _main(argv: list[str] | None = None) -> int:
     live_presence_parser.add_argument("--state-dir", default="", help="Optional Live Presence state directory.")
     live_presence_parser.add_argument("--session-id", default="", help="Live Presence session id.")
     live_presence_parser.add_argument("--title", default="Live Presence Session", help="Session title for create.")
-    live_presence_parser.add_argument("--type", choices=["companion", "meeting", "interview"], default="meeting", help="Session type.")
-    live_presence_parser.add_argument("--participant", action="append", default=[], help="Participant name. Repeatable.")
+    live_presence_parser.add_argument(
+        "--type", choices=["companion", "meeting", "interview"], default="meeting", help="Session type."
+    )
+    live_presence_parser.add_argument(
+        "--participant", action="append", default=[], help="Participant name. Repeatable."
+    )
     live_presence_parser.add_argument("--external", action="store_true", help="Mark participants as external.")
     live_presence_parser.add_argument("--speaker", default="Speaker", help="Transcript speaker.")
     live_presence_parser.add_argument("--text", default="", help="Transcript content.")
-    live_presence_parser.add_argument("--app", default="browser", help="Meeting app for bridge, for example google_meet.")
+    live_presence_parser.add_argument(
+        "--app", default="browser", help="Meeting app for bridge, for example google_meet."
+    )
     live_presence_parser.add_argument("--meeting-url", default="", help="Meeting URL for visible browser handoff.")
     live_presence_parser.add_argument("--browser-session", default="default", help="Browser profile/session label.")
     live_presence_parser.add_argument("--reason", default="", help="Interrupt reason.")
     live_presence_parser.add_argument("--channel", default="email", help="Delegated communication channel.")
     live_presence_parser.add_argument("--recipient", default="", help="Delegated communication recipient.")
     live_presence_parser.add_argument("--body", default="", help="Delegated communication body.")
-    live_presence_parser.add_argument("--disclosure-template", default="", help="Disclosure text appended to delegated communication.")
+    live_presence_parser.add_argument(
+        "--disclosure-template", default="", help="Disclosure text appended to delegated communication."
+    )
     live_presence_parser.add_argument("--draft-id", default="", help="Communication draft id for send.")
-    live_presence_parser.add_argument("--agenda", action="append", default=[], help="Shared context agenda item. Repeatable.")
-    live_presence_parser.add_argument("--hint", action="append", default=[], help="MiniMind/RAG live-context hint. Repeatable.")
-    live_presence_parser.add_argument("--rag-snippet", action="append", default=[], help="RAG snippet text for live context. Repeatable.")
-    live_presence_parser.add_argument("--correction", default="", help="User correction to store in live shared context.")
+    live_presence_parser.add_argument(
+        "--agenda", action="append", default=[], help="Shared context agenda item. Repeatable."
+    )
+    live_presence_parser.add_argument(
+        "--hint", action="append", default=[], help="MiniMind/RAG live-context hint. Repeatable."
+    )
+    live_presence_parser.add_argument(
+        "--rag-snippet", action="append", default=[], help="RAG snippet text for live context. Repeatable."
+    )
+    live_presence_parser.add_argument(
+        "--correction", default="", help="User correction to store in live shared context."
+    )
     live_presence_parser.add_argument("--role", default="Candidate", help="Interview role.")
-    live_presence_parser.add_argument("--mode", choices=["interviewer", "interviewee", "observer"], default="interviewer", help="Interview operator mode.")
-    live_presence_parser.add_argument("--competency", action="append", default=[], help="Interview competency. Repeatable.")
+    live_presence_parser.add_argument(
+        "--mode",
+        choices=["interviewer", "interviewee", "observer"],
+        default="interviewer",
+        help="Interview operator mode.",
+    )
+    live_presence_parser.add_argument(
+        "--competency", action="append", default=[], help="Interview competency. Repeatable."
+    )
     saas_parser = sub.add_parser("saas", help="Inspect Enterprise SaaS launch-mode readiness")
     saas_parser.add_argument("saas_action", choices=["status", "init-db", "create-admin"], nargs="?", default="status")
     saas_parser.add_argument("--print-sql", action="store_true", help="Print the initial Postgres schema for init-db.")
@@ -313,7 +346,9 @@ def _main(argv: list[str] | None = None) -> int:
     trust_eval_cases.add_argument("--severity", choices=["P0", "P1", "P2", "P3"], default="P2")
     trust_parser.add_argument("--state-dir", default="", help="Optional Trust Runtime state directory.")
     admission_parser = sub.add_parser("capability-admission", help="Inspect and approve capability admission records")
-    admission_parser.add_argument("action", choices=["list", "inspect", "approve", "activate", "revoke", "quarantine"], nargs="?", default="list")
+    admission_parser.add_argument(
+        "action", choices=["list", "inspect", "approve", "activate", "revoke", "quarantine"], nargs="?", default="list"
+    )
     admission_parser.add_argument("record_id", nargs="?", default="", help="Admission record id for state changes.")
     admission_parser.add_argument("--state-dir", default="", help="Optional capability admission state directory.")
     admission_parser.add_argument("--kind", default="model", help="Capability kind for inspect.")
@@ -412,7 +447,9 @@ def _main(argv: list[str] | None = None) -> int:
     minimind_parser.add_argument("--response", default="", help="Response/output text.")
     minimind_parser.add_argument("--confidence", type=float, default=0.0)
     minimind_parser.add_argument("--threshold", type=float, default=0.5)
-    minimind_parser.add_argument("--epochs", type=int, default=12, help="Epochs for local neural MiniMind adapter training.")
+    minimind_parser.add_argument(
+        "--epochs", type=int, default=12, help="Epochs for local neural MiniMind adapter training."
+    )
     minimind_parser.add_argument(
         "--learning-rate", type=float, default=0.25, help="Learning rate for local neural MiniMind adapter training."
     )
@@ -494,7 +531,9 @@ def _main(argv: list[str] | None = None) -> int:
     local_model_parser.add_argument(
         "--profile", default="", help="Local model profile name (tiny, balanced, stronger)."
     )
-    local_model_parser.add_argument("--source", default="", help="Model source for resolve: HF id, HF URL, or local path.")
+    local_model_parser.add_argument(
+        "--source", default="", help="Model source for resolve: HF id, HF URL, or local path."
+    )
     cognition_parser = sub.add_parser("cognition", help="Run Ghost-native cognition trust helpers")
     cognition_parser.add_argument("action", choices=["guard", "handoff"], nargs="?", default="guard")
     cognition_parser.add_argument("handoff_action", choices=["verify"], nargs="?")
@@ -917,7 +956,11 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
     try:
         executions = kernel.run(objective)
     except PermissionError as exc:
-        payload = {"ok": False, "error": str(exc), "tip": "Run `ghostchimera setup` to tune permissions and model setup."}
+        payload = {
+            "ok": False,
+            "error": str(exc),
+            "tip": "Run `ghostchimera setup` to tune permissions and model setup.",
+        }
         if args.json:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
@@ -965,7 +1008,10 @@ def _run_ux_audit_cli(args: argparse.Namespace) -> int:
                 "id": "one_liner_terminal",
                 "status": "implemented",
                 "inspired_by": ["OpenClaw", "Hermes Agent"],
-                "usage": ['ghost "Summarize my inbox and draft next steps"', 'ghostchimera ask "Plan my day in 3 tasks"'],
+                "usage": [
+                    'ghost "Summarize my inbox and draft next steps"',
+                    'ghostchimera ask "Plan my day in 3 tasks"',
+                ],
             },
             {
                 "id": "guided_start",
@@ -1046,7 +1092,11 @@ def _run_superiority_cli(args: argparse.Namespace) -> int:
         static_html=html,
         static_app=app,
     ).to_dict()
-    output = format_superiority_markdown(payload) if args.format == "markdown" else json.dumps(payload, indent=2, sort_keys=True)
+    output = (
+        format_superiority_markdown(payload)
+        if args.format == "markdown"
+        else json.dumps(payload, indent=2, sort_keys=True)
+    )
     if args.save:
         Path(args.save).expanduser().write_text(output, encoding="utf-8")
     print(output, end="" if output.endswith("\n") else "\n")
@@ -1259,10 +1309,7 @@ def _run_production_gaps_cli(args: argparse.Namespace) -> int:
         print(f"- Non-blocking: {payload['counts']['non_blocking']}")
         print()
         for gap in payload.get("gaps", [])[: max(1, int(args.limit))]:
-            print(
-                f"- [{gap['severity']}] `{gap['path']}:{gap['line']}` "
-                f"{gap['marker']} - {gap['snippet']}"
-            )
+            print(f"- [{gap['severity']}] `{gap['path']}:{gap['line']}` {gap['marker']} - {gap['snippet']}")
     else:
         print(json.dumps(payload, indent=2, sort_keys=True))
     return 0 if payload.get("ok") else 1
@@ -1305,7 +1352,9 @@ def _run_live_presence_cli(args: argparse.Namespace) -> int:
                     browser_session=args.browser_session,
                 )
             elif action == "interrupt":
-                payload = store.interrupt_session(args.session_id, reason=args.reason or "CLI interrupted the live session.")
+                payload = store.interrupt_session(
+                    args.session_id, reason=args.reason or "CLI interrupted the live session."
+                )
             elif action == "draft":
                 payload = store.create_communication_draft(
                     args.session_id,
@@ -1315,7 +1364,9 @@ def _run_live_presence_cli(args: argparse.Namespace) -> int:
                     disclosure_template=args.disclosure_template,
                 )
             elif action == "approve-recipient":
-                payload = store.approve_recipient(args.session_id, channel=args.channel, recipient=args.recipient, approved_by="cli")
+                payload = store.approve_recipient(
+                    args.session_id, channel=args.channel, recipient=args.recipient, approved_by="cli"
+                )
             elif action == "send":
                 payload = store.send_communication(args.session_id, args.draft_id)
             elif action == "context":

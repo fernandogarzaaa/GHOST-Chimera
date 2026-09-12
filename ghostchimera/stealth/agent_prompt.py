@@ -87,13 +87,13 @@ class AgentAction:
     actions: list[dict[str, Any]] = field(default_factory=list)
 
 
-def render_system_prompt(*, agent_name: str, integrations: list[str],
-                         event_payload: dict[str, Any]) -> str:
+def render_system_prompt(*, agent_name: str, integrations: list[str], event_payload: dict[str, Any]) -> str:
     """Fill the template. Values are JSON-rendered where structured."""
-    return (SYSTEM_PROMPT_TEMPLATE
-            .replace("{{HUMAN_AGENT_NAME}}", agent_name)
-            .replace("{{CONNECTED_INTEGRATIONS}}", ", ".join(integrations))
-            .replace("{{INBOUND_EVENT_PAYLOAD}}", json.dumps(event_payload)))
+    return (
+        SYSTEM_PROMPT_TEMPLATE.replace("{{HUMAN_AGENT_NAME}}", agent_name)
+        .replace("{{CONNECTED_INTEGRATIONS}}", ", ".join(integrations))
+        .replace("{{INBOUND_EVENT_PAYLOAD}}", json.dumps(event_payload))
+    )
 
 
 def parse_agent_output(text: str) -> AgentAction:
@@ -122,8 +122,12 @@ def parse_agent_output(text: str) -> AgentAction:
             raise ValueError(f"Malformed action entry: {action!r}")
     if action_type == AgentActionType.AUTONOMOUS_EXECUTE and not actions:
         raise ValueError("AUTONOMOUS_EXECUTE requires at least one action")
-    return AgentAction(event_summary=str(data.get("event_summary", "")),
-                       confidence_score=confidence, action_type=action_type, actions=actions)
+    return AgentAction(
+        event_summary=str(data.get("event_summary", "")),
+        confidence_score=confidence,
+        action_type=action_type,
+        actions=actions,
+    )
 
 
 def gate_agent_action(action: AgentAction, policy: GhostPolicy | None = None) -> Decision:
@@ -144,5 +148,11 @@ def gate_agent_action(action: AgentAction, policy: GhostPolicy | None = None) ->
     return Decision.ASK
 
 
-__all__ = ["AgentAction", "AgentActionType", "SYSTEM_PROMPT_TEMPLATE",
-           "gate_agent_action", "parse_agent_output", "render_system_prompt"]
+__all__ = [
+    "AgentAction",
+    "AgentActionType",
+    "SYSTEM_PROMPT_TEMPLATE",
+    "gate_agent_action",
+    "parse_agent_output",
+    "render_system_prompt",
+]

@@ -18,19 +18,33 @@ from ghostchimera.stealth import (
 
 
 def test_render_system_prompt_fills_all_slots() -> None:
-    text = render_system_prompt(agent_name="Maria", integrations=["slack", "google-mail"],
-                                event_payload={"from": "client@example.com", "intent": "reschedule"})
+    text = render_system_prompt(
+        agent_name="Maria",
+        integrations=["slack", "google-mail"],
+        event_payload={"from": "client@example.com", "intent": "reschedule"},
+    )
     assert "{{" not in text
     assert "Maria" in text and "slack, google-mail" in text
     assert '"intent": "reschedule"' in text
 
 
 def test_parse_agent_output_valid_and_violations() -> None:
-    good = parse_agent_output(json.dumps({
-        "event_summary": "Client asks to reschedule.", "confidence_score": 0.95,
-        "action_type": "AUTONOMOUS_EXECUTE",
-        "actions": [{"provider": "google-mail", "endpoint": "/users/me/messages/send",
-                     "payload": {"to": "c@example.com"}}]}))
+    good = parse_agent_output(
+        json.dumps(
+            {
+                "event_summary": "Client asks to reschedule.",
+                "confidence_score": 0.95,
+                "action_type": "AUTONOMOUS_EXECUTE",
+                "actions": [
+                    {
+                        "provider": "google-mail",
+                        "endpoint": "/users/me/messages/send",
+                        "payload": {"to": "c@example.com"},
+                    }
+                ],
+            }
+        )
+    )
     assert good.action_type == AgentActionType.AUTONOMOUS_EXECUTE
     assert good.confidence_score == 0.95
     with pytest.raises(ValueError):
@@ -44,13 +58,22 @@ def test_parse_agent_output_valid_and_violations() -> None:
 
 
 def test_gate_agent_action_respects_autonomy() -> None:
-    draft = parse_agent_output(json.dumps({"event_summary": "e", "confidence_score": 0.6,
-                                           "action_type": "DRAFT_FOR_APPROVAL", "actions": []}))
-    auto = parse_agent_output(json.dumps({"event_summary": "e", "confidence_score": 0.95,
-                                          "action_type": "AUTONOMOUS_EXECUTE",
-                                          "actions": [{"provider": "slack", "endpoint": "/x"}]}))
-    idle = parse_agent_output(json.dumps({"event_summary": "e", "confidence_score": 0.2,
-                                          "action_type": "NO_ACTION_NEEDED"}))
+    draft = parse_agent_output(
+        json.dumps({"event_summary": "e", "confidence_score": 0.6, "action_type": "DRAFT_FOR_APPROVAL", "actions": []})
+    )
+    auto = parse_agent_output(
+        json.dumps(
+            {
+                "event_summary": "e",
+                "confidence_score": 0.95,
+                "action_type": "AUTONOMOUS_EXECUTE",
+                "actions": [{"provider": "slack", "endpoint": "/x"}],
+            }
+        )
+    )
+    idle = parse_agent_output(
+        json.dumps({"event_summary": "e", "confidence_score": 0.2, "action_type": "NO_ACTION_NEEDED"})
+    )
     assert gate_agent_action(idle) == Decision.NONE
     l1 = GhostPolicy(autonomy=AutonomyLevel.PREPARE)
     assert gate_agent_action(draft, l1) == Decision.PREPARE

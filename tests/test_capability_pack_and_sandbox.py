@@ -116,4 +116,3 @@ class ConsoleNativeAbsorptionRouteTests(unittest.TestCase):
 
         self.assertTrue(payload["ok"])
         self.assertNotIn("raw-secret-token", json.dumps(payload))
-

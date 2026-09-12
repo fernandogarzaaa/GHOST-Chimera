@@ -377,14 +377,18 @@ class ConversationalLoopController:
         if self.timeline_recorder:
             self.timeline_recorder(event_type, _redact_value(detail or {}))
 
-    def create_session(self, *, session_id: str = "", title: str = "Ghost Conversation", always_listening: bool = True) -> dict[str, Any]:
+    def create_session(
+        self, *, session_id: str = "", title: str = "Ghost Conversation", always_listening: bool = True
+    ) -> dict[str, Any]:
         payload = self.store.create_session(
             session_id=session_id,
             title=title,
             mode="listening" if always_listening else "waiting_for_user",
             always_listening=always_listening,
         )
-        self._record("conversation_session_started", {"session_id": payload["session_id"], "always_listening": always_listening})
+        self._record(
+            "conversation_session_started", {"session_id": payload["session_id"], "always_listening": always_listening}
+        )
         return payload["session"]
 
     def update_settings(self, **updates: Any) -> dict[str, Any]:
@@ -422,19 +426,30 @@ class ConversationalLoopController:
         if intent == "empty":
             return {"ok": False, "error": "Message is required", "mode": session.get("mode", "listening")}
         self.store.append_turn(session_id, role="user", content=message, intent=intent, input_mode=input_mode)
-        self._record("conversation_turn_received", {"session_id": session_id, "intent": intent, "input_mode": input_mode})
+        self._record(
+            "conversation_turn_received", {"session_id": session_id, "intent": intent, "input_mode": input_mode}
+        )
 
         if intent == "stop":
             return self.stop(session_id)
         if intent == "sleep":
             self.store.update_settings(always_listening=False)
-            return self._reply(session_id, intent, "Ghost is sleeping. Say Hey Ghost or use Wake to resume.", mode="sleeping")
+            return self._reply(
+                session_id, intent, "Ghost is sleeping. Say Hey Ghost or use Wake to resume.", mode="sleeping"
+            )
         if intent == "wake":
             self.store.update_settings(always_listening=True)
-            return self._reply(session_id, intent, "I am listening. Tell me what you want to do next.", mode="listening")
+            return self._reply(
+                session_id, intent, "I am listening. Tell me what you want to do next.", mode="listening"
+            )
         if intent == "deny":
             self.store.update_session(session_id, mode="listening", pending_approval=None)
-            return self._reply(session_id, intent, "Denied. I cleared the pending action and stayed in listening mode.", mode="listening")
+            return self._reply(
+                session_id,
+                intent,
+                "Denied. I cleared the pending action and stayed in listening mode.",
+                mode="listening",
+            )
         if intent == "approve":
             return self._approve_pending(session_id, input_mode=input_mode)
         if intent == "show_evidence":
@@ -453,9 +468,18 @@ class ConversationalLoopController:
             }
             session = self.store.update_session(session_id, mode="waiting_for_approval", pending_approval=approval)
             reply = "This is high impact. Say approve after enabling Full Bypass, or confirm from the dashboard."
-            self.store.append_turn(session_id, role="ghost", content=reply, intent="approval_request", metadata={"approval": approval})
+            self.store.append_turn(
+                session_id, role="ghost", content=reply, intent="approval_request", metadata={"approval": approval}
+            )
             self._record("conversation_approval_requested", {"session_id": session_id, "risk_level": "high"})
-            return {"ok": True, "intent": intent, "mode": "waiting_for_approval", "reply": reply, "session": session, "pending_approval": approval}
+            return {
+                "ok": True,
+                "intent": intent,
+                "mode": "waiting_for_approval",
+                "reply": reply,
+                "session": session,
+                "pending_approval": approval,
+            }
 
         return self._execute_objective(session_id, objective, intent=intent, input_mode=input_mode)
 
@@ -489,8 +513,13 @@ class ConversationalLoopController:
                 "pending_approval": pending,
             }
         self.store.update_session(session_id, mode="executing", pending_approval=None)
-        self._record("conversation_approval_resolved", {"session_id": session_id, "approved": True, "voice": input_mode == "voice"})
-        return self._execute_objective(session_id, str(pending.get("objective") or ""), intent="approve", input_mode=input_mode)
+        self._record(
+            "conversation_approval_resolved",
+            {"session_id": session_id, "approved": True, "voice": input_mode == "voice"},
+        )
+        return self._execute_objective(
+            session_id, str(pending.get("objective") or ""), intent="approve", input_mode=input_mode
+        )
 
     def _execute_objective(self, session_id: str, objective: str, *, intent: str, input_mode: str) -> dict[str, Any]:
         self.store.update_session(session_id, mode="executing")
@@ -531,7 +560,10 @@ class ConversationalLoopController:
                 intent=intent,
                 metadata={"trust_run_id": trust_run["run_id"], "ok": ok},
             )
-            self._record("conversation_objective_run", {"session_id": session_id, "intent": intent, "ok": ok, "trust_run_id": trust_run["run_id"]})
+            self._record(
+                "conversation_objective_run",
+                {"session_id": session_id, "intent": intent, "ok": ok, "trust_run_id": trust_run["run_id"]},
+            )
             return {
                 "ok": ok,
                 "intent": intent,
@@ -596,10 +628,10 @@ class ConversationalLoopController:
         production = status.get("production_readiness") if isinstance(status.get("production_readiness"), dict) else {}
         counts = status.get("counts") if isinstance(status.get("counts"), dict) else {}
         warnings = [str(item) for item in (status.get("warnings") or []) if str(item).strip()]
-        path_label = active_path.get('label') or active_path.get('profile_id') or 'not selected'
+        path_label = active_path.get("label") or active_path.get("profile_id") or "not selected"
         model_str = f"{model.get('provider') or 'none'} / {model.get('model') or 'default'}"
-        auth_ok = bool(model.get('auth_configured', model.get('api_key_configured')))
-        prod_status = production.get('status') or ('ready' if production.get('ready') else 'review')
+        auth_ok = bool(model.get("auth_configured", model.get("api_key_configured")))
+        prod_status = production.get("status") or ("ready" if production.get("ready") else "review")
         lines = [
             f"Path: {path_label} | Model: {model_str} | Auth: {'ok' if auth_ok else 'missing'} | Prod: {prod_status}",
             f"Sources: {counts.get('approved_sources', 0)}/{counts.get('learning_sources', 0)} | Candidates: {counts.get('pending_candidates', 0)}",

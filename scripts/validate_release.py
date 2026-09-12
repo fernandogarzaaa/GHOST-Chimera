@@ -444,7 +444,11 @@ def check_bob_tooling_artifacts() -> dict[str, Any]:
             errors.append(f"test matrix workflow missing {token!r}")
 
     docs_site = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
-    for token in ("IBM Bob Tools: bob-tools.md", "API Reference: api-reference.md", "Roadmap: BOB_POST_HACKATHON_ROADMAP.md"):
+    for token in (
+        "IBM Bob Tools: bob-tools.md",
+        "API Reference: api-reference.md",
+        "Roadmap: BOB_POST_HACKATHON_ROADMAP.md",
+    ):
         if token not in docs_site:
             errors.append(f"mkdocs navigation missing {token!r}")
 
@@ -538,7 +542,7 @@ def check_public_launch_saas_artifacts() -> dict[str, Any]:
             errors.append(f"public launch SaaS doc missing {token!r}")
 
     cli = (ROOT / "ghostchimera" / "control_plane" / "cli.py").read_text(encoding="utf-8")
-    for token in ("sub.add_parser(\"saas\"", "sub.add_parser(\"worker\"", "run_saas_cli", "run_worker_cli"):
+    for token in ('sub.add_parser("saas"', 'sub.add_parser("worker"', "run_saas_cli", "run_worker_cli"):
         if token not in cli:
             errors.append(f"CLI missing SaaS/worker surface {token!r}")
 
@@ -560,7 +564,12 @@ def check_public_launch_saas_artifacts() -> dict[str, Any]:
             errors.append(f"SaaS schema missing {table!r}")
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    for token in ("Public Launch SaaS", "ghostchimera saas status", "ghostchimera worker status", "docker-compose.saas.yml"):
+    for token in (
+        "Public Launch SaaS",
+        "ghostchimera saas status",
+        "ghostchimera worker status",
+        "docker-compose.saas.yml",
+    ):
         if token not in readme:
             errors.append(f"README missing SaaS launch reference {token!r}")
 
