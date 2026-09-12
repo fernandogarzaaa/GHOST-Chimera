@@ -31,6 +31,17 @@ BROWSER_OPERATIONS = frozenset(
         "browser.type",
         "browser.navigate",
         "browser.wait",
+        "browser.back",
+        "browser.forward",
+        "browser.reload",
+        "browser.fill",
+        "browser.select",
+        "browser.check",
+        "browser.submit",
+        "browser.hover",
+        "browser.scroll",
+        "browser.wait_for",
+        "browser.html",
     }
 )
 DESKTOP_OPERATIONS = frozenset(
@@ -60,6 +71,7 @@ READ_OPERATIONS = frozenset(
     {
         "browser.read",
         "browser.wait",
+        "browser.html",
         "desktop.read",
         "desktop.wait",
         "vision.capture",

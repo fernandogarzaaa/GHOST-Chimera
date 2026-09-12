@@ -41,6 +41,34 @@ class FakeCdp:
         self.calls.append(("type", selector, text))
         return True
 
+    def back(self) -> bool:
+        self.calls.append(("back",))
+        return True
+
+    def fill_form(self, fields: dict) -> dict:
+        self.calls.append(("fill", fields))
+        return {key: True for key in fields}
+
+    def select_option(self, selector: str, value: str) -> bool:
+        self.calls.append(("select", selector, value))
+        return True
+
+    def hover(self, selector: str) -> bool:
+        self.calls.append(("hover", selector))
+        return True
+
+    def scroll_to(self, target: str = "bottom") -> bool:
+        self.calls.append(("scroll", target))
+        return True
+
+    def wait_for_text(self, text: str, *, timeout: float = 10.0) -> bool:
+        self.calls.append(("wait_for", text))
+        return True
+
+    def html(self, *, max_chars: int = 20000) -> str:
+        self.calls.append(("html",))
+        return "<html>fake</html>"
+
 
 class FakeDesktopAdapter:
     def __init__(self) -> None:
@@ -86,6 +114,30 @@ class BrowserExecutorTests(unittest.TestCase):
         self.assertTrue(executor({"operation": "ui.type", "target": "#q", "parameters": {"text": "hi"}})["typed"])
         with self.assertRaises(RuntimeError):
             executor({"operation": "browser.launch"})
+
+    def test_extended_browser_operations_and_fenced_read(self) -> None:
+        from ghostchimera.stealth.untrusted import is_fenced
+
+        cdp = FakeCdp()
+        executor = CdpBrowserExecutor(cdp)
+
+        self.assertTrue(executor({"operation": "browser.back"})["done"])
+        self.assertEqual(
+            executor({"operation": "browser.fill", "parameters": {"fields": {"#a": "1"}}})["filled"], {"#a": True}
+        )
+        self.assertTrue(
+            executor({"operation": "browser.select", "target": "#s", "parameters": {"value": "v"}})["selected"]
+        )
+        self.assertTrue(executor({"operation": "browser.hover", "target": "#h"})["hovered"])
+        self.assertTrue(executor({"operation": "browser.scroll", "parameters": {"to": "bottom"}})["scrolled"])
+        self.assertTrue(executor({"operation": "browser.wait_for", "parameters": {"text": "done"}})["found"])
+
+        read = executor({"operation": "browser.read"})
+        self.assertTrue(is_fenced(read["page"]["text"]))
+        self.assertIn("https://example.test", read["page"]["text"])
+
+        html = executor({"operation": "browser.html", "target": "https://example.test"})
+        self.assertTrue(is_fenced(html["html"]))
 
 
 class DesktopExecutorTests(unittest.TestCase):
@@ -171,6 +223,20 @@ class AttachLiveBackendsTests(unittest.TestCase):
             self.assertIn("https://example.test", str(executed["receipt"]))
             loop.emit(new_event("file.modified", source="fs", confidence=0.2))
             self.assertIsNotNone(loop.last_result)
+        finally:
+            loop.close()
+
+    def test_new_operations_are_plannable_with_approval(self) -> None:
+        loop = StealthLoop()
+        try:
+            attach_live_backends(loop, browser=FakeCdp())
+            planned = loop.request_computer_use(
+                {"operation": "browser.fill", "parameters": {"fields": {"#a": "1"}}},
+                workflow="browse",
+                dry_run=True,
+            )
+            self.assertTrue(planned["ok"])
+            self.assertTrue(planned["plan"]["approval_required"])
         finally:
             loop.close()
 

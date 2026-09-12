@@ -167,9 +167,10 @@ class TestExperienceModel(unittest.TestCase):
         result = asyncio.run(manager.perceive(event, PerceptionLevel.BROWSER, {}))
         self.assertTrue(result.success)
         self.assertEqual(result.environment.active_url, "https://example.test")
-        self.assertEqual(result.data["dom"]["tag"], "body")
-        self.assertEqual(result.data["accessibility_tree"]["name"], "main")
-        self.assertEqual(result.data["console"], ["ready"])
+        self.assertIn('"tag": "body"', result.data["dom"])
+        self.assertIn("untrusted-web-content", result.data["dom"])
+        self.assertIn('"name": "main"', result.data["accessibility_tree"])
+        self.assertIn("ready", result.data["console"])
 
         missing_url = new_event("browser.navigation", source="browser")
         result = asyncio.run(manager.perceive(missing_url, PerceptionLevel.BROWSER, {}))
@@ -192,10 +193,10 @@ class TestExperienceModel(unittest.TestCase):
         result = asyncio.run(provider.perceive(event, {}))
         self.assertTrue(result.success)
         self.assertEqual(result.environment.active_application, "App")
-        self.assertEqual(result.data["dom"]["id"], "main")
-        self.assertEqual(result.data["accessibility_tree"]["role"], "main")
-        self.assertEqual(result.data["ui_elements"][0]["name"], "Save")
-        self.assertEqual(result.data["mcp"]["tool"], "search")
+        self.assertIn('"id": "main"', result.data["dom"])
+        self.assertIn('"role": "main"', result.data["accessibility_tree"])
+        self.assertIn('"name": "Save"', result.data["ui_elements"])
+        self.assertIn('"tool": "search"', result.data["mcp"])
 
     def test_intent_engine_builds_event_and_payload_hypotheses(self):
         engine = IntentEngine()
@@ -251,7 +252,7 @@ class TestExperienceModel(unittest.TestCase):
         structured_result = asyncio.run(
             manager.perceive(new_event("file.modified", source="fs", payload={}), PerceptionLevel.STRUCTURED, {})
         )
-        self.assertEqual(structured_result.data["mcp_clients"], {"repo": {"files": 3}})
+        self.assertIn('"files": 3', structured_result.data["mcp_clients"])
         self.assertIn("broken", structured_result.data["mcp_errors"])
 
         browser_result = asyncio.run(
@@ -261,12 +262,12 @@ class TestExperienceModel(unittest.TestCase):
                 {},
             )
         )
-        self.assertEqual(browser_result.data["cdp"], {"tab-1": {"url": "https://example.test"}})
+        self.assertIn('"url": "https://example.test"', browser_result.data["cdp"])
 
         vision_result = asyncio.run(
             manager.perceive(new_event("dialog.appeared", source="os", payload={}), PerceptionLevel.VISION, {})
         )
-        self.assertEqual(vision_result.data["vision_models"], {"ocr": {"text": "invoice"}})
+        self.assertIn('"text": "invoice"', vision_result.data["vision_models"])
 
     @staticmethod
     def _failing_backend(event_view, context):

@@ -14,6 +14,7 @@ import binascii
 import itertools
 import json
 import threading
+import time
 import urllib.request
 from contextlib import suppress
 from typing import Any
@@ -64,8 +65,25 @@ def page_websocket_url(host: str = "127.0.0.1", port: int = 9222, *, timeout: fl
     raise CdpError("No debuggable page target found; open a tab in the debug Chrome instance")
 
 
-class CdpClient:
+def browser_websocket_url(host: str = "127.0.0.1", port: int = 9222, *, timeout: float = 5.0) -> str:
+    """Return the browser-level WebSocket URL for tab management."""
+
+    url = f"http://{host}:{port}/json/version"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise CdpError(f"Chrome DevTools endpoint unreachable at {url}: {exc}") from exc
+    ws_url = str(payload.get("webSocketDebuggerUrl", "")) if isinstance(payload, dict) else ""
+    if not ws_url:
+        raise CdpError(f"No browser WebSocket URL at {url}")
+    return ws_url
+
+
+class _CdpConnection:
     """Synchronous CDP session backed by a private asyncio thread."""
+
+    _enable_domains: tuple[str, ...] = ()
 
     def __init__(self, ws_url: str, *, timeout: float = 30.0) -> None:
         self.ws_url = ws_url
@@ -98,9 +116,8 @@ class CdpClient:
                 )
             except Exception as exc:
                 raise CdpError(f"Cannot connect to {self.ws_url}: {exc}") from exc
-            await self._send("Page.enable", {})
-            await self._send("DOM.enable", {})
-            await self._send("Runtime.enable", {})
+            for domain in self._enable_domains:
+                await self._send(f"{domain}.enable", {})
             return True
         if action == "close":
             connection, self._connection = self._connection, None
@@ -141,6 +158,19 @@ class CdpClient:
         """Send a raw CDP command and return its result payload."""
 
         return self._call(method, params or {})
+
+    def close(self) -> None:
+        """Close the session and stop the background thread."""
+
+        with suppress(Exception):
+            self._call("close")
+        self._thread.join(timeout=5.0)
+
+
+class CdpClient(_CdpConnection):
+    """Page-level session: perception and action inside one tab."""
+
+    _enable_domains = ("Page", "DOM", "Runtime")
 
     def navigate(self, url: str, *, wait_for_load: bool = True) -> dict[str, Any]:
         """Navigate the page, optionally waiting for the load event."""
@@ -224,12 +254,156 @@ class CdpClient:
         except (binascii.Error, ValueError) as exc:
             raise CdpError(f"Invalid screenshot payload: {exc}") from exc
 
-    def close(self) -> None:
-        """Close the session and stop the background thread."""
+    def back(self) -> bool:
+        """Navigate back in history."""
 
-        with suppress(Exception):
-            self._call("close")
-        self._thread.join(timeout=5.0)
+        return bool(self.evaluate("window.history.back(); true"))
+
+    def forward(self) -> bool:
+        """Navigate forward in history."""
+
+        return bool(self.evaluate("window.history.forward(); true"))
+
+    def reload(self) -> bool:
+        """Reload the current page."""
+
+        return bool(self.evaluate("location.reload(); true"))
+
+    def fill_form(self, fields: dict[str, str]) -> dict[str, bool]:
+        """Fill multiple inputs keyed by CSS selector."""
+
+        return {selector: self.type_text(selector, str(value)) for selector, value in fields.items()}
+
+    def select_option(self, selector: str, value: str) -> bool:
+        """Choose an option in a select element."""
+
+        return bool(
+            self.evaluate(
+                "(args => { const el = document.querySelector(args.sel); if (!el) return false;"
+                " el.value = args.value;"
+                " el.dispatchEvent(new Event('input', {bubbles: true}));"
+                " el.dispatchEvent(new Event('change', {bubbles: true})); return true; })("
+                + json.dumps({"sel": selector, "value": value})
+                + ")"
+            )
+        )
+
+    def set_checked(self, selector: str, checked: bool = True) -> bool:
+        """Set a checkbox or radio input."""
+
+        return bool(
+            self.evaluate(
+                "(args => { const el = document.querySelector(args.sel); if (!el) return false;"
+                " el.checked = args.checked;"
+                " el.dispatchEvent(new Event('input', {bubbles: true}));"
+                " el.dispatchEvent(new Event('change', {bubbles: true})); return true; })("
+                + json.dumps({"sel": selector, "checked": checked})
+                + ")"
+            )
+        )
+
+    def submit(self, selector: str | None = None) -> bool:
+        """Submit a form by selector, or the first form on the page."""
+
+        target = json.dumps(selector)
+        return bool(
+            self.evaluate(
+                "(sel => { const form = sel ? document.querySelector(sel) : document.querySelector('form');"
+                " if (!form || form.tagName !== 'FORM') return false;"
+                " if (typeof form.requestSubmit === 'function') { form.requestSubmit(); } else { form.submit(); }"
+                " return true; })(" + target + ")"
+            )
+        )
+
+    def hover(self, selector: str) -> bool:
+        """Dispatch hover mouse events on the first matching element."""
+
+        return bool(
+            self.evaluate(
+                "(sel => { const el = document.querySelector(sel); if (!el) return false;"
+                " const rect = el.getBoundingClientRect();"
+                " const opts = {bubbles: true, clientX: rect.left + 1, clientY: rect.top + 1};"
+                " el.dispatchEvent(new MouseEvent('mouseover', opts));"
+                " el.dispatchEvent(new MouseEvent('mousemove', opts)); return true; })(" + json.dumps(selector) + ")"
+            )
+        )
+
+    def scroll_to(self, target: str = "bottom") -> bool:
+        """Scroll to top/bottom, x,y coordinates, or a CSS selector into view."""
+
+        return bool(
+            self.evaluate(
+                "(target => {"
+                " if (target === 'top') { window.scrollTo(0, 0); return true; }"
+                " if (target === 'bottom') { window.scrollTo(0, document.body.scrollHeight); return true; }"
+                " const coords = target.split(',');"
+                " if (coords.length === 2 && !isNaN(Number(coords[0])) && !isNaN(Number(coords[1]))) {"
+                " window.scrollTo(Number(coords[0]), Number(coords[1])); return true; }"
+                " const el = document.querySelector(target);"
+                " if (!el) return false; el.scrollIntoView(); return true; })(" + json.dumps(target) + ")"
+            )
+        )
+
+    def wait_for_text(self, text: str, *, timeout: float = 10.0) -> bool:
+        """Poll visible text until it appears or the timeout expires."""
+
+        needle = json.dumps(text)
+        deadline = time.time() + max(0.0, timeout)
+        while True:
+            found = self.evaluate(f"document.body ? document.body.innerText.includes({needle}) : false")
+            if found:
+                return True
+            if time.time() >= deadline:
+                return False
+            time.sleep(0.25)
+
+    def html(self, *, max_chars: int = 20000) -> str:
+        """Return the page markup, truncated."""
+
+        markup = self.evaluate("document.documentElement.outerHTML.slice(0, " + str(max(0, max_chars)) + ")")
+        return str(markup or "")
+
+
+class CdpBrowser(_CdpConnection):
+    """Browser-level session: tab management across the debug Chrome."""
+
+    def list_tabs(self) -> list[dict[str, Any]]:
+        """Return debuggable targets visible to this browser session."""
+
+        result = self._call("Target.getTargets", {})
+        targets = result.get("targetInfos", []) if isinstance(result, dict) else []
+        return [target for target in targets if isinstance(target, dict)]
+
+    def new_tab(self, url: str = "about:blank") -> dict[str, Any]:
+        """Open a new tab and return its target record."""
+
+        result = self._call("Target.createTarget", {"url": url})
+        if not isinstance(result, dict) or not result.get("targetId"):
+            raise CdpError(f"Could not open tab for {url}: {result!r}")
+        return {"target_id": result["targetId"], "url": url}
+
+    def close_tab(self, target_id: str) -> bool:
+        """Close the tab with the given target ID."""
+
+        result = self._call("Target.closeTarget", {"targetId": target_id})
+        return bool(result.get("success", False)) if isinstance(result, dict) else False
+
+    def activate_tab(self, target_id: str) -> None:
+        """Bring the tab with the given target ID to the front."""
+
+        self._call("Target.activateTarget", {"targetId": target_id})
+
+
+__all__ = [
+    "CdpBrowser",
+    "CdpClient",
+    "CdpError",
+    "browser_websocket_url",
+    "chrome_remote_debugging_command",
+    "list_targets",
+    "page_websocket_url",
+    "probe",
+]
 
 
 __all__ = [
