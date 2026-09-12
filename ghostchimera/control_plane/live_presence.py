@@ -92,7 +92,9 @@ def _stable_id(*parts: object, length: int = 16) -> str:
 
 def _default_disclosure_text(session_type: str) -> str:
     if session_type == "interview":
-        return "Ghost Chimera is assisting as a delegated AI operator. The user remains responsible for final decisions."
+        return (
+            "Ghost Chimera is assisting as a delegated AI operator. The user remains responsible for final decisions."
+        )
     return "Ghost Chimera is present as a delegated AI operator for note-taking, summaries, and approved follow-up."
 
 
@@ -271,7 +273,12 @@ class LivePresenceStore:
                 "session": updated,
             }
         if any(term in json.dumps(session, default=str).lower() for term in SECRET_RECORDING_TERMS):
-            return {"ok": False, "required_action": "revise_session", "error": "Secret recording requests are not allowed.", "session": session}
+            return {
+                "ok": False,
+                "required_action": "revise_session",
+                "error": "Secret recording requests are not allowed.",
+                "session": session,
+            }
         trust = self.trust_store.create_run(
             agent_name="ghost_live_presence",
             objective=f"{session.get('session_type')}: {session.get('title')}",
@@ -335,7 +342,9 @@ class LivePresenceStore:
         )
         return {"ok": True, "session": updated}
 
-    def interrupt_session(self, session_id: str, *, reason: str = "Operator interrupted the live session.") -> dict[str, Any]:
+    def interrupt_session(
+        self, session_id: str, *, reason: str = "Operator interrupted the live session."
+    ) -> dict[str, Any]:
         interruption = {
             "reason": str(reason or "Operator interrupted the live session.").strip()[:500],
             "timestamp": _now(),
@@ -430,7 +439,9 @@ class LivePresenceStore:
         )
         return {"ok": True, "draft": _redact_value(draft), "session": updated}
 
-    def approve_recipient(self, session_id: str, *, channel: str, recipient: str, approved_by: str = "admin") -> dict[str, Any]:
+    def approve_recipient(
+        self, session_id: str, *, channel: str, recipient: str, approved_by: str = "admin"
+    ) -> dict[str, Any]:
         approval = {
             "channel": (channel or "email").strip()[:80],
             "recipient": (recipient or "").strip()[:240],
@@ -493,7 +504,9 @@ class LivePresenceStore:
         sent_draft = next(
             (
                 item
-                for item in (updated.get("communication_drafts") if isinstance(updated.get("communication_drafts"), list) else [])
+                for item in (
+                    updated.get("communication_drafts") if isinstance(updated.get("communication_drafts"), list) else []
+                )
                 if isinstance(item, dict) and item.get("draft_id") == draft_id
             ),
             draft,
@@ -643,7 +656,9 @@ class LivePresenceStore:
         shared_context = session.get("shared_context") if isinstance(session.get("shared_context"), dict) else {}
         if shared_context:
             agenda = shared_context.get("agenda") if isinstance(shared_context.get("agenda"), list) else []
-            hints = shared_context.get("minimind_hints") if isinstance(shared_context.get("minimind_hints"), list) else []
+            hints = (
+                shared_context.get("minimind_hints") if isinstance(shared_context.get("minimind_hints"), list) else []
+            )
             report["summary"] = (
                 f"{report['summary']}\n\nShared context: "
                 f"agenda={', '.join(str(item) for item in agenda[:5])}; "
@@ -667,8 +682,12 @@ class LivePresenceStore:
         pending_recipient_approvals = 0
         communication_drafts = 0
         for session in sessions:
-            drafts = session.get("communication_drafts") if isinstance(session.get("communication_drafts"), list) else []
-            approvals = session.get("approved_recipients") if isinstance(session.get("approved_recipients"), list) else []
+            drafts = (
+                session.get("communication_drafts") if isinstance(session.get("communication_drafts"), list) else []
+            )
+            approvals = (
+                session.get("approved_recipients") if isinstance(session.get("approved_recipients"), list) else []
+            )
             communication_drafts += len(drafts)
             for draft in drafts:
                 if not isinstance(draft, dict) or draft.get("status") == "sent":
@@ -693,7 +712,11 @@ class LivePresenceStore:
         elif not sessions:
             recommended = {"action": "create_session", "label": "Create a meeting or interview session"}
         else:
-            recommended = {"action": "review_report", "label": "Review the latest live presence report", "session_id": sessions[0].get("session_id", "")}
+            recommended = {
+                "action": "review_report",
+                "label": "Review the latest live presence report",
+                "session_id": sessions[0].get("session_id", ""),
+            }
         return {
             "ok": True,
             "counts": {
@@ -722,7 +745,10 @@ class LivePresenceStore:
         checks_list = [
             {
                 "id": "external_disclosure_gate",
-                "passed": all(item.get("disclosure_status") == "approved" or item.get("mode") != "active" for item in external_sessions),
+                "passed": all(
+                    item.get("disclosure_status") == "approved" or item.get("mode") != "active"
+                    for item in external_sessions
+                ),
                 "severity": "P0",
             },
             {
@@ -732,7 +758,8 @@ class LivePresenceStore:
             },
             {
                 "id": "transcript_fixtures",
-                "passed": any(isinstance(item.get("transcript"), list) and item.get("transcript") for item in sessions) or not sessions,
+                "passed": any(isinstance(item.get("transcript"), list) and item.get("transcript") for item in sessions)
+                or not sessions,
                 "severity": "P2",
             },
             {
@@ -743,7 +770,10 @@ class LivePresenceStore:
             },
             {
                 "id": "safety_boundaries",
-                "passed": all("Secret or undisclosed recording is not allowed." not in (item.get("warnings") or []) for item in sessions),
+                "passed": all(
+                    "Secret or undisclosed recording is not allowed." not in (item.get("warnings") or [])
+                    for item in sessions
+                ),
                 "severity": "P0",
             },
         ]

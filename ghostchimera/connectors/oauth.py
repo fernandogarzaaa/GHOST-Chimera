@@ -153,8 +153,15 @@ def pkce_pair(*, verifier: str | None = None) -> tuple[str, str]:
     return raw, challenge
 
 
-def build_authorize_url(preset: ProviderPreset, *, client_id: str, redirect_uri: str,
-                        state: str, challenge: str, scopes: list[str] | None = None) -> str:
+def build_authorize_url(
+    preset: ProviderPreset,
+    *,
+    client_id: str,
+    redirect_uri: str,
+    state: str,
+    challenge: str,
+    scopes: list[str] | None = None,
+) -> str:
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
@@ -171,8 +178,9 @@ def build_authorize_url(preset: ProviderPreset, *, client_id: str, redirect_uri:
 
 def _form_post(url: str, payload: dict[str, str], *, timeout: float = 30.0) -> dict[str, Any]:
     body = urllib.parse.urlencode(payload).encode()
-    req = urllib.request.Request(url, data=body, headers={
-        "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"})
+    req = urllib.request.Request(
+        url, data=body, headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
+    )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         raw = resp.read().decode("utf-8", "replace")
     try:
@@ -181,18 +189,17 @@ def _form_post(url: str, payload: dict[str, str], *, timeout: float = 30.0) -> d
         return dict(urllib.parse.parse_qsl(raw))
 
 
-def exchange_code(preset: ProviderPreset, *, client_id: str, client_secret: str,
-                  code: str, redirect_uri: str, verifier: str) -> dict[str, Any]:
-    payload = {"grant_type": "authorization_code", "client_id": client_id,
-               "code": code, "redirect_uri": redirect_uri}
+def exchange_code(
+    preset: ProviderPreset, *, client_id: str, client_secret: str, code: str, redirect_uri: str, verifier: str
+) -> dict[str, Any]:
+    payload = {"grant_type": "authorization_code", "client_id": client_id, "code": code, "redirect_uri": redirect_uri}
     if client_secret:
         payload["client_secret"] = client_secret
     if preset.use_pkce:
         payload["code_verifier"] = verifier
     token = _form_post(preset.token_url, payload)
     if "access_token" not in token:
-        raise ValueError(f"{preset.id} did not return an access token: "
-                         f"{token.get('error', 'unknown error')}")
+        raise ValueError(f"{preset.id} did not return an access token: {token.get('error', 'unknown error')}")
     now = time.time()
     token["provider"] = preset.id
     token["created_at"] = now
@@ -200,11 +207,18 @@ def exchange_code(preset: ProviderPreset, *, client_id: str, client_secret: str,
     return token
 
 
-def refresh_access_token(preset: ProviderPreset, *, client_id: str, client_secret: str,
-                         refresh_token: str) -> dict[str, Any]:
-    token = _form_post(preset.token_url, {
-        "grant_type": "refresh_token", "client_id": client_id,
-        "client_secret": client_secret, "refresh_token": refresh_token})
+def refresh_access_token(
+    preset: ProviderPreset, *, client_id: str, client_secret: str, refresh_token: str
+) -> dict[str, Any]:
+    token = _form_post(
+        preset.token_url,
+        {
+            "grant_type": "refresh_token",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+        },
+    )
     if "access_token" not in token:
         raise ValueError(f"{preset.id} refresh failed: {token.get('error', 'unknown error')}")
     now = time.time()
@@ -279,5 +293,14 @@ def oauth_status(state_dir: str | Path) -> dict[str, dict[str, Any]]:
     return {pid: vault.status(pid) for pid in OAUTH_PRESETS}
 
 
-__all__ = ["OAUTH_PRESETS", "ProviderPreset", "TokenVault", "build_authorize_url",
-           "exchange_code", "get_preset", "oauth_status", "pkce_pair", "refresh_access_token"]
+__all__ = [
+    "OAUTH_PRESETS",
+    "ProviderPreset",
+    "TokenVault",
+    "build_authorize_url",
+    "exchange_code",
+    "get_preset",
+    "oauth_status",
+    "pkce_pair",
+    "refresh_access_token",
+]

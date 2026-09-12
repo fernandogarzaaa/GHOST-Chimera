@@ -81,9 +81,7 @@ def saas_status_from_env() -> dict[str, object]:
         client_secret=os.environ.get("GHOSTCHIMERA_OIDC_CLIENT_SECRET", ""),
         redirect_uri=os.environ.get("GHOSTCHIMERA_OIDC_REDIRECT_URI", ""),
         allowed_domains=tuple(
-            item.strip()
-            for item in os.environ.get("GHOSTCHIMERA_OIDC_ALLOWED_DOMAINS", "").split(",")
-            if item.strip()
+            item.strip() for item in os.environ.get("GHOSTCHIMERA_OIDC_ALLOWED_DOMAINS", "").split(",") if item.strip()
         ),
         admin_bootstrap_email=os.environ.get("GHOSTCHIMERA_ADMIN_BOOTSTRAP_EMAIL", ""),
     )

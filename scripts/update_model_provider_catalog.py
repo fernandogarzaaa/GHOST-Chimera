@@ -119,7 +119,15 @@ def render_markdown(snapshot: dict[str, Any]) -> str:
         source = str(model.get("source") or "")
         if source != current_source:
             current_source = source
-            lines.extend(["", f"### {source}", "", "| Model | Status | Context | Cost | Badges | Use Cases |", "|---|---|---:|---|---|---|"])
+            lines.extend(
+                [
+                    "",
+                    f"### {source}",
+                    "",
+                    "| Model | Status | Context | Cost | Badges | Use Cases |",
+                    "|---|---|---:|---|---|---|",
+                ]
+            )
         badges = ", ".join(str(item) for item in model.get("capability_badges") or [])
         use_cases = ", ".join(str(item) for item in model.get("recommended_use_cases") or [])
         lines.append(
@@ -151,7 +159,11 @@ def main() -> int:
     args = parser.parse_args()
 
     sources = _source_list(args.sources)
-    state_dir = Path(args.state_dir).expanduser() if args.state_dir else Path(tempfile.gettempdir()) / "ghostchimera-provider-refresh"
+    state_dir = (
+        Path(args.state_dir).expanduser()
+        if args.state_dir
+        else Path(tempfile.gettempdir()) / "ghostchimera-provider-refresh"
+    )
     max_models = max(1, min(int(args.max_models_per_source), 500))
     snapshot = run_refresh(sources=sources, state_dir=state_dir, max_models_per_source=max_models)
 

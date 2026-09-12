@@ -25,8 +25,7 @@ logger = get_logger("stealth.transport")
 class GhostTransport:
     """Localhost HTTP front for a StealthLoop."""
 
-    def __init__(self, loop: StealthLoop, *, host: str = "127.0.0.1", port: int = 0,
-                 token: str = "") -> None:
+    def __init__(self, loop: StealthLoop, *, host: str = "127.0.0.1", port: int = 0, token: str = "") -> None:
         self.loop = loop
         self.host = host
         self.token = token
@@ -94,13 +93,17 @@ class GhostTransport:
                     return
                 if self.path == "/status":
                     loop = outer.loop
-                    self._send({"ok": True,
-                                "events_processed": loop.bus.processed,
-                                "interventions": len(loop.interventions),
-                                "workflows": len(loop.learner.hypotheses()),
-                                "experience": loop.graph.snapshot(),
-                                "autonomy": loop.policy.autonomy.name,
-                                "enabled": loop.policy.enabled})
+                    self._send(
+                        {
+                            "ok": True,
+                            "events_processed": loop.bus.processed,
+                            "interventions": len(loop.interventions),
+                            "workflows": len(loop.learner.hypotheses()),
+                            "experience": loop.graph.snapshot(),
+                            "autonomy": loop.policy.autonomy.name,
+                            "enabled": loop.policy.enabled,
+                        }
+                    )
                 elif self.path.startswith("/explain"):
                     iid = self.path.split("id=")[1] if "id=" in self.path else ""
                     item = outer.loop.interventions.get(iid)
@@ -118,18 +121,22 @@ class GhostTransport:
         event = Event.from_dict(data.get("event", data))
         delivered = self.loop.emit(event)
         result = self.loop.last_result
-        return {"delivered": delivered,
-                "decision": str(result.decision) if result else "none",
-                "intervention_id": result.intervention_id if result else ""}
+        return {
+            "delivered": delivered,
+            "decision": str(result.decision) if result else "none",
+            "intervention_id": result.intervention_id if result else "",
+        }
 
     def _query_context(self, data: dict[str, Any]) -> dict[str, Any]:
         event = Event.from_dict(data.get("event", data))
         package = self.loop.fabric.assemble(
-            event, workflow=str(data.get("workflow", "")),
-            confidence=float(data.get("confidence", 0.0)))
+            event, workflow=str(data.get("workflow", "")), confidence=float(data.get("confidence", 0.0))
+        )
         host = str(data.get("host", "unknown"))
-        return {"package": package.to_dict(),
-                "markdown": InjectionEnvelope(package=package, host=host).render_markdown()}
+        return {
+            "package": package.to_dict(),
+            "markdown": InjectionEnvelope(package=package, host=host).render_markdown(),
+        }
 
     def _observe_session(self, data: dict[str, Any]) -> dict[str, Any]:
         from .hosts import HostAdapter

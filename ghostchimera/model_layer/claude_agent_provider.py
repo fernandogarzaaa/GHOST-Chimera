@@ -126,10 +126,10 @@ class ClaudeAgentProvider(BaseProvider):
         options = ClaudeAgentOptions(
             system_prompt=system_message,
             model=self.model,
-            allowed_tools=[],          # pure reasoning backend — no tool use
+            allowed_tools=[],  # pure reasoning backend — no tool use
             max_turns=self.max_turns,  # headroom; no tools, so it still just answers
             permission_mode="default",
-            setting_sources=[],        # do not load user/project CLAUDE.md, hooks, MCP
+            setting_sources=[],  # do not load user/project CLAUDE.md, hooks, MCP
             cli_path=self.cli_path,
             env=env_override,
         )

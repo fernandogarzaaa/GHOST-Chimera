@@ -61,23 +61,19 @@ class EngineProvider:
 # Canonical provider keys (superset of the former Nango catalog slugs so
 # existing connection registries keep working; 'google-mail' aliases google).
 PROVIDERS: dict[str, EngineProvider] = {
-    "google-mail": EngineProvider("google-mail", "Gmail", "comms",
-                                  "https://gmail.googleapis.com"),
+    "google-mail": EngineProvider("google-mail", "Gmail", "comms", "https://gmail.googleapis.com"),
     "slack": EngineProvider("slack", "Slack", "comms", "https://slack.com/api"),
     "zendesk": EngineProvider("zendesk", "Zendesk", "support"),
     "freshdesk": EngineProvider("freshdesk", "Freshdesk", "support"),
     "gorgias": EngineProvider("gorgias", "Gorgias", "support"),
     "hubspot": EngineProvider("hubspot", "HubSpot", "crm", "https://api.hubapi.com"),
     "salesforce": EngineProvider("salesforce", "Salesforce", "crm"),
-    "notion": EngineProvider("notion", "Notion", "productivity",
-                             "https://api.notion.com/v1"),
-    "airtable": EngineProvider("airtable", "Airtable", "productivity",
-                               "https://api.airtable.com/v0"),
+    "notion": EngineProvider("notion", "Notion", "productivity", "https://api.notion.com/v1"),
+    "airtable": EngineProvider("airtable", "Airtable", "productivity", "https://api.airtable.com/v0"),
     "hubstaff": EngineProvider("hubstaff", "Hubstaff", "workforce"),
     "time-doctor": EngineProvider("time-doctor", "Time Doctor", "workforce"),
     "github": EngineProvider("github", "GitHub", "dev", "https://api.github.com"),
-    "linkedin": EngineProvider("linkedin", "LinkedIn", "social",
-                               "https://api.linkedin.com/v2"),
+    "linkedin": EngineProvider("linkedin", "LinkedIn", "social", "https://api.linkedin.com/v2"),
 }
 
 # Shipped shared logins: project-owned OAuth client IDs (Desktop/native type,
@@ -105,11 +101,21 @@ _CLIENT_ID_ENV: dict[str, tuple[str, ...]] = {
 
 def _env_client_id_names(preset_id: str) -> tuple[str, ...]:
     return _CLIENT_ID_ENV.get(preset_id, (f"{preset_id.upper()}_CLIENT_ID",))
+
+
 _PRESET_FOR = {
-    "google-mail": "google", "slack": "slack", "zendesk": "zendesk",
-    "freshdesk": "freshdesk", "gorgias": "gorgias", "hubspot": "hubspot",
-    "salesforce": "salesforce", "notion": "notion", "airtable": "airtable",
-    "hubstaff": "hubstaff", "time-doctor": "time-doctor", "github": "github",
+    "google-mail": "google",
+    "slack": "slack",
+    "zendesk": "zendesk",
+    "freshdesk": "freshdesk",
+    "gorgias": "gorgias",
+    "hubspot": "hubspot",
+    "salesforce": "salesforce",
+    "notion": "notion",
+    "airtable": "airtable",
+    "hubstaff": "hubstaff",
+    "time-doctor": "time-doctor",
+    "github": "github",
     "linkedin": "linkedin",
 }
 
@@ -158,9 +164,17 @@ class AuthStore:
         with self._lock:
             self._conn.close()
 
-    def upsert(self, entity_id: str, provider: str, access_token: str,
-               refresh_token: str, expires_at: float, scopes: list[str],
-               *, status: str = "ACTIVE") -> str:
+    def upsert(
+        self,
+        entity_id: str,
+        provider: str,
+        access_token: str,
+        refresh_token: str,
+        expires_at: float,
+        scopes: list[str],
+        *,
+        status: str = "ACTIVE",
+    ) -> str:
         record_id = f"auth-{uuid.uuid4().hex[:12]}"
         now = time.time()
         with self._lock:
@@ -172,8 +186,19 @@ class AuthStore:
                 " access_token=excluded.access_token, refresh_token=excluded.refresh_token,"
                 " expires_at=excluded.expires_at, scopes=excluded.scopes,"
                 " updated_at=excluded.updated_at, status=excluded.status",
-                (record_id, entity_id, provider, access_token, refresh_token,
-                 expires_at, json.dumps(scopes), now, now, status))
+                (
+                    record_id,
+                    entity_id,
+                    provider,
+                    access_token,
+                    refresh_token,
+                    expires_at,
+                    json.dumps(scopes),
+                    now,
+                    now,
+                    status,
+                ),
+            )
             self._conn.commit()
         return record_id
 
@@ -183,19 +208,27 @@ class AuthStore:
                 "SELECT id, access_token, refresh_token, expires_at, scopes, status,"
                 " created_at, updated_at FROM integration_auth_tokens"
                 " WHERE entity_id = ? AND provider = ?",
-                (entity_id, provider)).fetchone()
+                (entity_id, provider),
+            ).fetchone()
         if row is None:
             return None
-        return {"id": row[0], "access_token": row[1], "refresh_token": row[2],
-                "expires_at": row[3], "scopes": json.loads(row[4]),
-                "status": row[5], "created_at": row[6], "updated_at": row[7]}
+        return {
+            "id": row[0],
+            "access_token": row[1],
+            "refresh_token": row[2],
+            "expires_at": row[3],
+            "scopes": json.loads(row[4]),
+            "status": row[5],
+            "created_at": row[6],
+            "updated_at": row[7],
+        }
 
     def set_status(self, entity_id: str, provider: str, status: str) -> None:
         with self._lock:
             self._conn.execute(
-                "UPDATE integration_auth_tokens SET status = ?, updated_at = ?"
-                " WHERE entity_id = ? AND provider = ?",
-                (status, time.time(), entity_id, provider))
+                "UPDATE integration_auth_tokens SET status = ?, updated_at = ? WHERE entity_id = ? AND provider = ?",
+                (status, time.time(), entity_id, provider),
+            )
             self._conn.commit()
 
     def list_for(self, entity_id: str) -> list[dict[str, Any]]:
@@ -203,15 +236,18 @@ class AuthStore:
             rows = self._conn.execute(
                 "SELECT provider, status, expires_at, scopes, updated_at"
                 " FROM integration_auth_tokens WHERE entity_id = ?",
-                (entity_id,)).fetchall()
-        return [{"provider": r[0], "status": r[1], "expires_at": r[2],
-                 "scopes": json.loads(r[3]), "updated_at": r[4]} for r in rows]
+                (entity_id,),
+            ).fetchall()
+        return [
+            {"provider": r[0], "status": r[1], "expires_at": r[2], "scopes": json.loads(r[3]), "updated_at": r[4]}
+            for r in rows
+        ]
 
     def revoke(self, entity_id: str, provider: str) -> bool:
         with self._lock:
             cursor = self._conn.execute(
-                "DELETE FROM integration_auth_tokens WHERE entity_id = ? AND provider = ?",
-                (entity_id, provider))
+                "DELETE FROM integration_auth_tokens WHERE entity_id = ? AND provider = ?", (entity_id, provider)
+            )
             self._conn.commit()
             return cursor.rowcount > 0
 
@@ -291,8 +327,11 @@ class CustomAuthEngine:
             from ..control_plane.config import load_config
 
             saved = load_config().get("provider_oauth", {})
-            if (isinstance(saved, dict) and isinstance(saved.get(preset_id), dict)
-                    and str(saved[preset_id].get("client_id", "")).strip()):
+            if (
+                isinstance(saved, dict)
+                and isinstance(saved.get(preset_id), dict)
+                and str(saved[preset_id].get("client_id", "")).strip()
+            ):
                 return "saved"
         except Exception:
             pass
@@ -301,8 +340,9 @@ class CustomAuthEngine:
         return "none"
 
     # -- Step 1: authorize URL ------------------------------------------------
-    def authorize_url(self, provider: str, entity_id: str, redirect_uri: str,
-                      *, scopes: list[str] | None = None) -> dict[str, Any]:
+    def authorize_url(
+        self, provider: str, entity_id: str, redirect_uri: str, *, scopes: list[str] | None = None
+    ) -> dict[str, Any]:
         from .oauth import build_authorize_url, pkce_pair
 
         if provider not in PROVIDERS:
@@ -312,8 +352,9 @@ class CustomAuthEngine:
         if not client_id:
             raise AuthEngineError(f"No client ID configured for {provider}")
         nonce = secrets.token_urlsafe(16)
-        state = _b64url_encode({"entity_id": entity_id, "provider": provider,
-                                "nonce": nonce, "ts": time.time(), "redirect": redirect_uri})
+        state = _b64url_encode(
+            {"entity_id": entity_id, "provider": provider, "nonce": nonce, "ts": time.time(), "redirect": redirect_uri}
+        )
         verifier, challenge = pkce_pair()
         pending_file = self.state_dir / "connector_oauth" / f"pkce-{nonce}.json"
         try:
@@ -332,9 +373,14 @@ class CustomAuthEngine:
             )
         except OSError as exc:
             raise AuthEngineError(f"Cannot persist PKCE state: {exc}") from exc
-        url = build_authorize_url(preset, client_id=client_id, redirect_uri=redirect_uri,
-                                  state=state, challenge=challenge,
-                                  scopes=scopes if scopes is not None else list(preset.scopes))
+        url = build_authorize_url(
+            preset,
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            state=state,
+            challenge=challenge,
+            scopes=scopes if scopes is not None else list(preset.scopes),
+        )
         return {"authorize_url": url, "state": state, "provider": provider, "entity_id": entity_id}
 
     # -- Step 2: callback + exchange -------------------------------------------
@@ -351,8 +397,7 @@ class CustomAuthEngine:
             raise AuthEngineError("PKCE state missing/expired for this login")
         return data
 
-    def handle_callback(self, provider: str, code: str, state: str,
-                        redirect_uri: str) -> dict[str, Any]:
+    def handle_callback(self, provider: str, code: str, state: str, redirect_uri: str) -> dict[str, Any]:
         if provider not in PROVIDERS:
             raise UnknownProvider(f"Unknown provider: {provider}")
         try:
@@ -374,14 +419,17 @@ class CustomAuthEngine:
         if pending.get("provider") != provider or str(pending.get("entity_id", "")) != entity_id:
             raise AuthEngineError("OAuth state mismatch (provider/entity)")
         verifier = str(pending["verifier"])
-        exchange = {"grant_type": "authorization_code", "client_id": self._client_id(preset.id),
-                    "client_secret": os.environ.get(f"{preset.id.upper()}_CLIENT_SECRET", ""),
-                    "code": code, "redirect_uri": str(pending.get("redirect_uri") or redirect_uri),
-                    "code_verifier": verifier}
+        exchange = {
+            "grant_type": "authorization_code",
+            "client_id": self._client_id(preset.id),
+            "client_secret": os.environ.get(f"{preset.id.upper()}_CLIENT_SECRET", ""),
+            "code": code,
+            "redirect_uri": str(pending.get("redirect_uri") or redirect_uri),
+            "code_verifier": verifier,
+        }
         token = self._post_form(preset.token_url, exchange)
         if "access_token" not in token:
-            raise AuthEngineError(
-                f"{provider} gave no access token: {token.get('error', 'unknown')}")
+            raise AuthEngineError(f"{provider} gave no access token: {token.get('error', 'unknown')}")
         return self._store_token(provider, entity_id, token)
 
     def _store_token(self, provider: str, entity_id: str, token: dict[str, Any]) -> dict[str, Any]:
@@ -392,8 +440,14 @@ class CustomAuthEngine:
         scopes = token.get("scope", "")
         scope_list = scopes.split() if isinstance(scopes, str) and scopes else list(token.get("scopes", []) or [])
         self.store.upsert(entity_id, provider, access, refresh, expires_at, scope_list)
-        return {"ok": True, "entity_id": entity_id, "provider": provider,
-                "expires_at": expires_at, "scopes": scope_list, "status": "ACTIVE"}
+        return {
+            "ok": True,
+            "entity_id": entity_id,
+            "provider": provider,
+            "expires_at": expires_at,
+            "scopes": scope_list,
+            "status": "ACTIVE",
+        }
 
     # -- Step 3: vault + proactive refresh ---------------------------------------
     def _lock_for(self, entity_id: str, provider: str) -> threading.Lock:
@@ -410,25 +464,29 @@ class CustomAuthEngine:
         # status — always parse the body before deciding.
         if self._transport is not None:
             status, raw_body = self._transport("POST", url, payload)
-            raw = (raw_body.decode("utf-8", "replace")
-                   if isinstance(raw_body, (bytes, bytearray)) else str(raw_body or "{}"))
+            raw = (
+                raw_body.decode("utf-8", "replace")
+                if isinstance(raw_body, (bytes, bytearray))
+                else str(raw_body or "{}")
+            )
         else:
             encoded = urllib.parse.urlencode(payload).encode()
-            req = urllib.request.Request(url, data=encoded, headers={
-                "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"})
+            req = urllib.request.Request(
+                url,
+                data=encoded,
+                headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
+            )
             try:
                 with urllib.request.urlopen(req, timeout=30.0) as resp:
                     status, raw = resp.status, resp.read().decode("utf-8", "replace")
             except urllib.error.HTTPError as exc:
                 status, raw = exc.code, exc.read().decode("utf-8", "replace")
             except Exception as exc:
-                raise AuthEngineError(
-                    f"token endpoint unreachable: {type(exc).__name__}") from exc
+                raise AuthEngineError(f"token endpoint unreachable: {type(exc).__name__}") from exc
         try:
             decoded = json.loads(raw or "{}")
         except json.JSONDecodeError as exc:
-            raise AuthEngineError(
-                f"token endpoint returned non-JSON (HTTP {status})") from exc
+            raise AuthEngineError(f"token endpoint returned non-JSON (HTTP {status})") from exc
         if isinstance(decoded, dict) and decoded.get("error"):
             raise AuthEngineError(f"token endpoint error: {decoded.get('error')}")
         if not 200 <= status < 300:
@@ -454,43 +512,62 @@ class CustomAuthEngine:
                 raise NeedsReauth(f"No refresh token for {entity_id}/{provider}: reconnect")
             preset = self._preset(provider)
             try:
-                fresh = self._post_form(preset.token_url, {
-                    "grant_type": "refresh_token",
-                    "client_id": self._client_id(preset.id),
-                    "client_secret": os.environ.get(f"{preset.id.upper()}_CLIENT_SECRET", ""),
-                    "refresh_token": refresh})
+                fresh = self._post_form(
+                    preset.token_url,
+                    {
+                        "grant_type": "refresh_token",
+                        "client_id": self._client_id(preset.id),
+                        "client_secret": os.environ.get(f"{preset.id.upper()}_CLIENT_SECRET", ""),
+                        "refresh_token": refresh,
+                    },
+                )
             except AuthEngineError as exc:
                 message = str(exc).lower()
                 if "invalid_grant" in message or "invalid_request" in message:
                     self.store.set_status(entity_id, provider, "NEEDS_REAUTH")
-                    raise NeedsReauth(
-                        f"Refresh rejected for {entity_id}/{provider}: reconnect") from exc
+                    raise NeedsReauth(f"Refresh rejected for {entity_id}/{provider}: reconnect") from exc
                 raise
             if "access_token" not in fresh:
                 raise AuthEngineError(f"Refresh gave no access token for {provider}")
             new_access = self._fernet.encrypt(str(fresh["access_token"]).encode()).decode()
-            new_refresh = (self._fernet.encrypt(str(fresh["refresh_token"]).encode()).decode()
-                           if fresh.get("refresh_token") else record["refresh_token"])
+            new_refresh = (
+                self._fernet.encrypt(str(fresh["refresh_token"]).encode()).decode()
+                if fresh.get("refresh_token")
+                else record["refresh_token"]
+            )
             now = time.time()
             expires_at = now + float(fresh.get("expires_in") or 3600)
-            self.store.upsert(entity_id, provider, new_access, new_refresh,
-                              expires_at, record["scopes"])
+            self.store.upsert(entity_id, provider, new_access, new_refresh, expires_at, record["scopes"])
             return str(fresh["access_token"])
 
     # -- proxy: act with a fresh token, no middleman ------------------------------
-    def proxy_request(self, provider: str, entity_id: str, method: str, url: str, *,
-                      data: dict[str, Any] | None = None,
-                      params: dict[str, str] | None = None) -> dict[str, Any]:
+    def proxy_request(
+        self,
+        provider: str,
+        entity_id: str,
+        method: str,
+        url: str,
+        *,
+        data: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         token = self.get_valid_token(entity_id, provider)
         full = url + ("?" + urllib.parse.urlencode(params) if params else "")
         body = json.dumps(data).encode() if data is not None and method.upper() != "GET" else None
-        req = urllib.request.Request(full, data=body, method=method.upper(), headers={
-            "Authorization": f"Bearer {token}", "Content-Type": "application/json",
-            "Accept": "application/json"})
+        req = urllib.request.Request(
+            full,
+            data=body,
+            method=method.upper(),
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
         if self._transport is not None:
-            status, payload = self._transport("PROXY", full,
-                                              {"method": method, "data": data,
-                                               "token_prefix": token[:6]})
+            status, payload = self._transport(
+                "PROXY", full, {"method": method, "data": data, "token_prefix": token[:6]}
+            )
             if not 200 <= status < 300:
                 raise AuthEngineError(f"provider API HTTP {status}")
             try:
@@ -502,8 +579,7 @@ class CustomAuthEngine:
             with urllib.request.urlopen(req, timeout=30.0) as resp:
                 raw, status = resp.read().decode("utf-8", "replace"), resp.status
         except Exception as exc:
-            raise AuthEngineError(
-                f"provider API unreachable: {type(exc).__name__}") from exc
+            raise AuthEngineError(f"provider API unreachable: {type(exc).__name__}") from exc
         try:
             decoded = json.loads(raw or "{}")
         except json.JSONDecodeError as exc:
@@ -517,10 +593,15 @@ class CustomAuthEngine:
         now = time.time()
         out = []
         for record in self.store.list_for(entity_id):
-            out.append({"provider": record["provider"], "status": record["status"],
-                        "expired": record["expires_at"] <= now,
-                        "expires_in_s": max(0, int(record["expires_at"] - now)),
-                        "scopes": record["scopes"]})
+            out.append(
+                {
+                    "provider": record["provider"],
+                    "status": record["status"],
+                    "expired": record["expires_at"] <= now,
+                    "expires_in_s": max(0, int(record["expires_at"] - now)),
+                    "scopes": record["scopes"],
+                }
+            )
         return {"entity_id": entity_id, "connections": out}
 
     def revoke(self, entity_id: str, provider: str) -> bool:
@@ -536,11 +617,17 @@ class EngineAction:
     payload: dict[str, Any] | None = None
     method: str = "POST"
 
-    def execute(self, engine: CustomAuthEngine, entity_id: str,
-                params: dict[str, str] | None = None) -> dict[str, Any]:
-        return engine.proxy_request(self.provider, entity_id, self.method,
-                                    self.url, data=self.payload, params=params)
+    def execute(self, engine: CustomAuthEngine, entity_id: str, params: dict[str, str] | None = None) -> dict[str, Any]:
+        return engine.proxy_request(self.provider, entity_id, self.method, self.url, data=self.payload, params=params)
 
 
-__all__ = ["AuthEngineError", "AuthStore", "CustomAuthEngine", "EngineAction",
-           "EngineProvider", "NeedsReauth", "PROVIDERS", "UnknownProvider"]
+__all__ = [
+    "AuthEngineError",
+    "AuthStore",
+    "CustomAuthEngine",
+    "EngineAction",
+    "EngineProvider",
+    "NeedsReauth",
+    "PROVIDERS",
+    "UnknownProvider",
+]

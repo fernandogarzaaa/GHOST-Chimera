@@ -14,9 +14,11 @@ def test_vocabulary_swaps() -> None:
 
 
 def test_long_sentence_splits() -> None:
-    text = ("I have completed the very thorough review of the proposal and I want "
-            "to inform you that we should commence work prior to Friday in order "
-            "to meet the deadline.")
+    text = (
+        "I have completed the very thorough review of the proposal and I want "
+        "to inform you that we should commence work prior to Friday in order "
+        "to meet the deadline."
+    )
     result = simplify(text)
     for sentence in result.text.split(". "):
         assert len(sentence.split()) <= 20, sentence
@@ -30,7 +32,9 @@ def test_filler_and_contractions() -> None:
 
 
 def test_idempotent() -> None:
-    text = "Please utilize this to commence. It is very important that you inform them prior to Friday, in order to start."
+    text = (
+        "Please utilize this to commence. It is very important that you inform them prior to Friday, in order to start."
+    )
     once = simplify(text).text
     twice = simplify(once).text
     assert once == twice
@@ -44,8 +48,10 @@ def test_simple_text_untouched() -> None:
 
 
 def test_bpo_prefill_example() -> None:
-    text = ("Hi John, I have updated your schedule as requested. "
-            "Please inform me prior to Thursday in order to finalize the booking.")
+    text = (
+        "Hi John, I have updated your schedule as requested. "
+        "Please inform me prior to Thursday in order to finalize the booking."
+    )
     result = simplify(text)
     assert "inform" not in result.text and "finalize" not in result.text
     assert "tell" in result.text and "finish" in result.text

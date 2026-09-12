@@ -112,7 +112,12 @@ class HostExecutionStore:
                 "ok": False,
                 "error": f"Type the exact confirmation phrase to arm host execution: {CONFIRMATION_PHRASE}",
             }
-        for key in ("unrestricted_host_mode", "allow_network_commands", "allow_source_mutation", "disclaimer_acknowledged"):
+        for key in (
+            "unrestricted_host_mode",
+            "allow_network_commands",
+            "allow_source_mutation",
+            "disclaimer_acknowledged",
+        ):
             if key in payload:
                 current[key] = bool(payload[key])
         if payload.get("allowed_root"):
@@ -199,7 +204,9 @@ class HostExecutionStore:
                 "duration_ms": int((_now() - started) * 1000),
                 "audit_dir": str(audit),
             }
-        (audit / "result.json").write_text(json.dumps(_redact_value(payload), indent=2, sort_keys=True), encoding="utf-8")
+        (audit / "result.json").write_text(
+            json.dumps(_redact_value(payload), indent=2, sort_keys=True), encoding="utf-8"
+        )
         self._event("host_command_run", {"run_id": run_id, "purpose": purpose, "ok": bool(payload.get("ok"))})
         return _redact_value(payload)
 
@@ -254,7 +261,9 @@ class HostExecutionStore:
                 "source_mutation": "enabled",
             },
         }
-        (audit / "result.json").write_text(json.dumps(_redact_value(payload), indent=2, sort_keys=True), encoding="utf-8")
+        (audit / "result.json").write_text(
+            json.dumps(_redact_value(payload), indent=2, sort_keys=True), encoding="utf-8"
+        )
         self._event("host_self_edit_applied", {"run_id": run_id, "changed_files": payload["changed_files"]})
         return _redact_value(payload)
 

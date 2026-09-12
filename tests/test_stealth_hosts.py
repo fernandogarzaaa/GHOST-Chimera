@@ -27,11 +27,22 @@ from ghostchimera.stealth.transport import GhostTransport
 def _loop() -> StealthLoop:
     policy = GhostPolicy.conservative_default()
     policy.autonomy = AutonomyLevel.INJECT
-    fabric = ContextFabric(retrievers=[InMemoryRetriever([
-        ContextItem(source="memory:episodic", kind="memory",
-                    text="Moovsoon proposal context for Alex", score=0.9,
-                    confidence=0.9, provenance={"origin": "test"}),
-    ])])
+    fabric = ContextFabric(
+        retrievers=[
+            InMemoryRetriever(
+                [
+                    ContextItem(
+                        source="memory:episodic",
+                        kind="memory",
+                        text="Moovsoon proposal context for Alex",
+                        score=0.9,
+                        confidence=0.9,
+                        provenance={"origin": "test"},
+                    ),
+                ]
+            )
+        ]
+    )
     return StealthLoop(policy=policy, fabric=fabric)
 
 
@@ -63,22 +74,26 @@ def test_claude_hook_injects_prepared_context() -> None:
         assert "UserPromptSubmit" in snippet["hooks"]
         # Train a workflow so the hook has something to prepare.
         for _ in range(4):
-            adapter.observe_session({"kind": "prompt", "session_id": "s",
-                                     "relevance": 0.95, "confidence": 0.93, "benefit": 0.9})
-        out = adapter.handle_hook_input({"hook_event_name": "UserPromptSubmit",
-                                         "session_id": "s", "prompt": "Let's work on Moovsoon"})
+            adapter.observe_session(
+                {"kind": "prompt", "session_id": "s", "relevance": 0.95, "confidence": 0.93, "benefit": 0.9}
+            )
+        out = adapter.handle_hook_input(
+            {"hook_event_name": "UserPromptSubmit", "session_id": "s", "prompt": "Let's work on Moovsoon"}
+        )
         assert "hookSpecificOutput" in out
         assert "Moovsoon" in out["hookSpecificOutput"]["additionalContext"]
         # /ghost passthrough inside the hook.
-        out2 = adapter.handle_hook_input({"hook_event_name": "UserPromptSubmit",
-                                          "session_id": "s", "prompt": "/ghost status"})
+        out2 = adapter.handle_hook_input(
+            {"hook_event_name": "UserPromptSubmit", "session_id": "s", "prompt": "/ghost status"}
+        )
         assert "Ghost running" in out2.get("systemMessage", "")
         # Fresh loop, weak history: hook still responds structurally (the
         # hardcoded per-prompt signals are evaluator-gated, cap-bound).
         loop2 = StealthLoop()
         try:
             out3 = ClaudeCodeAdapter(loop2).handle_hook_input(
-                {"hook_event_name": "UserPromptSubmit", "session_id": "z", "prompt": "hi"})
+                {"hook_event_name": "UserPromptSubmit", "session_id": "z", "prompt": "hi"}
+            )
             assert isinstance(out3, dict)
             assert out3 == {} or "hookSpecificOutput" in out3
         finally:
@@ -92,10 +107,12 @@ def test_openclaw_assemble_and_feedback() -> None:
     try:
         adapter = OpenClawAdapter(loop)
         for _ in range(4):
-            adapter.observe_session({"kind": "prompt", "session_id": "s",
-                                     "relevance": 0.95, "confidence": 0.93, "benefit": 0.9})
-        res = adapter.assemble({"session_id": "s", "goal": "work on Moovsoon",
-                                  "relevance": 0.9, "confidence": 0.9, "benefit": 0.85})
+            adapter.observe_session(
+                {"kind": "prompt", "session_id": "s", "relevance": 0.95, "confidence": 0.93, "benefit": 0.9}
+            )
+        res = adapter.assemble(
+            {"session_id": "s", "goal": "work on Moovsoon", "relevance": 0.9, "confidence": 0.9, "benefit": 0.85}
+        )
         assert res["intervention_id"]
         # PREPARE is asynchronous: poll for readiness, then inject.
         import time
@@ -111,8 +128,7 @@ def test_openclaw_assemble_and_feedback() -> None:
         context = adapter.inject_context(iid)
         assert "Moovsoon" in context
         adapter.after_turn({"intervention_id": iid}, useful=True)
-        assert loop.graph.workflow_score(
-            loop.interventions[iid].workflow) > 0.5
+        assert loop.graph.workflow_score(loop.interventions[iid].workflow) > 0.5
     finally:
         loop.close()
 
@@ -131,8 +147,7 @@ def test_registry_detect_all() -> None:
 
 
 def _post(url: str, payload: dict, token: str = "") -> dict:
-    req = urllib.request.Request(url, data=json.dumps(payload).encode(),
-                                 headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
     if token:
         req.add_header("X-Ghost-Token", token)
     with urllib.request.urlopen(req, timeout=10) as resp:
@@ -152,9 +167,13 @@ def test_transport_round_trip() -> None:
     transport = GhostTransport(loop)
     url = transport.start()
     try:
-        event = new_event("email.received", source="gmail", actor="alex",
-                          payload={"relevance": 0.95, "confidence": 0.93, "benefit": 0.9},
-                          confidence=0.93)
+        event = new_event(
+            "email.received",
+            source="gmail",
+            actor="alex",
+            payload={"relevance": 0.95, "confidence": 0.93, "benefit": 0.9},
+            confidence=0.93,
+        )
         r1 = _post(url + "/emit", {"event": event.to_dict()})
         assert r1["ok"] and r1["decision"] in ("prepare", "inject")
         r2 = _post(url + "/query_context", {"event": event.to_dict(), "host": "claude"})

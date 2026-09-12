@@ -48,12 +48,14 @@ def test_pkce_s256_construction() -> None:
 
 
 def test_authorize_url_per_provider() -> None:
-    url = build_authorize_url(get_preset("slack"), client_id="cid", redirect_uri="http://localhost/cb",
-                              state="s", challenge="c")
+    url = build_authorize_url(
+        get_preset("slack"), client_id="cid", redirect_uri="http://localhost/cb", state="s", challenge="c"
+    )
     assert url.startswith("https://slack.com/oauth/v2/authorize?")
     assert "code_challenge=c" in url and "state=s" in url
-    url2 = build_authorize_url(get_preset("notion"), client_id="cid", redirect_uri="http://localhost/cb",
-                               state="s", challenge="c")
+    url2 = build_authorize_url(
+        get_preset("notion"), client_id="cid", redirect_uri="http://localhost/cb", state="s", challenge="c"
+    )
     assert "owner=user" in url2
 
 
@@ -82,12 +84,17 @@ def test_token_exchange_and_refresh_with_fake_transport(monkeypatch) -> None:
         return FakeResp({"access_token": "at", "refresh_token": "rt", "expires_in": 3600})
 
     monkeypatch.setattr(oauth_mod.urllib.request, "urlopen", fake_urlopen)
-    token = exchange_code(get_preset("slack"), client_id="c", client_secret="s",
-                          code="code", redirect_uri="http://localhost/cb", verifier="v")
+    token = exchange_code(
+        get_preset("slack"),
+        client_id="c",
+        client_secret="s",
+        code="code",
+        redirect_uri="http://localhost/cb",
+        verifier="v",
+    )
     assert token["access_token"] == "at" and token["refresh_token"] == "rt"
     assert token["expires_at"] > token["created_at"]
-    refreshed = refresh_access_token(get_preset("slack"), client_id="c", client_secret="s",
-                                     refresh_token="rt")
+    refreshed = refresh_access_token(get_preset("slack"), client_id="c", client_secret="s", refresh_token="rt")
     assert refreshed["access_token"] == "new-at"
     assert refreshed["refresh_token"] == "rt"  # preserved when not rotated
     assert len(calls) == 2
@@ -95,8 +102,7 @@ def test_token_exchange_and_refresh_with_fake_transport(monkeypatch) -> None:
 
 def test_vault_round_trip_redaction_and_perms(tmp_path) -> None:
     vault = TokenVault(tmp_path)
-    vault.save("slack", {"access_token": "xoxb-SECRET", "refresh_token": "r",
-                         "expires_at": 9999999999.0})
+    vault.save("slack", {"access_token": "xoxb-SECRET", "refresh_token": "r", "expires_at": 9999999999.0})
     status = vault.status("slack")
     assert status["connected"] is True
     assert "xoxb-SECRET" not in json.dumps(status)  # never leak raw tokens
@@ -120,14 +126,21 @@ def test_expired_token_needs_refresh(tmp_path) -> None:
 # -- GitHub connector --------------------------------------------------------
 def _fake_github(path: str):
     if "/issues" in path:
-        return [{"number": 7, "title": "Fix login", "action": "opened",
-                 "user": {"login": "octocat"}, "updated_at": "2026-01-01"}]
+        return [
+            {
+                "number": 7,
+                "title": "Fix login",
+                "action": "opened",
+                "user": {"login": "octocat"},
+                "updated_at": "2026-01-01",
+            }
+        ]
     if "/pulls" in path:
-        return [{"number": 8, "title": "Add feature", "action": "opened",
-                 "user": {"login": "octocat"}, "merged": False}]
+        return [
+            {"number": 8, "title": "Add feature", "action": "opened", "user": {"login": "octocat"}, "merged": False}
+        ]
     if "/commits" in path:
-        return [{"sha": "abc123def456", "commit": {"author": {"name": "octocat"},
-                 "message": "fix: login"}}]
+        return [{"sha": "abc123def456", "commit": {"author": {"name": "octocat"}, "message": "fix: login"}}]
     return []
 
 
@@ -155,22 +168,40 @@ def test_github_poll_survives_endpoint_failure() -> None:
 
 
 def test_github_webhook_mapping() -> None:
-    push = normalize_github_webhook("push", "d1", {"after": "abc123", "ref": "refs/heads/main",
-                                                   "sender": {"login": "octocat"},
-                                                   "repository": {"full_name": "o/r"},
-                                                   "commits": [{"message": "fix"}]})
+    push = normalize_github_webhook(
+        "push",
+        "d1",
+        {
+            "after": "abc123",
+            "ref": "refs/heads/main",
+            "sender": {"login": "octocat"},
+            "repository": {"full_name": "o/r"},
+            "commits": [{"message": "fix"}],
+        },
+    )
     assert push is not None and push.event_type == "github.commit"
     assert push.event_id == "gh-webhook-d1"  # idempotent on delivery id
-    issue = normalize_github_webhook("issues", "d2", {"action": "opened",
-                                                     "sender": {"login": "octocat"},
-                                                     "repository": {"full_name": "o/r"},
-                                                     "issue": {"number": 1, "title": "t"}})
+    issue = normalize_github_webhook(
+        "issues",
+        "d2",
+        {
+            "action": "opened",
+            "sender": {"login": "octocat"},
+            "repository": {"full_name": "o/r"},
+            "issue": {"number": 1, "title": "t"},
+        },
+    )
     assert issue is not None and issue.event_type == "github.issue_created"
-    merged = normalize_github_webhook("pull_request", "d3", {"action": "closed",
-                                                             "sender": {"login": "octocat"},
-                                                             "repository": {"full_name": "o/r"},
-                                                             "pull_request": {"number": 2, "title": "t",
-                                                                              "merged": True}})
+    merged = normalize_github_webhook(
+        "pull_request",
+        "d3",
+        {
+            "action": "closed",
+            "sender": {"login": "octocat"},
+            "repository": {"full_name": "o/r"},
+            "pull_request": {"number": 2, "title": "t", "merged": True},
+        },
+    )
     assert merged is not None and merged.event_type == "github.pull_request_merged"
     assert normalize_github_webhook("ping", "d4", {}) is None
 
@@ -223,9 +254,15 @@ def test_store_workflows_round_trip_and_loop_wiring(tmp_path) -> None:
     loop = StealthLoop(policy=policy, store=store)
     try:
         for _ in range(4):
-            loop.emit(new_event("email.received", source="gmail", actor="alex",
-                                payload={"relevance": 0.95, "confidence": 0.93, "benefit": 0.9},
-                                confidence=0.93))
+            loop.emit(
+                new_event(
+                    "email.received",
+                    source="gmail",
+                    actor="alex",
+                    payload={"relevance": 0.95, "confidence": 0.93, "benefit": 0.9},
+                    confidence=0.93,
+                )
+            )
         assert store.count_events() == 4
         assert loop.sync_workflows() >= 1
         assert store.load_workflows()

@@ -209,7 +209,13 @@ _PROFILES = {
         id="ai-engineer-proxy",
         name="AI Engineer Proxy",
         description="Learns the user's AI engineering preferences and acts as an authorized engineering proxy.",
-        source_scopes=("local_machine", "email", "github_private_repositories", "github_public_repositories", "license_allowed_external_sources"),
+        source_scopes=(
+            "local_machine",
+            "email",
+            "github_private_repositories",
+            "github_public_repositories",
+            "license_allowed_external_sources",
+        ),
         learning_modes=("rag", "dataset_generation", "local_fine_tuning"),
         dashboard_tabs=("path", "minimind", "github", "training", "review", "audit"),
         eval_suites=("github-connected", "personal-context", "redteam", "safety"),
@@ -305,7 +311,11 @@ class SourceCandidate:
 
 def filter_allowed_sources(candidates: list[SourceCandidate], *, intended_use: str) -> list[SourceCandidate]:
     if intended_use in {"fine_tuning", "dataset_generation"}:
-        return [candidate for candidate in candidates if candidate.license in _TRAINING_COMPATIBLE_LICENSES and bool(candidate.commit)]
+        return [
+            candidate
+            for candidate in candidates
+            if candidate.license in _TRAINING_COMPATIBLE_LICENSES and bool(candidate.commit)
+        ]
     return candidates
 ```
 
@@ -334,7 +344,12 @@ Register:
 
 ```python
 _api_register("/api/console/paths", role_profiles, method="GET", description="List multi-purpose Ghost paths")
-_api_register("/api/console/paths/synthesize", synthesize_role_path, method="POST", description="Synthesize Ghost Chimera from a selected user path")
+_api_register(
+    "/api/console/paths/synthesize",
+    synthesize_role_path,
+    method="POST",
+    description="Synthesize Ghost Chimera from a selected user path",
+)
 ```
 
 - [ ] **Step 9: Add dashboard path chooser**
@@ -569,7 +584,9 @@ class GitHubTaskTests(unittest.TestCase):
         self.assertIn("Acceptance", objective)
 
     def test_repo_scan_reports_release_commands(self) -> None:
-        scan = GitHubRepoScan(repo="owner/repo", default_branch="main", languages=["Python"], release_commands=["python -m pytest -q"])
+        scan = GitHubRepoScan(
+            repo="owner/repo", default_branch="main", languages=["Python"], release_commands=["python -m pytest -q"]
+        )
         payload = scan.to_dict()
         self.assertEqual(payload["repo"], "owner/repo")
         self.assertEqual(payload["release_commands"], ["python -m pytest -q"])
@@ -887,7 +904,8 @@ def classify_check_runs(check_runs: list[dict[str, Any]]) -> dict[str, Any]:
     failed = [
         str(run.get("name") or "unnamed")
         for run in check_runs
-        if str(run.get("status") or "") == "completed" and str(run.get("conclusion") or "") not in {"success", "neutral", "skipped"}
+        if str(run.get("status") or "") == "completed"
+        and str(run.get("conclusion") or "") not in {"success", "neutral", "skipped"}
     ]
     return {
         "ok": not failed,
@@ -1026,7 +1044,12 @@ Expected: FAIL because the `github` command does not exist.
 
 ```python
 github_parser = sub.add_parser("github", help="Run GitHub-connected autonomous engineering workflows")
-github_parser.add_argument("action", choices=["status", "repos", "issues", "plan", "run", "review-post", "ci-watch", "repair"], nargs="?", default="status")
+github_parser.add_argument(
+    "action",
+    choices=["status", "repos", "issues", "plan", "run", "review-post", "ci-watch", "repair"],
+    nargs="?",
+    default="status",
+)
 github_parser.add_argument("--repo", default="", help="Repository in owner/name form.")
 github_parser.add_argument("--issue", type=int, default=0, help="GitHub issue number.")
 github_parser.add_argument("--pr", type=int, default=0, help="GitHub pull request number.")
@@ -1079,7 +1102,9 @@ def test_console_registers_github_routes(self) -> None:
     self.assertIsNotNone(status_route)
     self.assertIsNotNone(plan_route)
 
-    status = status_route.handler({"method": "GET", "path": "/api/console/github/status", "headers": {}, "body": "", "query": {}})
+    status = status_route.handler(
+        {"method": "GET", "path": "/api/console/github/status", "headers": {}, "body": "", "query": {}}
+    )
     self.assertTrue(status["ok"])
     self.assertIn(status["auth_mode"], {"token", "gh-cli"})
 ```
@@ -1108,15 +1133,21 @@ def github_plan(ctx: dict[str, Any]) -> dict[str, Any]:
     issue_number = int(body.get("issue") or 0)
     if not repo or issue_number <= 0:
         return {"ok": False, "error": "repo and issue are required"}
-    issue = GitHubIssue(repo=repo, number=issue_number, title=str(body.get("title") or ""), body=str(body.get("body") or ""))
+    issue = GitHubIssue(
+        repo=repo, number=issue_number, title=str(body.get("title") or ""), body=str(body.get("body") or "")
+    )
     return {"ok": True, "objective": issue_to_objective(issue)}
 ```
 
 Register:
 
 ```python
-_api_register("/api/console/github/status", github_status, method="GET", description="Inspect GitHub integration status")
-_api_register("/api/console/github/plan", github_plan, method="POST", description="Convert a GitHub issue into a Ghost objective")
+_api_register(
+    "/api/console/github/status", github_status, method="GET", description="Inspect GitHub integration status"
+)
+_api_register(
+    "/api/console/github/plan", github_plan, method="POST", description="Convert a GitHub issue into a Ghost objective"
+)
 ```
 
 - [ ] **Step 4: Run console tests**
@@ -1150,7 +1181,7 @@ def test_console_static_ui_exposes_github_tab(self) -> None:
     html = (root / "ghostchimera" / "control_plane" / "static" / "index.html").read_text(encoding="utf-8")
     app = (root / "ghostchimera" / "control_plane" / "static" / "app.js").read_text(encoding="utf-8")
 
-    self.assertIn("data-tab=\"github\"", html)
+    self.assertIn('data-tab="github"', html)
     self.assertIn("/api/console/github/status", app)
     self.assertIn("/api/console/github/plan", app)
 ```
@@ -1403,9 +1434,13 @@ CapabilityRequirement(
     release_gate="python -m ghostchimera.evals run --suite github-connected",
     surfaces=[
         CapabilitySurface("GitHub client", "ghostchimera/integrations/github_client.py", "GitHubClient"),
-        CapabilitySurface("GitHub worktree plans", "ghostchimera/integrations/github_worktree.py", "GitHubWorktreePlan"),
+        CapabilitySurface(
+            "GitHub worktree plans", "ghostchimera/integrations/github_worktree.py", "GitHubWorktreePlan"
+        ),
         CapabilitySurface("GitHub CI classifier", "ghostchimera/integrations/github_ci.py", "classify_check_runs"),
-        CapabilitySurface("GitHub console routes", "ghostchimera/control_plane/console.py", "/api/console/github/status"),
+        CapabilitySurface(
+            "GitHub console routes", "ghostchimera/control_plane/console.py", "/api/console/github/status"
+        ),
         CapabilitySurface("GitHub CLI", "ghostchimera/control_plane/cli.py", "github"),
     ],
 )
@@ -1424,8 +1459,12 @@ CapabilityRequirement(
     surfaces=[
         CapabilitySurface("Role profiles", "ghostchimera/personalization/role_profiles.py", "RoleProfile"),
         CapabilitySurface("Path synthesizer", "ghostchimera/personalization/path_synthesizer.py", "synthesize_path"),
-        CapabilitySurface("Source discovery policy", "ghostchimera/integrations/source_discovery.py", "filter_allowed_sources"),
-        CapabilitySurface("Dashboard path route", "ghostchimera/control_plane/console.py", "/api/console/paths/synthesize"),
+        CapabilitySurface(
+            "Source discovery policy", "ghostchimera/integrations/source_discovery.py", "filter_allowed_sources"
+        ),
+        CapabilitySurface(
+            "Dashboard path route", "ghostchimera/control_plane/console.py", "/api/console/paths/synthesize"
+        ),
     ],
 )
 ```

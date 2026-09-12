@@ -33,12 +33,14 @@ def ste_prefill(action: dict[str, Any]) -> dict[str, Any]:
 
     original = extract_draft_text(action)
     result = simplify(original) if original else None
-    return {"provider": str(action.get("provider", "")),
-            "endpoint": str(action.get("endpoint", "")),
-            "original": original,
-            "ste_text": result.text if result else "",
-            "ste_rules": result.rules_applied if result else [],
-            "ste_warnings": result.warnings if result else []}
+    return {
+        "provider": str(action.get("provider", "")),
+        "endpoint": str(action.get("endpoint", "")),
+        "original": original,
+        "ste_text": result.text if result else "",
+        "ste_rules": result.rules_applied if result else [],
+        "ste_warnings": result.warnings if result else [],
+    }
 
 
 def draft_actions(intervention: Any) -> list[dict[str, Any]]:
@@ -65,15 +67,22 @@ def get_service_loop(state_dir: str | Path) -> Any:
     with _lock:
         loop = _loops.get(key)
         if loop is None:
-            loop = StealthLoop(fabric=ContextFabric(retrievers=[InMemoryRetriever()]),
-                               store=StealthStore(Path(key) / "ghost-stealth.sqlite3"))
+            loop = StealthLoop(
+                fabric=ContextFabric(retrievers=[InMemoryRetriever()]),
+                store=StealthStore(Path(key) / "ghost-stealth.sqlite3"),
+            )
             _loops[key] = loop
         return loop
 
 
-def approve_draft(loop: Any, intervention_id: str, *, final_text: str = "",
-                  connections: dict[str, str] | None = None,
-                  state_dir: str | Path | None = None) -> dict[str, Any]:
+def approve_draft(
+    loop: Any,
+    intervention_id: str,
+    *,
+    final_text: str = "",
+    connections: dict[str, str] | None = None,
+    state_dir: str | Path | None = None,
+) -> dict[str, Any]:
     """One-click approve: STE-check the final text, send when possible.
 
     Returns {approved, sent, detail, final_text, rules}. `sent` is True
@@ -120,8 +129,7 @@ def approve_draft(loop: Any, intervention_id: str, *, final_text: str = "",
     try:
         from .auth_engine import PROVIDERS, CustomAuthEngine, EngineAction
 
-        engine = CustomAuthEngine(
-            Path(state_dir) if state_dir else Path.home() / ".ghostchimera")
+        engine = CustomAuthEngine(Path(state_dir) if state_dir else Path.home() / ".ghostchimera")
         try:
             for action in actions:
                 provider = str(action.get("provider", ""))
@@ -134,20 +142,25 @@ def approve_draft(loop: Any, intervention_id: str, *, final_text: str = "",
                 else:
                     base = PROVIDERS[provider].api_base if provider in PROVIDERS else ""
                     if not base or "{" in base:
-                        raise ValueError(
-                            f"provider '{provider}' needs an absolute action URL")
+                        raise ValueError(f"provider '{provider}' needs an absolute action URL")
                     url = base.rstrip("/") + "/" + endpoint.lstrip("/")
-                results.append(EngineAction(
-                    provider=provider, url=url,
-                    payload=action.get("payload") if isinstance(action.get("payload"), dict) else {},
-                ).execute(engine, entity_id))
+                results.append(
+                    EngineAction(
+                        provider=provider,
+                        url=url,
+                        payload=action.get("payload") if isinstance(action.get("payload"), dict) else {},
+                    ).execute(engine, entity_id)
+                )
         finally:
             engine.close()
         sent, detail = True, f"delivered {len(results)} action(s) via connected account"
     except Exception as exc:
         detail = f"approved but not sent ({type(exc).__name__}: {exc}); copy-paste the text below"
     intervention.provenance["approval"] = {
-        "approved_at": time.time(), "sent": sent, "detail": detail, "final_text": final,
+        "approved_at": time.time(),
+        "sent": sent,
+        "detail": detail,
+        "final_text": final,
     }
     if loop.store is not None:
         with suppress(Exception):
@@ -155,10 +168,15 @@ def approve_draft(loop: Any, intervention_id: str, *, final_text: str = "",
     if sent:
         with suppress(ValueError):
             loop.observe_outcome(intervention_id, InterventionOutcome.SUCCESSFUL)
-    return {"ok": True, "approved": True, "sent": sent, "detail": detail,
-            "final_text": final, "ste_rules": checked.rules_applied,
-            "results": results}
+    return {
+        "ok": True,
+        "approved": True,
+        "sent": sent,
+        "detail": detail,
+        "final_text": final,
+        "ste_rules": checked.rules_applied,
+        "results": results,
+    }
 
 
-__all__ = ["approve_draft", "draft_actions", "extract_draft_text",
-           "get_service_loop", "ste_prefill"]
+__all__ = ["approve_draft", "draft_actions", "extract_draft_text", "get_service_loop", "ste_prefill"]

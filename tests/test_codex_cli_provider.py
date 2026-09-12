@@ -82,7 +82,9 @@ class CodexCliProviderTests(unittest.TestCase):
 
     @mock.patch("ghostchimera.model_layer.codex_cli_provider.get_codex_cli_status")
     @mock.patch("ghostchimera.model_layer.codex_cli_provider.subprocess.run")
-    def test_provider_error_strips_codex_plugin_warning_noise(self, run_mock: mock.Mock, status_mock: mock.Mock) -> None:
+    def test_provider_error_strips_codex_plugin_warning_noise(
+        self, run_mock: mock.Mock, status_mock: mock.Mock
+    ) -> None:
         status_mock.return_value = mock.Mock(available=True, logged_in=True, to_dict=lambda: {})
         run_mock.return_value = subprocess.CompletedProcess(
             args=["codex"],

@@ -112,7 +112,9 @@ class LivePresenceStoreTests(unittest.TestCase):
             )
 
             blocked = store.send_communication(sid, draft["draft"]["draft_id"])
-            approved = store.approve_recipient(sid, channel="email", recipient="customer@example.com", approved_by="admin")
+            approved = store.approve_recipient(
+                sid, channel="email", recipient="customer@example.com", approved_by="admin"
+            )
             sent = store.send_communication(sid, draft["draft"]["draft_id"])
 
             self.assertFalse(blocked["ok"])
@@ -135,7 +137,9 @@ class LivePresenceStoreTests(unittest.TestCase):
                 role="Senior Python Engineer",
                 competencies=["architecture", "testing"],
             )
-            store.record_transcript(sid, speaker="Candidate", content="I designed service boundaries and wrote pytest coverage.")
+            store.record_transcript(
+                sid, speaker="Candidate", content="I designed service boundaries and wrote pytest coverage."
+            )
             scoring = store.score_interview(sid)
 
             self.assertTrue(bank["ok"])

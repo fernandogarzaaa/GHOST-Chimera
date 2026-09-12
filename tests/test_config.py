@@ -121,7 +121,11 @@ class GhostChimeraConfigTests(unittest.TestCase):
                 },
             },
             "huggingface": {
-                "model": {"provider": "huggingface", "model": "meta-llama/Llama-3.3-70B-Instruct", "api_key": "hf-secret"},
+                "model": {
+                    "provider": "huggingface",
+                    "model": "meta-llama/Llama-3.3-70B-Instruct",
+                    "api_key": "hf-secret",
+                },
                 "expected": {
                     "GHOSTCHIMERA_MODEL_PROVIDER": "huggingface",
                     "HF_TOKEN": "hf-secret",

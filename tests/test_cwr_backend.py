@@ -54,9 +54,7 @@ class ConsciousWorkspaceRetrievalTests(unittest.TestCase):
         store = MemoryStore(self.db_path)
         store.add_document("architecture", "Chimera Pilot runs retrieval through a real backend.")
         backend = CWRBackend(store=store)
-        result = backend.execute(
-            TaskSpec.create(kind=TaskKind.RAG_QUERY, objective="chimera pilot backend")
-        )
+        result = backend.execute(TaskSpec.create(kind=TaskKind.RAG_QUERY, objective="chimera pilot backend"))
         self.assertNotIn("facts", result.output)
         self.assertEqual(result.metrics["retrieval"], "sqlite_fts")
 
@@ -68,9 +66,7 @@ class ConsciousWorkspaceRetrievalTests(unittest.TestCase):
         graph.add_fact("Globex", "industry", obj="energy", confidence=0.8)
         backend = CWRBackend(store=store, graph=graph)
 
-        result = backend.execute(
-            TaskSpec.create(kind=TaskKind.RAG_QUERY, objective="what about Globex")
-        )
+        result = backend.execute(TaskSpec.create(kind=TaskKind.RAG_QUERY, objective="what about Globex"))
 
         self.assertTrue(result.ok)
         self.assertIn("facts", result.output)

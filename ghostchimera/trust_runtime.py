@@ -454,7 +454,11 @@ class TrustRuntimeStore:
         if not isinstance(checkpoint, dict):
             raise KeyError(approval_id)
         if checkpoint.get("status") != "pending":
-            return {"ok": False, "error": "Approval checkpoint is already resolved.", "approval": _redact_value(checkpoint)}
+            return {
+                "ok": False,
+                "error": "Approval checkpoint is already resolved.",
+                "approval": _redact_value(checkpoint),
+            }
         checkpoint["status"] = "resolved"
         checkpoint["decision"] = decision
         checkpoint["reviewer"] = reviewer
@@ -509,7 +513,11 @@ class TrustRuntimeStore:
     def list_runs(self, *, limit: int = 50) -> dict[str, Any]:
         index = self._load_index()
         runs = sorted(index.values(), key=lambda item: float(item.get("updated_at") or 0), reverse=True)
-        return {"ok": True, "runs": [_redact_value(item) for item in runs[: max(1, min(limit, 200))]], "count": len(runs)}
+        return {
+            "ok": True,
+            "runs": [_redact_value(item) for item in runs[: max(1, min(limit, 200))]],
+            "count": len(runs),
+        }
 
     def get_run(self, run_id: str) -> dict[str, Any]:
         index = self._load_index()
@@ -518,7 +526,9 @@ class TrustRuntimeStore:
             return {"ok": False, "error": "Run not found."}
         steps = self._read_jsonl(self._run_journal_path(run_id))
         tools = self._read_jsonl(self._run_tool_path(run_id))
-        approvals = [item for item in self.pending_approvals(include_resolved=True)["approvals"] if item.get("run_id") == run_id]
+        approvals = [
+            item for item in self.pending_approvals(include_resolved=True)["approvals"] if item.get("run_id") == run_id
+        ]
         return {"ok": True, "run": _redact_value(run), "steps": steps, "tool_calls": tools, "approvals": approvals}
 
     def pending_approvals(self, *, include_resolved: bool = False) -> dict[str, Any]:
@@ -620,7 +630,8 @@ class TrustRuntimeStore:
         high_risk_tools = [
             call
             for call in tool_calls
-            if str(((call.get("envelope") or {}) if isinstance(call, dict) else {}).get("risk_level") or "") in {"high", "critical"}
+            if str(((call.get("envelope") or {}) if isinstance(call, dict) else {}).get("risk_level") or "")
+            in {"high", "critical"}
         ]
         disabled_hits = [call for call in tool_calls if str(call.get("tool_name") or "").strip().lower() in disabled]
         replay_steps: list[dict[str, Any]] = []
@@ -743,7 +754,9 @@ class TrustRuntimeStore:
         else:
             baseline_status = "fresh"
         high_risk_unreviewed = [
-            item for item in mcp.get("servers", []) if item.get("status") not in {"approved", "revoked"} and item.get("risk_ceiling") in {"high", "critical"}
+            item
+            for item in mcp.get("servers", [])
+            if item.get("status") not in {"approved", "revoked"} and item.get("risk_ceiling") in {"high", "critical"}
         ]
         blocked_steps = 0
         for run in runs[:50]:
@@ -794,7 +807,9 @@ class TrustRuntimeStore:
         servers.sort(key=lambda item: str(item.get("server_id") or ""))
         return {"ok": True, "servers": _redact_value(servers)}
 
-    def mcp_trust_set(self, server_id: str, status: str, *, risk_ceiling: str = "medium", tools: list[str] | None = None) -> dict[str, Any]:
+    def mcp_trust_set(
+        self, server_id: str, status: str, *, risk_ceiling: str = "medium", tools: list[str] | None = None
+    ) -> dict[str, Any]:
         server_id = server_id.strip()
         if not server_id:
             raise ValueError("server_id is required")

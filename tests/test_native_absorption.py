@@ -77,7 +77,7 @@ class QueryAwareCompressionTests(unittest.TestCase):
 
         self.assertTrue(result.ok)
         self.assertIn("```python", result.text)
-        self.assertIn("print(\"keep me\")", result.text)
+        self.assertIn('print("keep me")', result.text)
         self.assertLess(result.compressed_tokens, result.original_tokens)
         self.assertIn("latency", result.focus_terms)
 
@@ -132,4 +132,3 @@ class MCPNormalizationTests(unittest.TestCase):
         self.assertEqual(entry["status"], "registered")
         self.assertNotIn("api_key", entry)
         self.assertEqual(entry["source"], "local.json")
-

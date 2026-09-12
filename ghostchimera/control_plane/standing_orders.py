@@ -180,7 +180,11 @@ class StandingOrderStore:
             "standing_order_run",
             {"order_id": order_id, "ok": bool(result.get("ok", True)), "title": order.get("title", "")},
         )
-        return {"ok": bool(result.get("ok", True)), "order": _redact_delivery(order), "result": _redact_delivery(result)}
+        return {
+            "ok": bool(result.get("ok", True)),
+            "order": _redact_delivery(order),
+            "result": _redact_delivery(result),
+        }
 
 
 __all__ = ["StandingOrderStore"]

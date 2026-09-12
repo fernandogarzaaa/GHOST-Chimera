@@ -22,7 +22,9 @@ class TrustConsoleRouteTests(unittest.TestCase):
     def test_trust_routes_register_and_summary_is_secret_safe(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghost-console-trust-") as tmp:
             server = GatewayServer()
-            register_console_routes(server, state_dir=tmp, run_objective=lambda objective: {"ok": True, "echo": objective})
+            register_console_routes(
+                server, state_dir=tmp, run_objective=lambda objective: {"ok": True, "echo": objective}
+            )
 
             for method, path in [
                 ("GET", "/api/console/trust/summary"),
@@ -150,11 +152,15 @@ class TrustConsoleRouteTests(unittest.TestCase):
                 self.assertTrue(resolved["ok"])
 
             approved = server.routes.find("POST", "/api/console/mcp/trust/chimeralang/approve").handler(
-                _ctx("POST", "/api/console/mcp/trust/chimeralang/approve", {"risk_ceiling": "medium", "tools": ["read"]})
+                _ctx(
+                    "POST", "/api/console/mcp/trust/chimeralang/approve", {"risk_ceiling": "medium", "tools": ["read"]}
+                )
             )
             self.assertTrue(approved["ok"])
             self.assertEqual(approved["admission_record"]["status"], "active")
-            registry = server.routes.find("GET", "/api/console/mcp/trust").handler(_ctx("GET", "/api/console/mcp/trust"))
+            registry = server.routes.find("GET", "/api/console/mcp/trust").handler(
+                _ctx("GET", "/api/console/mcp/trust")
+            )
             self.assertEqual(registry["servers"][0]["server_id"], "chimeralang")
             self.assertEqual(registry["servers"][0]["status"], "approved")
             records = server.routes.find("GET", "/api/console/capability-admission").handler(
@@ -179,7 +185,11 @@ class TrustConsoleRouteTests(unittest.TestCase):
             run_id = runs["runs"][0]["run_id"]
 
             promoted = server.routes.find("POST", "/api/console/trust/eval-cases/promote").handler(
-                _ctx("POST", "/api/console/trust/eval-cases/promote", {"run_id": run_id, "label": "console eval", "severity": "P1"})
+                _ctx(
+                    "POST",
+                    "/api/console/trust/eval-cases/promote",
+                    {"run_id": run_id, "label": "console eval", "severity": "P1"},
+                )
             )
             cases = server.routes.find("GET", "/api/console/trust/eval-cases").handler(
                 _ctx("GET", "/api/console/trust/eval-cases")
@@ -199,7 +209,9 @@ class TrustConsoleRouteTests(unittest.TestCase):
             run_id = runs["runs"][0]["run_id"]
 
             replay = server.routes.find("POST", f"/api/console/trust/replay/{run_id}").handler(
-                _ctx("POST", f"/api/console/trust/replay/{run_id}", {"mode": "stricter_policy", "stricter_policy": True})
+                _ctx(
+                    "POST", f"/api/console/trust/replay/{run_id}", {"mode": "stricter_policy", "stricter_policy": True}
+                )
             )
 
             self.assertTrue(replay["ok"])

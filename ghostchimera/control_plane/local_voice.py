@@ -124,7 +124,8 @@ class LocalVoiceTranscriber:
                 from faster_whisper import WhisperModel  # type: ignore
 
                 self._whisper_model = WhisperModel(
-                    str(model_path), device=os.environ.get("GHOSTCHIMERA_LOCAL_STT_DEVICE", "cpu"))
+                    str(model_path), device=os.environ.get("GHOSTCHIMERA_LOCAL_STT_DEVICE", "cpu")
+                )
                 self._whisper_key = key
                 return {"ok": True, "warmed": True, "cached": False}
             except Exception as exc:
@@ -237,9 +238,12 @@ class LocalVoiceTranscriber:
         if not audio:
             return {"ok": False, "error": "audio payload is empty", "transcript": ""}
         if len(audio) < 1024:
-            return {"ok": False, "error": "recording was empty (under 1 KB captured)",
-                    "hint": "Hold the talk button longer and check the microphone level.",
-                    "transcript": ""}
+            return {
+                "ok": False,
+                "error": "recording was empty (under 1 KB captured)",
+                "hint": "Hold the talk button longer and check the microphone level.",
+                "transcript": "",
+            }
         suffix = _audio_suffix(mime_type, filename)
         self.state_dir.mkdir(parents=True, exist_ok=True)
         tmp_dir = Path(tempfile.mkdtemp(prefix="ghost-local-voice-", dir=str(self.state_dir)))

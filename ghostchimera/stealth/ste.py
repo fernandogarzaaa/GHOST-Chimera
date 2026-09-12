@@ -23,21 +23,50 @@ from dataclasses import dataclass, field
 
 # R1: (complex, simple). Word-boundary matched, first-letter case preserved.
 VOCABULARY: tuple[tuple[str, str], ...] = (
-    ("utilize", "use"), ("utilization", "use"), ("commence", "start"),
-    ("prior to", "before"), ("in order to", "to"), ("assistance", "help"),
-    ("inform", "tell"), ("receive", "get"), ("purchase", "buy"),
-    ("require", "need"), ("ensure", "make sure"), ("obtain", "get"),
-    ("regarding", "about"), ("concerning", "about"), ("demonstrate", "show"),
-    ("indicate", "show"), ("sufficient", "enough"), ("additional", "more"),
-    ("attempt", "try"), ("inquire", "ask"), ("acquire", "get"),
-    ("terminate", "stop"), ("initiate", "start"), ("facilitate", "help"),
-    ("leverage", "use"), ("optimize", "improve"), ("implement", "do"),
-    ("correspondence", "mail"), ("transmit", "send"), ("retain", "keep"),
-    ("discontinue", "stop"), ("expedite", "speed up"), ("ascertain", "find out"),
-    ("enclosed", "attached"), ("forthcoming", "coming"), ("henceforth", "from now on"),
-    ("hereby", ""), ("herewith", "with this"), ("notwithstanding", "even if"),
-    ("pursuant to", "under"), ("utilizing", "using"), ("finalize", "finish"),
-    ("prioritize", "put first"), ("endeavor", "try"),
+    ("utilize", "use"),
+    ("utilization", "use"),
+    ("commence", "start"),
+    ("prior to", "before"),
+    ("in order to", "to"),
+    ("assistance", "help"),
+    ("inform", "tell"),
+    ("receive", "get"),
+    ("purchase", "buy"),
+    ("require", "need"),
+    ("ensure", "make sure"),
+    ("obtain", "get"),
+    ("regarding", "about"),
+    ("concerning", "about"),
+    ("demonstrate", "show"),
+    ("indicate", "show"),
+    ("sufficient", "enough"),
+    ("additional", "more"),
+    ("attempt", "try"),
+    ("inquire", "ask"),
+    ("acquire", "get"),
+    ("terminate", "stop"),
+    ("initiate", "start"),
+    ("facilitate", "help"),
+    ("leverage", "use"),
+    ("optimize", "improve"),
+    ("implement", "do"),
+    ("correspondence", "mail"),
+    ("transmit", "send"),
+    ("retain", "keep"),
+    ("discontinue", "stop"),
+    ("expedite", "speed up"),
+    ("ascertain", "find out"),
+    ("enclosed", "attached"),
+    ("forthcoming", "coming"),
+    ("henceforth", "from now on"),
+    ("hereby", ""),
+    ("herewith", "with this"),
+    ("notwithstanding", "even if"),
+    ("pursuant to", "under"),
+    ("utilizing", "using"),
+    ("finalize", "finish"),
+    ("prioritize", "put first"),
+    ("endeavor", "try"),
 )
 
 # R4 fillers removed (standalone words only).
@@ -45,13 +74,27 @@ FILLERS = ("very", "really", "extremely", "simply", "merely", "highly", "utterly
 
 # R5 contractions applied (word-boundary, interpolated after vocabulary).
 CONTRACTIONS: tuple[tuple[str, str], ...] = (
-    ("do not", "don't"), ("does not", "doesn't"), ("did not", "didn't"),
-    ("cannot", "can't"), ("will not", "won't"), ("should not", "shouldn't"),
-    ("would not", "wouldn't"), ("could not", "couldn't"), ("is not", "isn't"),
-    ("are not", "aren't"), ("was not", "wasn't"), ("were not", "weren't"),
-    ("have not", "haven't"), ("has not", "hasn't"), ("it is", "it's"),
-    ("that is", "that's"), ("there is", "there's"), ("you are", "you're"),
-    ("we are", "we're"), ("i am", "I'm"), ("let us", "let's"),
+    ("do not", "don't"),
+    ("does not", "doesn't"),
+    ("did not", "didn't"),
+    ("cannot", "can't"),
+    ("will not", "won't"),
+    ("should not", "shouldn't"),
+    ("would not", "wouldn't"),
+    ("could not", "couldn't"),
+    ("is not", "isn't"),
+    ("are not", "aren't"),
+    ("was not", "wasn't"),
+    ("were not", "weren't"),
+    ("have not", "haven't"),
+    ("has not", "hasn't"),
+    ("it is", "it's"),
+    ("that is", "that's"),
+    ("there is", "there's"),
+    ("you are", "you're"),
+    ("we are", "we're"),
+    ("i am", "I'm"),
+    ("let us", "let's"),
 )
 
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
@@ -114,8 +157,7 @@ def _split_long(sentence: str, applied: list[str]) -> list[str]:
     words = sentence.split()
     if len(words) <= _MAX_WORDS:
         return [sentence]
-    for boundary in (", and ", "; ", " — ", " and ", " which ", " that ",
-                     " because ", " so ", " then "):
+    for boundary in (", and ", "; ", " — ", " and ", " which ", " that ", " because ", " so ", " then "):
         if boundary in sentence:
             parts = [p.strip(" ,") for p in sentence.split(boundary)]
             parts = [p for p in parts if p]

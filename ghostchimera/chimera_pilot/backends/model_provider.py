@@ -23,7 +23,9 @@ class ModelProviderBackend:
     _description = "Configured LLM provider backend for live operator runs"
 
     def __init__(self, provider_name: str | None = None, *, profile: Any | None = None) -> None:
-        self.provider_name = (provider_name or os.environ.get("GHOSTCHIMERA_MODEL_PROVIDER") or "openai").strip().lower()
+        self.provider_name = (
+            (provider_name or os.environ.get("GHOSTCHIMERA_MODEL_PROVIDER") or "openai").strip().lower()
+        )
         self.provider: BaseProvider | None = get_provider(self.provider_name, profile=profile)
         model = getattr(self.provider, "model", "") if self.provider is not None else ""
         self.model = str(model or os.environ.get("GHOSTCHIMERA_MODEL", "") or "default")

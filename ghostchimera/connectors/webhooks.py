@@ -30,11 +30,22 @@ def normalize_gmail_push(delivery_id: str, va_id: str, payload: dict[str, Any]) 
     thread = str(payload.get("threadId", ""))
     labels = payload.get("labelIds") or []
     return new_event(
-        "email.received", source="gmail", actor=sender,
-        payload={"va_id": va_id, "message_id": message_id, "thread_id": thread,
-                 "subject": subject, "labels": labels,
-                 "relevance": 0.7, "confidence": 0.8, "benefit": 0.6},
-        event_id=f"gmail-{va_id}-{message_id}", confidence=0.8)
+        "email.received",
+        source="gmail",
+        actor=sender,
+        payload={
+            "va_id": va_id,
+            "message_id": message_id,
+            "thread_id": thread,
+            "subject": subject,
+            "labels": labels,
+            "relevance": 0.7,
+            "confidence": 0.8,
+            "benefit": 0.6,
+        },
+        event_id=f"gmail-{va_id}-{message_id}",
+        confidence=0.8,
+    )
 
 
 def normalize_slack_event(delivery_id: str, va_id: str, payload: dict[str, Any]) -> Event | None:
@@ -51,12 +62,20 @@ def normalize_slack_event(delivery_id: str, va_id: str, payload: dict[str, Any])
         return None
     return new_event(
         "agent.prompt_submitted" if event.get("type") == "app_mention" else "note.created",
-        source="slack", actor=str(event.get("user", "")),
-        payload={"va_id": va_id, "channel": str(event.get("channel", "")),
-                 "thread_ts": str(event.get("thread_ts") or event.get("ts", "")),
-                 "text": text, "relevance": 0.7, "confidence": 0.8, "benefit": 0.6},
+        source="slack",
+        actor=str(event.get("user", "")),
+        payload={
+            "va_id": va_id,
+            "channel": str(event.get("channel", "")),
+            "thread_ts": str(event.get("thread_ts") or event.get("ts", "")),
+            "text": text,
+            "relevance": 0.7,
+            "confidence": 0.8,
+            "benefit": 0.6,
+        },
         event_id=f"slack-{va_id}-{event.get('channel', '')}-{event.get('ts', delivery_id)}",
-        confidence=0.8)
+        confidence=0.8,
+    )
 
 
 def normalize_zendesk_ticket(delivery_id: str, va_id: str, payload: dict[str, Any]) -> Event | None:
@@ -67,14 +86,22 @@ def normalize_zendesk_ticket(delivery_id: str, va_id: str, payload: dict[str, An
     status = str(ticket.get("status", "new"))
     event_type = "agent.prompt_submitted" if status in ("new", "open") else "agent.response_completed"
     return new_event(
-        event_type, source="zendesk", actor=str((ticket.get("requester") or {}).get("email", "")
-                                                or ticket.get("requester_id", "")),
-        payload={"va_id": va_id, "ticket_id": ticket.get("id"),
-                 "subject": str(ticket.get("subject", ""))[:300],
-                 "priority": str(ticket.get("priority", "normal")),
-                 "tags": list(ticket.get("tags") or [])[:20],
-                 "relevance": 0.8, "confidence": 0.85, "benefit": 0.7},
-        event_id=f"zendesk-{va_id}-{ticket.get('id')}-{delivery_id}", confidence=0.85)
+        event_type,
+        source="zendesk",
+        actor=str((ticket.get("requester") or {}).get("email", "") or ticket.get("requester_id", "")),
+        payload={
+            "va_id": va_id,
+            "ticket_id": ticket.get("id"),
+            "subject": str(ticket.get("subject", ""))[:300],
+            "priority": str(ticket.get("priority", "normal")),
+            "tags": list(ticket.get("tags") or [])[:20],
+            "relevance": 0.8,
+            "confidence": 0.85,
+            "benefit": 0.7,
+        },
+        event_id=f"zendesk-{va_id}-{ticket.get('id')}-{delivery_id}",
+        confidence=0.85,
+    )
 
 
 NORMALIZERS = {
@@ -84,8 +111,7 @@ NORMALIZERS = {
 }
 
 
-def normalize_webhook(source: str, delivery_id: str, va_id: str,
-                      payload: dict[str, Any]) -> Event | None:
+def normalize_webhook(source: str, delivery_id: str, va_id: str, payload: dict[str, Any]) -> Event | None:
     """Unified entry: source + delivery id + VA + raw payload -> Event|None."""
     normalizer = NORMALIZERS.get(source)
     if normalizer is None:
@@ -93,5 +119,10 @@ def normalize_webhook(source: str, delivery_id: str, va_id: str,
     return normalizer(delivery_id, va_id, payload)
 
 
-__all__ = ["NORMALIZERS", "normalize_gmail_push", "normalize_slack_event",
-           "normalize_webhook", "normalize_zendesk_ticket"]
+__all__ = [
+    "NORMALIZERS",
+    "normalize_gmail_push",
+    "normalize_slack_event",
+    "normalize_webhook",
+    "normalize_zendesk_ticket",
+]

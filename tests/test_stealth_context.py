@@ -15,14 +15,39 @@ from ghostchimera.stealth.context import (
 
 def _items() -> list[ContextItem]:
     return [
-        ContextItem(source="memory:episodic", kind="memory", text="Alex emailed about the Moovsoon proposal",
-                    score=0.9, confidence=0.9, provenance={"id": 1}),
-        ContextItem(source="graph:semantic", kind="fact", text="Moovsoon repository is X",
-                    score=0.8, confidence=0.85, provenance={"id": 2}),
-        ContextItem(source="memory:episodic", kind="memory", text="Alex private salary discussion",
-                    score=0.95, confidence=0.9, provenance={"id": 3}, privacy_class="secret"),
-        ContextItem(source="doc:notes", kind="document", text="Unrelated grocery list",
-                    score=0.1, confidence=0.5, provenance={"id": 4}),
+        ContextItem(
+            source="memory:episodic",
+            kind="memory",
+            text="Alex emailed about the Moovsoon proposal",
+            score=0.9,
+            confidence=0.9,
+            provenance={"id": 1},
+        ),
+        ContextItem(
+            source="graph:semantic",
+            kind="fact",
+            text="Moovsoon repository is X",
+            score=0.8,
+            confidence=0.85,
+            provenance={"id": 2},
+        ),
+        ContextItem(
+            source="memory:episodic",
+            kind="memory",
+            text="Alex private salary discussion",
+            score=0.95,
+            confidence=0.9,
+            provenance={"id": 3},
+            privacy_class="secret",
+        ),
+        ContextItem(
+            source="doc:notes",
+            kind="document",
+            text="Unrelated grocery list",
+            score=0.1,
+            confidence=0.5,
+            provenance={"id": 4},
+        ),
     ]
 
 
@@ -38,8 +63,7 @@ def test_ranking_orders_by_score_and_respects_budget() -> None:
 
 def test_fabric_assembles_package_with_provenance() -> None:
     fabric = ContextFabric(retrievers=[InMemoryRetriever(_items())], max_tokens=4000)
-    event = new_event("email.received", source="gmail", actor="alex",
-                      payload={"subject": "Moovsoon proposal"})
+    event = new_event("email.received", source="gmail", actor="alex", payload={"subject": "Moovsoon proposal"})
     package = fabric.assemble(event, workflow="proposal_preparation", confidence=0.93)
     assert package.workflow == "proposal_preparation"
     assert package.items

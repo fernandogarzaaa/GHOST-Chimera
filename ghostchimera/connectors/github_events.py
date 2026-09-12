@@ -29,8 +29,7 @@ def _github_client_fetcher(client: Any) -> Fetcher:
 class GitHubEventConnector(Connector):
     id = "github"
 
-    def __init__(self, repo: str, *, fetcher: Fetcher | None = None,
-                 state: dict[str, Any] | None = None) -> None:
+    def __init__(self, repo: str, *, fetcher: Fetcher | None = None, state: dict[str, Any] | None = None) -> None:
         super().__init__(id="github")
         self.repo = repo
         self._fetcher = fetcher
@@ -43,8 +42,7 @@ class GitHubEventConnector(Connector):
             from ..integrations.github_client import GitHubAuth
 
             auth = GitHubAuth.discover()
-            return {"connector": "github", "authenticated": bool(auth.token),
-                    "mode": getattr(auth, "mode", "unknown")}
+            return {"connector": "github", "authenticated": bool(auth.token), "mode": getattr(auth, "mode", "unknown")}
         except Exception as exc:
             return {"connector": "github", "authenticated": False, "error": str(exc)[:120]}
 
@@ -65,39 +63,66 @@ class GitHubEventConnector(Connector):
         kind = str(raw.get("_ghost_kind", ""))
         if kind == "issue":
             action = str(raw.get("action", "opened"))
-            return new_event("github.issue_created" if action in ("opened", "created") else "github.issue_updated",
-                             source="github", actor=str((raw.get("user") or {}).get("login", "")),
-                             payload={"repo": self.repo, "number": raw.get("number"),
-                                      "title": raw.get("title", ""), "action": action},
-                             event_id=f"gh-{self.repo}-issue-{raw.get('number')}-{action}-{raw.get('updated_at', '')}",
-                             confidence=0.95)
+            return new_event(
+                "github.issue_created" if action in ("opened", "created") else "github.issue_updated",
+                source="github",
+                actor=str((raw.get("user") or {}).get("login", "")),
+                payload={
+                    "repo": self.repo,
+                    "number": raw.get("number"),
+                    "title": raw.get("title", ""),
+                    "action": action,
+                },
+                event_id=f"gh-{self.repo}-issue-{raw.get('number')}-{action}-{raw.get('updated_at', '')}",
+                confidence=0.95,
+            )
         if kind == "pull":
             action = str(raw.get("action", "opened"))
-            event_type = ("github.pull_request_merged" if action == "closed" and raw.get("merged")
-                          else "github.pull_request_opened" if action == "opened"
-                          else "github.issue_updated")
-            return new_event(event_type, source="github",
-                             actor=str((raw.get("user") or {}).get("login", "")),
-                             payload={"repo": self.repo, "number": raw.get("number"),
-                                      "title": raw.get("title", ""), "action": action},
-                             event_id=f"gh-{self.repo}-pr-{raw.get('number')}-{action}",
-                             confidence=0.95)
+            event_type = (
+                "github.pull_request_merged"
+                if action == "closed" and raw.get("merged")
+                else "github.pull_request_opened"
+                if action == "opened"
+                else "github.issue_updated"
+            )
+            return new_event(
+                event_type,
+                source="github",
+                actor=str((raw.get("user") or {}).get("login", "")),
+                payload={
+                    "repo": self.repo,
+                    "number": raw.get("number"),
+                    "title": raw.get("title", ""),
+                    "action": action,
+                },
+                event_id=f"gh-{self.repo}-pr-{raw.get('number')}-{action}",
+                confidence=0.95,
+            )
         if kind == "commit":
             sha = str(raw.get("sha", ""))[:12]
-            return new_event("github.commit", source="github",
-                             actor=str(((raw.get("commit") or {}).get("author") or {}).get("name", "")),
-                             payload={"repo": self.repo, "sha": sha,
-                                      "message": str((raw.get("commit") or {}).get("message", ""))[:500]},
-                             event_id=f"gh-{self.repo}-commit-{sha}", confidence=0.9)
+            return new_event(
+                "github.commit",
+                source="github",
+                actor=str(((raw.get("commit") or {}).get("author") or {}).get("name", "")),
+                payload={
+                    "repo": self.repo,
+                    "sha": sha,
+                    "message": str((raw.get("commit") or {}).get("message", ""))[:500],
+                },
+                event_id=f"gh-{self.repo}-commit-{sha}",
+                confidence=0.9,
+            )
         return None
 
     def poll_once(self) -> list[Event]:
         assert self._fetcher is not None, "connect() first"
         events: list[Event] = []
         known: set[str] = self._state.setdefault("known", set())
-        for path, kind in ((f"/repos/{self.repo}/issues?state=all&sort=updated&direction=desc&per_page=20", "issue"),
-                           (f"/repos/{self.repo}/pulls?state=all&sort=updated&direction=desc&per_page=20", "pull"),
-                           (f"/repos/{self.repo}/commits?per_page=20", "commit")):
+        for path, kind in (
+            (f"/repos/{self.repo}/issues?state=all&sort=updated&direction=desc&per_page=20", "issue"),
+            (f"/repos/{self.repo}/pulls?state=all&sort=updated&direction=desc&per_page=20", "pull"),
+            (f"/repos/{self.repo}/commits?per_page=20", "commit"),
+        ):
             try:
                 items = self._fetcher(path) or []
             except Exception:
@@ -132,28 +157,41 @@ def normalize_github_webhook(event_name: str, delivery_id: str, payload: dict[st
         commits = payload.get("commits") or []
         head = str(payload.get("after", ""))[:12]
         messages = "; ".join(str(c.get("message", ""))[:200] for c in commits[:5])
-        return new_event("github.commit", source="github-webhook", actor=sender,
-                         payload={**base, "sha": head, "message": messages,
-                                  "ref": str(payload.get("ref", ""))},
-                         event_id=f"gh-webhook-{delivery_id}", confidence=0.98)
+        return new_event(
+            "github.commit",
+            source="github-webhook",
+            actor=sender,
+            payload={**base, "sha": head, "message": messages, "ref": str(payload.get("ref", ""))},
+            event_id=f"gh-webhook-{delivery_id}",
+            confidence=0.98,
+        )
     if event_name == "issues":
         issue = payload.get("issue") or {}
         action = str(payload.get("action", "opened"))
-        return new_event("github.issue_created" if action == "opened" else "github.issue_updated",
-                         source="github-webhook", actor=sender,
-                         payload={**base, "number": issue.get("number"),
-                                  "title": str(issue.get("title", "")), "action": action},
-                         event_id=f"gh-webhook-{delivery_id}", confidence=0.98)
+        return new_event(
+            "github.issue_created" if action == "opened" else "github.issue_updated",
+            source="github-webhook",
+            actor=sender,
+            payload={**base, "number": issue.get("number"), "title": str(issue.get("title", "")), "action": action},
+            event_id=f"gh-webhook-{delivery_id}",
+            confidence=0.98,
+        )
     if event_name == "pull_request":
         pr = payload.get("pull_request") or {}
         action = str(payload.get("action", "opened"))
         merged = action == "closed" and bool(pr.get("merged"))
-        return new_event("github.pull_request_merged" if merged else
-                         "github.pull_request_opened" if action == "opened" else "github.issue_updated",
-                         source="github-webhook", actor=sender,
-                         payload={**base, "number": pr.get("number"),
-                                  "title": str(pr.get("title", "")), "action": action},
-                         event_id=f"gh-webhook-{delivery_id}", confidence=0.98)
+        return new_event(
+            "github.pull_request_merged"
+            if merged
+            else "github.pull_request_opened"
+            if action == "opened"
+            else "github.issue_updated",
+            source="github-webhook",
+            actor=sender,
+            payload={**base, "number": pr.get("number"), "title": str(pr.get("title", "")), "action": action},
+            event_id=f"gh-webhook-{delivery_id}",
+            confidence=0.98,
+        )
     return None
 
 

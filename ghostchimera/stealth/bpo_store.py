@@ -110,44 +110,63 @@ class BpoStore:
         with self._lock:
             self._conn.execute(
                 "INSERT INTO va_users(id, email, organization_id, created_at) VALUES(?,?,?,?)",
-                (va_id, email, organization_id, time.time()))
+                (va_id, email, organization_id, time.time()),
+            )
             self._conn.commit()
         return {"id": va_id, "email": email, "organization_id": organization_id}
 
     def get_va(self, va_id: str) -> dict[str, Any] | None:
         with self._lock:
             row = self._conn.execute(
-                "SELECT id, email, organization_id, created_at FROM va_users WHERE id = ?",
-                (va_id,)).fetchone()
+                "SELECT id, email, organization_id, created_at FROM va_users WHERE id = ?", (va_id,)
+            ).fetchone()
         if row is None:
             return None
         return {"id": row[0], "email": row[1], "organization_id": row[2], "created_at": row[3]}
 
     # -- connection registry (Nango mapping) ----------------------------------
-    def register_connection(self, va_id: str, provider_config_key: str,
-                            connection_id: str, *, status: str = "ACTIVE") -> dict[str, Any]:
+    def register_connection(
+        self, va_id: str, provider_config_key: str, connection_id: str, *, status: str = "ACTIVE"
+    ) -> dict[str, Any]:
         record_id = f"conn-{uuid.uuid4().hex[:12]}"
         now = time.time()
         with self._lock:
             self._conn.execute(
                 "INSERT OR REPLACE INTO oauth_connections(id, va_id, provider_config_key,"
                 " connection_id, status, updated_at) VALUES(?,?,?,?,?,?)",
-                (record_id, va_id, provider_config_key, connection_id, status, now))
+                (record_id, va_id, provider_config_key, connection_id, status, now),
+            )
             self._conn.commit()
-        return {"id": record_id, "va_id": va_id, "provider_config_key": provider_config_key,
-                "connection_id": connection_id, "status": status}
+        return {
+            "id": record_id,
+            "va_id": va_id,
+            "provider_config_key": provider_config_key,
+            "connection_id": connection_id,
+            "status": status,
+        }
 
     def connections_for(self, va_id: str, *, provider_config_key: str = "") -> list[dict[str, Any]]:
-        query = ("SELECT id, va_id, provider_config_key, connection_id, status, updated_at"
-                 " FROM oauth_connections WHERE va_id = ?")
+        query = (
+            "SELECT id, va_id, provider_config_key, connection_id, status, updated_at"
+            " FROM oauth_connections WHERE va_id = ?"
+        )
         params: list[Any] = [va_id]
         if provider_config_key:
             query += " AND provider_config_key = ?"
             params.append(provider_config_key)
         with self._lock:
             rows = self._conn.execute(query, params).fetchall()
-        return [{"id": r[0], "va_id": r[1], "provider_config_key": r[2],
-                 "connection_id": r[3], "status": r[4], "updated_at": r[5]} for r in rows]
+        return [
+            {
+                "id": r[0],
+                "va_id": r[1],
+                "provider_config_key": r[2],
+                "connection_id": r[3],
+                "status": r[4],
+                "updated_at": r[5],
+            }
+            for r in rows
+        ]
 
     # -- encrypted browser profiles --------------------------------------------
     def save_browser_profile(self, va_id: str, domain: str, auth_state: dict[str, Any]) -> dict[str, Any]:
@@ -158,7 +177,8 @@ class BpoStore:
             self._conn.execute(
                 "INSERT OR REPLACE INTO browser_profiles(id, va_id, domain, encrypted_auth_state,"
                 " last_verified_at, is_active) VALUES(?,?,?,?,?,1)",
-                (profile_id, va_id, domain, blob, now))
+                (profile_id, va_id, domain, blob, now),
+            )
             self._conn.commit()
         return {"id": profile_id, "va_id": va_id, "domain": domain, "last_verified_at": now}
 
@@ -166,9 +186,9 @@ class BpoStore:
         """Decrypt and return the stored auth state. Raw cookies never logged."""
         with self._lock:
             row = self._conn.execute(
-                "SELECT encrypted_auth_state FROM browser_profiles"
-                " WHERE va_id = ? AND domain = ? AND is_active = 1",
-                (va_id, domain)).fetchone()
+                "SELECT encrypted_auth_state FROM browser_profiles WHERE va_id = ? AND domain = ? AND is_active = 1",
+                (va_id, domain),
+            ).fetchone()
         if row is None:
             return None
         try:
@@ -179,15 +199,22 @@ class BpoStore:
     def deactivate_browser_profile(self, va_id: str, domain: str) -> bool:
         with self._lock:
             cursor = self._conn.execute(
-                "UPDATE browser_profiles SET is_active = 0 WHERE va_id = ? AND domain = ?",
-                (va_id, domain))
+                "UPDATE browser_profiles SET is_active = 0 WHERE va_id = ? AND domain = ?", (va_id, domain)
+            )
             self._conn.commit()
             return cursor.rowcount > 0
 
     # -- audit trail --------------------------------------------------------------
-    def record_audit(self, *, va_id: str = "", event_type: str, confidence_score: float = 0.0,
-                     execution_mode: str = "", execution_pathway: str = "",
-                     payload_snapshot: dict[str, Any] | None = None) -> str:
+    def record_audit(
+        self,
+        *,
+        va_id: str = "",
+        event_type: str,
+        confidence_score: float = 0.0,
+        execution_mode: str = "",
+        execution_pathway: str = "",
+        payload_snapshot: dict[str, Any] | None = None,
+    ) -> str:
         audit_id = f"audit-{uuid.uuid4().hex[:12]}"
         # Snapshot is redacted by callers; enforce a ceiling anyway.
         snapshot = json.dumps(payload_snapshot or {})[:20000]
@@ -196,8 +223,17 @@ class BpoStore:
                 "INSERT INTO ghost_audit_logs(id, va_id, event_type, confidence_score,"
                 " execution_mode, execution_pathway, payload_snapshot, timestamp)"
                 " VALUES(?,?,?,?,?,?,?,?)",
-                (audit_id, va_id, event_type, confidence_score, execution_mode,
-                 execution_pathway, snapshot, time.time()))
+                (
+                    audit_id,
+                    va_id,
+                    event_type,
+                    confidence_score,
+                    execution_mode,
+                    execution_pathway,
+                    snapshot,
+                    time.time(),
+                ),
+            )
             self._conn.commit()
         return audit_id
 
@@ -206,9 +242,19 @@ class BpoStore:
             rows = self._conn.execute(
                 "SELECT id, event_type, confidence_score, execution_mode, execution_pathway,"
                 " timestamp FROM ghost_audit_logs WHERE va_id = ? ORDER BY timestamp DESC LIMIT ?",
-                (va_id, limit)).fetchall()
-        return [{"id": r[0], "event_type": r[1], "confidence_score": r[2],
-                 "execution_mode": r[3], "execution_pathway": r[4], "timestamp": r[5]} for r in rows]
+                (va_id, limit),
+            ).fetchall()
+        return [
+            {
+                "id": r[0],
+                "event_type": r[1],
+                "confidence_score": r[2],
+                "execution_mode": r[3],
+                "execution_pathway": r[4],
+                "timestamp": r[5],
+            }
+            for r in rows
+        ]
 
 
 __all__ = ["BpoStore"]

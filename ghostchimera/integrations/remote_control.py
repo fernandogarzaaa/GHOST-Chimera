@@ -351,17 +351,33 @@ def verify_remote_webhook_signature(
         try:
             timestamp_value = int(slack_timestamp)
         except ValueError:
-            return {"ok": False, "error": "Invalid Slack request timestamp.", "signature_status": "invalid_slack_timestamp"}
+            return {
+                "ok": False,
+                "error": "Invalid Slack request timestamp.",
+                "signature_status": "invalid_slack_timestamp",
+            }
         if abs(int(_now()) - timestamp_value) > 300:
-            return {"ok": False, "error": "Slack request timestamp is stale.", "signature_status": "stale_slack_timestamp"}
+            return {
+                "ok": False,
+                "error": "Slack request timestamp is stale.",
+                "signature_status": "stale_slack_timestamp",
+            }
         body_text = body.decode("utf-8", errors="replace") if isinstance(body, bytes) else str(body)
         base = f"v0:{slack_timestamp}:{body_text}".encode()
         expected = hmac.new(signing_secret.encode(), base, hashlib.sha256).hexdigest()
         provided_digest = slack_signature.split("=", 1)[1] if slack_signature.startswith("v0=") else slack_signature
         if not provided_digest:
-            return {"ok": False, "error": "Missing Slack webhook signature.", "signature_status": "missing_slack_signature"}
+            return {
+                "ok": False,
+                "error": "Missing Slack webhook signature.",
+                "signature_status": "missing_slack_signature",
+            }
         if not hmac.compare_digest(expected, provided_digest):
-            return {"ok": False, "error": "Slack webhook signature mismatch.", "signature_status": "mismatch_slack_signature"}
+            return {
+                "ok": False,
+                "error": "Slack webhook signature mismatch.",
+                "signature_status": "mismatch_slack_signature",
+            }
         return {"ok": True, "signature_status": "verified_slack_signature"}
 
     provided = (
@@ -396,7 +412,11 @@ def verify_whatsapp_webhook_challenge(store: RemoteControlStore, query: dict[str
     token = str(query.get("hub.verify_token") or query.get("verify_token") or "").strip()
     challenge = str(query.get("hub.challenge") or query.get("challenge") or "").strip()
     if mode != "subscribe" or not challenge:
-        return {"ok": False, "error": "Invalid WhatsApp webhook verification request.", "verification_status": "invalid"}
+        return {
+            "ok": False,
+            "error": "Invalid WhatsApp webhook verification request.",
+            "verification_status": "invalid",
+        }
     if not hmac.compare_digest(token, verify_token):
         return {"ok": False, "error": "WhatsApp verify token mismatch.", "verification_status": "mismatch"}
     return {"ok": True, "challenge": challenge, "verification_status": "verified"}
@@ -407,11 +427,14 @@ def _normalize_telegram(payload: dict[str, Any]) -> RemoteInboundMessage:
     chat = message.get("chat") if isinstance(message.get("chat"), dict) else {}
     sender = message.get("from") if isinstance(message.get("from"), dict) else {}
     peer_id = str(chat.get("id") or sender.get("id") or "").strip()
-    name = " ".join(
-        part
-        for part in [str(sender.get("first_name") or "").strip(), str(sender.get("last_name") or "").strip()]
-        if part
-    ) or str(sender.get("username") or "").strip()
+    name = (
+        " ".join(
+            part
+            for part in [str(sender.get("first_name") or "").strip(), str(sender.get("last_name") or "").strip()]
+            if part
+        )
+        or str(sender.get("username") or "").strip()
+    )
     return RemoteInboundMessage(
         channel="telegram",
         peer_id=peer_id,
@@ -594,7 +617,9 @@ def _channel_setup_steps(channel: str, missing_inbound: list[str], missing_outbo
     if channel == "slack":
         steps.append("Configure Slack Events API to sign requests with the app signing secret.")
     if channel == "telegram":
-        steps.append("Use the bot token for outbound messages; set verify_token for provider-native secret-token checks.")
+        steps.append(
+            "Use the bot token for outbound messages; set verify_token for provider-native secret-token checks."
+        )
     if not steps:
         steps.append("Channel is ready for the enabled direction.")
     return steps
@@ -778,10 +803,16 @@ class RemoteControlStore:
             send_enabled = bool(channel_state.get("send_enabled"))
             inbound_ready = not missing_inbound
             outbound_ready = bool(send_enabled and not missing_outbound)
-            delivery_target_ready = bool(channel_state.get("default_reply_target")) or channel in {"telegram", "discord", "slack"}
+            delivery_target_ready = bool(channel_state.get("default_reply_target")) or channel in {
+                "telegram",
+                "discord",
+                "slack",
+            }
             if channel == "webhook":
                 inbound_ready = True
-                outbound_ready = bool(send_enabled and str(channel_secrets.get("webhook_url") or "").startswith("https://"))
+                outbound_ready = bool(
+                    send_enabled and str(channel_secrets.get("webhook_url") or "").startswith("https://")
+                )
                 delivery_target_ready = outbound_ready or not send_enabled
             records.append(
                 {
@@ -843,7 +874,9 @@ class RemoteControlStore:
 
         channel_state = dict(data["channels"].get(channel) or {"id": channel})
         configured_fields = sorted(key for key, value in channel_secrets.items() if value)
-        default_reply_target = str(payload.get("default_reply_target", channel_state.get("default_reply_target", "")) or "").strip()
+        default_reply_target = str(
+            payload.get("default_reply_target", channel_state.get("default_reply_target", "")) or ""
+        ).strip()
         if len(default_reply_target) > 500:
             raise ValueError("default_reply_target is too long")
         channel_state.update(
@@ -891,11 +924,19 @@ class RemoteControlStore:
             return {"ok": False, "error": "Outbound sending is disabled for this channel.", "channel": channel}
         reply_target = str(reply_target or channel_state.get("default_reply_target") or "").strip()
         if not reply_target:
-            return {"ok": False, "error": "reply_target is required and no default recipient is configured.", "channel": channel}
+            return {
+                "ok": False,
+                "error": "reply_target is required and no default recipient is configured.",
+                "channel": channel,
+            }
         secrets_data = self._load_secrets()
         channel_secrets = secrets_data.get(channel) if isinstance(secrets_data.get(channel), dict) else {}
         if not channel_secrets:
-            return {"ok": False, "error": "No write-only credentials are configured for this channel.", "channel": channel}
+            return {
+                "ok": False,
+                "error": "No write-only credentials are configured for this channel.",
+                "channel": channel,
+            }
         reply = build_outbound_reply(channel, reply_target, text)
         try:
             endpoint, headers = _resolve_send_endpoint(reply, channel_secrets)
@@ -905,9 +946,14 @@ class RemoteControlStore:
         try:
             transport_result = sender(endpoint, headers, reply.body)
         except Exception as exc:  # noqa: BLE001 - adapters surface provider failures as data
-            self._event("remote_reply_send_failed", {"channel": channel, "reply_target": reply_target, "error": str(exc)[:240]})
+            self._event(
+                "remote_reply_send_failed", {"channel": channel, "reply_target": reply_target, "error": str(exc)[:240]}
+            )
             return {"ok": False, "error": str(exc)[:500], "reply_preview": reply.to_dict()}
-        self._event("remote_reply_sent", {"channel": channel, "reply_target": reply_target, "ok": transport_result.get("ok", True)})
+        self._event(
+            "remote_reply_sent",
+            {"channel": channel, "reply_target": reply_target, "ok": transport_result.get("ok", True)},
+        )
         return {
             "ok": bool(transport_result.get("ok", True)),
             "sent": True,
@@ -969,7 +1015,9 @@ class RemoteControlStore:
         payload["pairing_code"] = code
         return {"ok": True, "pairing": payload}
 
-    def approve_pairing(self, *, pairing_id: str = "", channel: str = "", peer_id: str = "", code: str = "") -> dict[str, Any]:
+    def approve_pairing(
+        self, *, pairing_id: str = "", channel: str = "", peer_id: str = "", code: str = ""
+    ) -> dict[str, Any]:
         data = self._load()
         pairing: dict[str, Any] | None = None
         if pairing_id:
@@ -1187,7 +1235,12 @@ class RemoteControlStore:
         if str(peer.get("role") or "").lower() != "admin":
             self._event("remote_direct_toggle_rejected", {"peer_id": peer.get("id"), "reason": "not_admin"})
             return self._with_reply(
-                {"ok": False, "paired": True, "command": "/direct", "error": "Only paired admins can change direct execution."},
+                {
+                    "ok": False,
+                    "paired": True,
+                    "command": "/direct",
+                    "error": "Only paired admins can change direct execution.",
+                },
                 peer,
                 "Only paired admins can change direct execution.",
             )
@@ -1207,7 +1260,9 @@ class RemoteControlStore:
         data["peers"][str(peer.get("id"))] = peer
         self._save(data)
         self._event("remote_peer_policy_updated", {"peer_id": peer.get("id"), "allow_direct_execution": allow})
-        message = "Direct execution enabled for this paired admin." if allow else "Direct execution disabled for this sender."
+        message = (
+            "Direct execution enabled for this paired admin." if allow else "Direct execution disabled for this sender."
+        )
         return self._with_reply(
             {"ok": True, "paired": True, "command": "/direct", "peer": _redact_value(peer), "message": message},
             peer,
@@ -1240,7 +1295,12 @@ class RemoteControlStore:
             result = objective_runner(objective)
             self._event(
                 "remote_direct_execution",
-                {"peer_id": peer.get("id"), "command": command, "objective_preview": objective[:160], "ok": result.get("ok")},
+                {
+                    "peer_id": peer.get("id"),
+                    "command": command,
+                    "objective_preview": objective[:160],
+                    "ok": result.get("ok"),
+                },
             )
             return self._with_reply(
                 {
@@ -1312,7 +1372,11 @@ class RemoteControlStore:
             "remote_approval_executed",
             {"approval_id": approval_id, "resolver_peer_id": resolver_peer_id, "ok": result.get("ok")},
         )
-        return {"ok": bool(result.get("ok", True)), "approval": _redact_value(approval), "result": _redact_value(result)}
+        return {
+            "ok": bool(result.get("ok", True)),
+            "approval": _redact_value(approval),
+            "result": _redact_value(result),
+        }
 
 
 def _parse_command(text: str) -> tuple[str, str]:

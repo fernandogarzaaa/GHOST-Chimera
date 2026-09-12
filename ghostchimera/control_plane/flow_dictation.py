@@ -45,8 +45,17 @@ INLINE_FORMATTING: tuple[tuple[str, str], ...] = (
 FILLERS = ("um", "uh", "er", "ah", "you know", "i mean", "like", "sort of", "kind of")
 
 _NUMBER_WORDS = {
-    "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
-    "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
+    "zero": "0",
+    "one": "1",
+    "two": "2",
+    "three": "3",
+    "four": "4",
+    "five": "5",
+    "six": "6",
+    "seven": "7",
+    "eight": "8",
+    "nine": "9",
+    "ten": "10",
 }
 
 
@@ -65,8 +74,14 @@ class FlowProfile:
     @classmethod
     def verbatim(cls) -> FlowProfile:
         """Code-editor style: copy exactly what was said."""
-        return cls(name="verbatim", inline_formatting=False, smart_formatting=False,
-                   strip_fillers=False, capitalize_first=False, ensure_punctuation=False)
+        return cls(
+            name="verbatim",
+            inline_formatting=False,
+            smart_formatting=False,
+            strip_fillers=False,
+            capitalize_first=False,
+            ensure_punctuation=False,
+        )
 
 
 PROFILES = {
@@ -82,9 +97,7 @@ def apply_inline_formatting(text: str) -> tuple[str, list[str]]:
     for spoken, symbol in INLINE_FORMATTING:
         # [ \t] only: \s would swallow the very newlines we insert.
         pattern = re.compile(r"[ \t]*\b" + re.escape(spoken) + r"\b[ \t]*", re.IGNORECASE)
-        text, n = pattern.subn(
-            lambda m, _sym=symbol: f"{_sym} " if _sym not in "?!.,:;" else _sym + " ",
-            text)
+        text, n = pattern.subn(lambda m, _sym=symbol: f"{_sym} " if _sym not in "?!.,:;" else _sym + " ", text)
         if n:
             applied.append(f"inline:{spoken}->{symbol} x{n}")
     return re.sub(r"[ \t]{2,}", " ", text).strip(), applied
@@ -92,28 +105,28 @@ def apply_inline_formatting(text: str) -> tuple[str, list[str]]:
 
 def apply_smart_formatting(text: str) -> tuple[str, list[str]]:
     applied: list[str] = []
+
     # "john at example dot com" -> "john@example.com"
     def _email(match: re.Match[str]) -> str:
         user, domain, tld = match.group(1), match.group(2), match.group(3)
         applied.append("smart:email")
         return f"{user}@{domain}.{tld}"
 
-    text = re.sub(
-        r"\b([a-z0-9._-]+)\s+at\s+([a-z0-9-]+)\s+dot\s+([a-z]{2,6})\b",
-        _email, text, flags=re.IGNORECASE)
+    text = re.sub(r"\b([a-z0-9._-]+)\s+at\s+([a-z0-9-]+)\s+dot\s+([a-z]{2,6})\b", _email, text, flags=re.IGNORECASE)
+
     # "3 p m" / "3 p.m." -> "3 PM" (letter captured; a m -> AM)
     def _ampm(match: re.Match[str]) -> str:
         applied.append("smart:ampm")
         return f"{match.group(1)} {match.group(2).upper()}M"
 
     text = re.sub(r"\b(\d{1,2})\s*([ap])\s*\.?\s*m\s*\.?\b", _ampm, text, flags=re.IGNORECASE)
+
     # number words 0-10 -> digits when clearly quantities ("meeting at three" stays).
     def _number(match: re.Match[str]) -> str:
         applied.append("smart:number")
         return _NUMBER_WORDS[match.group(0).lower()]
 
-    text = re.sub(r"\b(zero|one|two|three|four|five|six|seven|eight|nine|ten)\b",
-                  _number, text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(zero|one|two|three|four|five|six|seven|eight|nine|ten)\b", _number, text, flags=re.IGNORECASE)
     return text, applied
 
 
@@ -182,15 +195,21 @@ class FlowHistory:
         self._limit = limit
 
     def record(self, formatted: FormattedTranscript, *, provider: str = "") -> None:
-        entry = {"at": time.time(), "profile": formatted.profile, "provider": provider,
-                 "raw": formatted.raw, "text": formatted.text, "rules": formatted.rules_applied}
+        entry = {
+            "at": time.time(),
+            "profile": formatted.profile,
+            "provider": provider,
+            "raw": formatted.raw,
+            "text": formatted.text,
+            "rules": formatted.rules_applied,
+        }
         try:
             self._file.parent.mkdir(parents=True, exist_ok=True)
             lines = []
             if self._file.exists():
-                lines = self._file.read_text(encoding="utf-8").splitlines()[-self._limit + 1:]
+                lines = self._file.read_text(encoding="utf-8").splitlines()[-self._limit + 1 :]
             lines.append(json.dumps(entry))
-            self._file.write_text("\n".join(lines[-self._limit:]), encoding="utf-8")
+            self._file.write_text("\n".join(lines[-self._limit :]), encoding="utf-8")
         except OSError:
             pass
 
@@ -208,22 +227,46 @@ class FlowHistory:
         return out
 
 
-def transcribe_and_format(transcriber: Any, audio_base64: str, *,
-                          mime_type: str = "", profile: str = "dictation",
-                          history: FlowHistory | None = None) -> dict[str, Any]:
+def transcribe_and_format(
+    transcriber: Any,
+    audio_base64: str,
+    *,
+    mime_type: str = "",
+    profile: str = "dictation",
+    history: FlowHistory | None = None,
+) -> dict[str, Any]:
     """Full flow: transcribe -> format -> history. Returns redacted result."""
     result = transcriber.transcribe_base64(audio_base64, mime_type=mime_type)
     if not result.get("ok") or not result.get("transcript"):
-        return {"ok": False, "error": result.get("error", "transcription failed"),
-                "provider": result.get("provider", ""), "text": "", "rules_applied": []}
+        return {
+            "ok": False,
+            "error": result.get("error", "transcription failed"),
+            "provider": result.get("provider", ""),
+            "text": "",
+            "rules_applied": [],
+        }
     formatted = format_transcript(result["transcript"], profile)
     if history is not None:
         history.record(formatted, provider=str(result.get("provider", "")))
-    return {"ok": True, "provider": result.get("provider", ""),
-            "raw": formatted.raw, "text": formatted.text,
-            "rules_applied": formatted.rules_applied, "profile": formatted.profile}
+    return {
+        "ok": True,
+        "provider": result.get("provider", ""),
+        "raw": formatted.raw,
+        "text": formatted.text,
+        "rules_applied": formatted.rules_applied,
+        "profile": formatted.profile,
+    }
 
 
-__all__ = ["FlowHistory", "FlowProfile", "FormattedTranscript", "PROFILES",
-           "apply_inline_formatting", "apply_smart_formatting", "apply_vocabulary",
-           "format_transcript", "strip_fillers", "transcribe_and_format"]
+__all__ = [
+    "FlowHistory",
+    "FlowProfile",
+    "FormattedTranscript",
+    "PROFILES",
+    "apply_inline_formatting",
+    "apply_smart_formatting",
+    "apply_vocabulary",
+    "format_transcript",
+    "strip_fillers",
+    "transcribe_and_format",
+]

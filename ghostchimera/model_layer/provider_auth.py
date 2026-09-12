@@ -130,9 +130,7 @@ OPENROUTER_PKCE_OAUTH = ProviderAuthChoice(
     method="oauth",
     label="OpenRouter OAuth PKCE",
     status="ready",
-    description=(
-        "Redirect to OpenRouter, then exchange the authorization code for a user-controlled API key."
-    ),
+    description=("Redirect to OpenRouter, then exchange the authorization code for a user-controlled API key."),
     setup_hint="Click Connect to open the OpenRouter authorization page.",
     supports_runtime_activation=True,
     scopes=["openrouter-api-key"],
@@ -324,16 +322,96 @@ def _add_openai_compatible(
     )
 
 
-_add_openai_compatible("groq", name="Groq", description="Low-latency hosted LPU inference.", models=["llama-3.3-70b-versatile", "llama-3.1-8b-instant"], api_key_env="GROQ_API_KEY", model_env="GROQ_MODEL", badges=["fast", "open-weight"])
-_add_openai_compatible("xai", name="xAI", description="Grok model family through xAI.", models=["grok-3-mini", "grok-3"], api_key_env="XAI_API_KEY", model_env="XAI_MODEL", badges=["reasoning"])
-_add_openai_compatible("mistral", name="Mistral AI", description="Mistral hosted models.", models=["mistral-small-latest", "mistral-large-latest", "codestral-latest"], api_key_env="MISTRAL_API_KEY", model_env="MISTRAL_MODEL", badges=["open-weight", "code"])
-_add_openai_compatible("deepseek", name="DeepSeek", description="DeepSeek chat and reasoning models.", models=["deepseek-chat", "deepseek-reasoner"], api_key_env="DEEPSEEK_API_KEY", model_env="DEEPSEEK_MODEL", badges=["reasoning", "low-cost"])
-_add_openai_compatible("together", name="Together AI", description="Hosted open-weight model inference.", models=["meta-llama/Llama-3-70b-chat-hf", "Qwen/Qwen2.5-72B-Instruct-Turbo"], api_key_env="TOGETHER_API_KEY", model_env="TOGETHER_MODEL", badges=["open-weight"])
-_add_openai_compatible("cohere", name="Cohere", description="Command family models through Cohere.", models=["command-r-plus", "command-r"], api_key_env="COHERE_API_KEY", model_env="COHERE_MODEL", badges=["enterprise", "rag"])
-_add_openai_compatible("perplexity", name="Perplexity", description="Search-augmented Sonar models.", models=["llama-3.1-sonar-small-128k-online", "llama-3.1-sonar-large-128k-online"], api_key_env="PERPLEXITY_API_KEY", model_env="PERPLEXITY_MODEL", badges=["web", "research"])
-_add_openai_compatible("fireworks", name="Fireworks AI", description="Fast open-weight model inference.", models=["accounts/fireworks/models/llama-v3p1-70b-instruct", "accounts/fireworks/models/deepseek-r1"], api_key_env="FIREWORKS_API_KEY", model_env="FIREWORKS_MODEL", badges=["fast", "open-weight"])
-_add_openai_compatible("cerebras", name="Cerebras", description="Ultra-fast inference on Cerebras Cloud.", models=["llama3.1-70b", "llama3.1-8b"], api_key_env="CEREBRAS_API_KEY", model_env="CEREBRAS_MODEL", badges=["fast"])
-_add_openai_compatible("ai21", name="AI21 Labs", description="Jamba model family.", models=["jamba-1.5-mini", "jamba-1.5-large"], api_key_env="AI21_API_KEY", model_env="AI21_MODEL", badges=["enterprise"])
+_add_openai_compatible(
+    "groq",
+    name="Groq",
+    description="Low-latency hosted LPU inference.",
+    models=["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+    api_key_env="GROQ_API_KEY",
+    model_env="GROQ_MODEL",
+    badges=["fast", "open-weight"],
+)
+_add_openai_compatible(
+    "xai",
+    name="xAI",
+    description="Grok model family through xAI.",
+    models=["grok-3-mini", "grok-3"],
+    api_key_env="XAI_API_KEY",
+    model_env="XAI_MODEL",
+    badges=["reasoning"],
+)
+_add_openai_compatible(
+    "mistral",
+    name="Mistral AI",
+    description="Mistral hosted models.",
+    models=["mistral-small-latest", "mistral-large-latest", "codestral-latest"],
+    api_key_env="MISTRAL_API_KEY",
+    model_env="MISTRAL_MODEL",
+    badges=["open-weight", "code"],
+)
+_add_openai_compatible(
+    "deepseek",
+    name="DeepSeek",
+    description="DeepSeek chat and reasoning models.",
+    models=["deepseek-chat", "deepseek-reasoner"],
+    api_key_env="DEEPSEEK_API_KEY",
+    model_env="DEEPSEEK_MODEL",
+    badges=["reasoning", "low-cost"],
+)
+_add_openai_compatible(
+    "together",
+    name="Together AI",
+    description="Hosted open-weight model inference.",
+    models=["meta-llama/Llama-3-70b-chat-hf", "Qwen/Qwen2.5-72B-Instruct-Turbo"],
+    api_key_env="TOGETHER_API_KEY",
+    model_env="TOGETHER_MODEL",
+    badges=["open-weight"],
+)
+_add_openai_compatible(
+    "cohere",
+    name="Cohere",
+    description="Command family models through Cohere.",
+    models=["command-r-plus", "command-r"],
+    api_key_env="COHERE_API_KEY",
+    model_env="COHERE_MODEL",
+    badges=["enterprise", "rag"],
+)
+_add_openai_compatible(
+    "perplexity",
+    name="Perplexity",
+    description="Search-augmented Sonar models.",
+    models=["llama-3.1-sonar-small-128k-online", "llama-3.1-sonar-large-128k-online"],
+    api_key_env="PERPLEXITY_API_KEY",
+    model_env="PERPLEXITY_MODEL",
+    badges=["web", "research"],
+)
+_add_openai_compatible(
+    "fireworks",
+    name="Fireworks AI",
+    description="Fast open-weight model inference.",
+    models=["accounts/fireworks/models/llama-v3p1-70b-instruct", "accounts/fireworks/models/deepseek-r1"],
+    api_key_env="FIREWORKS_API_KEY",
+    model_env="FIREWORKS_MODEL",
+    badges=["fast", "open-weight"],
+)
+_add_openai_compatible(
+    "cerebras",
+    name="Cerebras",
+    description="Ultra-fast inference on Cerebras Cloud.",
+    models=["llama3.1-70b", "llama3.1-8b"],
+    api_key_env="CEREBRAS_API_KEY",
+    model_env="CEREBRAS_MODEL",
+    badges=["fast"],
+)
+_add_openai_compatible(
+    "ai21",
+    name="AI21 Labs",
+    description="Jamba model family.",
+    models=["jamba-1.5-mini", "jamba-1.5-large"],
+    api_key_env="AI21_API_KEY",
+    model_env="AI21_MODEL",
+    badges=["enterprise"],
+)
 _SPECS["huggingface"] = ProviderAuthSpec(
     id="huggingface",
     name="Hugging Face",
@@ -347,14 +425,78 @@ _SPECS["huggingface"] = ProviderAuthSpec(
     capability_badges=["open-weight", "model-hub"],
     docs_url="https://huggingface.co/docs/hub/oauth",
 )
-_add_openai_compatible("nvidia", name="NVIDIA NIM", description="NVIDIA hosted NIM inference.", models=["meta/llama-3.1-70b-instruct", "nvidia/llama-3.1-nemotron-70b-instruct"], api_key_env="NVIDIA_API_KEY", model_env="NVIDIA_MODEL", badges=["gpu", "open-weight"])
-_add_openai_compatible("moonshot", name="Moonshot Kimi", description="Moonshot Kimi long-context models.", models=["moonshot-v1-8k", "moonshot-v1-128k"], api_key_env="MOONSHOT_API_KEY", model_env="MOONSHOT_MODEL", badges=["long-context"])
-_add_openai_compatible("deepinfra", name="DeepInfra", description="Affordable hosted open-weight inference.", models=["meta-llama/Meta-Llama-3.1-70B-Instruct", "deepseek-ai/DeepSeek-R1"], api_key_env="DEEPINFRA_API_KEY", model_env="DEEPINFRA_MODEL", badges=["open-weight", "low-cost"])
-_add_openai_compatible("qwen", name="Alibaba Qwen", description="Qwen models through DashScope.", models=["qwen-turbo", "qwen-max", "qwen2.5-72b-instruct"], api_key_env="DASHSCOPE_API_KEY", model_env="QWEN_MODEL", badges=["reasoning", "long-context"])
-_add_openai_compatible("volcengine", name="Volcengine Doubao", description="ByteDance Doubao / ARK models.", models=["doubao-pro-4k", "doubao-pro-32k"], api_key_env="ARK_API_KEY", model_env="VOLCENGINE_MODEL", badges=["enterprise"])
-_add_openai_compatible("stepfun", name="StepFun", description="Step model family.", models=["step-1-8k", "step-1-200k"], api_key_env="STEPFUN_API_KEY", model_env="STEPFUN_MODEL", badges=["long-context"])
-_add_openai_compatible("glm", name="ZhipuAI GLM", description="GLM-4 model family.", models=["glm-4-flash", "glm-4", "glm-4-long"], api_key_env="ZHIPUAI_API_KEY", model_env="GLM_MODEL", badges=["long-context"])
-_add_openai_compatible("venice", name="Venice AI", description="Privacy-oriented open-weight inference.", models=["llama-3.3-70b", "deepseek-r1-671b"], api_key_env="VENICE_API_KEY", model_env="VENICE_MODEL", badges=["private", "open-weight"])
+_add_openai_compatible(
+    "nvidia",
+    name="NVIDIA NIM",
+    description="NVIDIA hosted NIM inference.",
+    models=["meta/llama-3.1-70b-instruct", "nvidia/llama-3.1-nemotron-70b-instruct"],
+    api_key_env="NVIDIA_API_KEY",
+    model_env="NVIDIA_MODEL",
+    badges=["gpu", "open-weight"],
+)
+_add_openai_compatible(
+    "moonshot",
+    name="Moonshot Kimi",
+    description="Moonshot Kimi long-context models.",
+    models=["moonshot-v1-8k", "moonshot-v1-128k"],
+    api_key_env="MOONSHOT_API_KEY",
+    model_env="MOONSHOT_MODEL",
+    badges=["long-context"],
+)
+_add_openai_compatible(
+    "deepinfra",
+    name="DeepInfra",
+    description="Affordable hosted open-weight inference.",
+    models=["meta-llama/Meta-Llama-3.1-70B-Instruct", "deepseek-ai/DeepSeek-R1"],
+    api_key_env="DEEPINFRA_API_KEY",
+    model_env="DEEPINFRA_MODEL",
+    badges=["open-weight", "low-cost"],
+)
+_add_openai_compatible(
+    "qwen",
+    name="Alibaba Qwen",
+    description="Qwen models through DashScope.",
+    models=["qwen-turbo", "qwen-max", "qwen2.5-72b-instruct"],
+    api_key_env="DASHSCOPE_API_KEY",
+    model_env="QWEN_MODEL",
+    badges=["reasoning", "long-context"],
+)
+_add_openai_compatible(
+    "volcengine",
+    name="Volcengine Doubao",
+    description="ByteDance Doubao / ARK models.",
+    models=["doubao-pro-4k", "doubao-pro-32k"],
+    api_key_env="ARK_API_KEY",
+    model_env="VOLCENGINE_MODEL",
+    badges=["enterprise"],
+)
+_add_openai_compatible(
+    "stepfun",
+    name="StepFun",
+    description="Step model family.",
+    models=["step-1-8k", "step-1-200k"],
+    api_key_env="STEPFUN_API_KEY",
+    model_env="STEPFUN_MODEL",
+    badges=["long-context"],
+)
+_add_openai_compatible(
+    "glm",
+    name="ZhipuAI GLM",
+    description="GLM-4 model family.",
+    models=["glm-4-flash", "glm-4", "glm-4-long"],
+    api_key_env="ZHIPUAI_API_KEY",
+    model_env="GLM_MODEL",
+    badges=["long-context"],
+)
+_add_openai_compatible(
+    "venice",
+    name="Venice AI",
+    description="Privacy-oriented open-weight inference.",
+    models=["llama-3.3-70b", "deepseek-r1-671b"],
+    api_key_env="VENICE_API_KEY",
+    model_env="VENICE_MODEL",
+    badges=["private", "open-weight"],
+)
 
 
 _PROVIDER_SETUP_URLS: dict[str, str] = {

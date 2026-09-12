@@ -33,8 +33,12 @@ def test_safety_dimension() -> None:
 
 def test_full_report_verdict() -> None:
     report = StealthEval().run_all()
-    assert set(report.dimensions) >= {"retrieval_hit", "prediction_hit",
-                                      "intervention_useful_rate", "suppression_rate",
-                                      "safety_violations"}
+    assert set(report.dimensions) >= {
+        "retrieval_hit",
+        "prediction_hit",
+        "intervention_useful_rate",
+        "suppression_rate",
+        "safety_violations",
+    }
     assert report.verdict in ("ship", "iterate", "do_not_ship")
     assert report.to_dict()["verdict"] == report.verdict

@@ -15,19 +15,33 @@ from ghostchimera.stealth import (
 
 
 def _auto_output(summary="Client asks to reschedule.", conf=0.95) -> str:
-    return json.dumps({
-        "event_summary": summary, "confidence_score": conf,
-        "action_type": "AUTONOMOUS_EXECUTE",
-        "actions": [{"provider": "slack", "endpoint": "/chat.postMessage",
-                     "payload": {"channel": "#ops", "text": "Done."}}]})
+    return json.dumps(
+        {
+            "event_summary": summary,
+            "confidence_score": conf,
+            "action_type": "AUTONOMOUS_EXECUTE",
+            "actions": [
+                {"provider": "slack", "endpoint": "/chat.postMessage", "payload": {"channel": "#ops", "text": "Done."}}
+            ],
+        }
+    )
 
 
 def _draft_output() -> str:
-    return json.dumps({
-        "event_summary": "Angry escalation, needs human.", "confidence_score": 0.6,
-        "action_type": "DRAFT_FOR_APPROVAL",
-        "actions": [{"provider": "google-mail", "endpoint": "/users/me/messages/send",
-                     "payload": {"to": "c@example.com", "body": "Draft reply"}}]})
+    return json.dumps(
+        {
+            "event_summary": "Angry escalation, needs human.",
+            "confidence_score": 0.6,
+            "action_type": "DRAFT_FOR_APPROVAL",
+            "actions": [
+                {
+                    "provider": "google-mail",
+                    "endpoint": "/users/me/messages/send",
+                    "payload": {"to": "c@example.com", "body": "Draft reply"},
+                }
+            ],
+        }
+    )
 
 
 def test_handle_agent_output_downgrades_execute_to_ask_at_l1() -> None:
@@ -63,8 +77,7 @@ def test_handle_agent_output_executes_at_l3_with_executor() -> None:
         return {"ok": True, "ts": "1"}
 
     try:
-        result = loop.handle_agent_output(_auto_output(), connection_map={"slack": "va_1"},
-                                          executor=fake_executor)
+        result = loop.handle_agent_output(_auto_output(), connection_map={"slack": "va_1"}, executor=fake_executor)
         assert result["decision"] == "act"
         assert calls == [("slack", "va_1")]
         intervention = loop.interventions[result["intervention_id"]]
@@ -94,8 +107,7 @@ def test_handle_agent_output_rejects_malformed() -> None:
     loop = StealthLoop()
     try:
         assert loop.handle_agent_output("not json")["ok"] is False
-        idle = json.dumps({"event_summary": "nothing", "confidence_score": 0.1,
-                           "action_type": "NO_ACTION_NEEDED"})
+        idle = json.dumps({"event_summary": "nothing", "confidence_score": 0.1, "action_type": "NO_ACTION_NEEDED"})
         result = loop.handle_agent_output(idle)
         assert result == {"ok": True, "decision": "none", "intervention_id": ""}
         assert loop.interventions == {}
@@ -110,11 +122,23 @@ def test_unified_webhooks_feed_loop() -> None:
     try:
         delivered = 0
         for source, did, va, payload in [
-            ("slack", "d1", "va-1", {"event": {"type": "message", "user": "U1",
-                                               "text": "help", "channel": "C1", "ts": "1"}}),
-            ("gmail", "d2", "va-1", {"id": "m1", "payload": {"headers": [
-                {"name": "From", "value": "c@example.com"},
-                {"name": "Subject", "value": "Hi"}]}}),
+            (
+                "slack",
+                "d1",
+                "va-1",
+                {"event": {"type": "message", "user": "U1", "text": "help", "channel": "C1", "ts": "1"}},
+            ),
+            (
+                "gmail",
+                "d2",
+                "va-1",
+                {
+                    "id": "m1",
+                    "payload": {
+                        "headers": [{"name": "From", "value": "c@example.com"}, {"name": "Subject", "value": "Hi"}]
+                    },
+                },
+            ),
             ("slack", "d0", "va-1", {"type": "url_verification"}),
         ]:
             event = normalize_webhook(source, did, va, payload)
@@ -145,8 +169,7 @@ def test_no_live_secrets_in_repo() -> None:
     # Fixture markers: synthetic DPI/test keys always carry one of these.
     # Sequential runs need BOTH an alpha and a digit triple (e.g. abc..123);
     # a lone triple in a 60+ char random key is plausible, both is not.
-    synthetic = re.compile(r"abcdef|123456|SECRET|secret-|test|xxx|\.\.\.|placeholder|EXAMPLE",
-                           re.IGNORECASE)
+    synthetic = re.compile(r"abcdef|123456|SECRET|secret-|test|xxx|\.\.\.|placeholder|EXAMPLE", re.IGNORECASE)
     seq_alpha = re.compile(r"abc|bcd|cde|def|xyz|stu", re.IGNORECASE)
     seq_digit = re.compile(r"123|234|345|456|789|901")
     repo = Path(__file__).resolve().parents[1]
@@ -158,8 +181,19 @@ def test_no_live_secrets_in_repo() -> None:
             continue
         if any(part in skip_dirs for part in path.parts):
             continue
-        if path.suffix not in {".py", ".md", ".json", ".yaml", ".yml", ".toml", ".js",
-                               ".html", ".css", ".txt", ".example"}:
+        if path.suffix not in {
+            ".py",
+            ".md",
+            ".json",
+            ".yaml",
+            ".yml",
+            ".toml",
+            ".js",
+            ".html",
+            ".css",
+            ".txt",
+            ".example",
+        }:
             continue
         try:
             text = path.read_text(encoding="utf-8", errors="strict")

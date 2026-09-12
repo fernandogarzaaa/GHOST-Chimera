@@ -133,7 +133,11 @@ class CapabilityAdmissionStore:
         record_id = _stable_id(capability_kind, source, name)
         records = self._load_records()
         if record_id in records:
-            return {"ok": False, "error": "Capability admission record already exists.", "record": _redact_value(records[record_id])}
+            return {
+                "ok": False,
+                "error": "Capability admission record already exists.",
+                "record": _redact_value(records[record_id]),
+            }
         record = CapabilityAdmissionRecord(
             id=record_id,
             capability_kind=capability_kind,
@@ -178,7 +182,11 @@ class CapabilityAdmissionStore:
         record["risk_level"] = _normalize_risk(risk_level or record.get("risk_level", "medium"))
         record["risk_ceiling"] = _normalize_risk(risk_ceiling or record.get("risk_ceiling", "medium"))
         record["requested_permissions"] = sorted(
-            {str(item) for item in (requested_permissions or record.get("requested_permissions") or []) if str(item).strip()}
+            {
+                str(item)
+                for item in (requested_permissions or record.get("requested_permissions") or [])
+                if str(item).strip()
+            }
         )
         record["metadata"] = _redact_value({**(record.get("metadata") or {}), **(metadata or {})})
         record["inspection"] = _redact_value({**(record.get("inspection") or {}), **(inspection or {})})

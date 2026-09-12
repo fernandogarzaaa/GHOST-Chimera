@@ -267,7 +267,9 @@ class MiniMindDatasetAdapterRuntime:
         data = json.loads(self.adapter_path.read_text(encoding="utf-8"))
         records = data.get("records") if isinstance(data, dict) else []
         self.records = [record for record in records if isinstance(record, dict)]
-        self.metadata = data.get("metadata") if isinstance(data, dict) and isinstance(data.get("metadata"), dict) else {}
+        self.metadata = (
+            data.get("metadata") if isinstance(data, dict) and isinstance(data.get("metadata"), dict) else {}
+        )
 
     def chat(self, messages: list[dict[str, str]], *, max_context_tokens: int = 8192) -> str:
         del max_context_tokens
@@ -668,7 +670,11 @@ def train_dataset_adapter(
         "records": records,
     }
     adapter_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    return {"ok": True, "adapter_path": str(adapter_path), "adapter": {k: v for k, v in payload.items() if k != "records"}}
+    return {
+        "ok": True,
+        "adapter_path": str(adapter_path),
+        "adapter": {k: v for k, v in payload.items() if k != "records"},
+    }
 
 
 def _softmax(scores: list[float]) -> list[float]:
@@ -858,7 +864,12 @@ def infer_from_neural_adapter(adapter_path: str | Path, query: str) -> dict[str,
         "record_id": str(best.get("id") or ""),
         "adapter_path": str(path),
         "adapter_kind": "neural-personal-adapter",
-        "weight_checksum": str(((payload.get("metadata") or {}) if isinstance(payload.get("metadata"), dict) else {}).get("weight_checksum") or ""),
+        "weight_checksum": str(
+            ((payload.get("metadata") or {}) if isinstance(payload.get("metadata"), dict) else {}).get(
+                "weight_checksum"
+            )
+            or ""
+        ),
     }
 
 

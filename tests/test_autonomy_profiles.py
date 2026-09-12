@@ -108,9 +108,10 @@ class AutonomyProfileTests(unittest.TestCase):
             stderr="",
         )
 
-        with mock.patch.dict(os.environ, {"GHOSTCHIMERA_AUTONOMY_TEST_TIMEOUT": "420"}), mock.patch(
-            "ghostchimera.chimera_pilot.autonomy_jobs.subprocess.run", return_value=completed
-        ) as run_mock:
+        with (
+            mock.patch.dict(os.environ, {"GHOSTCHIMERA_AUTONOMY_TEST_TIMEOUT": "420"}),
+            mock.patch("ghostchimera.chimera_pilot.autonomy_jobs.subprocess.run", return_value=completed) as run_mock,
+        ):
             result = runner.run("test-regression", execute=True)
 
         self.assertEqual(result.status, "ok")
@@ -121,8 +122,9 @@ class AutonomyProfileTests(unittest.TestCase):
         runner = AutonomyJobRunner(profile="generalist")
         timeout = subprocess.TimeoutExpired(cmd=[sys.executable, "-m", "pytest", "-q"], timeout=60)
 
-        with mock.patch.dict(os.environ, {"GHOSTCHIMERA_AUTONOMY_TEST_TIMEOUT": "10"}), mock.patch(
-            "ghostchimera.chimera_pilot.autonomy_jobs.subprocess.run", side_effect=timeout
+        with (
+            mock.patch.dict(os.environ, {"GHOSTCHIMERA_AUTONOMY_TEST_TIMEOUT": "10"}),
+            mock.patch("ghostchimera.chimera_pilot.autonomy_jobs.subprocess.run", side_effect=timeout),
         ):
             result = runner.run("test-regression", execute=True)
 

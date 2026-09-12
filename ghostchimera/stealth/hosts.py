@@ -65,8 +65,7 @@ class HostAdapter:
         return str(result.decision) if result else Decision.NONE.value
 
     def observe_tool_call(self, session_id: str, tool: str, args: dict[str, Any]) -> str:
-        return self.observe_session({"kind": "tool", "session_id": session_id,
-                                     "tool": tool, "args": args})
+        return self.observe_session({"kind": "tool", "session_id": session_id, "tool": tool, "args": args})
 
     def observe_outcome(self, intervention_id: str, outcome: str) -> None:
         self.loop.observe_outcome(intervention_id, InterventionOutcome(outcome))
@@ -93,8 +92,10 @@ class HostAdapter:
         verb = parts[1] if len(parts) > 1 else ""
         if verb in ("", "status"):
             stats = self.loop.bus.processed, len(self.loop.interventions)
-            return (f"Ghost running — events processed: {stats[0]}, "
-                    f"interventions: {stats[1]}, autonomy: {self.loop.policy.autonomy.name}")
+            return (
+                f"Ghost running — events processed: {stats[0]}, "
+                f"interventions: {stats[1]}, autonomy: {self.loop.policy.autonomy.name}"
+            )
         if verb == "pause":
             self.loop.policy.enabled = False
             return "Ghost paused. Background observation stopped; host unaffected."
@@ -106,7 +107,8 @@ class HostAdapter:
             if not hyps:
                 return "No workflows learned yet. Ghost is still observing."
             return "Learned workflows:\n" + "\n".join(
-                f"- {h.name} (support={h.support}, conf={h.confidence:.2f})" for h in hyps)
+                f"- {h.name} (support={h.support}, conf={h.confidence:.2f})" for h in hyps
+            )
         if verb == "interventions":
             if not self.loop.interventions:
                 return "No interventions yet."
@@ -117,17 +119,23 @@ class HostAdapter:
         if verb == "explain":
             target = parts[2] if len(parts) > 2 else ""
             interventions = self.loop.interventions
-            item = interventions.get(target) if target else (list(interventions.values())[-1] if interventions else None)
+            item = (
+                interventions.get(target) if target else (list(interventions.values())[-1] if interventions else None)
+            )
             if item is None:
                 return "Nothing to explain yet."
             exp = item.explain()
-            return (f"Intervention {exp['id']}: {exp['why']} | trigger={exp['trigger_event']} "
-                    f"workflow={exp['workflow']} conf={exp['confidence']:.2f} "
-                    f"state={exp['state']} outcome={exp['outcome']}")
+            return (
+                f"Intervention {exp['id']}: {exp['why']} | trigger={exp['trigger_event']} "
+                f"workflow={exp['workflow']} conf={exp['confidence']:.2f} "
+                f"state={exp['state']} outcome={exp['outcome']}"
+            )
         if verb == "memory":
             snap = self.loop.graph.snapshot()
-            return (f"Experience: {snap['nodes']} nodes, {snap['edges']} edges. "
-                    f"World facts: {len(self.loop.world.active_facts())}.")
+            return (
+                f"Experience: {snap['nodes']} nodes, {snap['edges']} edges. "
+                f"World facts: {len(self.loop.world.active_facts())}."
+            )
         return "Unknown /ghost command. Try: status, memory, workflows, interventions, explain, pause, resume."
 
 
@@ -166,12 +174,11 @@ class ClaudeCodeAdapter(HostAdapter):
             "host": self.id,
             "settings_snippet": {
                 "hooks": {
-                    "UserPromptSubmit": [{"matcher": "", "hooks": [
-                        {"type": "command", "command": "ghost-hook prompt"}]}],
-                    "SessionStart": [{"matcher": "", "hooks": [
-                        {"type": "command", "command": "ghost-hook start"}]}],
-                    "SessionEnd": [{"matcher": "", "hooks": [
-                        {"type": "command", "command": "ghost-hook end"}]}],
+                    "UserPromptSubmit": [
+                        {"matcher": "", "hooks": [{"type": "command", "command": "ghost-hook prompt"}]}
+                    ],
+                    "SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": "ghost-hook start"}]}],
+                    "SessionEnd": [{"matcher": "", "hooks": [{"type": "command", "command": "ghost-hook end"}]}],
                 }
             },
             "note": "Merge into ~/.claude/settings.json; ghost-hook reads hook JSON on stdin.",
@@ -184,12 +191,23 @@ class ClaudeCodeAdapter(HostAdapter):
         prompt = str(payload.get("prompt", ""))
         if prompt.startswith("/ghost"):
             return {"systemMessage": self.handle_command(prompt)}
-        kind = {"UserPromptSubmit": "prompt", "SessionStart": "started",
-                "SessionEnd": "ended", "PreToolUse": "tool",
-                "PostToolUseResponse": "response"}.get(hook_event, "prompt")
-        decision = self.observe_session({"kind": kind, "session_id": session_id,
-                                         "prompt": prompt[:2000], "relevance": 0.8,
-                                         "confidence": 0.85, "benefit": 0.7})
+        kind = {
+            "UserPromptSubmit": "prompt",
+            "SessionStart": "started",
+            "SessionEnd": "ended",
+            "PreToolUse": "tool",
+            "PostToolUseResponse": "response",
+        }.get(hook_event, "prompt")
+        decision = self.observe_session(
+            {
+                "kind": kind,
+                "session_id": session_id,
+                "prompt": prompt[:2000],
+                "relevance": 0.8,
+                "confidence": 0.85,
+                "benefit": 0.7,
+            }
+        )
         if decision not in (Decision.PREPARE.value, Decision.INJECT.value):
             return {}
         result = self.loop.last_result
@@ -204,12 +222,21 @@ class ClaudeCodeAdapter(HostAdapter):
                 break
             time.sleep(0.05)
         if intervention.state != InterventionState.READY:
-            self.loop._prepare(intervention, Event.from_dict(
-                {"event_id": result.event_id, "event_type": "agent.prompt_submitted",
-                 "timestamp": time.time(), "source": "claude"}))
+            self.loop._prepare(
+                intervention,
+                Event.from_dict(
+                    {
+                        "event_id": result.event_id,
+                        "event_type": "agent.prompt_submitted",
+                        "timestamp": time.time(),
+                        "source": "claude",
+                    }
+                ),
+            )
         markdown = self.inject_context(result.intervention_id)
-        return {"hookSpecificOutput": {"hookEventName": hook_event or "UserPromptSubmit",
-                                       "additionalContext": markdown}}
+        return {
+            "hookSpecificOutput": {"hookEventName": hook_event or "UserPromptSubmit", "additionalContext": markdown}
+        }
 
 
 class OpenClawAdapter(HostAdapter):
@@ -234,14 +261,18 @@ class OpenClawAdapter(HostAdapter):
 
         if intervention.state != InterventionState.READY:
             return {"context": "", "intervention_id": result.intervention_id, "status": "preparing"}
-        return {"context": self.inject_context(result.intervention_id),
-                "intervention_id": result.intervention_id, "status": "ready"}
+        return {
+            "context": self.inject_context(result.intervention_id),
+            "intervention_id": result.intervention_id,
+            "status": "ready",
+        }
 
     def after_turn(self, session: dict[str, Any], *, useful: bool) -> None:
         intervention_id = str(session.get("intervention_id", ""))
         if intervention_id and intervention_id in self.loop.interventions:
-            self.observe_outcome(intervention_id,
-                                 InterventionOutcome.USEFUL.value if useful else InterventionOutcome.IGNORED.value)
+            self.observe_outcome(
+                intervention_id, InterventionOutcome.USEFUL.value if useful else InterventionOutcome.IGNORED.value
+            )
 
 
 class OpenCodeAdapter(HostAdapter):
@@ -347,11 +378,22 @@ class GeminiAdapter(HostAdapter):
         prompt = str(payload.get("prompt", ""))
         if prompt.startswith("/ghost"):
             return {"messageOut": self.handle_command(prompt)}
-        kind = {"before_prompt": "prompt", "after_tool": "tool",
-                "session_start": "started", "session_end": "ended"}.get(event, "prompt")
-        decision = self.observe_session({"kind": kind, "session_id": session_id,
-                                         "prompt": prompt[:2000], "relevance": 0.8,
-                                         "confidence": 0.85, "benefit": 0.7})
+        kind = {
+            "before_prompt": "prompt",
+            "after_tool": "tool",
+            "session_start": "started",
+            "session_end": "ended",
+        }.get(event, "prompt")
+        decision = self.observe_session(
+            {
+                "kind": kind,
+                "session_id": session_id,
+                "prompt": prompt[:2000],
+                "relevance": 0.8,
+                "confidence": 0.85,
+                "benefit": 0.7,
+            }
+        )
         if decision not in (Decision.PREPARE.value, Decision.INJECT.value):
             return {}
         result = self.loop.last_result
@@ -417,5 +459,13 @@ class HermesAdapter(HostAdapter):
         )
 
 
-__all__ = ["AdapterRegistry", "ClaudeCodeAdapter", "CodexAdapter", "GeminiAdapter",
-           "HermesAdapter", "HostAdapter", "OpenClawAdapter", "OpenCodeAdapter"]
+__all__ = [
+    "AdapterRegistry",
+    "ClaudeCodeAdapter",
+    "CodexAdapter",
+    "GeminiAdapter",
+    "HermesAdapter",
+    "HostAdapter",
+    "OpenClawAdapter",
+    "OpenCodeAdapter",
+]

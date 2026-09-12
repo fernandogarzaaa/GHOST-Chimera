@@ -18,17 +18,36 @@ from ghostchimera.stealth.stealth_policy import Decision
 
 def _meeting_fabric() -> ContextFabric:
     return ContextFabric(
-        retrievers=[InMemoryRetriever([
-            ContextItem(source="memory:episodic", kind="memory",
-                        text="Alex emailed the Moovsoon proposal draft", score=0.9, confidence=0.9,
-                        provenance={"origin": "email"}),
-            ContextItem(source="graph:semantic", kind="fact",
-                        text="Moovsoon repository is ghost-main", score=0.85, confidence=0.9,
-                        provenance={"origin": "graph"}),
-            ContextItem(source="doc:notes", kind="document",
-                        text="Previous meeting notes: pricing section open", score=0.8, confidence=0.8,
-                        provenance={"origin": "notes"}),
-        ])],
+        retrievers=[
+            InMemoryRetriever(
+                [
+                    ContextItem(
+                        source="memory:episodic",
+                        kind="memory",
+                        text="Alex emailed the Moovsoon proposal draft",
+                        score=0.9,
+                        confidence=0.9,
+                        provenance={"origin": "email"},
+                    ),
+                    ContextItem(
+                        source="graph:semantic",
+                        kind="fact",
+                        text="Moovsoon repository is ghost-main",
+                        score=0.85,
+                        confidence=0.9,
+                        provenance={"origin": "graph"},
+                    ),
+                    ContextItem(
+                        source="doc:notes",
+                        kind="document",
+                        text="Previous meeting notes: pricing section open",
+                        score=0.8,
+                        confidence=0.8,
+                        provenance={"origin": "notes"},
+                    ),
+                ]
+            )
+        ],
         max_tokens=4000,
     )
 
@@ -104,14 +123,26 @@ def test_loop_meeting_preparation_end_to_end() -> None:
     try:
         # Train the workflow: calendar -> email -> session, several times.
         for _ in range(5):
-            loop.emit(new_event("calendar.event_starting", source="calendar", actor="alex",
-                                payload={"project": "moovsoon", "relevance": 0.9,
-                                         "confidence": 0.9, "benefit": 0.9},
-                                session_id="s", confidence=0.9))
-            loop.emit(new_event("email.received", source="gmail", actor="alex",
-                                payload={"project": "moovsoon", "relevance": 0.9,
-                                         "confidence": 0.9, "benefit": 0.9},
-                                session_id="s", confidence=0.9))
+            loop.emit(
+                new_event(
+                    "calendar.event_starting",
+                    source="calendar",
+                    actor="alex",
+                    payload={"project": "moovsoon", "relevance": 0.9, "confidence": 0.9, "benefit": 0.9},
+                    session_id="s",
+                    confidence=0.9,
+                )
+            )
+            loop.emit(
+                new_event(
+                    "email.received",
+                    source="gmail",
+                    actor="alex",
+                    payload={"project": "moovsoon", "relevance": 0.9, "confidence": 0.9, "benefit": 0.9},
+                    session_id="s",
+                    confidence=0.9,
+                )
+            )
         assert loop.last_result is not None
         # Frequency cap (5/hr) may silence later emits; at least one
         # training event must have produced an intervention.
@@ -138,8 +169,10 @@ def test_loop_meeting_preparation_end_to_end() -> None:
 def test_loop_replay_is_side_effect_free() -> None:
     loop = StealthLoop(fabric=_meeting_fabric())
     try:
-        events = [new_event("email.received", source="gmail", actor="alex",
-                            payload={"project": "moovsoon"}, confidence=0.9) for _ in range(3)]
+        events = [
+            new_event("email.received", source="gmail", actor="alex", payload={"project": "moovsoon"}, confidence=0.9)
+            for _ in range(3)
+        ]
         for e in events:
             loop.emit(e)
         n_interventions = len(loop.interventions)
@@ -162,9 +195,15 @@ def test_loop_survives_connector_failure() -> None:
     policy = GhostPolicy.conservative_default()
     loop = StealthLoop(policy=policy, fabric=ContextFabric(retrievers=[DeadSource()]))
     try:
-        loop.emit(new_event("email.received", source="gmail", actor="alex",
-                            payload={"relevance": 0.95, "confidence": 0.93, "benefit": 0.9},
-                            confidence=0.93))
+        loop.emit(
+            new_event(
+                "email.received",
+                source="gmail",
+                actor="alex",
+                payload={"relevance": 0.95, "confidence": 0.93, "benefit": 0.9},
+                confidence=0.93,
+            )
+        )
         # Loop must not raise; decision may still prepare with empty context.
         assert loop.last_result is not None
     finally:
