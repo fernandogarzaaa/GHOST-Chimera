@@ -21,7 +21,7 @@ from .agent_prompt import (
 )
 from .attention import AttentionContext, AttentionEngine, AttentionSignal
 from .bpo_store import BpoStore
-from .cdp import CdpClient, CdpError
+from .cdp import CdpBrowser, CdpClient, CdpError
 from .computer import (
     ComputerAction,
     ComputerApproval,
@@ -105,6 +105,7 @@ from .project_scan import ProjectFinding, ProjectScanReport, scan_project
 from .ste import SimplifyResult, simplify, simplify_sentence
 from .stealth_policy import AutonomyLevel, Decision, GhostPolicy, StealthEvaluator
 from .store import StealthStore
+from .untrusted import FENCE_CLOSE, FENCE_OPEN, fence_content, fence_mapping, is_fenced
 from .workflow_learner import WorkflowHypothesis, WorkflowLearner
 from .world_state import WorldState
 
@@ -118,6 +119,7 @@ __all__ = [
     "AttentionContext",
     "BpoStore",
     "BackendFn",
+    "CdpBrowser",
     "CdpBrowserExecutor",
     "CdpClient",
     "CdpError",
@@ -146,6 +148,8 @@ __all__ = [
     "EnvironmentState",
     "EvePrediction",
     "EveIntervention",
+    "FENCE_CLOSE",
+    "FENCE_OPEN",
     "FrictionDetector",
     "FrictionState",
     "GovernedDecision",
@@ -198,8 +202,11 @@ __all__ = [
     "attach_managed_browser",
     "classify_risk",
     "define_hook",
+    "fence_content",
+    "fence_mapping",
     "gate_agent_action",
     "ghost_on",
+    "is_fenced",
     "live_capability",
     "new_event",
     "parse_agent_output",

@@ -53,7 +53,26 @@ class _FakeCdpHandler:
                 expression = str((message.get("params") or {}).get("expression", ""))
                 if "document.title" in expression:
                     value = {"title": "Example", "url": "https://example.test", "text": "hello"}
-                elif "querySelector" in expression:
+                elif 'includes("needle-visible")' in expression:
+                    value = True
+                elif "includes(" in expression:
+                    value = False
+                elif "outerHTML" in expression:
+                    value = "<html>fake</html>"
+                elif any(
+                    marker in expression
+                    for marker in (
+                        "querySelector",
+                        "history.back",
+                        "history.forward",
+                        "location.reload",
+                        "scrollTo",
+                        "scrollIntoView",
+                        "requestSubmit",
+                        "form.submit",
+                        "dispatchEvent",
+                    )
+                ):
                     value = True
                 else:
                     value = None
@@ -61,6 +80,16 @@ class _FakeCdpHandler:
                     json.dumps({"id": call_id, "result": {"result": {"type": "object", "value": value}}})
                 )
             elif method in ("Page.enable", "DOM.enable", "Runtime.enable"):
+                await self.websocket.send(json.dumps({"id": call_id, "result": {}}))
+            elif method == "Target.getTargets":
+                await self.websocket.send(
+                    json.dumps({"id": call_id, "result": {"targetInfos": [{"targetId": "t1", "type": "page"}]}})
+                )
+            elif method == "Target.createTarget":
+                await self.websocket.send(json.dumps({"id": call_id, "result": {"targetId": "t2"}}))
+            elif method == "Target.closeTarget":
+                await self.websocket.send(json.dumps({"id": call_id, "result": {"success": True}}))
+            elif method == "Target.activateTarget":
                 await self.websocket.send(json.dumps({"id": call_id, "result": {}}))
             else:
                 await self.websocket.send(
@@ -135,6 +164,38 @@ class CdpClientTests(unittest.TestCase):
                 client.call("Nope.method")
         finally:
             client.close()
+
+    def test_history_forms_and_view_helpers(self) -> None:
+        client = CdpClient(self.ws_url, timeout=10.0)
+        try:
+            self.assertTrue(client.back())
+            self.assertTrue(client.forward())
+            self.assertTrue(client.reload())
+            self.assertEqual(client.fill_form({"#a": "1", "#b": "2"}), {"#a": True, "#b": True})
+            self.assertTrue(client.select_option("#s", "v"))
+            self.assertTrue(client.set_checked("#c", True))
+            self.assertTrue(client.submit("#f"))
+            self.assertTrue(client.hover("#h"))
+            self.assertTrue(client.scroll_to("bottom"))
+            self.assertTrue(client.wait_for_text("needle-visible", timeout=2.0))
+            self.assertFalse(client.wait_for_text("never-appears-xyz", timeout=0.5))
+            self.assertEqual(client.html(max_chars=100), "<html>fake</html>")
+        finally:
+            client.close()
+
+    def test_browser_tab_lifecycle(self) -> None:
+        from ghostchimera.stealth.cdp import CdpBrowser
+
+        browser = CdpBrowser(self.ws_url, timeout=10.0)
+        try:
+            tabs = browser.list_tabs()
+            self.assertEqual([tab["targetId"] for tab in tabs], ["t1"])
+            created = browser.new_tab("https://example.test")
+            self.assertEqual(created["target_id"], "t2")
+            browser.activate_tab("t2")
+            self.assertTrue(browser.close_tab("t2"))
+        finally:
+            browser.close()
 
     def test_chrome_command_helper(self) -> None:
         command = chrome_remote_debugging_command(9222)

@@ -31,6 +31,7 @@ from .computer import (
     ComputerUseManager,
     DelegatingComputerProvider,
 )
+from .untrusted import fence_content
 
 
 class CdpBrowserExecutor:
@@ -44,9 +45,14 @@ class CdpBrowserExecutor:
         target = str(action.get("target", ""))
         parameters = action.get("parameters") or {}
         if operation in ("browser.read", "ui.read"):
-            return {"page": self._cdp.describe()}
+            page = self._cdp.describe()
+            if isinstance(page, dict):
+                page = {**page, "text": fence_content(page.get("text", ""), source=page.get("url", "") or "browser")}
+            return {"page": page}
         if operation == "browser.navigate":
             return self._cdp.navigate(target or str(parameters.get("url", "")))
+        if operation in ("browser.back", "browser.forward", "browser.reload"):
+            return {"done": getattr(self._cdp, operation.split(".", 1)[1])(), "operation": operation}
         if operation in ("browser.click", "ui.click"):
             selector = target or str(parameters.get("selector", ""))
             return {"clicked": self._cdp.click(selector), "selector": selector}
@@ -54,6 +60,38 @@ class CdpBrowserExecutor:
             selector = target or str(parameters.get("selector", ""))
             text = str(parameters.get("text", ""))
             return {"typed": self._cdp.type_text(selector, text), "selector": selector}
+        if operation == "browser.fill":
+            fields = parameters.get("fields", {})
+            if not isinstance(fields, dict) or not fields:
+                raise RuntimeError("browser.fill needs parameters.fields as {selector: value}")
+            return {"filled": self._cdp.fill_form({str(k): str(v) for k, v in fields.items()})}
+        if operation == "browser.select":
+            selector = target or str(parameters.get("selector", ""))
+            return {"selected": self._cdp.select_option(selector, str(parameters.get("value", "")))}
+        if operation == "browser.check":
+            selector = target or str(parameters.get("selector", ""))
+            checked = parameters.get("checked", True)
+            return {
+                "checked": self._cdp.set_checked(
+                    selector,
+                    bool(checked) if isinstance(checked, bool) else str(checked).lower() not in ("0", "false", "no"),
+                )
+            }
+        if operation == "browser.submit":
+            return {"submitted": self._cdp.submit(target or None)}
+        if operation == "browser.hover":
+            selector = target or str(parameters.get("selector", ""))
+            return {"hovered": self._cdp.hover(selector), "selector": selector}
+        if operation == "browser.scroll":
+            return {"scrolled": self._cdp.scroll_to(target or str(parameters.get("to", "bottom")))}
+        if operation == "browser.wait_for":
+            return {
+                "found": self._cdp.wait_for_text(
+                    str(parameters.get("text", target)), timeout=float(parameters.get("timeout", 10.0))
+                )
+            }
+        if operation == "browser.html":
+            return {"html": fence_content(self._cdp.html(), source=target or "browser")}
         raise RuntimeError(f"Unsupported browser operation: {operation}")
 
 
@@ -149,6 +187,17 @@ LIVE_OPERATIONS = frozenset(
         "browser.click",
         "browser.type",
         "browser.navigate",
+        "browser.back",
+        "browser.forward",
+        "browser.reload",
+        "browser.fill",
+        "browser.select",
+        "browser.check",
+        "browser.submit",
+        "browser.hover",
+        "browser.scroll",
+        "browser.wait_for",
+        "browser.html",
         "desktop.read",
         "desktop.click",
         "desktop.type",

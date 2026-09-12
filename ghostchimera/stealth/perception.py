@@ -15,6 +15,7 @@ from typing import Any
 
 from .eve_model import EnvironmentState, PerceptionLevel
 from .events import Event
+from .untrusted import fence_mapping
 
 BackendFn = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
 
@@ -135,7 +136,11 @@ class StructuredPerceptionProvider(PerceptionProvider):
                 level=self.level,
                 success=True,
                 environment=env,
-                data=data,
+                data=fence_mapping(
+                    data,
+                    source=str(event.payload.get("url") or event.payload.get("application") or "structured"),
+                    keys=("dom", "accessibility_tree", "ui_elements", "mcp", "mcp_clients"),
+                ),
                 latency_ms=(time.time() - start) * 1000,
             )
         except Exception as e:
@@ -193,9 +198,7 @@ class BrowserPerceptionProvider(PerceptionProvider):
                 timestamp=event.timestamp,
             )
 
-            # In real implementation, this would connect via CDP
-            # For now, return structured data from event if available
-            data = {}
+            data: dict[str, Any] = {}
             if "browser_dom" in event.payload:
                 data["dom"] = event.payload["browser_dom"]
             if "browser_a11y" in event.payload:
@@ -222,7 +225,11 @@ class BrowserPerceptionProvider(PerceptionProvider):
                 level=self.level,
                 success=True,
                 environment=env,
-                data=data,
+                data=fence_mapping(
+                    data,
+                    source=url or "browser",
+                    keys=("dom", "accessibility_tree", "console", "network", "cdp"),
+                ),
                 latency_ms=(time.time() - start) * 1000,
             )
         except Exception as e:
@@ -346,7 +353,11 @@ class VisionPerceptionProvider(PerceptionProvider):
                 level=self.level,
                 success=True,
                 environment=env,
-                data=data,
+                data=fence_mapping(
+                    data,
+                    source=str(event.payload.get("application") or "vision"),
+                    keys=("ocr_text", "vision_analysis", "vision_models"),
+                ),
                 latency_ms=(time.time() - start) * 1000,
             )
         except Exception as e:
