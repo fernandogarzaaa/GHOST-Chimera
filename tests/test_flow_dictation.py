@@ -8,8 +8,11 @@ import urllib.request
 from ghostchimera.control_plane.flow_dictation import (
     FlowHistory,
     FlowProfile,
+    PersonalDictionary,
     apply_smart_formatting,
     format_transcript,
+    gated_format_transcript,
+    learn_correction,
     strip_fillers,
     transcribe_and_format,
 )
@@ -112,3 +115,73 @@ def test_console_flow_routes_contract(tmp_path) -> None:
         assert history["ok"] is True and history["history"] == []
     finally:
         server.stop()
+
+
+def test_gated_format_passes_normal_cleanup() -> None:
+    result = gated_format_transcript("hello um comma world")
+
+    assert result.gated is False
+    assert result.gate_reason == ""
+    assert "Hello," in result.text
+
+
+def test_gated_format_falls_back_on_over_edit() -> None:
+    raw = "um uh like you know sort of kind of well actually basically"
+
+    result = gated_format_transcript(raw)
+
+    assert result.gated is True
+    assert result.text == raw
+    assert "similarity" in result.gate_reason
+
+
+def test_gated_format_preserves_digit_runs() -> None:
+    result = gated_format_transcript("call me at 555 1234 tomorrow")
+
+    assert result.gated is False
+    assert "555" in result.text and "1234" in result.text
+
+
+def test_personal_dictionary_learn_apply_persist(tmp_path) -> None:
+    dictionary = PersonalDictionary(tmp_path)
+
+    assert dictionary.learn("cap x", "CAPEX") is True
+    assert dictionary.learn("cap x", "CAPEX") is True
+    assert dictionary.learn("", "x") is False
+    assert dictionary.learn("hello", "hello") is False
+    assert dictionary.learn("!!!", "???") is False
+    assert dictionary.entries() == {"cap x": "CAPEX"}
+    assert dictionary.stats() == {"entries": 1, "corrections": 2}
+
+    text, applied = dictionary.apply("the Cap X report")
+    assert text == "the CAPEX report"
+    assert applied == ["learned:cap x->CAPEX x1"]
+
+    assert dictionary.remove("nope") is False
+    assert dictionary.remove("cap x") is True
+    assert dictionary.entries() == {}
+
+    reloaded = PersonalDictionary(tmp_path)
+    assert reloaded.entries() == {}
+
+
+def test_learn_correction_extracts_single_word_swaps() -> None:
+    assert learn_correction("meet at two", "meet at 2") == []
+    assert learn_correction("schedule a meeting with jon", "schedule a meeting with John") == [("jon", "John")]
+    assert learn_correction("totally rewrite this sentence", "something else") == []
+    assert learn_correction("same same", "same same") == []
+
+
+def test_dictionary_flows_through_pipeline(tmp_path) -> None:
+    class Stub:
+        def transcribe_base64(self, audio_base64, *, mime_type=""):
+            return {"ok": True, "provider": "stub", "transcript": "the cap x report"}
+
+    dictionary = PersonalDictionary(tmp_path)
+    assert dictionary.learn("cap x", "CAPEX") is True
+
+    result = transcribe_and_format(Stub(), "QUJD", dictionary=dictionary)
+
+    assert result["ok"] is True
+    assert "CAPEX" in result["text"]
+    assert any(rule.startswith("learned:") for rule in result["rules_applied"])

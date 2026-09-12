@@ -373,13 +373,22 @@ class LivePresenceStore:
         content: str,
         source: str = "manual",
         diarization: dict[str, Any] | None = None,
+        channel: str = "",
     ) -> dict[str, Any]:
+        """Record one transcript turn, attributed to the you/them audio channel when known."""
+
+        normalized_channel = str(channel or "").strip().lower()
+        if normalized_channel not in ("you", "them"):
+            normalized_channel = ""
+        diarization_map = dict(diarization) if isinstance(diarization, dict) else {}
+        if normalized_channel:
+            diarization_map["channel"] = normalized_channel
         turn = LivePresenceTranscriptTurn(
             turn_id=_stable_id(session_id, speaker, content, _now()),
             speaker=(speaker or "Speaker").strip()[:120],
             content=str(content or "").strip(),
             source=(source or "manual").strip()[:80],
-            diarization=diarization if isinstance(diarization, dict) else {},
+            diarization=diarization_map,
         ).to_dict()
         extracted = _extract_action_items(str(content or ""))
 
@@ -395,11 +404,28 @@ class LivePresenceStore:
                 trust_run_id,
                 step_type="live_presence_transcript",
                 status="completed",
-                inputs={"speaker": turn["speaker"], "source": turn["source"]},
+                inputs={"speaker": turn["speaker"], "source": turn["source"], "channel": normalized_channel},
                 outputs={"content": turn["content"], "action_items": extracted},
                 idempotency_key=f"{trust_run_id}:transcript:{turn['turn_id']}",
             )
         return {"ok": True, "turn": turn, "action_items": extracted, "session": updated}
+
+    def transcript_by_channel(self, session_id: str) -> dict[str, list[dict[str, Any]]]:
+        """Bucket transcript turns into you/them/other channels for recaps."""
+
+        try:
+            session = self.get_session(session_id)
+        except KeyError:
+            return {"you": [], "them": [], "other": []}
+        buckets: dict[str, list[dict[str, Any]]] = {"you": [], "them": [], "other": []}
+        transcript = session.get("transcript", [])
+        for turn in transcript if isinstance(transcript, list) else []:
+            if not isinstance(turn, dict):
+                continue
+            diarization = turn.get("diarization", {})
+            channel = diarization.get("channel", "") if isinstance(diarization, dict) else ""
+            buckets["you" if channel == "you" else "them" if channel == "them" else "other"].append(turn)
+        return buckets
 
     def create_communication_draft(
         self,

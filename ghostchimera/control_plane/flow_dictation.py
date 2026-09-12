@@ -17,8 +17,10 @@ over LocalVoiceTranscriber without persisting raw audio.
 
 from __future__ import annotations
 
+import difflib
 import json
 import re
+import string
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -153,15 +155,143 @@ def apply_vocabulary(text: str, vocabulary: dict[str, str]) -> tuple[str, list[s
     return text, applied
 
 
+def _learnable_term(term: str) -> bool:
+    words = term.strip().split()
+    if not 1 <= len(words) <= 4:
+        return False
+    if len(term) > 40 or len(term) < 2:
+        return False
+    return bool(re.fullmatch(r"[A-Za-z0-9 .,'-]+", term.strip()))
+
+
+class PersonalDictionary:
+    """Auto-learned hotwords persisted to the state dir.
+
+    Entries map misheard phrases to written forms. Learning is conservative:
+    only short, plain-text substitutions are kept, so junk can never poison
+    future transcripts.
+    """
+
+    def __init__(self, state_dir: str | Path, *, limit: int = 200) -> None:
+        self._file = Path(state_dir) / "personal_dictionary.json"
+        self._limit = max(1, limit)
+
+    def _load(self) -> dict[str, Any]:
+        try:
+            data = json.loads(self._file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _save(self, data: dict[str, Any]) -> None:
+        try:
+            self._file.parent.mkdir(parents=True, exist_ok=True)
+            self._file.write_text(json.dumps(data), encoding="utf-8")
+        except OSError:
+            pass
+
+    def entries(self) -> dict[str, str]:
+        """Learned heard -> written mapping."""
+
+        stored = self._load().get("entries", {})
+        return dict(stored) if isinstance(stored, dict) else {}
+
+    def learn(self, heard: str, written: str) -> bool:
+        """Record one correction; return True when it was kept."""
+
+        heard_key, written_value = heard.strip(), written.strip()
+        if not heard_key or not written_value or heard_key == written_value:
+            return False
+        if not _learnable_term(heard_key) or not _learnable_term(written_value):
+            return False
+        data = self._load()
+        entries = data.get("entries", {})
+        if not isinstance(entries, dict):
+            entries = {}
+        entries[heard_key.lower()] = written_value
+        while len(entries) > self._limit:
+            entries.pop(next(iter(entries)))
+        hits = data.get("hits", {})
+        if not isinstance(hits, dict):
+            hits = {}
+        hits[heard_key.lower()] = int(hits.get(heard_key.lower(), 0)) + 1
+        data["entries"] = entries
+        data["hits"] = hits
+        self._save(data)
+        return True
+
+    def remove(self, heard: str) -> bool:
+        """Forget one learned entry; return True when it existed."""
+
+        data = self._load()
+        entries = data.get("entries", {})
+        if not isinstance(entries, dict) or heard.strip().lower() not in entries:
+            return False
+        del entries[heard.strip().lower()]
+        data["entries"] = entries
+        self._save(data)
+        return True
+
+    def stats(self) -> dict[str, Any]:
+        """Entry count and total confirmed corrections."""
+
+        data = self._load()
+        entries = data.get("entries", {})
+        hits = data.get("hits", {})
+        if not isinstance(entries, dict):
+            entries = {}
+        if not isinstance(hits, dict):
+            hits = {}
+        return {"entries": len(entries), "corrections": sum(int(v) for v in hits.values())}
+
+    def apply(self, text: str) -> tuple[str, list[str]]:
+        """Apply learned entries longest-match-wins."""
+
+        entries = self.entries()
+        applied: list[str] = []
+        for heard in sorted(entries, key=len, reverse=True):
+            pattern = re.compile(r"\b" + re.escape(heard) + r"\b", re.IGNORECASE)
+            text, n = pattern.subn(entries[heard], text)
+            if n:
+                applied.append(f"learned:{heard}->{entries[heard]} x{n}")
+        return text, applied
+
+
+def learn_correction(original: str, corrected: str) -> list[tuple[str, str]]:
+    """Extract single-word substitutions from a user correction.
+
+    Only unambiguous one-word swaps are returned (WhimprFlow-style
+    conservative capture); anything structural is ignored.
+    """
+
+    original_words = original.split()
+    corrected_words = corrected.split()
+    matcher = difflib.SequenceMatcher(None, [w.lower() for w in original_words], [w.lower() for w in corrected_words])
+    learned: list[tuple[str, str]] = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag != "replace" or i2 - i1 != 1 or j2 - j1 != 1:
+            continue
+        heard, written = original_words[i1], corrected_words[j1]
+        if heard != written and _learnable_term(heard) and _learnable_term(written):
+            learned.append((heard, written))
+    return learned
+
+
 @dataclass
 class FormattedTranscript:
     raw: str
     text: str
     rules_applied: list[str] = field(default_factory=list)
     profile: str = "dictation"
+    gated: bool = False
+    gate_reason: str = ""
 
 
-def format_transcript(raw: str, profile: FlowProfile | str = "dictation") -> FormattedTranscript:
+def format_transcript(
+    raw: str,
+    profile: FlowProfile | str = "dictation",
+    dictionary: PersonalDictionary | dict[str, str] | None = None,
+) -> FormattedTranscript:
     """Run the full Wispr-style format pipeline over a raw transcript."""
     prof = PROFILES.get(profile, PROFILES["dictation"]) if isinstance(profile, str) else profile
     text, applied = raw.strip(), []
@@ -177,6 +307,13 @@ def format_transcript(raw: str, profile: FlowProfile | str = "dictation") -> For
     if prof.vocabulary:
         text, rules = apply_vocabulary(text, prof.vocabulary)
         applied.extend(rules)
+    learned = dictionary.entries() if isinstance(dictionary, PersonalDictionary) else dictionary or {}
+    if learned:
+        if isinstance(dictionary, PersonalDictionary):
+            text, rules = dictionary.apply(text)
+        else:
+            text, rules = apply_vocabulary(text, learned)
+        applied.extend(rules)
     if prof.capitalize_first and text:
         text = text[:1].upper() + text[1:]
         applied.append("caps:first")
@@ -185,6 +322,53 @@ def format_transcript(raw: str, profile: FlowProfile | str = "dictation") -> For
         text += "."
         applied.append("punct:final-period")
     return FormattedTranscript(raw=raw, text=text, rules_applied=applied, profile=prof.name)
+
+
+def _word_similarity(raw: str, formatted: str) -> float:
+    """Word-level similarity between raw and formatted transcripts."""
+
+    def _tokens(text: str) -> list[str]:
+        return [word.strip(string.punctuation) for word in text.lower().split() if word.strip(string.punctuation)]
+
+    raw_words = _tokens(raw)
+    formatted_words = _tokens(formatted)
+    if not raw_words and not formatted_words:
+        return 1.0
+    if not raw_words or not formatted_words:
+        return 0.0
+    return difflib.SequenceMatcher(None, raw_words, formatted_words).ratio()
+
+
+def _digit_runs(text: str) -> list[str]:
+    return re.findall(r"\d+", text)
+
+
+def gated_format_transcript(
+    raw: str, profile: FlowProfile | str = "dictation", *, min_similarity: float = 0.6
+) -> FormattedTranscript:
+    """Format with deterministic anti-over-edit gates and raw fallback.
+
+    Whisper transcripts are evidence; formatting must not rewrite them. When
+    the pipeline changes too much or drops digit runs, the raw transcript is
+    returned with ``gated=True`` and the reason recorded.
+    """
+
+    formatted = format_transcript(raw, profile)
+    similarity = _word_similarity(raw, formatted.text)
+    if similarity < min_similarity:
+        formatted.text = raw.strip()
+        formatted.gated = True
+        formatted.gate_reason = f"similarity {similarity:.2f} below minimum {min_similarity:.2f}"
+        return formatted
+    raw_digits = _digit_runs(raw)
+    formatted_digits = _digit_runs(formatted.text)
+    for run in raw_digits:
+        if run not in formatted_digits:
+            formatted.text = raw.strip()
+            formatted.gated = True
+            formatted.gate_reason = f"dropped digit run {run!r}"
+            return formatted
+    return formatted
 
 
 class FlowHistory:
@@ -234,6 +418,7 @@ def transcribe_and_format(
     mime_type: str = "",
     profile: str = "dictation",
     history: FlowHistory | None = None,
+    dictionary: PersonalDictionary | dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Full flow: transcribe -> format -> history. Returns redacted result."""
     result = transcriber.transcribe_base64(audio_base64, mime_type=mime_type)
@@ -245,7 +430,7 @@ def transcribe_and_format(
             "text": "",
             "rules_applied": [],
         }
-    formatted = format_transcript(result["transcript"], profile)
+    formatted = format_transcript(result["transcript"], profile, dictionary)
     if history is not None:
         history.record(formatted, provider=str(result.get("provider", "")))
     return {
@@ -263,10 +448,13 @@ __all__ = [
     "FlowProfile",
     "FormattedTranscript",
     "PROFILES",
+    "PersonalDictionary",
     "apply_inline_formatting",
     "apply_smart_formatting",
     "apply_vocabulary",
     "format_transcript",
+    "gated_format_transcript",
+    "learn_correction",
     "strip_fillers",
     "transcribe_and_format",
 ]
