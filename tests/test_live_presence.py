@@ -51,7 +51,24 @@ class LivePresenceStoreTests(unittest.TestCase):
             self.assertNotIn("sk-secret123456789", serialized)
             self.assertIn("[redacted]", serialized)
 
-    def test_status_summarizes_pending_disclosures_and_active_sessions(self) -> None:
+    def test_transcript_channels_attribute_you_and_them(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-live-presence-") as tmp:
+            store = LivePresenceStore(tmp)
+            created = store.create_session(title="Sales call", session_type="meeting")
+            sid = created["session_id"]
+
+            store.record_transcript(sid, speaker="Alex", content="Our budget is fifty thousand.", channel="you")
+            store.record_transcript(sid, speaker="Pat", content="We can do forty.", channel="them")
+            store.record_transcript(sid, speaker="Ghost", content="Noted.")
+            store.record_transcript(sid, speaker="Alex", content="bogus", channel="sideways")
+
+            buckets = store.transcript_by_channel(sid)
+
+            self.assertEqual([turn["content"] for turn in buckets["you"]], ["Our budget is fifty thousand."])
+            self.assertEqual([turn["content"] for turn in buckets["them"]], ["We can do forty."])
+            self.assertEqual(len(buckets["other"]), 2)
+            self.assertEqual(buckets["you"][0]["diarization"]["channel"], "you")
+            self.assertEqual(store.transcript_by_channel("missing"), {"you": [], "them": [], "other": []})
         with tempfile.TemporaryDirectory(prefix="ghost-live-presence-") as tmp:
             store = LivePresenceStore(tmp)
             pending = store.create_session(
