@@ -20,6 +20,8 @@ from typing import Any
 from urllib import request as urllib_request
 from urllib.error import HTTPError, URLError
 
+from ..safety_layer.redaction import BASE_MARKERS
+
 RemoteObjectiveRunner = Callable[[str], dict[str, Any]]
 RemoteStatusProvider = Callable[[], dict[str, Any]]
 RemoteSendTransport = Callable[[str, dict[str, str], dict[str, Any]], dict[str, Any]]
@@ -27,7 +29,7 @@ RemoteSendTransport = Callable[[str, dict[str, str], dict[str, Any]], dict[str, 
 SAFE_COMMANDS = {"/help", "/status", "/readiness", "/paths", "/jobs", "/channels", "/policy", "/stop"}
 ACTION_COMMANDS = {"/run", "/approve", "/deny", "/direct"}
 DEFAULT_CHANNELS = ("telegram", "discord", "slack", "whatsapp", "signal", "sms", "email", "webhook")
-SECRET_MARKERS = ("token", "secret", "api_key", "apikey", "password", "credential", "authorization", "webhook")
+SECRET_MARKERS = tuple(marker for marker in BASE_MARKERS if marker != "bearer") + ("webhook",)
 REMOTE_SECRET_FIELDS = (
     "bot_token",
     "api_token",
@@ -146,20 +148,14 @@ def _new_pairing_code() -> str:
 
 
 def _redact_value(value: Any) -> Any:
-    if isinstance(value, dict):
-        redacted: dict[str, Any] = {}
-        for key, item in value.items():
-            lowered = str(key).lower()
-            if lowered in {"secret_fields_configured", "raw_secret_values_returned", "webhook_path"}:
-                redacted[str(key)] = _redact_value(item)
-            elif any(marker in lowered for marker in SECRET_MARKERS):
-                redacted[str(key)] = "[redacted]" if item else ""
-            else:
-                redacted[str(key)] = _redact_value(item)
-        return redacted
-    if isinstance(value, list):
-        return [_redact_value(item) for item in value]
-    return value
+    from ..safety_layer.redaction import redact_value
+
+    return redact_value(
+        value,
+        markers=SECRET_MARKERS,
+        redact_strings=False,
+        passthrough_keys=frozenset({"secret_fields_configured", "raw_secret_values_returned", "webhook_path"}),
+    )
 
 
 def _state_path(state_dir: str | Path) -> Path:

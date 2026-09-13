@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..safety_layer.redaction import SECRET_MARKERS as SECRET_MARKERS
+from ..safety_layer.redaction import SECRET_PATTERNS as SECRET_PATTERNS
+from ..safety_layer.redaction import redact_text as _redact_text
+from ..safety_layer.redaction import redact_value as _redact_value
 from ..trust_runtime import TrustRuntimeStore
 
 ConversationRunner = Callable[[str], Any]
@@ -30,12 +33,6 @@ SESSION_MODES = {
     "sleeping",
     "error",
 }
-SECRET_MARKERS = ("token", "secret", "api_key", "apikey", "password", "credential", "authorization", "bearer")
-SECRET_PATTERNS = (
-    re.compile(r"sk-[A-Za-z0-9_\-]{12,}"),
-    re.compile(r"(?:ghp|github_pat|xoxb|xoxp)_[A-Za-z0-9_\-]{12,}"),
-    re.compile(r"Bearer\s+[A-Za-z0-9_\-\.]{12,}", re.IGNORECASE),
-)
 HIGH_IMPACT_TERMS = (
     "delete",
     "remove",
@@ -93,30 +90,6 @@ def _now() -> float:
 def _stable_id(*parts: object, length: int = 16) -> str:
     raw = "|".join(str(part) for part in parts if part is not None)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:length]
-
-
-def _redact_text(text: str) -> str:
-    redacted = text
-    for pattern in SECRET_PATTERNS:
-        redacted = pattern.sub("[redacted]", redacted)
-    return redacted
-
-
-def _redact_value(value: Any) -> Any:
-    if isinstance(value, dict):
-        out: dict[str, Any] = {}
-        for key, item in value.items():
-            lowered = str(key).lower()
-            if any(marker in lowered for marker in SECRET_MARKERS):
-                out[str(key)] = "[redacted]" if item else ""
-            else:
-                out[str(key)] = _redact_value(item)
-        return out
-    if isinstance(value, list):
-        return [_redact_value(item) for item in value]
-    if isinstance(value, str):
-        return _redact_text(value)
-    return value
 
 
 def classify_conversation_intent(message: str) -> dict[str, Any]:

@@ -24,6 +24,15 @@ from .lobster_trap import (  # noqa: F401
 from .material_policy import MaterialRegistry  # noqa: F401
 from .policy_enforcement import PolicyEnforcer  # noqa: F401
 from .production import ProductionGuardrails, production_readiness_report  # noqa: F401
+from .redaction import (  # noqa: F401
+    BASE_MARKERS,
+    POISON_PATTERNS,
+    RISK_ORDER,
+    SECRET_MARKERS,
+    SECRET_PATTERNS,
+    redact_text,
+    redact_value,
+)
 from .security_monitor import (  # noqa: F401
     SecurityEvent,
     SecurityMonitor,

@@ -9,6 +9,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..safety_layer.redaction import BASE_MARKERS
+
 LEARNING_SOURCE_TYPES = {
     "github_repo",
     "docs_url",
@@ -33,7 +35,7 @@ EVOLUTION_STATUSES = {
     "rejected",
 }
 PROMOTABLE_STATUSES = {"reviewed", "approved", "evaluated"}
-SECRET_MARKERS = ("token", "secret", "api_key", "apikey", "password", "credential", "authorization")
+SECRET_MARKERS = tuple(marker for marker in BASE_MARKERS if marker != "bearer")
 
 
 @dataclass
@@ -88,18 +90,9 @@ def _stable_id(*parts: str) -> str:
 
 
 def _redact_value(value: Any) -> Any:
-    if isinstance(value, dict):
-        redacted: dict[str, Any] = {}
-        for key, item in value.items():
-            lowered = str(key).lower()
-            if any(marker in lowered for marker in SECRET_MARKERS):
-                redacted[str(key)] = "[redacted]" if item else ""
-            else:
-                redacted[str(key)] = _redact_value(item)
-        return redacted
-    if isinstance(value, list):
-        return [_redact_value(item) for item in value]
-    return value
+    from ..safety_layer.redaction import redact_value
+
+    return redact_value(value, markers=SECRET_MARKERS, redact_strings=False)
 
 
 def _load_raw_state(state_dir: str | Path) -> dict[str, Any]:
