@@ -1304,6 +1304,12 @@
       <input id="browserFetchUrl" placeholder="https://example.com" style="flex:3;">
       <button id="browserFetch" class="primary">Fetch</button>
     </div>
+    <div class="section-hdr">Free Research Search</div>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="researchQuery" placeholder="local-first speech recognition" style="flex:3;">
+      <button id="researchSearch" class="primary">Search</button>
+    </div>
+    <div id="researchStatus" class="meta" style="margin-bottom:10px;"></div>
     <div class="section-hdr">Agent Browser</div>
     <div class="row" style="margin-bottom:10px;">
       <input id="browserOpenUrl" placeholder="https://example.com" style="flex:3;">
@@ -1417,6 +1423,7 @@
       <button id="conversationOpenBubble" class="primary">Open Ghost chat bubble</button>
     </div>
     <div id="conversationMirror" class="conversation-mirror"></div>
+    <div id="dictationStats" class="meta" style="margin-top:8px;"></div>
   </div>
 
   <script src="/static/app.js"></script>
