@@ -15,16 +15,16 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .safety_layer.redaction import (
+from .redaction import (
     POISON_PATTERNS,
     RISK_ORDER,
     SECRET_PATTERNS,
 )
-from .safety_layer.redaction import SECRET_MARKERS as SECRET_MARKERS
-from .safety_layer.redaction import (
+from .redaction import SECRET_MARKERS as SECRET_MARKERS
+from .redaction import (
     redact_text as _redact_text,
 )
-from .safety_layer.redaction import (
+from .redaction import (
     redact_value as _redact_value,
 )
 

@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..safety_layer.redaction import BASE_MARKERS
+from ..redaction import BASE_MARKERS
 
 LEARNING_SOURCE_TYPES = {
     "github_repo",
@@ -90,7 +90,7 @@ def _stable_id(*parts: str) -> str:
 
 
 def _redact_value(value: Any) -> Any:
-    from ..safety_layer.redaction import redact_value
+    from ..redaction import redact_value
 
     return redact_value(value, markers=SECRET_MARKERS, redact_strings=False)
 

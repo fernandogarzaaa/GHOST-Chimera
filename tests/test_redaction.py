@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from ghostchimera.safety_layer.redaction import (
+from ghostchimera.redaction import (
     BASE_MARKERS,
     POISON_PATTERNS,
     RISK_ORDER,

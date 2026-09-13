@@ -14,10 +14,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .safety_layer.redaction import RISK_ORDER
-from .safety_layer.redaction import SECRET_MARKERS as SECRET_MARKERS
-from .safety_layer.redaction import SECRET_PATTERNS as SECRET_PATTERNS
-from .safety_layer.redaction import redact_value as _redact_value
+from .redaction import RISK_ORDER
+from .redaction import SECRET_MARKERS as SECRET_MARKERS
+from .redaction import SECRET_PATTERNS as SECRET_PATTERNS
+from .redaction import redact_value as _redact_value
 
 ADMISSION_STATUSES = {
     "discovered",

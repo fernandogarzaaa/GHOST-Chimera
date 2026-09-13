@@ -20,7 +20,7 @@ from typing import Any
 from urllib import request as urllib_request
 from urllib.error import HTTPError, URLError
 
-from ..safety_layer.redaction import BASE_MARKERS
+from ..redaction import BASE_MARKERS
 
 RemoteObjectiveRunner = Callable[[str], dict[str, Any]]
 RemoteStatusProvider = Callable[[], dict[str, Any]]
@@ -148,7 +148,7 @@ def _new_pairing_code() -> str:
 
 
 def _redact_value(value: Any) -> Any:
-    from ..safety_layer.redaction import redact_value
+    from ..redaction import redact_value
 
     return redact_value(
         value,

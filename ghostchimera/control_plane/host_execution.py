@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..safety_layer.redaction import BASE_MARKERS
+from ..redaction import BASE_MARKERS
 
 CONFIRMATION_PHRASE = "I ACCEPT HOST EXECUTION RISK"
 SECRET_MARKERS = tuple(marker for marker in BASE_MARKERS if marker != "bearer") + ("confirmation",)
@@ -48,7 +48,7 @@ def _stable_id(*parts: object, length: int = 16) -> str:
 
 
 def _redact_value(value: Any) -> Any:
-    from ..safety_layer.redaction import redact_value
+    from ..redaction import redact_value
 
     return redact_value(value, markers=SECRET_MARKERS, redact_strings=False)
 
