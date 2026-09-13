@@ -9,19 +9,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-SECRET_MARKERS = ("token", "secret", "api_key", "apikey", "password", "credential", "authorization", "bearer")
-SECRET_PATTERNS = (
-    re.compile(r"sk-[A-Za-z0-9_\-]{12,}"),
-    re.compile(r"(?:ghp|github_pat|xoxb|xoxp)_[A-Za-z0-9_\-]{12,}"),
-    re.compile(r"Bearer\s+[A-Za-z0-9_\-\.]{12,}", re.IGNORECASE),
-)
-RISK_ORDER = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+from .redaction import RISK_ORDER
+from .redaction import SECRET_MARKERS as SECRET_MARKERS
+from .redaction import SECRET_PATTERNS as SECRET_PATTERNS
+from .redaction import redact_value as _redact_value
+
 ADMISSION_STATUSES = {
     "discovered",
     "inspected",
@@ -72,30 +69,6 @@ def _now() -> float:
 def _stable_id(*parts: object, length: int = 18) -> str:
     raw = "|".join(str(part).strip().lower() for part in parts if part is not None)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:length]
-
-
-def _redact_text(text: str) -> str:
-    redacted = text
-    for pattern in SECRET_PATTERNS:
-        redacted = pattern.sub("[redacted]", redacted)
-    return redacted
-
-
-def _redact_value(value: Any) -> Any:
-    if isinstance(value, dict):
-        out: dict[str, Any] = {}
-        for key, item in value.items():
-            lowered = str(key).lower()
-            if any(marker in lowered for marker in SECRET_MARKERS):
-                out[str(key)] = "[redacted]" if item else ""
-            else:
-                out[str(key)] = _redact_value(item)
-        return out
-    if isinstance(value, list):
-        return [_redact_value(item) for item in value]
-    if isinstance(value, str):
-        return _redact_text(value)
-    return value
 
 
 def _normalize_risk(risk: str) -> str:

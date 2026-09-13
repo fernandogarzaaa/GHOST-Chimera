@@ -1,5 +1,14 @@
 """Safety layer exports"""
 
+from ..redaction import (  # noqa: F401
+    BASE_MARKERS,
+    POISON_PATTERNS,
+    RISK_ORDER,
+    SECRET_MARKERS,
+    SECRET_PATTERNS,
+    redact_text,
+    redact_value,
+)
 from .approval import (  # noqa: F401
     ApprovalHandler,
     ApprovalPolicy,
