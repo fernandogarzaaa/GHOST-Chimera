@@ -64,7 +64,7 @@ class HandoffTests(unittest.TestCase):
         draft = proposals.propose("prefill", title="draft", now=1000.0)
 
         self.assertIsNone(queue.request_for_proposal(draft, now=1000.0))
-        self.assertTrue(proposals.submit(draft.id, AutonomyLevel.ACT))
+        self.assertTrue(proposals.submit(draft.id, AutonomyLevel.ACT, now=1001.0))
         ask = queue.request_for_proposal(draft, requested_by="ghost", now=1001.0)
 
         self.assertIsNotNone(ask)
@@ -123,9 +123,9 @@ class LoopHandoffTests(unittest.TestCase):
         loop = StealthLoop()
         try:
             draft = loop.proposals.propose("prefill", title="pay invoice", workflow="pay", now=1000.0)
-            self.assertIsNone(loop.submit_proposal(draft.id, AutonomyLevel.OBSERVE))
+            self.assertIsNone(loop.submit_proposal(draft.id, AutonomyLevel.OBSERVE, now=1001.0))
 
-            ask = loop.submit_proposal(draft.id, AutonomyLevel.ACT, requested_by="ghost")
+            ask = loop.submit_proposal(draft.id, AutonomyLevel.ACT, requested_by="ghost", now=1001.0)
 
             self.assertIsNotNone(ask)
             self.assertEqual(ask.source_id, draft.id)

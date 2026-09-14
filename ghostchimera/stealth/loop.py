@@ -652,15 +652,16 @@ class StealthLoop:
         autonomy: AutonomyLevel = AutonomyLevel.OBSERVE,
         *,
         requested_by: str = "",
+        now: float | None = None,
     ) -> ApprovalRequest | None:
         """Submit handoff: submit the proposal, then file its approval ask."""
 
-        if not self.proposals.submit(proposal_id, autonomy):
+        if not self.proposals.submit(proposal_id, autonomy, now=now):
             return None
         proposal = self.proposals.get(proposal_id)
         if proposal is None:
             return None
-        return self.approvals.request_for_proposal(proposal, requested_by=requested_by)
+        return self.approvals.request_for_proposal(proposal, requested_by=requested_by, now=now)
 
     def handle_agent_output(
         self,
