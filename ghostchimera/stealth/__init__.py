@@ -106,6 +106,7 @@ from .standing_context import TRUNCATION_MARKER, StandingContext, StandingSectio
 from .ste import SimplifyResult, simplify, simplify_sentence
 from .stealth_policy import AutonomyLevel, Decision, GhostPolicy, StealthEvaluator
 from .store import StealthStore
+from .triggers import Trigger, TriggerCondition, TriggerEngine, TriggerHit, define_trigger
 from .untrusted import FENCE_CLOSE, FENCE_OPEN, fence_content, fence_mapping, is_fenced
 from .user_model import TraitEvidence, UserModel, UserTrait
 from .workflow_learner import WorkflowHypothesis, WorkflowLearner
@@ -195,6 +196,10 @@ __all__ = [
     "StealthStore",
     "TrajectoryState",
     "TraitEvidence",
+    "Trigger",
+    "TriggerCondition",
+    "TriggerEngine",
+    "TriggerHit",
     "UserModel",
     "UserTrait",
     "WorkflowAutonomyGovernor",
@@ -210,6 +215,7 @@ __all__ = [
     "attach_managed_browser",
     "classify_risk",
     "define_hook",
+    "define_trigger",
     "fence_content",
     "fence_mapping",
     "gate_agent_action",
