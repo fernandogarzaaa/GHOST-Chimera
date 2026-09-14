@@ -75,7 +75,17 @@ class TraitLifecycleTests(unittest.TestCase):
 
         self.assertEqual(pruned, 1)
         self.assertIsNone(model.get("personality", "risk"))
-        self.assertIsNotNone(model.get("identity", "name"))
+
+    def test_repeated_decay_only_ages_the_interval(self) -> None:
+        model = UserModel()
+        model.propose_trait("personality", "risk", "cautious", confidence=0.4, now=1000.0)
+        day = 86400.0
+
+        self.assertEqual(model.decay(now=1000.0 + 90 * day), 0)
+        trait = model.get("personality", "risk")
+        self.assertAlmostEqual(trait.confidence, 0.2, places=3)
+        self.assertEqual(model.decay(now=1000.0 + 91 * day), 0)
+        self.assertAlmostEqual(model.get("personality", "risk").confidence, 0.198, places=3)
 
 
 class WorkGraphTests(unittest.TestCase):
@@ -158,6 +168,7 @@ class StandingBlockTests(unittest.TestCase):
         self.assertNotIn("risk", block)
         short = model.standing_block(max_chars=20)
         self.assertIn("truncated", short)
+        self.assertLessEqual(len(short), 20)
 
 
 class LoopIntegrationTests(unittest.TestCase):

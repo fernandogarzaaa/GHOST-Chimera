@@ -102,6 +102,7 @@ class UserTrait:
         age_days = max(0.0, (now - self.last_observed) / 86400.0)
         if age_days > 0:
             self.confidence *= 0.5 ** (age_days / max(1.0, half_life_days))
+            self.last_observed = now
         return self.confidence < PRUNE_BELOW
 
     def to_dict(self) -> dict[str, Any]:
@@ -341,8 +342,12 @@ class UserModel:
         for trait in self.confirmed_traits("personality"):
             lines.append(f"personality.{trait.key}: {trait.value} (confidence {trait.confidence:.2f})")
         block = "\n".join(lines).strip()
-        if len(block) > max(0, max_chars):
-            block = block[: max(0, max_chars)].rstrip() + "\n[...truncated...]"
+        marker = "\n[...truncated...]"
+        budget = max(0, max_chars)
+        if len(block) > budget:
+            if budget <= len(marker):
+                return block[:budget]
+            block = block[: budget - len(marker)].rstrip() + marker
         return block
 
 
