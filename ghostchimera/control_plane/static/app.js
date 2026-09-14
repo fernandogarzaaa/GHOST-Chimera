@@ -4104,8 +4104,11 @@
     } catch (e) { $("#researchStatus").textContent = ""; }
   }
   $("#researchSearch").addEventListener("click", async function() {
+    var button = $("#researchSearch");
+    if (button.disabled) return;
     var query = $("#researchQuery").value.trim();
     if (!query) return;
+    button.disabled = true;
     $("#browserOutput").textContent = "Searching…";
     try {
       var r = await api("/api/console/research/search", { method: "POST", body: { query: query, max_results: 8 } });
@@ -4114,7 +4117,11 @@
         return (i + 1) + ". " + (item.title || item.url) + "\n   " + item.url + (item.engine ? " [" + item.engine + "]" : "");
       });
       $("#browserOutput").textContent = lines.length ? lines.join("\n") : "No results.";
-    } catch (e) { $("#browserOutput").textContent = "Error: " + e.message; }
+    } catch (e) {
+      $("#browserOutput").textContent = "Error: " + e.message;
+    } finally {
+      button.disabled = false;
+    }
   });
   $("#researchQuery").addEventListener("keydown", function(e) { if (e.key === "Enter") $("#researchSearch").click(); });
   $("#browserOpen").addEventListener("click", async function() {

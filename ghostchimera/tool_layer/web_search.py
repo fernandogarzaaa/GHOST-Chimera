@@ -96,7 +96,10 @@ class SearXNGClient:
                     "title": str(item.get("title", "")),
                     "url": url,
                     "engine": str(item.get("engine", "")),
-                    "content": fence_content(snippet, source=url or "searxng"),
+                    "content": fence_content(
+                        {"url": url, "snippet": snippet},
+                        source="searxng",
+                    ),
                 }
             )
         return results

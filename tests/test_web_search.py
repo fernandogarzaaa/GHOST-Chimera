@@ -3,24 +3,17 @@
 from __future__ import annotations
 
 import json
-import socket
 import threading
 import unittest
+import urllib.error
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest import mock
 
 from ghostchimera.tool_layer.web_search import SearXNGClient
 
 
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-
-
 class FakeSearXNGServer:
     def __init__(self) -> None:
-        self.port = _free_port()
         self.hits: list = []
         hits = self.hits
 
@@ -54,7 +47,8 @@ class FakeSearXNGServer:
             def log_message(self, *args):
                 pass
 
-        self.httpd = HTTPServer(("127.0.0.1", self.port), Handler)
+        self.httpd = HTTPServer(("127.0.0.1", 0), Handler)
+        self.port = int(self.httpd.server_address[1])
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.thread.start()
 
@@ -89,14 +83,18 @@ class SearXNGClientTests(unittest.TestCase):
         self.assertEqual(client.search("   "), [])
 
     def test_unreachable_instance_reports_unavailable(self) -> None:
-        client = SearXNGClient(f"http://127.0.0.1:{_free_port()}", timeout=2.0)
+        client = SearXNGClient("http://127.0.0.1:1", timeout=2.0)
 
-        self.assertFalse(client.available())
-        status = client.status()
+        with mock.patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("unreachable"),
+        ):
+            self.assertFalse(client.available())
+            status = client.status()
 
-        self.assertFalse(status["available"])
-        with self.assertRaises(RuntimeError):
-            client.search("anything")
+            self.assertFalse(status["available"])
+            with self.assertRaises(RuntimeError):
+                client.search("anything")
 
     def test_env_override_selects_base_url(self) -> None:
         with mock.patch.dict("os.environ", {"GHOSTCHIMERA_SEARXNG_URL": "http://search.internal:8080"}):
@@ -151,7 +149,7 @@ class ResearchRouteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ghost-research-") as tmp:
             server = GatewayServer()
             register_console_routes(server, state_dir=tmp)
-            with mock.patch.dict("os.environ", {"GHOSTCHIMERA_SEARXNG_URL": f"http://127.0.0.1:{_free_port()}"}):
+            with mock.patch.dict("os.environ", {"GHOSTCHIMERA_SEARXNG_URL": "http://127.0.0.1:1"}):
                 payload = server.routes.find("GET", "/api/console/research/status").handler(
                     _ctx("GET", "/api/console/research/status")
                 )

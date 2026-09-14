@@ -202,6 +202,26 @@ def _record_entry(history: FlowHistory, text: str, *, at: float, provider: str =
         )
 
 
+def test_flow_stats_skips_bad_timestamps(tmp_path) -> None:
+    import datetime
+    import json as _json
+
+    history = FlowHistory(tmp_path / "voice", limit=50)
+    today = datetime.datetime.now(tz=datetime.UTC).replace(hour=12, minute=0, second=0, microsecond=0).timestamp()
+    _record_entry(history, "good entry here", at=today)
+    path = history._file
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(_json.dumps({"text": "missing at", "provider": "stub"}) + "\n")
+        handle.write(_json.dumps({"at": float("inf"), "text": "infinite at", "provider": "stub"}) + "\n")
+        handle.write(_json.dumps({"at": 1e20, "text": "huge at", "provider": "stub"}) + "\n")
+
+    stats = flow_stats(history)
+
+    assert stats["entries"] == 4
+    assert stats["active_days"] == 1
+    assert "1970-01-01" not in [row["date"] for row in stats["last_7_days"]]
+
+
 def test_flow_stats_counts_words_streak_and_providers(tmp_path) -> None:
     import datetime
 

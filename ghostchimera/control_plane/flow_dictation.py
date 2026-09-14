@@ -21,6 +21,7 @@ from __future__ import annotations
 import datetime
 import difflib
 import json
+import math
 import re
 import string
 import time
@@ -438,8 +439,11 @@ def flow_stats(history: FlowHistory) -> dict[str, Any]:
         provider = str(entry.get("provider", "") or "unknown")
         providers[provider] = providers.get(provider, 0) + 1
         try:
-            day = _entry_day(float(entry.get("at", 0)))
-        except (TypeError, ValueError):
+            timestamp = float(entry["at"])
+            if not math.isfinite(timestamp):
+                raise ValueError("timestamp must be finite")
+            day = _entry_day(timestamp)
+        except (KeyError, TypeError, ValueError, OverflowError, OSError):
             continue
         bucket = days.setdefault(day, {"words": 0, "entries": 0})
         bucket["words"] += len(str(entry.get("text", "")).split())
