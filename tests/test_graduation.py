@@ -20,27 +20,27 @@ class AdvanceTests(unittest.TestCase):
         queue = ProposalQueue()
         proposal = queue.propose(ProposalTier.SUGGEST, title="pay invoice", now=1000.0)
 
-        self.assertTrue(queue.advance(proposal.id, AutonomyLevel.OBSERVE))
+        self.assertTrue(queue.advance(proposal.id, AutonomyLevel.OBSERVE, now=1001.0))
         self.assertEqual(proposal.tier, ProposalTier.PREVIEW)
-        self.assertFalse(queue.advance(proposal.id, AutonomyLevel.OBSERVE))
-        self.assertTrue(queue.advance(proposal.id, AutonomyLevel.PREPARE))
+        self.assertFalse(queue.advance(proposal.id, AutonomyLevel.OBSERVE, now=1001.0))
+        self.assertTrue(queue.advance(proposal.id, AutonomyLevel.PREPARE, now=1001.0))
         self.assertEqual(proposal.tier, ProposalTier.PREFILL)
-        self.assertFalse(queue.advance(proposal.id, AutonomyLevel.PREPARE))
-        self.assertFalse(queue.submit(proposal.id, AutonomyLevel.PREPARE))
-        self.assertTrue(queue.submit(proposal.id, AutonomyLevel.ACT))
+        self.assertFalse(queue.advance(proposal.id, AutonomyLevel.PREPARE, now=1001.0))
+        self.assertFalse(queue.submit(proposal.id, AutonomyLevel.PREPARE, now=1001.0))
+        self.assertTrue(queue.submit(proposal.id, AutonomyLevel.ACT, now=1001.0))
         self.assertEqual(proposal.state, ProposalState.SUBMITTED)
-        self.assertFalse(queue.advance(proposal.id, AutonomyLevel.ACT))
-        self.assertFalse(queue.dismiss(proposal.id))
+        self.assertFalse(queue.advance(proposal.id, AutonomyLevel.ACT, now=1001.0))
+        self.assertFalse(queue.dismiss(proposal.id, now=1001.0))
 
     def test_dismiss_and_unknown_ids(self) -> None:
         queue = ProposalQueue()
         proposal = queue.propose("suggest", title="x", now=1000.0)
 
-        self.assertTrue(queue.dismiss(proposal.id))
+        self.assertTrue(queue.dismiss(proposal.id, now=1001.0))
         self.assertEqual(proposal.state, ProposalState.DISMISSED)
-        self.assertFalse(queue.dismiss(proposal.id))
-        self.assertFalse(queue.advance("missing", AutonomyLevel.ACT))
-        self.assertFalse(queue.submit("missing", AutonomyLevel.ACT))
+        self.assertFalse(queue.dismiss(proposal.id, now=1001.0))
+        self.assertFalse(queue.advance("missing", AutonomyLevel.ACT, now=1001.0))
+        self.assertFalse(queue.submit("missing", AutonomyLevel.ACT, now=1001.0))
 
     def test_unknown_tier_falls_back_to_suggest(self) -> None:
         queue = ProposalQueue()
@@ -58,7 +58,15 @@ class ExpiryTests(unittest.TestCase):
         self.assertEqual(queue.sweep(now=1070.0), 1)
         self.assertEqual(old.state, ProposalState.EXPIRED)
         self.assertEqual(fresh.state, ProposalState.PENDING)
-        self.assertEqual(queue.pending(), [fresh])
+        self.assertEqual(queue.pending(now=1070.0), [fresh])
+
+    def test_advance_refuses_expired_proposals(self) -> None:
+        queue = ProposalQueue()
+        proposal = queue.propose("suggest", title="stale", now=1000.0, ttl_s=60.0)
+
+        self.assertFalse(queue.advance(proposal.id, AutonomyLevel.ACT, now=2000.0))
+        self.assertEqual(proposal.state, ProposalState.EXPIRED)
+        self.assertEqual(queue.pending(now=2000.0), [])
 
 
 class FromHitTests(unittest.TestCase):
@@ -110,7 +118,7 @@ class PersistenceTests(unittest.TestCase):
     def test_round_trip(self) -> None:
         queue = ProposalQueue()
         created = queue.propose("prefill", title="draft", workflow="w", prefill={"a": 1}, now=1000.0)
-        queue.dismiss(created.id)
+        queue.dismiss(created.id, now=1001.0)
         restored = ProposalQueue.from_dict(queue.to_dict())
 
         self.assertEqual(len(restored), 1)
@@ -161,7 +169,7 @@ class LoopIntegrationTests(unittest.TestCase):
             )
 
             self.assertEqual(loop.last_result.decision, plain.last_result.decision)
-            pending = loop.proposals.pending()
+            pending = loop.proposals.pending(now=3001.0)
             self.assertEqual(len(pending), 1)
             self.assertEqual(pending[0].tier, ProposalTier.SUGGEST)
             self.assertEqual(pending[0].workflow, "pay-invoice")

@@ -158,6 +158,32 @@ class ProposalQueue:
         self.max_pending = max(1, max_pending)
         self._proposals: dict[str, Proposal] = {}
 
+    def _settle_expired(self, now: float) -> None:
+        for item in self._proposals.values():
+            if item.expired(now):
+                item.state = ProposalState.EXPIRED
+
+    def _make_room(self) -> bool:
+        if sum(1 for item in self._proposals.values() if not item.terminal()) < self.max_pending:
+            return True
+        oldest = min(
+            (item for item in self._proposals.values() if not item.terminal()),
+            key=lambda item: item.created_at,
+        )
+        if oldest.tier is ProposalTier.SUGGEST:
+            oldest.state = ProposalState.DISMISSED
+            return True
+        return False
+
+    def _live(self, proposal_id: str, now: float) -> Proposal | None:
+        proposal = self._proposals.get(proposal_id)
+        if proposal is None or proposal.terminal():
+            return None
+        if proposal.expired(now):
+            proposal.state = ProposalState.EXPIRED
+            return None
+        return proposal
+
     def propose(
         self,
         tier: ProposalTier | str = ProposalTier.SUGGEST,
@@ -177,15 +203,9 @@ class ProposalQueue:
         except ValueError:
             resolved = ProposalTier.SUGGEST
         moment = now if now is not None else time.time()
-        if sum(1 for item in self._proposals.values() if not item.terminal()) >= self.max_pending:
-            oldest = min(
-                (item for item in self._proposals.values() if not item.terminal()),
-                key=lambda item: item.created_at,
-            )
-            if oldest.tier is ProposalTier.SUGGEST:
-                oldest.state = ProposalState.DISMISSED
-            else:
-                return None
+        self._settle_expired(moment)
+        if not self._make_room():
+            return None
         proposal = Proposal(
             id=new_event_id("prop"),
             tier=resolved,
@@ -205,7 +225,9 @@ class ProposalQueue:
         proposal = proposal_from_hit(hit, now=now)
         if proposal is None:
             return None
-        if sum(1 for item in self._proposals.values() if not item.terminal()) >= self.max_pending:
+        moment = now if now is not None else time.time()
+        self._settle_expired(moment)
+        if not self._make_room():
             return None
         self._proposals[proposal.id] = proposal
         return proposal
@@ -213,17 +235,20 @@ class ProposalQueue:
     def get(self, proposal_id: str) -> Proposal | None:
         return self._proposals.get(proposal_id)
 
-    def pending(self, tier: ProposalTier | None = None) -> list[Proposal]:
+    def pending(self, tier: ProposalTier | None = None, *, now: float | None = None) -> list[Proposal]:
+        self._settle_expired(now if now is not None else time.time())
         items = [item for item in self._proposals.values() if item.state == ProposalState.PENDING]
         if tier is not None:
             items = [item for item in items if item.tier is tier]
         return sorted(items, key=lambda item: item.created_at)
 
-    def advance(self, proposal_id: str, autonomy: AutonomyLevel = AutonomyLevel.OBSERVE) -> bool:
+    def advance(
+        self, proposal_id: str, autonomy: AutonomyLevel = AutonomyLevel.OBSERVE, *, now: float | None = None
+    ) -> bool:
         """Move to the next tier; the final step submits. Gated per tier."""
 
-        proposal = self._proposals.get(proposal_id)
-        if proposal is None or proposal.terminal():
+        proposal = self._live(proposal_id, now if now is not None else time.time())
+        if proposal is None:
             return False
         index = TIER_ORDER.index(proposal.tier)
         if index >= len(TIER_ORDER) - 1:
@@ -235,11 +260,13 @@ class ProposalQueue:
         proposal.min_autonomy = TIER_GATE[nxt]
         return True
 
-    def submit(self, proposal_id: str, autonomy: AutonomyLevel = AutonomyLevel.OBSERVE) -> bool:
+    def submit(
+        self, proposal_id: str, autonomy: AutonomyLevel = AutonomyLevel.OBSERVE, *, now: float | None = None
+    ) -> bool:
         """Hand off to execution/approval; marks submitted, executes nothing."""
 
-        proposal = self._proposals.get(proposal_id)
-        if proposal is None or proposal.terminal():
+        proposal = self._live(proposal_id, now if now is not None else time.time())
+        if proposal is None:
             return False
         if autonomy < AutonomyLevel.ACT or autonomy < proposal.min_autonomy:
             return False
@@ -247,9 +274,9 @@ class ProposalQueue:
         proposal.state = ProposalState.SUBMITTED
         return True
 
-    def dismiss(self, proposal_id: str) -> bool:
-        proposal = self._proposals.get(proposal_id)
-        if proposal is None or proposal.terminal():
+    def dismiss(self, proposal_id: str, *, now: float | None = None) -> bool:
+        proposal = self._live(proposal_id, now if now is not None else time.time())
+        if proposal is None:
             return False
         proposal.state = ProposalState.DISMISSED
         return True
