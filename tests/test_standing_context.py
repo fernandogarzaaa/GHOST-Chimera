@@ -74,6 +74,15 @@ class RenderTests(unittest.TestCase):
         self.assertIn("truncated", short)
         self.assertLessEqual(len(short), 40 + len("\n[...truncated...]") + 1)
 
+    def test_confirmed_work_traits_rendered(self) -> None:
+        model = _populated_model()
+        for step in range(3):
+            model.propose_trait("work", "repo", "ghost-chimera", confidence=0.4, now=1000.0 + step)
+        context = StandingContext()
+        context.refresh(model)
+
+        self.assertIn("repo: ghost-chimera", context.render())
+
     def test_to_dict_snapshot(self) -> None:
         context = StandingContext()
         context.refresh(_populated_model())

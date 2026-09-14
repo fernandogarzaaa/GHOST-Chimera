@@ -106,8 +106,11 @@ class StandingContext:
         projects = _top_targets(relations, "project:")
         work_lines = [f"person: {name.split('person:', 1)[1]}" for name in people[:5]]
         work_lines += [f"project: {name.split('project:', 1)[1]}" for name in projects[:5]]
+        work_lines += sorted(f"{trait.key}: {trait.value}" for trait in user_model.confirmed_traits("work"))
         if work_lines:
-            sections.append(StandingSection(name="work", lines=work_lines, provenance="weighted work graph"))
+            sections.append(
+                StandingSection(name="work", lines=work_lines, provenance="confirmed traits + weighted work graph")
+            )
         personality = [
             f"{trait.key}: {trait.value} (confidence {trait.confidence:.2f})"
             for trait in user_model.confirmed_traits("personality")
@@ -139,7 +142,9 @@ class StandingContext:
         block = "\n".join(lines).strip()
         budget = max(0, max_chars)
         if len(block) > budget:
-            block = block[:budget].rstrip() + TRUNCATION_MARKER
+            if budget <= len(TRUNCATION_MARKER):
+                return block[:budget]
+            block = block[: budget - len(TRUNCATION_MARKER)].rstrip() + TRUNCATION_MARKER
         return block
 
     def to_dict(self) -> dict[str, Any]:
