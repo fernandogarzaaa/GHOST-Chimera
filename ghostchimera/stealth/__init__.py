@@ -131,6 +131,16 @@ from .standing_context import TRUNCATION_MARKER, StandingContext, StandingSectio
 from .ste import SimplifyResult, simplify, simplify_sentence
 from .stealth_policy import AutonomyLevel, Decision, GhostPolicy, StealthEvaluator
 from .store import StealthStore
+from .temporal import (
+    CALENDAR_TYPES,
+    DEFAULT_DURATION_S,
+    END_GRACE_S,
+    CalendarItem,
+    TemporalContext,
+    daypart,
+    is_quiet_hours,
+    item_from_event,
+)
 from .triggers import Trigger, TriggerCondition, TriggerEngine, TriggerHit, define_trigger
 from .untrusted import FENCE_CLOSE, FENCE_OPEN, fence_content, fence_mapping, is_fenced
 from .user_model import TraitEvidence, UserModel, UserTrait
@@ -228,6 +238,8 @@ __all__ = [
     "StealthHookRegistry",
     "StealthLoop",
     "StealthStore",
+    "TemporalContext",
+    "CalendarItem",
     "TrajectoryState",
     "TraitEvidence",
     "Trigger",
@@ -245,7 +257,10 @@ __all__ = [
     "WorldState",
     "DEFAULT_APPROVAL_TTL_S",
     "ATTENTION_BUDGET",
+    "CALENDAR_TYPES",
     "COST_BUDGET",
+    "DEFAULT_DURATION_S",
+    "END_GRACE_S",
     "PROPOSAL_BUDGET",
     "MAX_PENDING",
     "MAX_PENDING_APPROVALS",
@@ -257,6 +272,7 @@ __all__ = [
     "attach_live_backends",
     "attach_managed_browser",
     "classify_risk",
+    "daypart",
     "define_hook",
     "define_trigger",
     "fence_content",
@@ -264,6 +280,8 @@ __all__ = [
     "gate_agent_action",
     "ghost_on",
     "is_fenced",
+    "is_quiet_hours",
+    "item_from_event",
     "live_capability",
     "new_event",
     "parse_agent_output",
