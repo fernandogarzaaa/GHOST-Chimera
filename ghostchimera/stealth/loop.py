@@ -16,6 +16,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
+from .approvals import ApprovalQueue, ApprovalRequest
 from .attention import AttentionEngine, AttentionSignal
 from .computer import (
     ComputerAction,
@@ -50,7 +51,7 @@ from .perception import PerceptionManager
 from .prediction import PredictionEngine
 from .runtime import BackgroundRuntime
 from .standing_context import StandingContext
-from .stealth_policy import Decision, EvaluationSignals, GhostPolicy, StealthEvaluator
+from .stealth_policy import AutonomyLevel, Decision, EvaluationSignals, GhostPolicy, StealthEvaluator
 from .triggers import TriggerEngine, TriggerHit
 from .user_model import UserModel
 from .workflow_learner import WorkflowLearner
@@ -106,6 +107,7 @@ class StealthLoop:
         self.triggers = TriggerEngine()
         self.trigger_hits: list[TriggerHit] = []
         self.proposals = ProposalQueue()
+        self.approvals = ApprovalQueue()
         self.maturity = WorkflowMaturityTracker()
         self.governor = WorkflowAutonomyGovernor(self.maturity)
         self.computer = ComputerUseManager()
@@ -644,6 +646,22 @@ class StealthLoop:
 
         return self.trigger_hits[-max(0, limit) :]
 
+    def submit_proposal(
+        self,
+        proposal_id: str,
+        autonomy: AutonomyLevel = AutonomyLevel.OBSERVE,
+        *,
+        requested_by: str = "",
+    ) -> ApprovalRequest | None:
+        """Submit handoff: submit the proposal, then file its approval ask."""
+
+        if not self.proposals.submit(proposal_id, autonomy):
+            return None
+        proposal = self.proposals.get(proposal_id)
+        if proposal is None:
+            return None
+        return self.approvals.request_for_proposal(proposal, requested_by=requested_by)
+
     def handle_agent_output(
         self,
         text: str,
@@ -683,7 +701,13 @@ class StealthLoop:
 
         if decision == Decision.ASK and executor is None:
             intervention.provenance["needs_approval"] = True
-            return {"ok": True, "decision": "ask", "intervention_id": intervention.id}
+            approval = self.approvals.request_for_intervention(intervention)
+            return {
+                "ok": True,
+                "decision": "ask",
+                "intervention_id": intervention.id,
+                "approval_id": approval.id if approval is not None else "",
+            }
         if decision in (Decision.PREPARE, Decision.ASK):
             intervention.transition(InterventionState.PREPARING)
             intervention.context = {

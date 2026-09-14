@@ -19,6 +19,13 @@ from .agent_prompt import (
     parse_agent_output,
     render_system_prompt,
 )
+from .approvals import (
+    DEFAULT_APPROVAL_TTL_S,
+    MAX_PENDING_APPROVALS,
+    ApprovalQueue,
+    ApprovalRequest,
+    ApprovalState,
+)
 from .attention import AttentionContext, AttentionEngine, AttentionSignal
 from .bpo_store import BpoStore
 from .cdp import CdpBrowser, CdpClient, CdpError
@@ -128,6 +135,9 @@ __all__ = [
     "AgentAction",
     "AgentActionType",
     "AdapterRegistry",
+    "ApprovalQueue",
+    "ApprovalRequest",
+    "ApprovalState",
     "AttentionEngine",
     "AttentionSignal",
     "AttentionContext",
@@ -224,7 +234,9 @@ __all__ = [
     "WorkflowMaturityState",
     "WorkflowMaturityTracker",
     "WorldState",
+    "DEFAULT_APPROVAL_TTL_S",
     "MAX_PENDING",
+    "MAX_PENDING_APPROVALS",
     "TIER_GATE",
     "TIER_ORDER",
     "TIER_TTL_S",
