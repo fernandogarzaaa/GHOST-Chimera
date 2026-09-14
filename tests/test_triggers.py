@@ -60,6 +60,13 @@ class MatchingTests(unittest.TestCase):
         self.assertEqual(engine.evaluate(_event(timestamp=1005.0)), [])
         self.assertEqual(len(engine.evaluate(_event(timestamp=1061.0))), 1)
 
+    def test_first_fire_ignores_cooldown_at_zero_timestamp(self) -> None:
+        engine = TriggerEngine()
+        engine.register(Trigger("slow", event_type="*", cooldown_s=60.0, action={"kind": "note"}))
+
+        self.assertEqual(len(engine.evaluate(_event(timestamp=0.0))), 1)
+        self.assertEqual(engine.evaluate(_event(timestamp=1.0)), [])
+
     def test_disabled_trigger_never_fires(self) -> None:
         engine = TriggerEngine()
         engine.register(Trigger("off", event_type="*", enabled=False))
@@ -158,6 +165,30 @@ class LoopIntegrationTests(unittest.TestCase):
         finally:
             loop.close()
             plain.close()
+
+    def test_loop_evaluates_with_policy_autonomy(self) -> None:
+        from ghostchimera.stealth import StealthLoop
+        from ghostchimera.stealth.stealth_policy import AutonomyLevel, GhostPolicy
+
+        spec = {
+            "name": "prep-watch",
+            "event_type": "email.received",
+            "min_autonomy": "prepare",
+            "action": {"kind": "note"},
+        }
+        strict = StealthLoop(policy=GhostPolicy(autonomy=AutonomyLevel.OBSERVE))
+        acting = StealthLoop(policy=GhostPolicy(autonomy=AutonomyLevel.ACT))
+        try:
+            strict.triggers.define(dict(spec))
+            acting.triggers.define(dict(spec))
+            strict.emit(_event(timestamp=4000.0))
+            acting.emit(_event(timestamp=4000.0))
+
+            self.assertEqual(strict.recent_trigger_hits(), [])
+            self.assertEqual(len(acting.recent_trigger_hits()), 1)
+        finally:
+            strict.close()
+            acting.close()
 
 
 if __name__ == "__main__":

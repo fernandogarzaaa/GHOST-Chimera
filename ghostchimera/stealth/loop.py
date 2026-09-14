@@ -167,7 +167,7 @@ class StealthLoop:
         self.learner.observe(stream, event.event_type)
         self.predictions.observe(event.event_type)
         self.user_model.observe_event(event)
-        self.trigger_hits.extend(self.triggers.evaluate(event))
+        self.trigger_hits.extend(self.triggers.evaluate(event, self.policy.autonomy))
         del self.trigger_hits[: max(0, len(self.trigger_hits) - 100)]
 
         intent_hypotheses = self.intent_engine.update(event, self.graph, self.learner)
@@ -273,7 +273,7 @@ class StealthLoop:
         self.learner.observe(stream, event.event_type)
         self.predictions.observe(event.event_type)
         self.user_model.observe_event(event)
-        self.trigger_hits.extend(self.triggers.evaluate(event))
+        self.trigger_hits.extend(self.triggers.evaluate(event, self.policy.autonomy))
         del self.trigger_hits[: max(0, len(self.trigger_hits) - 100)]
 
         friction = self.friction_detector.observe(event)

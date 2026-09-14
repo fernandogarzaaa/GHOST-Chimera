@@ -102,7 +102,7 @@ class Trigger:
     cooldown_s: float = 0.0
     enabled: bool = True
     action: dict[str, Any] = field(default_factory=dict)
-    last_fired: float = 0.0
+    last_fired: float | None = None
 
     def matches_event(self, event: Event) -> bool:
         if self.event_type in ("", "*"):
@@ -122,6 +122,8 @@ class Trigger:
             return False
         if not all(condition.matches(event) for condition in self.conditions):
             return False
+        if self.last_fired is None:
+            return True
         return (event.timestamp - self.last_fired) >= max(0.0, self.cooldown_s)
 
     def to_dict(self) -> dict[str, Any]:
@@ -148,7 +150,7 @@ class Trigger:
             cooldown_s=max(0.0, float(data.get("cooldown_s", 0.0) or 0.0)),
             enabled=bool(data.get("enabled", True)),
             action=dict(data.get("action", {}) or {}),
-            last_fired=float(data.get("last_fired", 0.0) or 0.0),
+            last_fired=(float(data["last_fired"]) if data.get("last_fired") else None),
         )
 
 
