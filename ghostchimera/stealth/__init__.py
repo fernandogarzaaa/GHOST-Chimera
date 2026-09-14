@@ -28,6 +28,13 @@ from .approvals import (
 )
 from .attention import AttentionContext, AttentionEngine, AttentionSignal
 from .bpo_store import BpoStore
+from .budgets import (
+    ATTENTION_BUDGET,
+    COST_BUDGET,
+    PROPOSAL_BUDGET,
+    Budget,
+    BudgetTracker,
+)
 from .cdp import CdpBrowser, CdpClient, CdpError
 from .computer import (
     ComputerAction,
@@ -143,6 +150,8 @@ __all__ = [
     "AttentionContext",
     "BpoStore",
     "BackendFn",
+    "Budget",
+    "BudgetTracker",
     "CdpBrowser",
     "CdpBrowserExecutor",
     "CdpClient",
@@ -235,6 +244,9 @@ __all__ = [
     "WorkflowMaturityTracker",
     "WorldState",
     "DEFAULT_APPROVAL_TTL_S",
+    "ATTENTION_BUDGET",
+    "COST_BUDGET",
+    "PROPOSAL_BUDGET",
     "MAX_PENDING",
     "MAX_PENDING_APPROVALS",
     "TIER_GATE",
