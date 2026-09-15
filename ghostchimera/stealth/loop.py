@@ -50,6 +50,7 @@ from .prediction import PredictionEngine
 from .runtime import BackgroundRuntime
 from .standing_context import StandingContext
 from .stealth_policy import Decision, EvaluationSignals, GhostPolicy, StealthEvaluator
+from .triggers import TriggerEngine, TriggerHit
 from .user_model import UserModel
 from .workflow_learner import WorkflowLearner
 from .world_state import WorldState
@@ -101,6 +102,8 @@ class StealthLoop:
         self.friction_detector = FrictionDetector()
         self.user_model = UserModel()
         self.standing_context = StandingContext()
+        self.triggers = TriggerEngine()
+        self.trigger_hits: list[TriggerHit] = []
         self.maturity = WorkflowMaturityTracker()
         self.governor = WorkflowAutonomyGovernor(self.maturity)
         self.computer = ComputerUseManager()
@@ -164,6 +167,8 @@ class StealthLoop:
         self.learner.observe(stream, event.event_type)
         self.predictions.observe(event.event_type)
         self.user_model.observe_event(event)
+        self.trigger_hits.extend(self.triggers.evaluate(event, self.policy.autonomy))
+        del self.trigger_hits[: max(0, len(self.trigger_hits) - 100)]
 
         intent_hypotheses = self.intent_engine.update(event, self.graph, self.learner)
         hypothesis = self.learner.match(list(history))
@@ -268,6 +273,8 @@ class StealthLoop:
         self.learner.observe(stream, event.event_type)
         self.predictions.observe(event.event_type)
         self.user_model.observe_event(event)
+        self.trigger_hits.extend(self.triggers.evaluate(event, self.policy.autonomy))
+        del self.trigger_hits[: max(0, len(self.trigger_hits) - 100)]
 
         friction = self.friction_detector.observe(event)
         self.attention.update_friction(friction.score)
@@ -623,6 +630,11 @@ class StealthLoop:
 
         self.standing_context.refresh(self.user_model)
         return self.standing_context.render(host=host, task=task, max_chars=max_chars)
+
+    def recent_trigger_hits(self, limit: int = 10) -> list[TriggerHit]:
+        """Latest declarative trigger hits, newest last."""
+
+        return self.trigger_hits[-max(0, limit) :]
 
     def handle_agent_output(
         self,
