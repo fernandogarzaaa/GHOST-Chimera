@@ -18,6 +18,7 @@ from typing import Any
 
 from .approvals import ApprovalQueue, ApprovalRequest
 from .attention import AttentionEngine, AttentionSignal
+from .budgets import ATTENTION_BUDGET, PROPOSAL_BUDGET, BudgetTracker
 from .computer import (
     ComputerAction,
     ComputerApproval,
@@ -108,6 +109,7 @@ class StealthLoop:
         self.trigger_hits: list[TriggerHit] = []
         self.proposals = ProposalQueue()
         self.approvals = ApprovalQueue()
+        self.budgets = BudgetTracker()
         self.maturity = WorkflowMaturityTracker()
         self.governor = WorkflowAutonomyGovernor(self.maturity)
         self.computer = ComputerUseManager()
@@ -175,7 +177,8 @@ class StealthLoop:
         self.trigger_hits.extend(fired)
         del self.trigger_hits[: max(0, len(self.trigger_hits) - 100)]
         for hit in fired:
-            self.proposals.propose_from_hit(hit, now=event.timestamp)
+            if self.budgets.spend(PROPOSAL_BUDGET, 1.0, now=event.timestamp):
+                self.proposals.propose_from_hit(hit, now=event.timestamp)
 
         intent_hypotheses = self.intent_engine.update(event, self.graph, self.learner)
         hypothesis = self.learner.match(list(history))
@@ -284,7 +287,8 @@ class StealthLoop:
         self.trigger_hits.extend(fired)
         del self.trigger_hits[: max(0, len(self.trigger_hits) - 100)]
         for hit in fired:
-            self.proposals.propose_from_hit(hit, now=event.timestamp)
+            if self.budgets.spend(PROPOSAL_BUDGET, 1.0, now=event.timestamp):
+                self.proposals.propose_from_hit(hit, now=event.timestamp)
 
         friction = self.friction_detector.observe(event)
         self.attention.update_friction(friction.score)
@@ -661,7 +665,10 @@ class StealthLoop:
         proposal = self.proposals.get(proposal_id)
         if proposal is None:
             return None
-        return self.approvals.request_for_proposal(proposal, requested_by=requested_by, now=now)
+        ask = self.approvals.request_for_proposal(proposal, requested_by=requested_by, now=now)
+        if ask is not None:
+            self.budgets.record(ATTENTION_BUDGET, 1.0)
+        return ask
 
     def handle_agent_output(
         self,
@@ -703,6 +710,8 @@ class StealthLoop:
         if decision == Decision.ASK and executor is None:
             intervention.provenance["needs_approval"] = True
             approval = self.approvals.request_for_intervention(intervention)
+            if approval is not None:
+                self.budgets.record(ATTENTION_BUDGET, 1.0)
             return {
                 "ok": True,
                 "decision": "ask",
