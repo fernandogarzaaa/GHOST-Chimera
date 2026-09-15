@@ -43,6 +43,7 @@ from .event_bus import EventBus
 from .events import Event
 from .experience import ExperienceGraph
 from .governance import WorkflowAutonomyGovernor, WorkflowMaturityTracker
+from .graduation import ProposalQueue
 from .intent import FrictionDetector, FrictionState, IntentEngine
 from .intervention import Intervention, InterventionOutcome, InterventionState
 from .perception import PerceptionManager
@@ -104,6 +105,7 @@ class StealthLoop:
         self.standing_context = StandingContext()
         self.triggers = TriggerEngine()
         self.trigger_hits: list[TriggerHit] = []
+        self.proposals = ProposalQueue()
         self.maturity = WorkflowMaturityTracker()
         self.governor = WorkflowAutonomyGovernor(self.maturity)
         self.computer = ComputerUseManager()
@@ -167,8 +169,11 @@ class StealthLoop:
         self.learner.observe(stream, event.event_type)
         self.predictions.observe(event.event_type)
         self.user_model.observe_event(event)
-        self.trigger_hits.extend(self.triggers.evaluate(event, self.policy.autonomy))
+        fired = self.triggers.evaluate(event, self.policy.autonomy)
+        self.trigger_hits.extend(fired)
         del self.trigger_hits[: max(0, len(self.trigger_hits) - 100)]
+        for hit in fired:
+            self.proposals.propose_from_hit(hit, now=event.timestamp)
 
         intent_hypotheses = self.intent_engine.update(event, self.graph, self.learner)
         hypothesis = self.learner.match(list(history))
@@ -273,8 +278,11 @@ class StealthLoop:
         self.learner.observe(stream, event.event_type)
         self.predictions.observe(event.event_type)
         self.user_model.observe_event(event)
-        self.trigger_hits.extend(self.triggers.evaluate(event, self.policy.autonomy))
+        fired = self.triggers.evaluate(event, self.policy.autonomy)
+        self.trigger_hits.extend(fired)
         del self.trigger_hits[: max(0, len(self.trigger_hits) - 100)]
+        for hit in fired:
+            self.proposals.propose_from_hit(hit, now=event.timestamp)
 
         friction = self.friction_detector.observe(event)
         self.attention.update_friction(friction.score)

@@ -75,6 +75,17 @@ from .governance import (
     WorkflowMaturityState,
     WorkflowMaturityTracker,
 )
+from .graduation import (
+    MAX_PENDING,
+    TIER_GATE,
+    TIER_ORDER,
+    TIER_TTL_S,
+    Proposal,
+    ProposalQueue,
+    ProposalState,
+    ProposalTier,
+    proposal_from_hit,
+)
 from .hooks import StealthHook, StealthHookRegistry, define_hook, ghost_on
 from .hosts import (
     AdapterRegistry,
@@ -185,6 +196,10 @@ __all__ = [
     "PredictionEngine",
     "ProjectFinding",
     "ProjectScanReport",
+    "Proposal",
+    "ProposalQueue",
+    "ProposalState",
+    "ProposalTier",
     "SimplifyResult",
     "StandingContext",
     "StandingSection",
@@ -209,6 +224,10 @@ __all__ = [
     "WorkflowMaturityState",
     "WorkflowMaturityTracker",
     "WorldState",
+    "MAX_PENDING",
+    "TIER_GATE",
+    "TIER_ORDER",
+    "TIER_TTL_S",
     "LIVE_OPERATIONS",
     "PyAutoGuiDesktopExecutor",
     "attach_live_backends",
@@ -224,6 +243,7 @@ __all__ = [
     "live_capability",
     "new_event",
     "parse_agent_output",
+    "proposal_from_hit",
     "read_only_consumer",
     "render_system_prompt",
     "scan_project",
