@@ -48,6 +48,7 @@ from .intervention import Intervention, InterventionOutcome, InterventionState
 from .perception import PerceptionManager
 from .prediction import PredictionEngine
 from .runtime import BackgroundRuntime
+from .standing_context import StandingContext
 from .stealth_policy import Decision, EvaluationSignals, GhostPolicy, StealthEvaluator
 from .user_model import UserModel
 from .workflow_learner import WorkflowLearner
@@ -99,6 +100,7 @@ class StealthLoop:
         self.intent_engine = IntentEngine()
         self.friction_detector = FrictionDetector()
         self.user_model = UserModel()
+        self.standing_context = StandingContext()
         self.maturity = WorkflowMaturityTracker()
         self.governor = WorkflowAutonomyGovernor(self.maturity)
         self.computer = ComputerUseManager()
@@ -615,6 +617,12 @@ class StealthLoop:
     @property
     def last_result(self) -> LoopResult | None:
         return getattr(self, "_last", None)
+
+    def get_standing_context(self, *, host: str = "", task: str = "", max_chars: int = 2000) -> str:
+        """Render the current standing context for a host or task."""
+
+        self.standing_context.refresh(self.user_model)
+        return self.standing_context.render(host=host, task=task, max_chars=max_chars)
 
     def handle_agent_output(
         self,

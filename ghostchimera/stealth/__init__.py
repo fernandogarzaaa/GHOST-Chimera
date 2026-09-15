@@ -102,6 +102,7 @@ from .perception import (
 )
 from .prediction import Prediction, PredictionEngine
 from .project_scan import ProjectFinding, ProjectScanReport, scan_project
+from .standing_context import TRUNCATION_MARKER, StandingContext, StandingSection
 from .ste import SimplifyResult, simplify, simplify_sentence
 from .stealth_policy import AutonomyLevel, Decision, GhostPolicy, StealthEvaluator
 from .store import StealthStore
@@ -184,6 +185,9 @@ __all__ = [
     "ProjectFinding",
     "ProjectScanReport",
     "SimplifyResult",
+    "StandingContext",
+    "StandingSection",
+    "TRUNCATION_MARKER",
     "StealthEvaluator",
     "StealthHook",
     "StealthHookRegistry",
