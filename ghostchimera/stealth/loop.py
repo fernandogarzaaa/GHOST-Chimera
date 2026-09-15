@@ -49,6 +49,7 @@ from .perception import PerceptionManager
 from .prediction import PredictionEngine
 from .runtime import BackgroundRuntime
 from .stealth_policy import Decision, EvaluationSignals, GhostPolicy, StealthEvaluator
+from .user_model import UserModel
 from .workflow_learner import WorkflowLearner
 from .world_state import WorldState
 
@@ -97,6 +98,7 @@ class StealthLoop:
         self.perception = PerceptionManager()
         self.intent_engine = IntentEngine()
         self.friction_detector = FrictionDetector()
+        self.user_model = UserModel()
         self.maturity = WorkflowMaturityTracker()
         self.governor = WorkflowAutonomyGovernor(self.maturity)
         self.computer = ComputerUseManager()
@@ -159,6 +161,7 @@ class StealthLoop:
         history.append(event.event_type)
         self.learner.observe(stream, event.event_type)
         self.predictions.observe(event.event_type)
+        self.user_model.observe_event(event)
 
         intent_hypotheses = self.intent_engine.update(event, self.graph, self.learner)
         hypothesis = self.learner.match(list(history))
@@ -262,6 +265,7 @@ class StealthLoop:
         history.append(event.event_type)
         self.learner.observe(stream, event.event_type)
         self.predictions.observe(event.event_type)
+        self.user_model.observe_event(event)
 
         friction = self.friction_detector.observe(event)
         self.attention.update_friction(friction.score)

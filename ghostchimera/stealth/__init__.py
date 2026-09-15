@@ -106,6 +106,7 @@ from .ste import SimplifyResult, simplify, simplify_sentence
 from .stealth_policy import AutonomyLevel, Decision, GhostPolicy, StealthEvaluator
 from .store import StealthStore
 from .untrusted import FENCE_CLOSE, FENCE_OPEN, fence_content, fence_mapping, is_fenced
+from .user_model import TraitEvidence, UserModel, UserTrait
 from .workflow_learner import WorkflowHypothesis, WorkflowLearner
 from .world_state import WorldState
 
@@ -189,6 +190,9 @@ __all__ = [
     "StealthLoop",
     "StealthStore",
     "TrajectoryState",
+    "TraitEvidence",
+    "UserModel",
+    "UserTrait",
     "WorkflowAutonomyGovernor",
     "WorkflowHypothesis",
     "WorkflowLearner",
