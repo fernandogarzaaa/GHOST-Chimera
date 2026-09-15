@@ -10,15 +10,18 @@ Pipeline (all deterministic, offline, no LLM required):
       -> vocabulary corrections (user hotwords, longest-match-wins)
       -> capitalize-first + ensure-punctuation (per-profile toggles)
 
-Plus `FlowHistory` (last-N transcript journal) and `transcribe_and_format`
+Plus `FlowHistory` (last-N transcript journal), `flow_stats` (usage
+statistics derived from the journal), and `transcribe_and_format`
 which runs the whole record -> transcribe -> format -> deliver pipeline
 over LocalVoiceTranscriber without persisting raw audio.
 """
 
 from __future__ import annotations
 
+import datetime
 import difflib
 import json
+import math
 import re
 import string
 import time
@@ -410,6 +413,69 @@ class FlowHistory:
                 continue
         return out
 
+    def all_entries(self) -> list[dict[str, Any]]:
+        """Every journaled entry, oldest first (bounded by the journal limit)."""
+
+        return self.recent(self._limit)
+
+
+def _entry_day(timestamp: float) -> str:
+    return datetime.datetime.fromtimestamp(timestamp, tz=datetime.UTC).date().isoformat()
+
+
+def flow_stats(history: FlowHistory) -> dict[str, Any]:
+    """Usage statistics derived from the dictation journal.
+
+    Words dictated, active days, current streak, per-provider counts, a
+    trailing 7-day activity series, and an estimated typing-minutes-saved
+    figure (words at 40 WPM, clearly an estimate).
+    """
+
+    entries = [entry for entry in history.all_entries() if isinstance(entry, dict)]
+    words = sum(len(str(entry.get("text", "")).split()) for entry in entries)
+    providers: dict[str, int] = {}
+    days: dict[str, dict[str, int]] = {}
+    for entry in entries:
+        provider = str(entry.get("provider", "") or "unknown")
+        providers[provider] = providers.get(provider, 0) + 1
+        try:
+            timestamp = float(entry["at"])
+            if not math.isfinite(timestamp):
+                raise ValueError("timestamp must be finite")
+            day = _entry_day(timestamp)
+        except (KeyError, TypeError, ValueError, OverflowError, OSError):
+            continue
+        bucket = days.setdefault(day, {"words": 0, "entries": 0})
+        bucket["words"] += len(str(entry.get("text", "")).split())
+        bucket["entries"] += 1
+    today = datetime.datetime.now(tz=datetime.UTC).date()
+    last_7_days = [
+        {
+            "date": (today - datetime.timedelta(days=offset)).isoformat(),
+            "words": days.get((today - datetime.timedelta(days=offset)).isoformat(), {}).get("words", 0),
+            "entries": days.get((today - datetime.timedelta(days=offset)).isoformat(), {}).get("entries", 0),
+        }
+        for offset in range(6, -1, -1)
+    ]
+    day_set = set(days)
+    streak = 0
+    cursor = today
+    if cursor.isoformat() not in day_set:
+        cursor -= datetime.timedelta(days=1)
+    while cursor.isoformat() in day_set:
+        streak += 1
+        cursor -= datetime.timedelta(days=1)
+    return {
+        "entries": len(entries),
+        "words": words,
+        "active_days": len(days),
+        "streak_days": streak,
+        "avg_words_per_entry": round(words / len(entries), 1) if entries else 0.0,
+        "providers": providers,
+        "last_7_days": last_7_days,
+        "typing_minutes_saved_estimate": round(words / 40.0, 1),
+    }
+
 
 def transcribe_and_format(
     transcriber: Any,
@@ -452,6 +518,7 @@ __all__ = [
     "apply_inline_formatting",
     "apply_smart_formatting",
     "apply_vocabulary",
+    "flow_stats",
     "format_transcript",
     "gated_format_transcript",
     "learn_correction",

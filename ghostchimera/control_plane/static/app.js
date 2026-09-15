@@ -677,6 +677,15 @@
       toast("Hold-to-talk needs microphone recording support in this browser.", "warn");
       return;
     }
+    try {
+      if (navigator.permissions && navigator.permissions.query) {
+        var mic = await navigator.permissions.query({ name: "microphone" });
+        if (mic && mic.state === "denied") {
+          toast("Microphone is blocked for this site. Allow microphone access in the browser address bar (or Site Settings), then hold to talk again.", "warn", 9000);
+          return;
+        }
+      }
+    } catch (_) {}
     var mime = mediaRecorderMimeType();
     try {
       var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -693,6 +702,20 @@
     } catch (e) {
       toast("Microphone unavailable for dictation.", "error");
     }
+  }
+  async function refreshDictationStats() {
+    try {
+      var data = await api("/api/console/voice/flow/stats");
+      var el = $("#dictationStats");
+      if (!el) return;
+      if (!data || !data.ok || !data.stats || !data.stats.entries) {
+        el.textContent = "No dictations yet — hold the mic button and speak.";
+        return;
+      }
+      var s = data.stats;
+      el.textContent = s.words + " words dictated · " + s.entries + " clips · "
+        + s.streak_days + "-day streak · ~" + s.typing_minutes_saved_estimate + " min saved typing";
+    } catch (_) {}
   }
   async function flowFinish() {
     flowActive = false;
@@ -712,6 +735,7 @@
           input.focus();
         }
         toast("Dictated (" + (data.provider || "local") + "). Review and Send.", "ok");
+        refreshDictationStats();
       } else {
         toast(data.error || "Dictation failed — type instead.", "warn", 7000);
       }
@@ -4070,6 +4094,36 @@
     } catch (e) { $("#browserOutput").textContent = "Error: " + e.message; toast(e.message, "error"); }
   });
   $("#browserFetchUrl").addEventListener("keydown", function(e) { if (e.key === "Enter") $("#browserFetch").click(); });
+  // ── Free research search (local SearXNG, no account) ─────────────────
+  async function refreshResearchStatus() {
+    try {
+      var data = await api("/api/console/research/status");
+      $("#researchStatus").textContent = (data && data.available)
+        ? "Free search ready."
+        : "Free search unavailable — start a local SearXNG instance (or set GHOSTCHIMERA_SEARXNG_URL).";
+    } catch (e) { $("#researchStatus").textContent = ""; }
+  }
+  $("#researchSearch").addEventListener("click", async function() {
+    var button = $("#researchSearch");
+    if (button.disabled) return;
+    var query = $("#researchQuery").value.trim();
+    if (!query) return;
+    button.disabled = true;
+    $("#browserOutput").textContent = "Searching…";
+    try {
+      var r = await api("/api/console/research/search", { method: "POST", body: { query: query, max_results: 8 } });
+      if (!r.ok) { $("#browserOutput").textContent = "Error: " + (r.error || "unknown"); return; }
+      var lines = (r.results || []).map(function(item, i) {
+        return (i + 1) + ". " + (item.title || item.url) + "\n   " + item.url + (item.engine ? " [" + item.engine + "]" : "");
+      });
+      $("#browserOutput").textContent = lines.length ? lines.join("\n") : "No results.";
+    } catch (e) {
+      $("#browserOutput").textContent = "Error: " + e.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+  $("#researchQuery").addEventListener("keydown", function(e) { if (e.key === "Enter") $("#researchSearch").click(); });
   $("#browserOpen").addEventListener("click", async function() {
     var url = $("#browserOpenUrl").value.trim();
     if (!url) return;
@@ -5056,6 +5110,8 @@
     refreshModelDiscovery(false);
     refreshBrowserStatus();
     refreshBrowserDebug();
+    refreshResearchStatus();
+    refreshDictationStats();
     refreshSecurity();
     refreshSkills();
     refreshCapabilities();

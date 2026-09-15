@@ -10,6 +10,7 @@ from ghostchimera.control_plane.flow_dictation import (
     FlowProfile,
     PersonalDictionary,
     apply_smart_formatting,
+    flow_stats,
     format_transcript,
     gated_format_transcript,
     learn_correction,
@@ -185,3 +186,87 @@ def test_dictionary_flows_through_pipeline(tmp_path) -> None:
     assert result["ok"] is True
     assert "CAPEX" in result["text"]
     assert any(rule.startswith("learned:") for rule in result["rules_applied"])
+
+
+def _record_entry(history: FlowHistory, text: str, *, at: float, provider: str = "stub") -> None:
+    import json as _json
+
+    path = history._file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(
+            _json.dumps(
+                {"at": at, "profile": "dictation", "provider": provider, "raw": text, "text": text, "rules": []}
+            )
+            + "\n"
+        )
+
+
+def test_flow_stats_skips_bad_timestamps(tmp_path) -> None:
+    import datetime
+    import json as _json
+
+    history = FlowHistory(tmp_path / "voice", limit=50)
+    today = datetime.datetime.now(tz=datetime.UTC).replace(hour=12, minute=0, second=0, microsecond=0).timestamp()
+    _record_entry(history, "good entry here", at=today)
+    path = history._file
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(_json.dumps({"text": "missing at", "provider": "stub"}) + "\n")
+        handle.write(_json.dumps({"at": float("inf"), "text": "infinite at", "provider": "stub"}) + "\n")
+        handle.write(_json.dumps({"at": 1e20, "text": "huge at", "provider": "stub"}) + "\n")
+
+    stats = flow_stats(history)
+
+    assert stats["entries"] == 4
+    assert stats["active_days"] == 1
+    assert "1970-01-01" not in [row["date"] for row in stats["last_7_days"]]
+
+
+def test_flow_stats_counts_words_streak_and_providers(tmp_path) -> None:
+    import datetime
+
+    history = FlowHistory(tmp_path / "voice", limit=50)
+    now = datetime.datetime.now(tz=datetime.UTC)
+    today = now.replace(hour=12, minute=0, second=0, microsecond=0).timestamp()
+    day = 86400.0
+    _record_entry(history, "hello world foo", at=today - 2 * day, provider="stub")
+    _record_entry(history, "one two three four", at=today - 1 * day, provider="stub")
+    _record_entry(history, "five six", at=today, provider="whisper")
+
+    stats = flow_stats(history)
+
+    assert stats["entries"] == 3
+    assert stats["words"] == 9
+    assert stats["active_days"] == 3
+    assert stats["streak_days"] == 3
+    assert stats["avg_words_per_entry"] == 3.0
+    assert stats["providers"] == {"stub": 2, "whisper": 1}
+    assert stats["typing_minutes_saved_estimate"] == round(9 / 40.0, 1)
+    today_entry = [row for row in stats["last_7_days"] if row["date"] == now.date().isoformat()][0]
+    assert today_entry == {"date": now.date().isoformat(), "words": 2, "entries": 1}
+
+
+def test_flow_stats_empty_journal_and_broken_streak(tmp_path) -> None:
+    import datetime
+
+    history = FlowHistory(tmp_path / "voice", limit=50)
+    stats = flow_stats(history)
+
+    assert stats == {
+        "entries": 0,
+        "words": 0,
+        "active_days": 0,
+        "streak_days": 0,
+        "avg_words_per_entry": 0.0,
+        "providers": {},
+        "last_7_days": stats["last_7_days"],
+        "typing_minutes_saved_estimate": 0.0,
+    }
+    assert len(stats["last_7_days"]) == 7
+
+    now = datetime.datetime.now(tz=datetime.UTC).replace(hour=12, minute=0, second=0, microsecond=0)
+    _record_entry(history, "old news here", at=now.timestamp() - 5 * 86400.0)
+    stats = flow_stats(history)
+
+    assert stats["entries"] == 1
+    assert stats["streak_days"] == 0

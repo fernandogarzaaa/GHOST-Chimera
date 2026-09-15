@@ -1977,6 +1977,38 @@ def register_console_routes(
             limit = 10
         return {"ok": True, "history": FlowHistory(console_state_dir / "local_voice").recent(limit)}
 
+    def conversation_flow_stats(ctx: dict[str, Any]) -> dict[str, Any]:
+        from .flow_dictation import FlowHistory, flow_stats
+
+        del ctx
+        return {"ok": True, "stats": flow_stats(FlowHistory(console_state_dir / "local_voice"))}
+
+    def research_status(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..tool_layer.web_search import SearXNGClient
+
+        del ctx
+        try:
+            return {"ok": True, **SearXNGClient().status()}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def research_search(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..tool_layer.web_search import SearXNGClient
+
+        body = _json_body(ctx)
+        query = str(body.get("query", "") or "").strip()
+        if not query:
+            return {"ok": False, "error": "query is required"}
+        try:
+            limit = max(1, min(20, int(body.get("max_results", 8))))
+        except (TypeError, ValueError):
+            limit = 8
+        try:
+            results = SearXNGClient().search(query, max_results=limit)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "query": query, "results": results}
+
     def live_presence_status(ctx: dict[str, Any]) -> dict[str, Any]:
         return live_presence_store.status()
 
@@ -4778,6 +4810,24 @@ def register_console_routes(
         conversation_flow_history,
         method="POST",
         description="Recent flow dictation transcripts",
+    )
+    _api_register(
+        "/api/console/voice/flow/stats",
+        conversation_flow_stats,
+        method="GET",
+        description="Dictation usage statistics from the local journal",
+    )
+    _api_register(
+        "/api/console/research/status",
+        research_status,
+        method="GET",
+        description="Inspect local SearXNG free-search availability",
+    )
+    _api_register(
+        "/api/console/research/search",
+        research_search,
+        method="POST",
+        description="Free private web search through local SearXNG",
     )
     _api_register(
         "/api/console/live-presence/status",
