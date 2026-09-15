@@ -53,6 +53,7 @@ from .prediction import PredictionEngine
 from .runtime import BackgroundRuntime
 from .standing_context import StandingContext
 from .stealth_policy import AutonomyLevel, Decision, EvaluationSignals, GhostPolicy, StealthEvaluator
+from .temporal import TemporalContext
 from .triggers import TriggerEngine, TriggerHit
 from .user_model import UserModel
 from .workflow_learner import WorkflowLearner
@@ -110,6 +111,7 @@ class StealthLoop:
         self.proposals = ProposalQueue()
         self.approvals = ApprovalQueue()
         self.budgets = BudgetTracker()
+        self.temporal = TemporalContext()
         self.maturity = WorkflowMaturityTracker()
         self.governor = WorkflowAutonomyGovernor(self.maturity)
         self.computer = ComputerUseManager()
@@ -173,6 +175,7 @@ class StealthLoop:
         self.learner.observe(stream, event.event_type)
         self.predictions.observe(event.event_type)
         self.user_model.observe_event(event)
+        self.temporal.observe_event(event)
         fired = self.triggers.evaluate(event, self.policy.autonomy)
         self.trigger_hits.extend(fired)
         del self.trigger_hits[: max(0, len(self.trigger_hits) - 100)]
@@ -283,6 +286,7 @@ class StealthLoop:
         self.learner.observe(stream, event.event_type)
         self.predictions.observe(event.event_type)
         self.user_model.observe_event(event)
+        self.temporal.observe_event(event)
         fired = self.triggers.evaluate(event, self.policy.autonomy)
         self.trigger_hits.extend(fired)
         del self.trigger_hits[: max(0, len(self.trigger_hits) - 100)]
@@ -644,6 +648,11 @@ class StealthLoop:
 
         self.standing_context.refresh(self.user_model)
         return self.standing_context.render(host=host, task=task, max_chars=max_chars)
+
+    def get_temporal_context(self, *, now: float | None = None, max_chars: int = 500) -> str:
+        """Render the current temporal context (framing plus upcoming items)."""
+
+        return self.temporal.render(now=now, max_chars=max_chars)
 
     def recent_trigger_hits(self, limit: int = 10) -> list[TriggerHit]:
         """Latest declarative trigger hits, newest last."""
