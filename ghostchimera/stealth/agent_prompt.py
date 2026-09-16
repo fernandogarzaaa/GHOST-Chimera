@@ -89,10 +89,13 @@ class AgentAction:
 
 def render_system_prompt(*, agent_name: str, integrations: list[str], event_payload: dict[str, Any]) -> str:
     """Fill the template. Values are JSON-rendered where structured."""
-    return (
-        SYSTEM_PROMPT_TEMPLATE.replace("{{HUMAN_AGENT_NAME}}", agent_name)
-        .replace("{{CONNECTED_INTEGRATIONS}}", ", ".join(integrations))
-        .replace("{{INBOUND_EVENT_PAYLOAD}}", json.dumps(event_payload))
+    from .prompt_template import ChatPromptTemplate
+
+    template = ChatPromptTemplate.from_messages([("system", SYSTEM_PROMPT_TEMPLATE)])
+    return template.format_system(
+        HUMAN_AGENT_NAME=agent_name,
+        CONNECTED_INTEGRATIONS=", ".join(integrations),
+        INBOUND_EVENT_PAYLOAD=json.dumps(event_payload),
     )
 
 

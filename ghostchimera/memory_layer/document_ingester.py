@@ -64,6 +64,9 @@ class IngestionSource:
         Arbitrary key/value metadata stored alongside the document.
     chunk_size:
         Maximum character length of each chunk (``0`` means no chunking).
+    chunk_overlap:
+        Characters of trailing context repeated at the start of the next
+        chunk (``0`` disables overlap).
     source_id:
         Optional stable identifier for deduplication.
     """
@@ -73,6 +76,7 @@ class IngestionSource:
     metadata: dict[str, Any] = field(default_factory=dict)
     chunk_size: int = 2000
     source_id: str = ""
+    chunk_overlap: int = 200
 
 
 @dataclass
@@ -175,7 +179,7 @@ class DocumentIngester:
         text = source.content.strip()
         if not text:
             return []
-        return self._split_text(text, source.chunk_size)
+        return self._split_text(text, source.chunk_size, chunk_overlap=source.chunk_overlap)
 
     def _extract_file(self, source: IngestionSource) -> list[tuple[str, dict[str, Any]]]:
         path = Path(source.content.strip()).expanduser()
@@ -184,15 +188,31 @@ class DocumentIngester:
         ext = path.suffix.lower()
         text = path.read_text(encoding="utf-8", errors="replace")
         if ext == ".json":
-            fake = IngestionSource("json", text, source.metadata, source.chunk_size, source_id=str(path))
+            fake = IngestionSource(
+                "json",
+                text,
+                source.metadata,
+                source.chunk_size,
+                source_id=str(path),
+                chunk_overlap=source.chunk_overlap,
+            )
             return self._extract_json(fake)
         if ext == ".csv":
-            fake = IngestionSource("csv", text, source.metadata, source.chunk_size, source_id=str(path))
+            fake = IngestionSource(
+                "csv", text, source.metadata, source.chunk_size, source_id=str(path), chunk_overlap=source.chunk_overlap
+            )
             return self._extract_csv(fake)
         if ext in (".md", ".markdown"):
-            fake = IngestionSource("markdown", text, source.metadata, source.chunk_size, source_id=str(path))
+            fake = IngestionSource(
+                "markdown",
+                text,
+                source.metadata,
+                source.chunk_size,
+                source_id=str(path),
+                chunk_overlap=source.chunk_overlap,
+            )
             return self._extract_markdown(fake)
-        return self._split_text(text, source.chunk_size)
+        return self._split_text(text, source.chunk_size, chunk_overlap=source.chunk_overlap)
 
     def _extract_json(self, source: IngestionSource) -> list[tuple[str, dict[str, Any]]]:
         text = source.content.strip()
@@ -214,12 +234,14 @@ class DocumentIngester:
                             if isinstance(v, str) and k in ("title", "id", "name", "source", "url")
                         }
                     )
-                chunks.extend(self._split_text(item_text, source.chunk_size, extra_meta=meta))
+                chunks.extend(
+                    self._split_text(item_text, source.chunk_size, extra_meta=meta, chunk_overlap=source.chunk_overlap)
+                )
             return chunks
 
         # single object
         rendered = json.dumps(obj, indent=2)
-        return self._split_text(rendered, source.chunk_size)
+        return self._split_text(rendered, source.chunk_size, chunk_overlap=source.chunk_overlap)
 
     def _extract_csv(self, source: IngestionSource) -> list[tuple[str, dict[str, Any]]]:
         reader = csv.DictReader(io.StringIO(source.content))
@@ -237,7 +259,7 @@ class DocumentIngester:
         positions = [(m.start(), m.group(2).strip()) for m in heading_pattern.finditer(source.content)]
 
         if not positions:
-            return self._split_text(source.content, source.chunk_size)
+            return self._split_text(source.content, source.chunk_size, chunk_overlap=source.chunk_overlap)
 
         for i, (pos, heading) in enumerate(positions):
             end = positions[i + 1][0] if i + 1 < len(positions) else len(source.content)
@@ -245,40 +267,37 @@ class DocumentIngester:
             if not section_text:
                 continue
             meta = {"section": heading}
-            chunks.extend(self._split_text(section_text, source.chunk_size, extra_meta=meta))
+            chunks.extend(
+                self._split_text(section_text, source.chunk_size, extra_meta=meta, chunk_overlap=source.chunk_overlap)
+            )
         return chunks
 
     @staticmethod
     def _split_text(
-        text: str, chunk_size: int, extra_meta: dict[str, Any] | None = None
+        text: str,
+        chunk_size: int,
+        extra_meta: dict[str, Any] | None = None,
+        *,
+        chunk_overlap: int = 200,
     ) -> list[tuple[str, dict[str, Any]]]:
-        """Split *text* into chunks of at most *chunk_size* characters.
+        """Split *text* into overlapping chunks of at most *chunk_size* chars.
 
-        Prefers splitting at paragraph boundaries (double newline).
+        Prefers separator boundaries (paragraphs, lines, words) and repeats
+        a trailing overlap window so sentence context survives boundaries.
+        Each chunk's metadata carries its ``chunk`` index, its ``start``
+        offset in the source text, and any ``extra_meta`` (e.g. ``section``).
         """
+        from .text_splitter import RecursiveCharacterSplitter
+
         meta = dict(extra_meta or {})
-        if chunk_size <= 0 or len(text) <= chunk_size:
+        if chunk_size <= 0 or len(text.strip()) <= chunk_size:
             return [(text, meta)] if text.strip() else []
-
-        # Try paragraph splits first
-        paragraphs = [p.strip() for p in re.split(r"\n\n+", text) if p.strip()]
-        chunks: list[tuple[str, dict[str, Any]]] = []
-        current = ""
-        for para in paragraphs:
-            if len(current) + len(para) + 2 <= chunk_size:
-                current = (current + "\n\n" + para).strip()
-            else:
-                if current:
-                    chunks.append((current, {**meta, "chunk": len(chunks)}))
-                # If a single paragraph is larger than chunk_size, hard-split it
-                while len(para) > chunk_size:
-                    chunks.append((para[:chunk_size], {**meta, "chunk": len(chunks)}))
-                    para = para[chunk_size:]
-                current = para
-
-        if current:
-            chunks.append((current, {**meta, "chunk": len(chunks)}))
-        return chunks
+        overlap = min(max(0, chunk_overlap), chunk_size - 1)
+        splitter = RecursiveCharacterSplitter(chunk_size=chunk_size, chunk_overlap=overlap)
+        return [
+            (chunk, {**meta, "chunk": i, "start": start})
+            for i, (chunk, start) in enumerate(splitter.split_with_spans(text))
+        ]
 
 
 __all__ = ["DocumentIngester", "IngestionResult", "IngestionSource"]
