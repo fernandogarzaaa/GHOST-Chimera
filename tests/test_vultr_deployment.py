@@ -119,6 +119,8 @@ def test_streamlit_demo_uses_honest_derived_metrics():
     assert "Demonstration baseline" in app
     assert "View delivery package JSON" in app
     assert "View blueprint JSON" in app
+    assert "Static repository checks" in app
+    assert "Generated from the current demo selections" in app
     assert app.count("help=") >= 4
 
 

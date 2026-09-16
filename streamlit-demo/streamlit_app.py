@@ -332,6 +332,7 @@ python scripts/bob_delivery_package.py
 python -m pytest tests/test_bob_accelerator.py tests/test_bob_delivery_package.py -q""",
         language="bash",
     )
+    st.caption("Static repository checks. These commands do not use the demo selections above.")
 
     st.code(
         f"""ghostchimera path set --profile "{list(PATHS)[0].lower().replace(" ", "-")}" \\
@@ -342,6 +343,7 @@ ghostchimera minimind personal-status
 ghostchimera capabilities --format json""",
         language="bash",
     )
+    st.caption("Generated from the current demo selections. Copy it after choosing a path above.")
 
 st.divider()
 st.info(
