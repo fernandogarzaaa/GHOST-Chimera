@@ -2,6 +2,10 @@
 
 Two doors, one runtime. Pick the one that matches your machine.
 
+> **No terminal?** Grab the Windows Setup exe or macOS DMG from the
+> [latest release](https://github.com/fernandogarzaaa/GHOST-Chimera/releases)
+> and double-click it — details in [DESKTOP_APP.md](DESKTOP_APP.md).
+
 > **npm (`npm install -g ghostchimera`) is paused**: the npmjs account needs
 > 2FA recovery first (npmjs.com → Sign In → account recovery via email).
 > The wrapper in `npm/` is finished and tested — publishing is a single
