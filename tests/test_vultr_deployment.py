@@ -108,6 +108,20 @@ def test_streamlit_demo_shows_ibm_bob_workflow():
     assert "Automated test coverage reporter" in app
 
 
+def test_streamlit_demo_uses_honest_derived_metrics():
+    app = (ROOT / "streamlit-demo" / "streamlit_app.py").read_text(encoding="utf-8")
+
+    assert '"Verified tests", "1216"' not in app
+    assert '"Capabilities", "13/13"' not in app
+    assert '"Provider routes", "28"' not in app
+    assert "len(PATHS)" in app
+    assert "len(BOB_BUILT_TOOLS)" in app
+    assert "Demonstration baseline" in app
+    assert "View delivery package JSON" in app
+    assert "View blueprint JSON" in app
+    assert app.count("help=") >= 4
+
+
 def test_ibm_bob_hackathon_workflow_doc_uses_bob_evidence():
     doc = (ROOT / "docs" / "IBM_BOB_HACKATHON_WORKFLOW.md").read_text(encoding="utf-8")
 

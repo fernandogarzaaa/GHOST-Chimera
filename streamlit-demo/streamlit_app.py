@@ -189,11 +189,25 @@ st.write(
     "and readiness workflows."
 )
 
-metric_cols = st.columns(4)
-metric_cols[0].metric("Ghost paths", "5")
-metric_cols[1].metric("Capabilities", "13/13")
-metric_cols[2].metric("Provider routes", "28")
-metric_cols[3].metric("Verified tests", "1216")
+demo_metrics = (
+    ("Ghost paths", str(len(PATHS))),
+    (
+        "Evaluation suites represented",
+        str(len({suite for path in PATHS.values() for suite in path.evals})),
+    ),
+    (
+        "Bob backlog items",
+        str(sum(len(items) for items in BOB_BACKLOG.values())),
+    ),
+    ("Bob-built tools", str(len(BOB_BUILT_TOOLS))),
+)
+metric_cols = st.columns(len(demo_metrics))
+for column, (label, value) in zip(metric_cols, demo_metrics, strict=True):
+    column.metric(label, value)
+st.caption(
+    "Demonstration baseline: these counts describe the bundled demo fixtures, "
+    "not live repository status. Use CI and release checks for current results."
+)
 
 st.divider()
 
@@ -223,12 +237,23 @@ with tab_bob:
             )
         )
 
-    priority_area = st.selectbox("Choose Bob backlog area", list(BOB_BACKLOG))
+    priority_area = st.selectbox(
+        "Choose Bob backlog area",
+        list(BOB_BACKLOG),
+        help="Select the backlog area used to shape the delivery package shown below.",
+    )
     st.subheader("Bob-Suggested Backlog")
     st.markdown(bullet_list(BOB_BACKLOG[priority_area]))
 
     st.subheader("Bob-to-Ghost Delivery Package")
-    st.json(build_bob_delivery_package(priority_area))
+    selected_package = build_bob_delivery_package(priority_area)
+    st.write(
+        f"For {priority_area}, Ghost Chimera converts "
+        f"{len(selected_package['selected_backlog'])} backlog items into "
+        "implementation objectives, verification gates, and PR-ready evidence."
+    )
+    with st.expander("View delivery package JSON", expanded=False):
+        st.json(selected_package)
 
     st.subheader("Bob-Built Tools")
     for path, description in BOB_BUILT_TOOLS.items():
@@ -244,15 +269,21 @@ with tab_ghost:
 
     with left:
         st.header("Create a Ghost")
-        role = st.selectbox("Choose a Ghost path", list(PATHS))
+        role = st.selectbox(
+            "Choose a Ghost path",
+            list(PATHS),
+            help="Select the demo role used to generate the blueprint below.",
+        )
         training_mode = st.radio(
             "Training mode",
             ("RAG-first", "Dataset generation", "Local fine-tuning handoff"),
+            help="Select the demo training pipeline included in the blueprint.",
         )
         approval_level = st.select_slider(
             "Approval level",
             options=("Assist", "Supervised", "Autonomous"),
             value="Supervised",
+            help="Select the demo approval policy recorded in the blueprint.",
         )
         path = PATHS[role]
 
@@ -273,7 +304,15 @@ with tab_ghost:
 
     st.header("Generated Ghost Blueprint")
     st.caption("This is the contract a real Ghost path emits before a user grants tools, data, or autonomy.")
-    st.json(build_blueprint(path, training_mode, approval_level))
+    blueprint = build_blueprint(path, training_mode, approval_level)
+    st.write(
+        f"This {role} blueprint uses {training_mode.lower()} training with "
+        f"{approval_level.lower()} approval. Admin controls are "
+        f"{'required' if blueprint['admin_controls_required'] else 'not required'} "
+        "for its learning sources."
+    )
+    with st.expander("View blueprint JSON", expanded=False):
+        st.json(blueprint)
 
 with tab_vultr:
     st.header("Vultr Alignment")
