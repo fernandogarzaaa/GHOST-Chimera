@@ -9,6 +9,13 @@ boundary without exposing a real local machine, email account, shell, desktop,
 or private repository. For the IBM Bob Hackathon, it also shows how Bob's
 repository analysis becomes a Bob-to-Ghost delivery package.
 
+## Demo status
+
+Top-level metrics describe the bundled demonstration fixtures, not live
+repository status. Delivery-package and blueprint JSON are collapsed behind
+human-readable summaries. Use CI and release checks for current verification
+results.
+
 ## Run Locally
 
 ```bash
