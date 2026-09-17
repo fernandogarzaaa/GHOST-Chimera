@@ -45,6 +45,64 @@ def _citation_quality(content: str, freshness: float) -> float:
     return round(min(1.0, 0.6 * freshness + 0.4 * length_score), 6)
 
 
+def _content_tokens(content: str) -> frozenset[str]:
+    """Lowercase alphanumeric tokens for dependency-free similarity."""
+    token: list[str] = []
+    tokens: set[str] = set()
+    for char in content.lower():
+        if char.isalnum():
+            token.append(char)
+        elif token:
+            tokens.add("".join(token))
+            token = []
+    if token:
+        tokens.add("".join(token))
+    return frozenset(tokens)
+
+
+def _jaccard(left: frozenset[str], right: frozenset[str]) -> float:
+    """Token Jaccard similarity in [0, 1]; empty pairs score 0."""
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
+
+
+def mmr_select(
+    candidates: list[dict[str, Any]],
+    limit: int,
+    *,
+    mmr_lambda: float = 0.5,
+) -> list[dict[str, Any]]:
+    """Greedy maximal-marginal-relevance selection (LangChain-inspired).
+
+    Balances BM25 relevance (``candidate["score"]``) against novelty
+    (token-Jaccard distance to already-selected content) with no embeddings
+    and no extra dependencies. ``mmr_lambda=1.0`` is pure relevance order;
+    lower values diversify. Input order breaks ties deterministically.
+    """
+    weight = min(1.0, max(0.0, mmr_lambda))
+    remaining = list(candidates)
+    selected: list[dict[str, Any]] = []
+    selected_tokens: list[frozenset[str]] = []
+    while remaining and len(selected) < max(1, limit):
+        best: dict[str, Any] | None = None
+        best_value = float("-inf")
+        for candidate in remaining:
+            relevance = float(candidate.get("score", 0.0))
+            novelty = 0.0
+            if selected_tokens and weight < 1.0:
+                tokens = _content_tokens(str(candidate.get("content", "")))
+                novelty = max(_jaccard(tokens, prior) for prior in selected_tokens)
+            value = weight * relevance - (1.0 - weight) * novelty
+            if best is None or value > best_value:
+                best, best_value = candidate, value
+        assert best is not None
+        remaining.remove(best)
+        selected.append(best)
+        selected_tokens.append(_content_tokens(str(best.get("content", ""))))
+    return selected
+
+
 class MemoryStore:
     """Persist and search local memory documents."""
 
@@ -146,6 +204,8 @@ class MemoryStore:
         limit: int = 5,
         stale_after_days: float | None = None,
         freshness_half_life_days: float = _DEFAULT_FRESHNESS_HALF_LIFE_DAYS,
+        mmr_lambda: float = 1.0,
+        mmr_fetch_k: int = 20,
     ) -> list[dict[str, Any]]:
         """Full-text search against the memory store.
 
@@ -160,11 +220,19 @@ class MemoryStore:
             results.  ``None`` (default) disables age filtering.
         freshness_half_life_days:
             Half-life in days used by the exponential-decay freshness score.
+        mmr_lambda:
+            Maximal-marginal-relevance weight in [0, 1]. ``1.0`` (default)
+            keeps pure BM25 relevance order; lower values diversify results
+            against near-duplicates via token-Jaccard novelty.
+        mmr_fetch_k:
+            Candidate pool size reranked when ``mmr_lambda < 1.0``.
         """
         query = query.strip()
         if not query:
             return []
         limit = max(1, min(int(limit), 25))
+        diversify = mmr_lambda < 1.0
+        fetch_k = max(limit, min(int(mmr_fetch_k), 100)) if diversify else limit
         fts_query = self._to_fts_query(query)
 
         with self._connect() as conn:
@@ -178,7 +246,7 @@ class MemoryStore:
                 ORDER BY rank
                 LIMIT ?
                 """,
-                (fts_query, limit * 4 if stale_after_days is not None else limit),
+                (fts_query, fetch_k * 4 if stale_after_days is not None else fetch_k),
             ).fetchall()
 
         results: list[dict[str, Any]] = []
@@ -210,10 +278,10 @@ class MemoryStore:
                     "created_at": created_at,
                 }
             )
-            if len(results) >= limit:
-                break
 
-        return results
+        if diversify:
+            return mmr_select(results, limit, mmr_lambda=mmr_lambda)
+        return results[:limit]
 
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
