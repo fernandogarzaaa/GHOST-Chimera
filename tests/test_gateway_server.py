@@ -101,6 +101,22 @@ class GatewayServerTests(unittest.TestCase):
         self.assertEqual(status["session_count"], 1)
         self.assertIn("running", status)
 
+    def test_port_zero_keeps_ephemeral_contract(self) -> None:
+        # port=0 means "let the OS pick an ephemeral port" — the auto-port
+        # resolver must not rewrite it. Regression: it used to scan from 0
+        # and raise OSError, breaking run_console(port=0, http_port=0).
+        server = GatewayServer(host="127.0.0.1", port=0, http_port=0)
+        server._resolve_ports()
+        self.assertEqual(server.port, 0)
+        self.assertEqual(server.http_port, 0)
+
+    def test_port_resolution_keeps_concrete_ports_when_free(self) -> None:
+        # Sanity: a concrete, free port is left untouched; HTTP stays WS+1.
+        server = GatewayServer(host="127.0.0.1", port=49351, http_port=None)
+        server._resolve_ports()
+        self.assertEqual(server.port, 49351)
+        self.assertEqual(server.http_port, 49352)
+
 
 class MCPClientTests(unittest.TestCase):
     def test_client_creation(self) -> None:

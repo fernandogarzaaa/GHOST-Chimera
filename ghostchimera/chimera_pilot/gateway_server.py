@@ -512,20 +512,24 @@ class GatewayServer(BackgroundService):
     def _resolve_ports(self) -> None:
         """Auto-select free ports so parallel consoles never overlap.
 
-        The preferred WebSocket port is kept when free; otherwise the next
-        free port is used. The HTTP port defaults to WS+1 and is resolved
-        independently when it was passed explicitly, so multiple console
-        instances can run side by side without manual port bookkeeping.
+        A port of ``0`` keeps its existing meaning — let the OS pick an
+        ephemeral free port — so tests and scripts that request
+        ``port=0, http_port=0`` are unaffected. Concrete ports are moved
+        to the next free port when occupied. The preferred HTTP port
+        defaults to WS+1 and is resolved independently when passed
+        explicitly, so parallel consoles never overlap.
         """
-        resolved_ws = find_free_port(self.host, self.port)
-        if resolved_ws != self.port:
-            logger.info("Gateway WS port %d in use; using %d instead", self.port, resolved_ws)
-        self.port = resolved_ws
-        http_preferred = self.http_port if self._http_port_explicit else self.port + 1
-        resolved_http = find_free_port(self.host, http_preferred, reserved={self.port})
-        if resolved_http != self.http_port:
-            logger.info("Gateway HTTP port %d in use; using %d instead", self.http_port, resolved_http)
-        self.http_port = resolved_http
+        if self.port > 0:
+            resolved_ws = find_free_port(self.host, self.port)
+            if resolved_ws != self.port:
+                logger.info("Gateway WS port %d in use; using %d instead", self.port, resolved_ws)
+            self.port = resolved_ws
+        if self.http_port > 0:
+            http_preferred = self.http_port if self._http_port_explicit else self.port + 1
+            resolved_http = find_free_port(self.host, http_preferred, reserved={self.port})
+            if resolved_http != self.http_port:
+                logger.info("Gateway HTTP port %d in use; using %d instead", self.http_port, resolved_http)
+            self.http_port = resolved_http
 
     def start(self) -> None:
         """Start the WebSocket server and the HTTP route server."""
