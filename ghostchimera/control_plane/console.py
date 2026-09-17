@@ -5605,6 +5605,10 @@ def run_console(
     """
     Start and run a GatewayServer hosting the Ghost Console UI, API routes, and optional static assets.
 
+    When the requested ports are already in use, the gateway automatically
+    selects the next free ports, so parallel console instances never overlap.
+    The printed console URL always reflects the ports actually bound.
+
     Parameters:
         host (str): Hostname or IP address the gateway listens on.
         port (int): TCP port for the gateway's primary (websocket) service.

@@ -14,8 +14,10 @@ import platform
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 APP_NAME = "GhostConsole"
-ENTRY = os.path.join("packaging", "ghost_console_entry.py")
-ASSETS = os.path.join("packaging", "assets")
+# NOTE: spec-relative paths must use SPECPATH — PyInstaller resolves bare
+# relative paths against the spec file's own directory, not the cwd.
+ENTRY = os.path.join(SPECPATH, "ghost_console_entry.py")
+ASSETS = os.path.join(SPECPATH, "assets")
 
 # The skill registries discover modules dynamically (pkgutil + import_module),
 # so every ghostchimera submodule must be collected explicitly.

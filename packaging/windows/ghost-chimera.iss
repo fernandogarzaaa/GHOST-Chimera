@@ -3,7 +3,10 @@
 ;   iscc packaging/windows/ghost-chimera.iss /DAppVersion=0.4.0-beta
 ; Paths below are relative to this file's directory.
 
-#define AppVersion "0.0.0-dev"
+; Allow /DAppVersion=<version> on the ISCC command line to override the default.
+#ifndef AppVersion
+  #define AppVersion "0.0.0-dev"
+#endif
 
 [Setup]
 AppId={{3F2A1B4C-7D9E-4A5F-8C2B-6E1D0F9A3B7C}

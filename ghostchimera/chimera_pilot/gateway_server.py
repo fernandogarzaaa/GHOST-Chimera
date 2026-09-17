@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import socket
 import threading
 import time
 from collections.abc import Callable
@@ -38,6 +39,61 @@ HTTP_PORT = int(os.environ.get("GHOSTCHIMERA_HTTP_PORT", _default_http_port))
 WS_MAX_MESSAGE_BYTES = int(os.environ.get("GHOSTCHIMERA_WS_MAX_MESSAGE", "10_000_000"))
 WS_PING_INTERVAL = float(os.environ.get("GHOSTCHIMERA_WS_PING_INTERVAL", "20.0"))
 WS_CLOSE_GRACE_PERIOD = float(os.environ.get("GHOSTCHIMERA_WS_CLOSE_GRACE", "5.0"))
+
+#: How many consecutive ports to probe when the preferred gateway port is taken.
+PORT_FALLBACK_ATTEMPTS = int(os.environ.get("GHOSTCHIMERA_PORT_FALLBACK_ATTEMPTS", "64"))
+
+
+def _port_is_free(host: str, port: int) -> bool:
+    """Return True when nothing is listening on ``host:port`` right now.
+
+    Two checks, in order: first ``connect_ex`` detects an active listener
+    (reliable on every platform, regardless of socket options); then a plain
+    ``bind`` without ``SO_REUSEADDR`` confirms the port is truly claimable.
+    ``SO_REUSEADDR`` must NOT be set on the probe: on Windows it lets the
+    probe bind succeed even on an occupied port, reporting false "free".
+    """
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.settimeout(0.5)
+        if probe.connect_ex((host, port)) == 0:
+            return False
+    except OSError:
+        return False
+    finally:
+        probe.close()
+    binder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        binder.bind((host, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        binder.close()
+
+
+def find_free_port(
+    host: str,
+    preferred: int,
+    *,
+    max_attempts: int = PORT_FALLBACK_ATTEMPTS,
+    reserved: tuple[int, ...] | frozenset[int] | set[int] = (),
+) -> int:
+    """Return ``preferred`` when free, else the next free port after it.
+
+    Ports listed in ``reserved`` are skipped so the gateway WebSocket and HTTP
+    listeners never collide with each other. Raises :class:`OSError` when no
+    free port is found within ``max_attempts`` probes.
+    """
+    skip = set(reserved)
+    attempts = max(1, int(max_attempts))
+    for offset in range(attempts):
+        candidate = int(preferred) + offset
+        if candidate in skip or candidate > 65535:
+            continue
+        if _port_is_free(host, candidate):
+            return candidate
+    raise OSError(f"No free port found for {host} starting at {preferred} ({attempts} attempts)")
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +325,7 @@ class GatewayServer(BackgroundService):
         self.host = host
         self.port = port
         self.http_port = http_port if http_port is not None else HTTP_PORT
+        self._http_port_explicit = http_port is not None
         self.config = config or GhostChimeraConfig.from_env()
         self._sessions: dict[str, GatewaySession] = {}
         self._lock = threading.RLock()
@@ -452,9 +509,28 @@ class GatewayServer(BackgroundService):
                 ).to_json()
             )
 
+    def _resolve_ports(self) -> None:
+        """Auto-select free ports so parallel consoles never overlap.
+
+        The preferred WebSocket port is kept when free; otherwise the next
+        free port is used. The HTTP port defaults to WS+1 and is resolved
+        independently when it was passed explicitly, so multiple console
+        instances can run side by side without manual port bookkeeping.
+        """
+        resolved_ws = find_free_port(self.host, self.port)
+        if resolved_ws != self.port:
+            logger.info("Gateway WS port %d in use; using %d instead", self.port, resolved_ws)
+        self.port = resolved_ws
+        http_preferred = self.http_port if self._http_port_explicit else self.port + 1
+        resolved_http = find_free_port(self.host, http_preferred, reserved={self.port})
+        if resolved_http != self.http_port:
+            logger.info("Gateway HTTP port %d in use; using %d instead", self.http_port, resolved_http)
+        self.http_port = resolved_http
+
     def start(self) -> None:
         """Start the WebSocket server and the HTTP route server."""
         self._running = True
+        self._resolve_ports()
         import asyncio
 
         async def _start_async():
@@ -649,6 +725,7 @@ __all__ = [
     "HttpRoute",
     "HttpRouteRegistry",
     "get_server",
+    "find_free_port",
     "start_gateway",
     "stop_gateway",
 ]
