@@ -609,7 +609,13 @@ def _default_run_objective(
     state_dir: str | Path | None = None,
     config_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    autonomy = get_autonomy_config(load_config())
+    if config_path:
+        # Make the run honour the console's own config (provider/model/env)
+        # so an isolated state_dir actually isolates the model too, instead
+        # of silently falling back to the global ~/.ghostchimera config.
+        _apply_saved_config_env(config_path, overwrite=True)
+    autonomy_config_file = Path(config_path).expanduser() if config_path else None
+    autonomy = get_autonomy_config(load_config(autonomy_config_file))
     true_autonomy_desktop = _as_bool(autonomy.get("true_autonomy_desktop"), default=False)
     enable_personal_context = _as_bool(autonomy.get("personal_context"), default=True)
     try:
@@ -662,11 +668,18 @@ def _default_run_objective(
             ),
         }
     payload = [execution.to_dict() for execution in executions]
-    return {
+    result: dict[str, Any] = {
         "ok": all(item.get("ok") for item in payload),
         "executions": payload,
         "operator_context": _compact_operator_context(summary),
     }
+    if not result["ok"] and not result.get("error"):
+        # Surface the first real execution error so callers never see a
+        # silent failure. The run API returns this whole dict.
+        first_error = next((str(item.get("error") or "").strip() for item in payload if item.get("error")), "")
+        if first_error:
+            result["error"] = first_error
+    return result
 
 
 def _status_payload(server: GatewayServer) -> dict[str, Any]:
@@ -5627,7 +5640,12 @@ def run_console(
         )
     server = GatewayServer(host=host, port=port, http_port=http_port, config=config)
     _register_static_routes(server)
-    register_console_routes(server, state_dir=state_dir or config.state_dir, console_token=auth_token or "")
+    register_console_routes(
+        server,
+        state_dir=state_dir or config.state_dir,
+        console_token=auth_token or "",
+        config_path=Path(state_dir) / "config.json" if state_dir else None,
+    )
     try:
         from ..connectors.console_routes import register_connector_routes
 
