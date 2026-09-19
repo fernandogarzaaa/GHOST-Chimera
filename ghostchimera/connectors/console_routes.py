@@ -8,11 +8,14 @@ JSON — raw tokens and secret keys never leave these routes.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _body(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -95,7 +98,8 @@ def first_run_status(state_dir: str | Path) -> dict[str, Any]:
         readiness_done = any(
             event.get("event_type") == "readiness_check_run" for event in read_timeline(base, limit=200)
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning("first-run readiness lookup failed: %s", exc)
         readiness_done = False
     steps = [
         {
@@ -382,7 +386,10 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                     )
             except Exception as exc:
                 # Never present "no activity" as fact when the store failed.
-                store_error = f"{type(exc).__name__}: {exc}"[:200]
+                # Keep the detail server-side; the client only learns that
+                # the timeline read failed (no paths, DSNs, or SQL leak).
+                logger.warning("stealth recent-events read failed: %s", exc)
+                store_error = "recent-events-unavailable"
         return {
             "ok": True,
             "events_processed": loop.bus.processed,

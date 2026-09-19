@@ -643,7 +643,7 @@
     var settings = (state.conversation && state.conversation.settings) || {};
     if (!settings.hands_free && !($("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked)) return;
     if (serverVoiceEnabled()) {
-      speakViaServer(String(text).slice(0, 2000)).then(function() {
+      speakViaServerChunks(String(text)).then(function() {
         if ($("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked && !state.voiceRestartBlocked) startConversationListening();
       }).catch(function() {
         speakGhostBrowser(text);
@@ -697,21 +697,15 @@
         return;
       }
       var saved = serverVoiceId();
-      var hadPref = false;
-      try { hadPref = localStorage.getItem(TTS_SERVER_USE_KEY) !== null; } catch (_) {}
       select.innerHTML = "";
       data.voices.forEach(function(voice) {
         select.appendChild(el("option", { value: voice.id }, voice.name + " (" + voice.locale + ")"));
       });
       if (saved) select.value = saved;
       select.disabled = false;
-      // Default to the neural server voice when it works and the user has
-      // never chosen: best quality first, browser voice stays the fallback.
-      var useBox = $("#ghostTtsServerUse");
-      if (!hadPref && useBox && !useBox.checked) {
-        useBox.checked = true;
-        try { localStorage.setItem(TTS_SERVER_USE_KEY, "1"); } catch (_) {}
-      }
+      // Default stays browser voice: the neural server voice sends reply
+      // text to Microsoft's Edge TTS endpoint, so it requires explicit
+      // opt-in via the "Use server voice" checkbox. Never auto-enable.
       select.addEventListener("change", function() {
         try { localStorage.setItem(TTS_SERVER_VOICE_KEY, select.value); } catch (_) {}
       });
@@ -719,6 +713,29 @@
       select.innerHTML = "";
       select.appendChild(el("option", { value: "" }, "Server voice unavailable"));
       select.disabled = true;
+    }
+  }
+  // Chunk long replies on sentence boundaries (≤1900 chars each) so the
+  // server path plays full replies instead of truncating at 2000 chars.
+  async function speakViaServerChunks(text) {
+    var remaining = String(text || "");
+    var pieces = remaining.match(/[^.!?]+[.!?]+["”)]?|\S[^.!?]*$/g) || [remaining];
+    var chunks = [];
+    var current = "";
+    pieces.forEach(function(piece) {
+      var part = String(piece).trim();
+      if (!part) return;
+      if ((current + " " + part).trim().length > 1900 && current) {
+        chunks.push(current.trim());
+        current = part;
+      } else {
+        current = (current ? current + " " : "") + part;
+      }
+    });
+    if (current.trim()) chunks.push(current.trim());
+    if (!chunks.length) chunks.push(remaining.slice(0, 1900));
+    for (var i = 0; i < chunks.length; i++) {
+      await speakViaServer(chunks[i]);
     }
   }
   async function speakViaServer(text) {
@@ -736,7 +753,7 @@
         ttsServerAudio = audio;
         audio.onended = function() { ttsSpeaking = false; ttsServerAudio = null; resolve(); };
         audio.onerror = function() { ttsSpeaking = false; ttsServerAudio = null; reject(new Error("Audio playback failed.")); };
-        audio.play().catch(reject);
+        audio.play().catch(function(e) { ttsSpeaking = false; ttsServerAudio = null; reject(e); });
       } catch (e) { reject(e); }
     });
   }

@@ -491,9 +491,13 @@ class EdgeSpeechProvider(SpeechProvider):
         chosen = (voice or self.voice or self.DEFAULT_VOICE).strip()
         rate = _edge_rate(speed)
         pitch_value = _edge_pitch(pitch)
-        path = Path(tempfile.mkstemp(prefix="ghost-tts-", suffix=".mp3")[1])
+        fd, raw_path = tempfile.mkstemp(prefix="ghost-tts-", suffix=".mp3")
+        os.close(fd)
+        path = Path(raw_path)
         try:
-            asyncio.run(_edge_save(edge_tts, text, chosen, rate, pitch_value, str(path)))
+            # Bound the network call so a hung Edge endpoint cannot stall
+            # the console request thread forever (60 s wall clock).
+            asyncio.run(asyncio.wait_for(_edge_save(edge_tts, text, chosen, rate, pitch_value, str(path)), 60))
             audio = path.read_bytes()
         finally:
             with contextlib.suppress(OSError):

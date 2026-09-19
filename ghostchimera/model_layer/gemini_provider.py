@@ -10,9 +10,9 @@ Set ``GOOGLE_API_KEY`` (from https://ai.google.dev/) and optionally
 ``GEMINI_MODEL`` in the environment, **or** inject an
 :class:`~ghostchimera.model_layer.auth_profiles.AuthProfile`.
 
-Supported models (June 2025)::
+Supported models::
 
-    gemini-2.0-flash-exp    # default — fast, 1 M token context
+    gemini-3.5-flash        # default — fast, 1 M token context
     gemini-1.5-pro          # largest context, vision, long documents
     gemini-1.5-flash        # faster, cheaper, 1 M tokens
     gemini-1.0-pro          # legacy
