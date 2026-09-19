@@ -7,8 +7,10 @@ from pathlib import Path
 
 from ghostchimera.model_layer.model_discovery import (
     DEFAULT_SOURCES,
+    SUPPORTED_SOURCES,
     get_model_discovery,
     normalize_huggingface_models,
+    normalize_modelsdev_models,
     normalize_openrouter_models,
     normalize_vultr_models,
     refresh_model_discovery,
@@ -238,6 +240,73 @@ class ModelDiscoveryTests(unittest.TestCase):
             self.assertTrue(selected["requires_api_key"])
             self.assertFalse(rejected["ok"])
             self.assertIn("candidate", rejected["error"])
+
+
+class ModelsDevDiscoveryTests(unittest.TestCase):
+    def _payload(self) -> dict:
+        return {
+            "anthropic": {
+                "id": "anthropic",
+                "env": ["ANTHROPIC_API_KEY"],
+                "api": "https://api.anthropic.com",
+                "name": "Anthropic",
+                "doc": "https://docs.anthropic.com",
+                "models": {
+                    "claude-sonnet-4-6": {
+                        "id": "claude-sonnet-4-6",
+                        "name": "Claude Sonnet 4.6",
+                        "description": "Coding workhorse.",
+                        "modalities": {"input": ["text", "image"], "output": ["text"]},
+                        "limit": {"context": 1000000, "output": 128000},
+                        "cost": {"input": 3, "output": 15},
+                        "tool_call": True,
+                        "reasoning": False,
+                    }
+                },
+            }
+        }
+
+    def test_source_registered(self) -> None:
+        self.assertIn("modelsdev", SUPPORTED_SOURCES)
+
+    def test_normalizes_modelsdev_models(self) -> None:
+        models = normalize_modelsdev_models(self._payload(), timestamp=7.0)
+        self.assertEqual(len(models), 1)
+        model = models[0]
+        self.assertEqual(model.source, "modelsdev")
+        self.assertEqual(model.provider, "anthropic")
+        self.assertEqual(model.model_id, "claude-sonnet-4-6")
+        self.assertEqual(model.context_length, 1000000)
+        self.assertAlmostEqual(model.pricing["prompt"], 3 / 1_000_000)
+        self.assertAlmostEqual(model.pricing["completion"], 15 / 1_000_000)
+        self.assertIn("text", model.modalities)
+        self.assertIn("tool-call", model.capability_badges)
+        self.assertEqual(model.last_refreshed, 7.0)
+
+    def test_skips_malformed_entries(self) -> None:
+        payload = {"broken": {"models": {"": {"name": "nameless"}}}, "alsobroken": "nope"}
+        self.assertEqual(normalize_modelsdev_models(payload, timestamp=1.0), [])
+
+    def test_refresh_modelsdev_source_with_mock_fetch(self) -> None:
+        payload = self._payload()
+
+        def fake_fetch(url: str, headers: dict, timeout: float):
+            self.assertIn("models.dev", url)
+            self.assertIn("User-Agent", headers)
+            return payload
+
+        with tempfile.TemporaryDirectory(prefix="gc-modelsdev-") as tmp:
+            result = refresh_model_discovery(
+                config={},
+                state_dir=tmp,
+                sources=["modelsdev"],
+                fetch_json=fake_fetch,
+                now=9.0,
+            )
+            models = [m for m in result["models"] if m["source"] == "modelsdev"]
+            self.assertEqual(len(models), 1)
+            self.assertEqual(models[0]["model_id"], "claude-sonnet-4-6")
+            self.assertTrue(result["sources"]["modelsdev"]["ok"])
 
 
 if __name__ == "__main__":

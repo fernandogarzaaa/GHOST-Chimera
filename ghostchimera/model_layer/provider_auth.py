@@ -419,11 +419,24 @@ _SPECS["huggingface"] = ProviderAuthSpec(
     models=["meta-llama/Llama-3.3-70B-Instruct", "Qwen/Qwen2.5-72B-Instruct"],
     api_key_env="HF_TOKEN",
     model_env="HUGGINGFACE_MODEL",
-    default_base_url="https://api-inference.huggingface.co/v1/chat/completions",
+    default_base_url="https://router.huggingface.co/v1/chat/completions",
     api_key_label="Hugging Face token",
     auth_choices=[API_KEY, HUGGINGFACE_DEVICE_OAUTH],
     capability_badges=["open-weight", "model-hub"],
     docs_url="https://huggingface.co/docs/hub/oauth",
+)
+_SPECS["typesafe"] = ProviderAuthSpec(
+    id="typesafe",
+    name="TypeSafe",
+    description="TypeSafe System-One judgment models (Choice/Score/Noul with calibrated confidence). Judgment API, not chat.",
+    models=["jev-latest"],
+    api_key_env="TYPESAFE_API_KEY",
+    model_env="TYPESAFE_MODEL",
+    default_base_url="https://api.typesafe.ai/v1/systemone",
+    api_key_label="TypeSafe API key",
+    auth_choices=[API_KEY],
+    capability_badges=["judgments", "calibrated"],
+    docs_url="https://docs.typesafe.ai",
 )
 _add_openai_compatible(
     "nvidia",
@@ -526,6 +539,7 @@ _PROVIDER_SETUP_URLS: dict[str, str] = {
     "qwen": "https://bailian.console.aliyun.com/?tab=model#/api-key",
     "stepfun": "https://platform.stepfun.com/account/api-key",
     "together": "https://api.together.ai/settings/api-keys",
+    "typesafe": "https://typesafe.ai",
     "venice": "https://venice.ai/settings/api",
     "volcengine": "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey",
     "vultr": "https://my.vultr.com/settings/#settingsapi",

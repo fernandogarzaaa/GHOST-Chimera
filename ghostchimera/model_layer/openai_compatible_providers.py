@@ -602,7 +602,7 @@ class HuggingFaceProvider(OpenAICompatibleProvider):
     """
 
     name = "huggingface"
-    _DEFAULT_BASE_URL = "https://api-inference.huggingface.co/v1/chat/completions"
+    _DEFAULT_BASE_URL = "https://router.huggingface.co/v1/chat/completions"
     _DEFAULT_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
     _KEY_ENV_VAR = "HF_TOKEN"
     _MODEL_ENV_VAR = "HUGGINGFACE_MODEL"
