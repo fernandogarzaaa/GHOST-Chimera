@@ -56,6 +56,7 @@ voice = [
   "pocketsphinx>=5.0",
   "vosk>=0.3.45",
   "av>=10.0",
+  "edge-tts>=6.0",
 ]
 all = [
   "certifi>=2024.2.2",
@@ -77,6 +78,7 @@ all = [
   "pocketsphinx>=5.0",
   "vosk>=0.3.45",
   "av>=10.0",
+  "edge-tts>=6.0",
 ]
 dev = [
   "build>=1.2",

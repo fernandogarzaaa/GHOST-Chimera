@@ -71,7 +71,7 @@ class GeminiProvider:
 
     name = "gemini"
     _API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
-    _DEFAULT_MODEL = "gemini-2.0-flash-exp"
+    _DEFAULT_MODEL = "gemini-3.5-flash"
     _DEFAULT_MAX_OUTPUT_TOKENS = 2048
 
     def __init__(self, profile: AuthProfile | None = None) -> None:

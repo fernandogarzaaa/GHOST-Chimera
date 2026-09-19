@@ -88,6 +88,15 @@ def first_run_status(state_dir: str | Path) -> dict[str, Any]:
     model_configured = bool(provider) and any(os.environ.get(k) for k in key_envs)
     native = oauth_status(base)
     integrations_connected = sum(1 for s in native.values() if s.get("connected"))
+    readiness_done = False
+    try:
+        from ..control_plane.evolution import read_timeline
+
+        readiness_done = any(
+            event.get("event_type") == "readiness_check_run" for event in read_timeline(base, limit=200)
+        )
+    except Exception:
+        readiness_done = False
     steps = [
         {
             "id": "model",
@@ -100,7 +109,7 @@ def first_run_status(state_dir: str | Path) -> dict[str, Any]:
             "id": "readiness",
             "title": "Run the readiness check",
             "detail": "Operator Workbench → Run Readiness Check.",
-            "done": False,
+            "done": readiness_done,
             "tab": "operator",
         },
         {
@@ -358,6 +367,7 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 }
             )
         recent = []
+        store_error = ""
         if loop.store is not None:
             try:
                 for event in loop.store.recent_events(limit=25):
@@ -370,12 +380,14 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                             "timestamp": event["timestamp"],
                         }
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                # Never present "no activity" as fact when the store failed.
+                store_error = f"{type(exc).__name__}: {exc}"[:200]
         return {
             "ok": True,
             "events_processed": loop.bus.processed,
             "recent_events": recent,
+            "recent_events_error": store_error,
             "interventions": interventions,
             "workflows": [h.to_dict() for h in loop.learner.hypotheses()[:8]],
             "autonomy": loop.policy.autonomy.name,

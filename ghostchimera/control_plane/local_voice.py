@@ -10,6 +10,7 @@ persisting raw audio.
 from __future__ import annotations
 
 import base64
+import contextlib
 import importlib.util
 import json
 import os
@@ -332,7 +333,30 @@ class LocalVoiceTranscriber:
         with self._model_lock:
             model = self._whisper_model
         segments, _info = model.transcribe(str(audio_path), beam_size=1)
-        return " ".join(segment.text.strip() for segment in segments if segment.text.strip())
+        texts: list[str] = []
+        no_speech: list[float] = []
+        voiced_seconds = 0.0
+        for segment in segments:
+            text = str(getattr(segment, "text", "") or "").strip()
+            if text:
+                texts.append(text)
+            with contextlib.suppress(TypeError, ValueError):
+                no_speech.append(float(getattr(segment, "no_speech_prob", 0.0) or 0.0))
+            with contextlib.suppress(TypeError, ValueError, AttributeError):
+                voiced_seconds += max(0.0, float(segment.end) - float(segment.start))
+        transcript = " ".join(texts)
+        if transcript:
+            return transcript
+        # Empty transcript is ambiguous: distinguish silence from failure so
+        # the UI can tell the user to check the mic instead of retrying blindly.
+        if no_speech and sum(no_speech) / len(no_speech) >= 0.6:
+            raise RuntimeError(
+                "no speech detected in the recording — check the microphone level, "
+                "allow microphone access, and hold the talk button while speaking"
+            )
+        if voiced_seconds < 0.5:
+            raise RuntimeError("recording too short to transcribe — hold the talk button longer")
+        return ""
 
     def _transcribe_vosk(self, audio_path: Path) -> str:
         model_path = _env_path("GHOSTCHIMERA_VOSK_MODEL_PATH")
