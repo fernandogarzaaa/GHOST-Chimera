@@ -101,6 +101,22 @@ class GatewayServerTests(unittest.TestCase):
         self.assertEqual(status["session_count"], 1)
         self.assertIn("running", status)
 
+    def test_port_zero_keeps_ephemeral_contract(self) -> None:
+        # port=0 means "let the OS pick an ephemeral port" — the auto-port
+        # resolver must not rewrite it. Regression: it used to scan from 0
+        # and raise OSError, breaking run_console(port=0, http_port=0).
+        server = GatewayServer(host="127.0.0.1", port=0, http_port=0)
+        server._resolve_ports()
+        self.assertEqual(server.port, 0)
+        self.assertEqual(server.http_port, 0)
+
+    def test_port_resolution_keeps_concrete_ports_when_free(self) -> None:
+        # Sanity: a concrete, free port is left untouched; HTTP stays WS+1.
+        server = GatewayServer(host="127.0.0.1", port=49351, http_port=None)
+        server._resolve_ports()
+        self.assertEqual(server.port, 49351)
+        self.assertEqual(server.http_port, 49352)
+
 
 class MCPClientTests(unittest.TestCase):
     def test_client_creation(self) -> None:
@@ -187,6 +203,41 @@ class ModuleConvenienceTests(unittest.TestCase):
     def test_disconnect_mcp_servers(self) -> None:
         # Should not raise even with no servers connected
         disconnect_mcp_servers()
+
+
+class GatewayCoordinatedBindTests(unittest.TestCase):
+    def test_env_http_port_is_explicit(self) -> None:
+        import os
+        from unittest import mock
+
+        with mock.patch.dict(os.environ, {"GHOSTCHIMERA_HTTP_PORT": "49451"}, clear=False):
+            server = GatewayServer(host="127.0.0.1", port=49452)
+        self.assertEqual(server.http_port, 49451)
+        self.assertTrue(server._http_port_explicit)
+        server._resolve_ports()
+        self.assertEqual(server.http_port, 49451)
+
+    def test_ephemeral_ws_keeps_ephemeral_http(self) -> None:
+        server = GatewayServer(host="127.0.0.1", port=0)
+        server._http_port_explicit = False
+        server._resolve_ports()
+        self.assertEqual(server.port, 0)
+        self.assertEqual(server.http_port, 0)
+
+    def test_start_raises_when_no_pair_bindable(self) -> None:
+        import socket
+        from unittest import mock
+
+        holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        holder.bind(("127.0.0.1", 49461))
+        holder.listen(1)
+        self.addCleanup(holder.close)
+        # Force every resolution onto the occupied port: binds must fail.
+        with mock.patch("ghostchimera.chimera_pilot.gateway_server.find_free_port", return_value=49461):
+            server = GatewayServer(host="127.0.0.1", port=49461, http_port=49462)
+            with self.assertRaises(OSError):
+                server.start()
+            self.assertIsNone(server._http_server)
 
 
 if __name__ == "__main__":
