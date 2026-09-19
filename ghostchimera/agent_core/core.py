@@ -143,7 +143,10 @@ class AgentCore:
             executions = self.pilot_kernel.run(request)
         except PermissionError as exc:
             return (f"Policy denied by Chimera Pilot: {exc}", None)
-        except RuntimeError:
+        except RuntimeError as exc:
+            # Log instead of swallowing: the None result still triggers the
+            # planner fallback below, but the cause is now diagnosable.
+            self.logger.warning("Chimera Pilot failed, falling back to planner: %s", exc)
             return (None, None)
 
         if not executions:

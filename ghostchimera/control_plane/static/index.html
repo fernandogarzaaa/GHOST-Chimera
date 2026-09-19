@@ -109,6 +109,11 @@
       <input id="conversationTtsRate" type="range" min="70" max="130" value="100" style="flex:1;" title="Playback speed %">
       <button id="conversationTtsTest" title="Preview Ghost voice">Test voice</button>
     </div>
+    <div class="conversation-input-row">
+      <label class="hint" for="ghostTtsServerVoice" style="font-size:11px;">Server voice</label>
+      <select id="ghostTtsServerVoice" title="Neural server voice (Edge TTS, no API key)" style="flex:1;"></select>
+      <label class="inline-check" title="Opt in: sends Ghost reply text to Microsoft Edge TTS over the network. Off by default; the browser voice stays local."><input id="ghostTtsServerUse" type="checkbox"> Use server voice (sends text to Edge TTS)</label>
+    </div>
     <div class="conversation-actions">
       <button id="conversationStartListening" class="primary">Start Listening</button>
       <button id="conversationMute">Mute</button>

@@ -30,7 +30,7 @@ class TestGeminiProviderInit(unittest.TestCase):
         with patch.dict(os.environ, {"GOOGLE_API_KEY": "x"}, clear=False):
             os.environ.pop("GEMINI_MODEL", None)
             p = GeminiProvider()
-        self.assertEqual(p.model, "gemini-2.0-flash-exp")
+        self.assertEqual(p.model, "gemini-3.5-flash")
 
     def test_custom_model(self):
         from ghostchimera.model_layer.gemini_provider import GeminiProvider
@@ -271,7 +271,7 @@ class TestGeminiModelCatalog(unittest.TestCase):
     def test_flash_has_million_context(self):
         from ghostchimera.model_layer.model_catalog import get_catalog_entry
 
-        entry = get_catalog_entry("gemini", "gemini-2.0-flash-exp")
+        entry = get_catalog_entry("gemini", "gemini-3.5-flash")
         self.assertIsNotNone(entry)
         self.assertGreaterEqual(entry.context_window_tokens, 1_000_000)
 

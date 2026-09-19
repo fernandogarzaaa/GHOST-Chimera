@@ -201,7 +201,13 @@ def license_warning(license_id: str) -> str:
 
 
 def _candidate_roots(roots: list[str | Path] | None) -> list[Path]:
-    raw = roots or [Path.cwd() / "models", Path.home() / ".cache" / "ghostchimera" / "models", Path("D:/models")]
+    import sys
+
+    defaults = [Path.cwd() / "models", Path.home() / ".cache" / "ghostchimera" / "models"]
+    if sys.platform.startswith("win"):
+        # Windows-only convenience root; never probed on other platforms.
+        defaults.append(Path("D:/models"))
+    raw = roots or defaults
     deduped: list[Path] = []
     seen: set[str] = set()
     for root in raw:

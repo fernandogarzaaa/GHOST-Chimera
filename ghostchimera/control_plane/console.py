@@ -809,6 +809,17 @@ def _security_audit_handler(ctx: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _prune_tts_cache(cache_dir: Path, *, keep: int = 50) -> None:
+    """Keep the TTS response cache bounded (newest *keep* files survive)."""
+    try:
+        files = sorted(cache_dir.glob("*.mp3"), key=lambda p: p.stat().st_mtime)
+    except OSError:
+        return
+    for stale in files[: max(0, len(files) - keep)]:
+        with contextlib.suppress(OSError):
+            stale.unlink()
+
+
 def register_console_routes(
     server: GatewayServer,
     *,
@@ -1966,6 +1977,74 @@ def register_console_routes(
             filename=str(body.get("filename") or ""),
             provider=str(body.get("provider") or "auto"),
         )
+
+    def voice_tts_voices(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..model_layer.media_providers import EdgeSpeechProvider
+
+        try:
+            voices = EdgeSpeechProvider.list_voices()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)[:300]}
+        return {"ok": True, "provider": EdgeSpeechProvider.name, "count": len(voices), "voices": voices[:120]}
+
+    def voice_tts_speak(ctx: dict[str, Any]) -> dict[str, Any]:
+        import base64
+        import hashlib
+
+        from ..model_layer.media_providers import EdgeSpeechProvider
+
+        body = _json_body(ctx)
+        text = str(body.get("text") or "").strip()
+        if not text:
+            return {"ok": False, "error": "Provide text to speak."}
+        if len(text) > 2000:
+            return {"ok": False, "error": "Text is too long (max 2000 chars)."}
+        voice = str(body.get("voice") or "").strip()[:120]
+        pitch = str(body.get("pitch") or "+0Hz").strip()[:16]
+        try:
+            rate = float(body.get("speed", 1.0))
+        except (TypeError, ValueError):
+            rate = 1.0
+        provider = EdgeSpeechProvider()
+        if not provider.available:
+            return {"ok": False, "error": "; ".join(provider.validate_config()) or "Edge TTS unavailable."}
+        # Disk cache: identical voice/rate/pitch/text replays instantly.
+        cache_dir = console_state_dir / "tts-cache"
+        cache_key = hashlib.sha256(f"{voice}|{rate}|{pitch}|{text}".encode()).hexdigest()
+        cache_path = cache_dir / f"{cache_key}.mp3"
+        try:
+            if cache_path.is_file() and cache_path.stat().st_size > 0:
+                audio = cache_path.read_bytes()
+                return {
+                    "ok": True,
+                    "provider": provider.name,
+                    "voice": voice or provider.voice,
+                    "mime_type": "audio/mpeg",
+                    "audio_base64": base64.b64encode(audio).decode("ascii"),
+                    "cached": True,
+                }
+        except OSError:
+            pass
+        try:
+            result = provider.synthesize(text, voice=voice, speed=rate, pitch=pitch)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)[:300]}
+        if not result.ok:
+            return {"ok": False, "error": "Synthesis produced no audio."}
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_path.write_bytes(result.audio_data)
+            _prune_tts_cache(cache_dir, keep=50)
+        except OSError:
+            pass
+        return {
+            "ok": True,
+            "provider": provider.name,
+            "voice": voice or provider.voice,
+            "mime_type": result.mime_type,
+            "audio_base64": base64.b64encode(result.audio_data).decode("ascii"),
+            "cached": False,
+        }
 
     def conversation_flow_dictate(ctx: dict[str, Any]) -> dict[str, Any]:
         """Wispr-style flow: transcribe + format + history, no audio stored."""
@@ -4811,6 +4890,18 @@ def register_console_routes(
         conversation_local_voice_transcribe,
         method="POST",
         description="Transcribe a short local voice audio clip without storing raw audio",
+    )
+    _api_register(
+        "/api/console/voice/tts/voices",
+        voice_tts_voices,
+        method="GET",
+        description="List neural Edge TTS voices (no API key)",
+    )
+    _api_register(
+        "/api/console/voice/tts/speak",
+        voice_tts_speak,
+        method="POST",
+        description="Synthesize Ghost voice audio (base64 MP3)",
     )
     _api_register(
         "/api/console/voice/flow",

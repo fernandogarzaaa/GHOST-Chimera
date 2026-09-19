@@ -579,8 +579,11 @@
   // ── Ghost voice playback (chunked queue, persisted voice + rate) ──────
   var TTS_VOICE_KEY = "ghostchimera_tts_voice";
   var TTS_RATE_KEY = "ghostchimera_tts_rate";
+  var TTS_SERVER_VOICE_KEY = "ghostchimera_tts_server_voice";
+  var TTS_SERVER_USE_KEY = "ghostchimera_tts_server_use";
   var ttsQueue = [];
   var ttsSpeaking = false;
+  var ttsServerAudio = null;
 
   function ttsVoiceName() {
     try { return localStorage.getItem(TTS_VOICE_KEY) || ""; } catch (_) { return ""; }
@@ -636,9 +639,21 @@
     } catch (_) { ttsSpeaking = false; ttsQueue = []; }
   }
   function speakGhost(text) {
-    if (!text || !("speechSynthesis" in window)) return;
+    if (!text) return;
     var settings = (state.conversation && state.conversation.settings) || {};
     if (!settings.hands_free && !($("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked)) return;
+    if (serverVoiceEnabled()) {
+      speakViaServerChunks(String(text)).then(function() {
+        if ($("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked && !state.voiceRestartBlocked) startConversationListening();
+      }).catch(function() {
+        speakGhostBrowser(text);
+      });
+      return;
+    }
+    speakGhostBrowser(text);
+  }
+  function speakGhostBrowser(text) {
+    if (!("speechSynthesis" in window)) return;
     try {
       window.speechSynthesis.cancel();
       ttsQueue = [];
@@ -655,7 +670,92 @@
   function stopGhostVoice() {
     ttsQueue = [];
     ttsSpeaking = false;
+    try {
+      if (ttsServerAudio) { ttsServerAudio.pause(); ttsServerAudio = null; }
+    } catch (_) {}
     try { window.speechSynthesis.cancel(); } catch (_) {}
+  }
+  function serverVoiceId() {
+    var select = $("#ghostTtsServerVoice");
+    if (select && select.value) return select.value;
+    try { return localStorage.getItem(TTS_SERVER_VOICE_KEY) || ""; } catch (_) { return ""; }
+  }
+  function serverVoiceEnabled() {
+    var box = $("#ghostTtsServerUse");
+    if (box) return !!box.checked;
+    try { return localStorage.getItem(TTS_SERVER_USE_KEY) === "1"; } catch (_) { return false; }
+  }
+  async function refreshServerTtsVoices() {
+    var select = $("#ghostTtsServerVoice");
+    if (!select) return;
+    try {
+      var data = await api("/api/console/voice/tts/voices");
+      if (!data.ok || !data.voices || !data.voices.length) {
+        select.innerHTML = "";
+        select.appendChild(el("option", { value: "" }, "Server voice unavailable"));
+        select.disabled = true;
+        return;
+      }
+      var saved = serverVoiceId();
+      select.innerHTML = "";
+      data.voices.forEach(function(voice) {
+        select.appendChild(el("option", { value: voice.id }, voice.name + " (" + voice.locale + ")"));
+      });
+      if (saved) select.value = saved;
+      select.disabled = false;
+      // Default stays browser voice: the neural server voice sends reply
+      // text to Microsoft's Edge TTS endpoint, so it requires explicit
+      // opt-in via the "Use server voice" checkbox. Never auto-enable.
+      select.addEventListener("change", function() {
+        try { localStorage.setItem(TTS_SERVER_VOICE_KEY, select.value); } catch (_) {}
+      });
+    } catch (_) {
+      select.innerHTML = "";
+      select.appendChild(el("option", { value: "" }, "Server voice unavailable"));
+      select.disabled = true;
+    }
+  }
+  // Chunk long replies on sentence boundaries (≤1900 chars each) so the
+  // server path plays full replies instead of truncating at 2000 chars.
+  async function speakViaServerChunks(text) {
+    var remaining = String(text || "");
+    var pieces = remaining.match(/[^.!?]+[.!?]+["”)]?|\S[^.!?]*$/g) || [remaining];
+    var chunks = [];
+    var current = "";
+    pieces.forEach(function(piece) {
+      var part = String(piece).trim();
+      if (!part) return;
+      if ((current + " " + part).trim().length > 1900 && current) {
+        chunks.push(current.trim());
+        current = part;
+      } else {
+        current = (current ? current + " " : "") + part;
+      }
+    });
+    if (current.trim()) chunks.push(current.trim());
+    if (!chunks.length) chunks.push(remaining.slice(0, 1900));
+    for (var i = 0; i < chunks.length; i++) {
+      await speakViaServer(chunks[i]);
+    }
+  }
+  async function speakViaServer(text) {
+    var data = await api("/api/console/voice/tts/speak", {
+      method: "POST",
+      body: { text: text, voice: serverVoiceId(), speed: ttsRate() },
+    });
+    if (!data.ok || !data.audio_base64) throw new Error(data.error || "Server voice failed.");
+    return new Promise(function(resolve, reject) {
+      try {
+        stopGhostVoice();
+        ttsSpeaking = true;
+        setConversationMicState("Speaking", "ok");
+        var audio = new Audio("data:" + (data.mime_type || "audio/mpeg") + ";base64," + data.audio_base64);
+        ttsServerAudio = audio;
+        audio.onended = function() { ttsSpeaking = false; ttsServerAudio = null; resolve(); };
+        audio.onerror = function() { ttsSpeaking = false; ttsServerAudio = null; reject(new Error("Audio playback failed.")); };
+        audio.play().catch(function(e) { ttsSpeaking = false; ttsServerAudio = null; reject(e); });
+      } catch (e) { reject(e); }
+    });
   }
 
   // ── Hold-to-talk flow dictation (Wispr-style) ──────────────────────────
@@ -3281,12 +3381,26 @@
       try { localStorage.setItem(TTS_RATE_KEY, String(rate.value)); } catch (_) {}
     });
     var test = $("#conversationTtsTest");
-    if (test) test.addEventListener("click", function() {
-      if (!("speechSynthesis" in window)) { toast("No speech synthesis in this browser.", "warn"); return; }
+    if (test) test.addEventListener("click", async function() {
       stopGhostVoice();
-      ttsQueue.push("Ghost voice check. This is how I will sound.");
+      var sample = "Ghost voice check. This is how I will sound.";
+      try {
+        await speakViaServer(sample);
+        toast("Server voice check played.", "ok");
+        return;
+      } catch (_) {}
+      if (!("speechSynthesis" in window)) { toast("No speech synthesis in this browser.", "warn"); return; }
+      ttsQueue.push(sample);
       speakNextChunk();
     });
+    var serverUse = $("#ghostTtsServerUse");
+    if (serverUse) {
+      try { serverUse.checked = localStorage.getItem(TTS_SERVER_USE_KEY) === "1"; } catch (_) {}
+      serverUse.addEventListener("change", function() {
+        try { localStorage.setItem(TTS_SERVER_USE_KEY, serverUse.checked ? "1" : "0"); } catch (_) {}
+        toast(serverUse.checked ? "Ghost replies will use the server voice." : "Ghost replies will use the browser voice.", "");
+      });
+    }
     try {
       if (window.speechSynthesis && window.speechSynthesis.onvoiceschanged !== undefined) {
         window.speechSynthesis.onvoiceschanged = function() { pickTtsVoice(); };
@@ -4939,6 +5053,9 @@
       var go = $("#firstRunGo");
       if (go) go.onclick = function() {
         var next = (data.steps || []).find(function(s) { return !s.done; });
+        // Always narrate the next step: when its tab is the one already
+        // open, navigation alone is invisible and the button looks dead.
+        if (next) toast(next.title + " — " + (next.detail || ""), "");
         openTab(next ? next.tab : "config");
       };
     } catch (e) {
@@ -5131,6 +5248,7 @@
     refreshTrust();
     refreshLivePresence();
     refreshConversationStatus();
+    refreshServerTtsVoices();
     refreshIntegrations();
     refreshFirstRun();
     refreshStealth();
