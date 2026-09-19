@@ -10,9 +10,9 @@ Set ``GOOGLE_API_KEY`` (from https://ai.google.dev/) and optionally
 ``GEMINI_MODEL`` in the environment, **or** inject an
 :class:`~ghostchimera.model_layer.auth_profiles.AuthProfile`.
 
-Supported models (June 2025)::
+Supported models::
 
-    gemini-2.0-flash-exp    # default — fast, 1 M token context
+    gemini-3.5-flash        # default — fast, 1 M token context
     gemini-1.5-pro          # largest context, vision, long documents
     gemini-1.5-flash        # faster, cheaper, 1 M tokens
     gemini-1.0-pro          # legacy
@@ -71,17 +71,19 @@ class GeminiProvider:
 
     name = "gemini"
     _API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
-    _DEFAULT_MODEL = "gemini-2.0-flash-exp"
+    _DEFAULT_MODEL = "gemini-3.5-flash"
     _DEFAULT_MAX_OUTPUT_TOKENS = 2048
 
     def __init__(self, profile: AuthProfile | None = None) -> None:
         if profile is not None:
-            self.api_key = profile.api_key or profile.oauth_token or os.environ.get("GOOGLE_API_KEY", "")
+            self.oauth_token = str(profile.oauth_token or "")
+            self.api_key = profile.api_key or os.environ.get("GOOGLE_API_KEY", "")
             self.model = profile.model or os.environ.get("GEMINI_MODEL", self._DEFAULT_MODEL)
         else:
+            self.oauth_token = ""
             self.api_key = os.environ.get("GOOGLE_API_KEY", "")
             self.model = os.environ.get("GEMINI_MODEL", self._DEFAULT_MODEL)
-        self.available = bool(self.api_key)
+        self.available = bool(self.api_key or self.oauth_token)
         logger.debug("Provider %s model=%s initialized", self.name, self.model)
 
     # ------------------------------------------------------------------
@@ -90,7 +92,7 @@ class GeminiProvider:
 
     def validate_config(self) -> list[str]:
         errors: list[str] = []
-        if not self.api_key:
+        if not self.api_key and not self.oauth_token:
             errors.append("GOOGLE_API_KEY is not set (get one at https://ai.google.dev/)")
         if not self.model:
             errors.append("GEMINI_MODEL must be non-empty")
@@ -219,8 +221,18 @@ class GeminiProvider:
         *,
         max_output_tokens: int = _DEFAULT_MAX_OUTPUT_TOKENS,
     ) -> str:
-        """POST to the Gemini generateContent endpoint and return the text."""
-        url = f"{self._API_BASE}/{self.model}:generateContent?key={self.api_key}"
+        """POST to the Gemini generateContent endpoint and return the text.
+
+        API-key auth appends ?key=; OAuth (Login with Google → Gemini
+        scopes) sends Authorization: Bearer instead. OAuth wins when both
+        are present.
+        """
+        if self.oauth_token:
+            url = f"{self._API_BASE}/{self.model}:generateContent"
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.oauth_token}"}
+        else:
+            url = f"{self._API_BASE}/{self.model}:generateContent?key={self.api_key}"
+            headers = {"Content-Type": "application/json"}
         body: dict[str, Any] = {
             "contents": contents,
             "generationConfig": {
@@ -233,7 +245,7 @@ class GeminiProvider:
         req = urllib_request.Request(
             url,
             data=data,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         with urllib_request.urlopen(req, context=ctx) as resp:

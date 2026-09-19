@@ -32,6 +32,26 @@ class ProviderPreset:
     # Some providers (Slack) rotate refresh tokens; all are optional except id/urls.
     use_pkce: bool = True
     extra_authorize: dict[str, str] = field(default_factory=dict)
+    # OAuth 2.0 Device Authorization Grant (RFC 8628). Empty device_code_url
+    # means the provider has no usable device flow (e.g. Google forbids Gmail
+    # scopes on its device endpoint; Notion/HubSpot are confidential-only).
+    device_code_url: str = ""
+    # Human-facing page shown to the user (may be overridden by the device
+    # response's verification_uri / verification_uri_complete).
+    device_verification_url: str = ""
+    device_grant: str = "urn:ietf:params:oauth:grant-type:device_code"
+    # Authorization endpoint scope parameter name. Slack's public (PKCE)
+    # clients must request user scopes via `user_scope`; bot `scope`
+    # requests fail on desktop/loopback redirects.
+    scope_param: str = "scope"
+    # Token endpoint auth: when True the client authenticates with HTTP
+    # Basic (client_id as username, secret-or-empty as password) instead
+    # of form fields (Reddit installed/script apps).
+    use_basic_auth: bool = False
+
+    @property
+    def supports_device_flow(self) -> bool:
+        return bool(self.device_code_url)
 
 
 OAUTH_PRESETS: dict[str, ProviderPreset] = {
@@ -40,7 +60,10 @@ OAUTH_PRESETS: dict[str, ProviderPreset] = {
         display="Slack",
         authorize_url="https://slack.com/oauth/v2/authorize",
         token_url="https://slack.com/api/oauth.v2.access",
+        # User (xoxp) scopes: PKCE public clients and desktop/loopback
+        # redirects cannot request bot scopes — those installs fail.
         scopes=("channels:history", "channels:read", "groups:history", "groups:read", "users:read"),
+        scope_param="user_scope",
     ),
     "notion": ProviderPreset(
         id="notion",
@@ -63,6 +86,10 @@ OAUTH_PRESETS: dict[str, ProviderPreset] = {
         authorize_url="https://github.com/login/oauth/authorize",
         token_url="https://github.com/login/oauth/access_token",
         scopes=("read:user", "repo"),
+        # Device flow is first-class: no redirect_uri, no secret required.
+        # The OAuth App must have "Enable Device Flow" checked.
+        device_code_url="https://github.com/login/device/code",
+        device_verification_url="https://github.com/login/device",
     ),
     "google": ProviderPreset(
         id="google",
@@ -118,7 +145,9 @@ OAUTH_PRESETS: dict[str, ProviderPreset] = {
         token_url="https://airtable.com/oauth2/v1/token",
         scopes=("data.records:read", "data.records:write"),
     ),
-    # Workforce / time tracking
+    # -- Social ---------------------------------------------------------------
+    # All standard authorize-code + PKCE unless noted. X is login-only
+    # (enforced in the engine proxy); LinkedIn sign-in only, no automation.
     "hubstaff": ProviderPreset(
         id="hubstaff",
         display="Hubstaff",
@@ -134,14 +163,100 @@ OAUTH_PRESETS: dict[str, ProviderPreset] = {
         token_url="https://api2.timedoctor.com/oauth/token",
         scopes=("read", "write"),
     ),
+    "mastodon": ProviderPreset(
+        id="mastodon",
+        display="Mastodon",
+        authorize_url="https://mastodon.social/oauth/authorize",
+        token_url="https://mastodon.social/oauth/token",
+        scopes=("read",),
+    ),
+    "reddit": ProviderPreset(
+        id="reddit",
+        display="Reddit",
+        authorize_url="https://www.reddit.com/api/v1/authorize",
+        token_url="https://www.reddit.com/api/v1/access_token",
+        scopes=("identity", "history", "read"),
+        # Installed/script apps authenticate the token call with HTTP
+        # Basic (client_id as username); confidential web apps use the
+        # client_secret the same way.
+        use_basic_auth=True,
+        extra_authorize={"duration": "permanent"},
+    ),
+    "discord": ProviderPreset(
+        id="discord",
+        display="Discord",
+        authorize_url="https://discord.com/oauth2/authorize",
+        token_url="https://discord.com/api/oauth2/token",
+        scopes=("identify", "guilds"),
+    ),
+    "tiktok": ProviderPreset(
+        id="tiktok",
+        display="TikTok",
+        authorize_url="https://www.tiktok.com/v2/auth/authorize/",
+        token_url="https://open.tiktokapis.com/v2/oauth/token/",
+        scopes=("user.info.basic",),
+    ),
+    "facebook": ProviderPreset(
+        id="facebook",
+        display="Facebook",
+        authorize_url="https://www.facebook.com/v18.0/dialog/oauth",
+        token_url="https://graph.facebook.com/v18.0/oauth/access_token",
+        scopes=("email", "public_profile"),
+        use_pkce=False,  # confidential client; secret required
+    ),
+    "instagram": ProviderPreset(
+        id="instagram",
+        display="Instagram",
+        authorize_url="https://www.instagram.com/oauth/authorize",
+        token_url="https://api.instagram.com/oauth/access_token",
+        scopes=("instagram_business_basic",),
+        use_pkce=False,  # Business Login; Business/Creator accounts only
+    ),
+    "x": ProviderPreset(
+        id="x",
+        display="X",
+        authorize_url="https://x.com/i/oauth2/authorize",
+        token_url="https://api.x.com/2/oauth2/token",
+        scopes=("tweet.read", "users.read", "offline.access"),
+    ),
 }
+
+
+def _salesforce_base() -> str:
+    """Login host for Salesforce (login / test / My Domain), no scheme."""
+    host = os.environ.get("SALESFORCE_LOGIN_HOST", "login.salesforce.com").strip() or "login.salesforce.com"
+    return host.replace("https://", "").replace("http://", "").rstrip("/")
 
 
 def get_preset(provider: str) -> ProviderPreset:
     try:
-        return OAUTH_PRESETS[provider]
+        preset = OAUTH_PRESETS[provider]
     except KeyError as exc:
         raise ValueError(f"Unknown OAuth provider: {provider}. Known: {sorted(OAUTH_PRESETS)}") from exc
+    if provider == "salesforce":
+        from dataclasses import replace
+
+        base = _salesforce_base()
+        preset = replace(
+            preset,
+            authorize_url=f"https://{base}/services/oauth2/authorize",
+            token_url=f"https://{base}/services/oauth2/token",
+        )
+    if provider == "mastodon":
+        from dataclasses import replace
+
+        host = (
+            (os.environ.get("MASTODON_INSTANCE", "mastodon.social").strip() or "mastodon.social")
+            .replace("https://", "")
+            .replace("http://", "")
+            .rstrip("/")
+        )
+        preset = replace(
+            preset,
+            authorize_url=f"https://{host}/oauth/authorize",
+            token_url=f"https://{host}/oauth/token",
+        )
+    return preset
 
 
 # -- PKCE -----------------------------------------------------------------
@@ -167,7 +282,7 @@ def build_authorize_url(
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "state": state,
-        "scope": " ".join(scopes if scopes is not None else list(preset.scopes)),
+        preset.scope_param: " ".join(scopes if scopes is not None else list(preset.scopes)),
         **preset.extra_authorize,
     }
     if preset.use_pkce:
@@ -215,7 +330,7 @@ def refresh_access_token(
         {
             "grant_type": "refresh_token",
             "client_id": client_id,
-            "client_secret": client_secret,
+            **({"client_secret": client_secret} if client_secret else {}),
             "refresh_token": refresh_token,
         },
     )
@@ -228,6 +343,140 @@ def refresh_access_token(
     if "refresh_token" not in token:
         token["refresh_token"] = refresh_token  # providers that don't rotate
     return token
+
+
+# -- Device Authorization Grant (RFC 8628) ------------------------------------
+# Two-step UX with no redirect URI: the user opens verification_uri on any
+# device, enters user_code, and the app polls the token endpoint. Designed
+# for single-poll-per-call use (console UI polls via repeated API calls);
+# use poll_device_token in a loop (or wait_for_device_token) for CLI use.
+def request_device_code(
+    preset: ProviderPreset,
+    *,
+    client_id: str,
+    scopes: list[str] | None = None,
+    post_fn: Any = None,
+) -> dict[str, Any]:
+    """Start a device login. Returns device_code + user-facing instructions."""
+    if not preset.supports_device_flow:
+        raise ValueError(f"{preset.id} has no device flow; use the browser (redirect) flow")
+    if not client_id:
+        raise ValueError(f"No client ID configured for {preset.id}")
+    post = post_fn or _form_post
+    data = post(
+        preset.device_code_url,
+        {"client_id": client_id, "scope": " ".join(scopes if scopes is not None else list(preset.scopes))},
+    )
+    if "device_code" not in data or "user_code" not in data:
+        raise ValueError(f"{preset.id} device request failed: {data.get('error', 'unknown error')}")
+    return {
+        "provider": preset.id,
+        "device_code": str(data["device_code"]),
+        "user_code": str(data["user_code"]),
+        "verification_uri": str(data.get("verification_uri") or preset.device_verification_url),
+        "verification_uri_complete": str(data.get("verification_uri_complete") or ""),
+        "expires_in": int(data.get("expires_in") or 900),
+        "interval": int(data.get("interval") or 5),
+    }
+
+
+def poll_device_token(
+    preset: ProviderPreset, *, client_id: str, device_code: str, post_fn: Any = None
+) -> dict[str, Any]:
+    """Single token-endpoint poll for a pending device login.
+
+    Returns {"status": "pending"} while the user has not approved yet,
+    {"status": "complete", ...token...} on success, and raises ValueError
+    on terminal states (denied / expired / provider error).
+    """
+    if not preset.supports_device_flow:
+        raise ValueError(f"{preset.id} has no device flow; use the browser (redirect) flow")
+    post = post_fn or _form_post
+    token = post(
+        preset.token_url,
+        {"grant_type": preset.device_grant, "client_id": client_id, "device_code": device_code},
+    )
+    error = str(token.get("error") or "")
+    if error in ("authorization_pending",):
+        return {"status": "pending"}
+    if error == "slow_down":
+        return {"status": "pending", "slow_down": True}
+    if error in ("access_denied", "expired_token"):
+        raise ValueError(f"{preset.id} device login ended by user or expired ({error})")
+    if error:
+        raise ValueError(f"{preset.id} device poll failed: {error}")
+    if "access_token" not in token:
+        raise ValueError(f"{preset.id} device poll returned no access token")
+    now = time.time()
+    token["provider"] = preset.id
+    token["created_at"] = now
+    token["expires_at"] = now + float(token.get("expires_in") or 3600)
+    return {"status": "complete", **token}
+
+
+def wait_for_device_token(
+    preset: ProviderPreset,
+    *,
+    client_id: str,
+    device_code: str,
+    interval: float = 5.0,
+    timeout: float = 900.0,
+    sleep_fn: Any = None,
+    post_fn: Any = None,
+) -> dict[str, Any]:
+    """Block until the device login completes (CLI use). Honors slow_down."""
+    sleep = sleep_fn or time.sleep
+    deadline = time.time() + timeout
+    wait = max(1.0, float(interval))
+    while True:
+        result = poll_device_token(preset, client_id=client_id, device_code=device_code, post_fn=post_fn)
+        if result.get("status") == "complete":
+            return result
+        if result.get("slow_down"):
+            wait += 5.0
+        if time.time() + wait > deadline:
+            raise ValueError(f"{preset.id} device login timed out waiting for approval")
+        sleep(wait)
+
+
+# -- OpenRouter PKCE login ------------------------------------------------------
+# Not standard OAuth: the user authorizes at openrouter.ai/auth, the
+# browser returns ?code= to our callback, and the code is exchanged for a
+# user-controlled API key (a normal Bearer key afterwards).
+OPENROUTER_AUTH_URL = "https://openrouter.ai/auth"
+OPENROUTER_KEYS_URL = "https://openrouter.ai/api/v1/auth/keys"
+
+
+def build_openrouter_login_url(*, callback_url: str) -> tuple[str, str]:
+    """Return (authorize_url, verifier). The verifier is unused at exchange
+    (OpenRouter binds the code to the challenge server-side) but kept for
+    future proofing; the code is single-use and short-lived."""
+    verifier, challenge = pkce_pair()
+    params = {"callback_url": callback_url, "code_challenge": challenge, "code_challenge_method": "S256"}
+    return OPENROUTER_AUTH_URL + "?" + urllib.parse.urlencode(params), verifier
+
+
+def exchange_openrouter_code(code: str) -> dict[str, Any]:
+    """Exchange an OpenRouter authorization code for the user's API key."""
+    if not code:
+        raise ValueError("OpenRouter code is required")
+    body = json.dumps({"code": code}).encode()
+    req = urllib.request.Request(
+        OPENROUTER_KEYS_URL, data=body, headers={"Content-Type": "application/json", "Accept": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30.0) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as exc:
+        raise ValueError(f"OpenRouter exchange failed: HTTP {exc.code}") from exc
+    except Exception as exc:
+        raise ValueError(f"OpenRouter unreachable: {type(exc).__name__}") from exc
+    key = str(data.get("key", "")) if isinstance(data, dict) else ""
+    if not key:
+        raise ValueError(
+            f"OpenRouter gave no key: {data.get('error', 'unknown error') if isinstance(data, dict) else 'bad response'}"
+        )
+    return {"key": key, "label": str(data.get("label", "") or "OpenRouter")}
 
 
 # -- Token vault ------------------------------------------------------------
@@ -295,12 +544,19 @@ def oauth_status(state_dir: str | Path) -> dict[str, dict[str, Any]]:
 
 __all__ = [
     "OAUTH_PRESETS",
+    "OPENROUTER_AUTH_URL",
+    "OPENROUTER_KEYS_URL",
     "ProviderPreset",
     "TokenVault",
     "build_authorize_url",
+    "build_openrouter_login_url",
     "exchange_code",
+    "exchange_openrouter_code",
     "get_preset",
     "oauth_status",
     "pkce_pair",
+    "poll_device_token",
     "refresh_access_token",
+    "request_device_code",
+    "wait_for_device_token",
 ]

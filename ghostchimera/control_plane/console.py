@@ -809,6 +809,17 @@ def _security_audit_handler(ctx: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _prune_tts_cache(cache_dir: Path, *, keep: int = 50) -> None:
+    """Keep the TTS response cache bounded (newest *keep* files survive)."""
+    try:
+        files = sorted(cache_dir.glob("*.mp3"), key=lambda p: p.stat().st_mtime)
+    except OSError:
+        return
+    for stale in files[: max(0, len(files) - keep)]:
+        with contextlib.suppress(OSError):
+            stale.unlink()
+
+
 def register_console_routes(
     server: GatewayServer,
     *,
@@ -1966,6 +1977,74 @@ def register_console_routes(
             filename=str(body.get("filename") or ""),
             provider=str(body.get("provider") or "auto"),
         )
+
+    def voice_tts_voices(ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..model_layer.media_providers import EdgeSpeechProvider
+
+        try:
+            voices = EdgeSpeechProvider.list_voices()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)[:300]}
+        return {"ok": True, "provider": EdgeSpeechProvider.name, "count": len(voices), "voices": voices[:120]}
+
+    def voice_tts_speak(ctx: dict[str, Any]) -> dict[str, Any]:
+        import base64
+        import hashlib
+
+        from ..model_layer.media_providers import EdgeSpeechProvider
+
+        body = _json_body(ctx)
+        text = str(body.get("text") or "").strip()
+        if not text:
+            return {"ok": False, "error": "Provide text to speak."}
+        if len(text) > 2000:
+            return {"ok": False, "error": "Text is too long (max 2000 chars)."}
+        voice = str(body.get("voice") or "").strip()[:120]
+        pitch = str(body.get("pitch") or "+0Hz").strip()[:16]
+        try:
+            rate = float(body.get("speed", 1.0))
+        except (TypeError, ValueError):
+            rate = 1.0
+        provider = EdgeSpeechProvider()
+        if not provider.available:
+            return {"ok": False, "error": "; ".join(provider.validate_config()) or "Edge TTS unavailable."}
+        # Disk cache: identical voice/rate/pitch/text replays instantly.
+        cache_dir = console_state_dir / "tts-cache"
+        cache_key = hashlib.sha256(f"{voice}|{rate}|{pitch}|{text}".encode()).hexdigest()
+        cache_path = cache_dir / f"{cache_key}.mp3"
+        try:
+            if cache_path.is_file() and cache_path.stat().st_size > 0:
+                audio = cache_path.read_bytes()
+                return {
+                    "ok": True,
+                    "provider": provider.name,
+                    "voice": voice or provider.voice,
+                    "mime_type": "audio/mpeg",
+                    "audio_base64": base64.b64encode(audio).decode("ascii"),
+                    "cached": True,
+                }
+        except OSError:
+            pass
+        try:
+            result = provider.synthesize(text, voice=voice, speed=rate, pitch=pitch)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)[:300]}
+        if not result.ok:
+            return {"ok": False, "error": "Synthesis produced no audio."}
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_path.write_bytes(result.audio_data)
+            _prune_tts_cache(cache_dir, keep=50)
+        except OSError:
+            pass
+        return {
+            "ok": True,
+            "provider": provider.name,
+            "voice": voice or provider.voice,
+            "mime_type": result.mime_type,
+            "audio_base64": base64.b64encode(result.audio_data).decode("ascii"),
+            "cached": False,
+        }
 
     def conversation_flow_dictate(ctx: dict[str, Any]) -> dict[str, Any]:
         """Wispr-style flow: transcribe + format + history, no audio stored."""
@@ -4813,6 +4892,18 @@ def register_console_routes(
         description="Transcribe a short local voice audio clip without storing raw audio",
     )
     _api_register(
+        "/api/console/voice/tts/voices",
+        voice_tts_voices,
+        method="GET",
+        description="List neural Edge TTS voices (no API key)",
+    )
+    _api_register(
+        "/api/console/voice/tts/speak",
+        voice_tts_speak,
+        method="POST",
+        description="Synthesize Ghost voice audio (base64 MP3)",
+    )
+    _api_register(
         "/api/console/voice/flow",
         conversation_flow_dictate,
         method="POST",
@@ -5598,6 +5689,73 @@ def register_console_routes(
     )
 
 
+def _resolve_http_port(http_port: int | None) -> int | None:
+    """Pin the console HTTP port for OAuth redirect stability.
+
+    Explicit argument wins; otherwise a saved ``console.http_port`` value
+    keeps the address stable across restarts so provider-registered redirect
+    URIs keep working. None falls through to the server default.
+    """
+    if http_port is not None:
+        return http_port
+    try:
+        from .config import load_config
+
+        saved = load_config().get("console", {})
+        if isinstance(saved, dict) and saved.get("http_port"):
+            return int(saved["http_port"])
+    except Exception:
+        pass
+    return None
+
+
+def _oauth_ids_configured() -> bool:
+    """True when any provider OAuth client ID is configured (env or saved)."""
+    try:
+        from ..connectors.auth_engine import _CLIENT_ID_ENV
+        from .config import load_config
+
+        for names in _CLIENT_ID_ENV.values():
+            if any(os.environ.get(n, "").strip() for n in names):
+                return True
+        saved = load_config().get("provider_oauth", {})
+        if isinstance(saved, dict):
+            return any(isinstance(v, dict) and str(v.get("client_id", "")).strip() for v in saved.values())
+    except Exception:
+        pass
+    return False
+
+
+def _warn_oauth_origin_mismatch(server: GatewayServer) -> None:
+    """Warn when the bound console address can't match a registered redirect.
+
+    Provider redirect URIs are exact strings. If the operator registered a
+    callback for a pinned address but the console bound somewhere else
+    (ephemeral port, different host), browser logins fail with
+    redirect_uri_mismatch — surface that here instead of at login time.
+    """
+    registered = os.environ.get("GHOSTCHIMERA_OAUTH_CALLBACK", "").strip()
+    if not registered or not _oauth_ids_configured():
+        return
+    actual_port = server.http_port
+    if server._http_server is not None:
+        actual_port = int(server._http_server.server_address[1])
+    actual = f"{server.host}:{actual_port}"
+    if actual not in registered:
+        try:
+            from ..logging_config import get_logger
+
+            get_logger("console").warning(
+                "OAuth redirect mismatch: console is at http://%s but the registered "
+                "callback is %s. Browser logins will fail until they match "
+                "(pin GHOSTCHIMERA_HTTP_PORT or update the provider app).",
+                actual,
+                registered,
+            )
+        except Exception:
+            print(f"OAuth redirect mismatch: console at http://{actual}, registered {registered}")
+
+
 def _console_url(server: GatewayServer) -> str:
     http_port = server.http_port
     if server._http_server is not None:
@@ -5625,7 +5783,7 @@ def run_console(
     Parameters:
         host (str): Hostname or IP address the gateway listens on.
         port (int): TCP port for the gateway's primary (websocket) service.
-        http_port (int | None): Optional explicit HTTP port for determining the console URL; if None the server chooses its default.
+        http_port (int | None): Optional explicit HTTP port for determining the console URL; if None a saved console.http_port pins it, else the server chooses its default.
         state_dir (str | Path | None): Optional directory for persistent state (overrides environment config); used for workspace, queue, and scheduler storage.
         open_browser (bool): If True, attempt to open the console URL in the user's default web browser after the server starts.
         block (bool): If True, block the current thread until interrupted; on KeyboardInterrupt the server is stopped before returning.
@@ -5642,7 +5800,7 @@ def run_console(
         config = replace(
             config, state_dir=resolved, memory_db=resolved / "memory.sqlite3", audit_file=resolved / "audit.json"
         )
-    server = GatewayServer(host=host, port=port, http_port=http_port, config=config)
+    server = GatewayServer(host=host, port=port, http_port=_resolve_http_port(http_port), config=config)
     _register_static_routes(server)
     register_console_routes(
         server,
@@ -5681,6 +5839,7 @@ def run_console(
     except Exception:
         pass
     server.start()
+    _warn_oauth_origin_mismatch(server)
     url = _console_url(server)
     print(f"Ghost Console: {url}")
     if auth_token:

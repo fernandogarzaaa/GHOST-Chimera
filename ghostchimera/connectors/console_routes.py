@@ -8,11 +8,83 @@ JSON — raw tokens and secret keys never leave these routes.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# `gh` detection cache (module-level: a subprocess per page-load is wasteful).
+_GH_STATUS_CACHE: dict[str, Any] = {}
+
+
+def _vault_key_for(engine: Any, entity_id: str, key_id: str) -> dict[str, str] | None:
+    """Reveal one custom key as {label, hint, secret} (internal use only)."""
+    if not key_id:
+        return None
+    try:
+        revealed = engine.reveal_custom_key(entity_id, key_id)
+    except Exception:
+        return None
+    return {"label": revealed["label"], "hint": revealed.get("provider_hint", ""), "secret": revealed["secret"]}
+
+
+def _selection_indices(selections: list[Any]) -> list[int]:
+    """Row indices from import selections (malformed entries skipped)."""
+    indices: list[int] = []
+    for sel in selections:
+        if isinstance(sel, dict):
+            with suppress(TypeError, ValueError):
+                indices.append(int(sel.get("index", -1)))
+    return indices
+
+
+# Honest setup cost per provider (engine key -> (cost, note)).
+# "none" = works with zero registration (device flow, gh CLI, app password).
+_SETUP_COST: dict[str, tuple[str, str]] = {
+    "github": ("none", "Device login, gh CLI import, or any OAuth app — no registration needed for the first two."),
+    "google-mail": (
+        "one-time-free",
+        "Register a free Desktop client once — or skip it entirely with a Gmail app password.",
+    ),
+    "google-gemini": (
+        "one-time-free",
+        "Same Google Desktop client; adds the Gemini API scope so chat bills your Google account, no API key.",
+    ),
+    "slack": ("one-time-free", "Create a free app with PKCE enabled, then paste its client ID."),
+    "airtable": ("one-time-free", "Create a free OAuth integration, then paste its client ID."),
+    "notion": ("one-time-free", "Create a public integration, then paste ID + secret."),
+    "hubspot": ("one-time-free", "Create a developer app, then paste ID + secret."),
+    "salesforce": ("one-time-free", "Create an External Client App, then paste its ID."),
+    "linkedin": ("one-time-free", "Self-serve sign-in app; automation is banned by LinkedIn regardless."),
+    "zendesk": ("one-time-free", "OAuth client per Zendesk subdomain."),
+    "freshdesk": ("one-time-free", "OAuth client per Freshdesk domain."),
+    "gorgias": ("one-time-free", "OAuth client per Gorgias domain."),
+    "hubstaff": ("one-time-free", "OAuth client from Hubstaff."),
+    "time-doctor": ("one-time-free", "OAuth client from Time Doctor."),
+    "mastodon": (
+        "none",
+        "No registration: pick your instance (MASTODON_INSTANCE), paste its client ID — or get one auto-provisioned per instance.",
+    ),
+    "reddit": (
+        "one-time-free",
+        "Free personal script/web app at reddit.com/prefs/apps; secret authenticates via HTTP Basic automatically.",
+    ),
+    "discord": ("one-time-free", "Free app at discord.com/developers; user OAuth here, bot tokens go in Stored Keys."),
+    "tiktok": ("one-time-free", "Free Login Kit app; basic scopes self-serve, publishing needs TikTok audit."),
+    "facebook": ("one-time-free", "Free Meta app; basic login self-serve, deeper permissions need App Review."),
+    "instagram": (
+        "one-time-free",
+        "Business/Creator account + linked Page required; own-account access needs no review.",
+    ),
+    "x": (
+        "paid",
+        "Login is free, but every X API call is billed pay-per-use: Ghost stores the token and refuses API calls until you approve spending.",
+    ),
+}
 
 
 def _body(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -88,6 +160,16 @@ def first_run_status(state_dir: str | Path) -> dict[str, Any]:
     model_configured = bool(provider) and any(os.environ.get(k) for k in key_envs)
     native = oauth_status(base)
     integrations_connected = sum(1 for s in native.values() if s.get("connected"))
+    readiness_done = False
+    try:
+        from ..control_plane.evolution import read_timeline
+
+        readiness_done = any(
+            event.get("event_type") == "readiness_check_run" for event in read_timeline(base, limit=200)
+        )
+    except Exception as exc:
+        logger.warning("first-run readiness lookup failed: %s", exc)
+        readiness_done = False
     steps = [
         {
             "id": "model",
@@ -100,7 +182,7 @@ def first_run_status(state_dir: str | Path) -> dict[str, Any]:
             "id": "readiness",
             "title": "Run the readiness check",
             "detail": "Operator Workbench → Run Readiness Check.",
-            "done": False,
+            "done": readiness_done,
             "tab": "operator",
         },
         {
@@ -157,6 +239,13 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             from .oauth import get_preset
 
             scopes = list(get_preset("google").scopes) + ["https://www.googleapis.com/auth/gmail.readonly"]
+        if scopes is None and provider in ("google-gemini",):
+            # Gemini API via user OAuth: generative-language scope.
+            from .oauth import get_preset
+
+            scopes = list(get_preset("google").scopes) + [
+                "https://www.googleapis.com/auth/generative-language.retriever"
+            ]
         engine = _engine()
         try:
             result = engine.authorize_url(provider, entity_id, redirect_uri, scopes=scopes)
@@ -168,18 +257,27 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 engine.close()
 
     def auth_client_id(ctx: dict[str, Any]) -> dict[str, Any]:
-        """Save a provider OAuth client ID from the console (no terminal).
+        """Save (or clear) provider OAuth credentials from the console.
 
-        Client IDs are public identifiers, not secrets — safe to store in
-        the local config file. Secrets stay in environment variables.
+        Client IDs are public identifiers. Client secrets are accepted too
+        (needed for confidential clients like Notion/HubSpot) and stored in
+        the local config file with owner-only permissions. Values are
+        write-only: responses confirm what is configured, never the values.
+        Body: {provider, client_id?, client_secret?, clear?}
         """
         data = _body(ctx)
         provider = str(data.get("provider", "")).strip()
         client_id = str(data.get("client_id", "")).strip()
-        if not provider or not client_id:
-            return {"ok": False, "error": "provider and client_id are required"}
+        client_secret = str(data.get("client_secret", "")).strip()
+        clear = bool(data.get("clear"))
+        if not provider:
+            return {"ok": False, "error": "provider is required"}
+        if not clear and not client_id and not client_secret:
+            return {"ok": False, "error": "client_id, client_secret, or clear is required"}
         if len(client_id) > 200 or "/" in client_id or "\\" in client_id:
             return {"ok": False, "error": "that does not look like a client ID"}
+        if len(client_secret) > 500:
+            return {"ok": False, "error": "that does not look like a client secret"}
         try:
             from ..control_plane.config import load_config, save_config
 
@@ -192,13 +290,41 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             from .auth_engine import _PRESET_FOR
 
             preset_id = _PRESET_FOR.get(provider, provider)
+            if clear:
+                section.pop(preset_id, None)
+                save_config(config)
+                return {"ok": True, "provider": provider, "cleared": True}
             entry = section.get(preset_id)
             if not isinstance(entry, dict):
                 entry = {}
                 section[preset_id] = entry
-            entry["client_id"] = client_id
+            if client_id:
+                entry["client_id"] = client_id
+            if client_secret:
+                entry["client_secret"] = client_secret
             save_config(config)
-            return {"ok": True, "provider": provider, "saved": True}
+            if client_secret:
+                # Secrets at rest: owner-only permissions (best-effort).
+                from ..control_plane.config import CONFIG_FILE
+
+                with suppress(OSError):
+                    os.chmod(CONFIG_FILE, 0o600)
+            engine = _engine()
+            try:
+                source = engine.client_id_source(preset_id)
+                secret_source = engine.client_secret_source(preset_id)
+            finally:
+                with suppress(Exception):
+                    engine.close()
+            return {
+                "ok": True,
+                "provider": provider,
+                "saved": True,
+                "client_id_configured": source != "none",
+                "client_id_source": source,
+                "client_secret_configured": secret_source != "none",
+                "client_secret_source": secret_source,
+            }
         except Exception as exc:
             return {"ok": False, "error": f"could not save: {type(exc).__name__}"}
 
@@ -280,6 +406,490 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             with suppress(Exception):
                 engine.close()
 
+    def auth_gh_status(_ctx: dict[str, Any]) -> dict[str, Any]:
+        """Detect a local `gh` login (no token touched). Cached 5 minutes."""
+        from .gh_cli import gh_status
+
+        now = time.time()
+        cached = _GH_STATUS_CACHE.get("at", 0.0)
+        if now - cached < 300 and "result" in _GH_STATUS_CACHE:
+            return {"ok": True, **_GH_STATUS_CACHE["result"]}
+        result = gh_status()
+        _GH_STATUS_CACHE["at"] = now
+        _GH_STATUS_CACHE["result"] = result
+        return {"ok": True, **result}
+
+    def auth_gh_import(ctx: dict[str, Any]) -> dict[str, Any]:
+        """One-click import of the user's own `gh` login (explicit consent)."""
+        data = _body(ctx)
+        entity_id = str(data.get("entity_id", ""))
+        if not entity_id:
+            return {"ok": False, "error": "entity_id is required"}
+        engine = _engine()
+        try:
+            return engine.import_gh_cli(entity_id)
+        except (AuthEngineError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_keys_save(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Store a pasted secret (BYOK key or mail app password). Write-only."""
+        data = _body(ctx)
+        engine = _engine()
+        try:
+            return engine.save_custom_key(
+                str(data.get("entity_id") or "console-user"),
+                str(data.get("kind") or ""),
+                str(data.get("label") or ""),
+                str(data.get("secret") or ""),
+                provider_hint=str(data.get("provider_hint") or ""),
+            )
+        except (AuthEngineError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_keys_list(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Redacted key listing (labels only, never values)."""
+        data = _body(ctx)
+        engine = _engine()
+        try:
+            keys = engine.store.list_custom_keys(str(data.get("entity_id") or "console-user"))
+            return {"ok": True, "keys": keys}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_keys_delete(ctx: dict[str, Any]) -> dict[str, Any]:
+        data = _body(ctx)
+        key_id = str(data.get("id") or "")
+        if not key_id:
+            return {"ok": False, "error": "id is required"}
+        engine = _engine()
+        try:
+            deleted = engine.store.delete_custom_key(str(data.get("entity_id") or "console-user"), key_id)
+            return {"ok": True, "deleted": deleted}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_csv_preview(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Preview a browser CSV export (labels only, never passwords)."""
+        from .credential_import import CredentialImportError, parse_browser_csv
+
+        data = _body(ctx)
+        try:
+            rows = parse_browser_csv(str(data.get("csv_text") or ""))
+            return {"ok": True, "rows": rows, "count": len(rows)}
+        except CredentialImportError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def auth_csv_commit(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Store selected CSV rows as vault keys. Response carries no passwords."""
+        from .credential_import import extract_passwords
+
+        data = _body(ctx)
+        csv_text = str(data.get("csv_text") or "")
+        selections = data.get("selections")
+        if not isinstance(selections, list) or not selections:
+            return {"ok": False, "error": "selections is required"}
+        passwords = extract_passwords(csv_text)
+        entity_id = str(data.get("entity_id") or "console-user")
+        engine = _engine()
+        try:
+            saved: list[dict[str, Any]] = []
+            for sel in selections:
+                if not isinstance(sel, dict):
+                    continue
+                try:
+                    index = int(sel.get("index", -1))
+                except (TypeError, ValueError):
+                    continue
+                password = passwords.get(index, "")
+                if not password:
+                    saved.append({"index": index, "saved": False, "error": "no password in export for this row"})
+                    continue
+                try:
+                    res = engine.save_custom_key(
+                        entity_id,
+                        str(sel.get("kind") or "byok"),
+                        str(sel.get("label") or f"imported-{index}"),
+                        password,
+                        provider_hint=str(sel.get("provider_hint") or str(sel.get("url") or ""))[:80],
+                    )
+                    saved.append({"index": index, "saved": True, "id": res["id"], "label": res["label"]})
+                except (AuthEngineError, ValueError) as exc:
+                    saved.append({"index": index, "saved": False, "error": str(exc)})
+            logger.info("csv import committed %d/%d rows", sum(1 for s in saved if s["saved"]), len(saved))
+            return {"ok": True, "saved": saved}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_browser_preview(ctx: dict[str, Any]) -> dict[str, Any]:
+        """List browser-saved-login labels after explicit consent (no passwords)."""
+        from .browser_vault import BrowserVaultError, preview_chromium
+
+        data = _body(ctx)
+        if data.get("consent") is not True:
+            return {"ok": False, "error": "explicit consent is required"}
+        try:
+            result = preview_chromium(str(data.get("browser") or "chrome"), consent=True)
+            logger.info(
+                "browser store preview: %s/%s %d entries",
+                result["browser"],
+                result["profile"],
+                len(result["entries"]),
+            )
+            return {"ok": True, **result}
+        except BrowserVaultError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def auth_browser_import(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Decrypt selected browser entries straight into the vault."""
+        from .browser_vault import BrowserVaultError, import_chromium
+
+        data = _body(ctx)
+        if data.get("consent") is not True:
+            return {"ok": False, "error": "explicit consent is required"}
+        selections = data.get("selections")
+        if not isinstance(selections, list) or not selections:
+            return {"ok": False, "error": "selections is required"}
+        indices = _selection_indices(selections)
+        engine = _engine()
+        try:
+            try:
+                entries = import_chromium(str(data.get("browser") or "chrome"), consent=True, indices=indices)
+            except BrowserVaultError as exc:
+                return {"ok": False, "error": str(exc)}
+            by_index = {}
+            for sel in selections:
+                if isinstance(sel, dict):
+                    with suppress(TypeError, ValueError):
+                        by_index[int(sel.get("index", -1))] = sel
+            entity_id = str(data.get("entity_id") or "console-user")
+            saved: list[dict[str, Any]] = []
+            for entry in entries:
+                sel = by_index.get(int(entry.get("index", -1)), {})
+                try:
+                    res = engine.save_custom_key(
+                        entity_id,
+                        str(sel.get("kind") or "byok"),
+                        str(sel.get("label") or entry["url"] or f"browser-{entry['username']}")[:120],
+                        entry["password"],
+                        provider_hint=entry["url"][:80],
+                    )
+                    saved.append({"url": entry["url"], "saved": True, "id": res["id"], "label": res["label"]})
+                except (AuthEngineError, ValueError) as exc:
+                    saved.append({"url": entry["url"], "saved": False, "error": str(exc)})
+            logger.info("browser import committed %d entries", sum(1 for s in saved if s["saved"]))
+            return {"ok": True, "saved": saved}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_mail_fetch(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Read-only inbox fetch via a stored app password (consent-gated).
+
+        Body: {key_id?, label?, max_messages?, query?}. Requires Personal
+        MiniMind email-crawl consent, like the OAuth crawl. Returns headers
+        + OTP-scrubbed snippets only — never full bodies, never secrets.
+        """
+        from ..integrations.mail_basic import fetch_inbox, resolve_app_password
+
+        data = _body(ctx)
+        entity_id = str(data.get("entity_id") or "console-user")
+        try:
+            from ..model_layer.minimind_personal_agent import MiniMindPersonalAgent
+
+            consent = MiniMindPersonalAgent(state_dir=base).load_consent()
+            if not consent.enabled or not consent.allow_email_crawl:
+                return {
+                    "ok": False,
+                    "type": "consent_required",
+                    "error": "Enable Personal MiniMind admin controls and email crawl consent before fetching mail.",
+                }
+        except Exception as exc:
+            return {"ok": False, "error": f"consent check failed: {type(exc).__name__}"}
+        engine = _engine()
+        try:
+            try:
+                account = resolve_app_password(
+                    engine, entity_id, key_id=str(data.get("key_id") or ""), label=str(data.get("label") or "")
+                )
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)}
+            try:
+                max_messages = max(1, min(50, int(data.get("max_messages") or 10)))
+            except (TypeError, ValueError):
+                max_messages = 10
+            try:
+                result = fetch_inbox(
+                    account["email"],
+                    account["secret"],
+                    max_messages=max_messages,
+                    query=str(data.get("query") or "UNSEEN"),
+                )
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)[:200]}
+            result["account"] = account["label"]
+            logger.info("app-password mail fetch for '%s': %d messages", account["label"], len(result["messages"]))
+            return result
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_bluesky_post(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Publish a Bluesky post using a vault-stored app password.
+
+        Login + post happen inside one call; session tokens never leave
+        the request scope and are never stored. Body: {key_id, text}.
+        """
+        from ..integrations.bluesky_basic import BlueskyError, create_session, send_post
+
+        data = _body(ctx)
+        text = str(data.get("text") or "").strip()
+        if not text:
+            return {"ok": False, "error": "text is required"}
+        engine = _engine()
+        try:
+            account = _vault_key_for(
+                engine, str(data.get("entity_id") or "console-user"), str(data.get("key_id") or "")
+            )
+            if account is None:
+                return {"ok": False, "error": "unknown key; save a Bluesky app password in Stored Keys first"}
+            handle = (account["hint"] or account["label"]).strip()
+            try:
+                session = create_session(handle, account["secret"])
+                result = send_post(session, text)
+            except BlueskyError as exc:
+                return {"ok": False, "error": str(exc)[:200]}
+            return {"ok": True, "uri": result.get("uri", ""), "handle": handle}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_bluesky_timeline(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Read the Bluesky home timeline (text + authors only)."""
+        from ..integrations.bluesky_basic import BlueskyError, create_session, get_timeline
+
+        data = _body(ctx)
+        engine = _engine()
+        try:
+            account = _vault_key_for(
+                engine, str(data.get("entity_id") or "console-user"), str(data.get("key_id") or "")
+            )
+            if account is None:
+                return {"ok": False, "error": "unknown key; save a Bluesky app password in Stored Keys first"}
+            handle = (account["hint"] or account["label"]).strip()
+            try:
+                session = create_session(handle, account["secret"])
+                try:
+                    limit = max(1, min(25, int(data.get("limit") or 10)))
+                except (TypeError, ValueError):
+                    limit = 10
+                feed = get_timeline(session, limit=limit)
+            except BlueskyError as exc:
+                return {"ok": False, "error": str(exc)[:200]}
+            items = []
+            for entry in (feed.get("feed") or [])[:limit]:
+                post = entry.get("post") or {}
+                author = post.get("author") or {}
+                record = post.get("record") or {}
+                items.append(
+                    {
+                        "author": author.get("handle", ""),
+                        "text": str(record.get("text", ""))[:300],
+                        "likes": (post.get("likeCount") or 0),
+                    }
+                )
+            return {"ok": True, "handle": handle, "items": items}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_openrouter_start(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Begin Login with OpenRouter (yields a normal API key)."""
+        data = _body(ctx)
+        host = str((ctx.get("headers") or {}).get("host", "127.0.0.1:8766"))
+        callback_base = str(data.get("callback_base") or "").strip() or f"http://{host}"
+        engine = _engine()
+        try:
+            return engine.start_openrouter_login(str(data.get("entity_id") or "console-user"), callback_base)
+        except (AuthEngineError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_openrouter_landing(ctx: dict[str, Any]) -> Any:
+        """Browser landing for the OpenRouter redirect (?code=&setup=)."""
+        query = ctx.get("query") if isinstance(ctx.get("query"), dict) else {}
+        query = query or {}
+        code, setup = str(query.get("code", "")), str(query.get("setup", ""))
+        if not code or not setup:
+            return _callback_html(False, "Incomplete login", "Missing code. Start over from Stored Keys.")
+        engine = _engine()
+        try:
+            result = engine.finish_openrouter_login(code, setup)
+            return _callback_html(
+                True,
+                "OpenRouter connected",
+                f"Key '{result['label']}' saved to the vault. You can close this tab.",
+            )
+        except (AuthEngineError, ValueError) as exc:
+            return _callback_html(False, "Login failed", str(exc)[:300])
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_keys_use_as_model(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Point the console model config at a vault key (no re-typing).
+
+        Body: {key_id, provider, model?}. Mirrors the key value into the
+        existing model.api_key path (existing ping/activation flows work
+        unchanged) and records vault_key_id for the "used by model" badge.
+        """
+        data = _body(ctx)
+        key_id = str(data.get("key_id") or "")
+        provider = str(data.get("provider") or "").strip().lower()
+        model = str(data.get("model") or "").strip()
+        if not key_id or not provider:
+            return {"ok": False, "error": "key_id and provider are required"}
+        if len(provider) > 80 or len(model) > 300:
+            return {"ok": False, "error": "provider/model is too long"}
+        engine = _engine()
+        try:
+            try:
+                revealed = engine.reveal_custom_key(str(data.get("entity_id") or "console-user"), key_id)
+            except AuthEngineError as exc:
+                return {"ok": False, "error": str(exc)}
+            if revealed["kind"] != "byok":
+                return {"ok": False, "error": "only API keys (byok) can back a model provider"}
+        finally:
+            with suppress(Exception):
+                engine.close()
+        try:
+            from ..control_plane.config import CONFIG_FILE, load_config, save_config
+
+            config = load_config()
+            section = config.get("model")
+            if not isinstance(section, dict):
+                section = {}
+                config["model"] = section
+            section["provider"] = provider
+            if model:
+                section["model"] = model
+            section["api_key"] = revealed["secret"]
+            section["vault_key_id"] = revealed["id"]
+            section["vault_label"] = revealed["label"]
+            save_config(config)
+            with suppress(OSError):
+                os.chmod(CONFIG_FILE, 0o600)
+            return {"ok": True, "provider": provider, "label": revealed["label"]}
+        except Exception as exc:
+            return {"ok": False, "error": f"could not save: {type(exc).__name__}"}
+
+    def auth_keys_model_ref(_ctx: dict[str, Any]) -> dict[str, Any]:
+        """Which vault key (if any) backs the console chat model. Labels only."""
+        try:
+            from ..control_plane.config import load_config
+
+            model = load_config().get("model", {})
+            if not isinstance(model, dict):
+                return {"ok": True, "vault_key_id": "", "provider": ""}
+            return {
+                "ok": True,
+                "vault_key_id": str(model.get("vault_key_id") or ""),
+                "vault_label": str(model.get("vault_label") or ""),
+                "provider": str(model.get("provider") or ""),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": f"could not read: {type(exc).__name__}"}
+
+    def auth_device_start(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Begin an RFC 8628 device login (no redirect URI — LAN-friendly).
+
+        Returns user_code + verification_uri for display; the UI then polls
+        /api/auth/device/poll until complete.
+        """
+        data = _body(ctx)
+        provider = str(data.get("provider", ""))
+        entity_id = str(data.get("entity_id", ""))
+        if not provider or not entity_id:
+            return {"ok": False, "error": "provider and entity_id are required"}
+        scopes = data.get("scopes") if isinstance(data.get("scopes"), list) else None
+        engine = _engine()
+        try:
+            return engine.start_device_login(provider, entity_id, scopes=scopes)
+        except (AuthEngineError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_device_poll(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Single poll for a pending device login (UI calls repeatedly)."""
+        data = _body(ctx)
+        handle = str(data.get("handle", ""))
+        if not handle:
+            return {"ok": False, "error": "handle is required"}
+        engine = _engine()
+        try:
+            return engine.poll_device_login(handle)
+        except (AuthEngineError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_login_options(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Per-provider login capabilities for the Integrations tab.
+
+        Tells the UI which flows each provider supports (device vs browser),
+        where the effective client ID comes from, and the exact callback URL
+        to register with the provider (for the redirect-URI mismatch check).
+        """
+        from .auth_engine import _PRESET_FOR
+        from .oauth import get_preset
+
+        host = str((ctx.get("headers") or {}).get("host", "127.0.0.1:8766"))
+        callback_url = os.environ.get("GHOSTCHIMERA_OAUTH_CALLBACK", f"http://{host}/api/auth/callback")
+        engine = _engine()
+        try:
+            options = []
+            for key, provider in PROVIDERS.items():
+                preset_id = _PRESET_FOR.get(key, key)
+                try:
+                    preset = get_preset(preset_id)
+                except ValueError:
+                    continue
+                source = engine.client_id_source(preset_id)
+                secret_source = engine.client_secret_source(preset_id)
+                setup = _SETUP_COST.get(key, ("one-time-free", "Register a free OAuth client, then paste its ID."))
+                options.append(
+                    {
+                        "key": key,
+                        "display": provider.display,
+                        "device_flow": preset.supports_device_flow,
+                        "device_verification_url": preset.device_verification_url,
+                        "browser_flow": True,
+                        "client_id_source": source,
+                        "client_id_configured": source != "none",
+                        "client_secret_source": secret_source,
+                        "client_secret_configured": secret_source != "none",
+                        "setup_cost": setup[0],
+                        "setup_note": setup[1],
+                    }
+                )
+            return {"ok": True, "options": options, "callback_url": callback_url}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
     server.routes.register(
         "/api/connectors/providers",
         providers,
@@ -324,6 +934,157 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         "/api/auth/callback", auth_callback_page, method="GET", auth="open", description="OAuth browser landing page"
     )
     server.routes.register(
+        "/api/auth/gh/status",
+        auth_gh_status,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Detect a local GitHub CLI login",
+    )
+    server.routes.register(
+        "/api/auth/gh/import",
+        auth_gh_import,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Import the local GitHub CLI login",
+    )
+    server.routes.register(
+        "/api/auth/keys/save",
+        auth_keys_save,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Store a pasted key (write-only)",
+    )
+    server.routes.register(
+        "/api/auth/keys/list",
+        auth_keys_list,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Redacted key listing",
+    )
+    server.routes.register(
+        "/api/auth/keys/delete",
+        auth_keys_delete,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Delete a stored key",
+    )
+    server.routes.register(
+        "/api/auth/import-csv/preview",
+        auth_csv_preview,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Preview a browser CSV export",
+    )
+    server.routes.register(
+        "/api/auth/import-csv/commit",
+        auth_csv_commit,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Store selected CSV rows as keys",
+    )
+    server.routes.register(
+        "/api/auth/browser/preview",
+        auth_browser_preview,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Preview browser-saved logins (consent)",
+    )
+    server.routes.register(
+        "/api/auth/browser/import",
+        auth_browser_import,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Import selected browser logins (consent)",
+    )
+    server.routes.register(
+        "/api/auth/mail/fetch",
+        auth_mail_fetch,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="App-password inbox fetch (consent-gated)",
+    )
+    server.routes.register(
+        "/api/auth/bluesky/post",
+        auth_bluesky_post,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Bluesky post via vault app password",
+    )
+    server.routes.register(
+        "/api/auth/bluesky/timeline",
+        auth_bluesky_timeline,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Bluesky timeline via vault app password",
+    )
+    server.routes.register(
+        "/api/auth/openrouter/start",
+        auth_openrouter_start,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Start Login with OpenRouter",
+    )
+    server.routes.register(
+        "/api/auth/openrouter/landing",
+        auth_openrouter_landing,
+        method="GET",
+        auth="open",
+        description="OpenRouter browser landing page",
+    )
+    server.routes.register(
+        "/api/auth/keys/use-as-model",
+        auth_keys_use_as_model,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Point model config at a vault key",
+    )
+    server.routes.register(
+        "/api/auth/keys/model-ref",
+        auth_keys_model_ref,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Which vault key backs the chat model",
+    )
+    server.routes.register(
+        "/api/auth/device/start",
+        auth_device_start,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Start RFC 8628 device login",
+    )
+    server.routes.register(
+        "/api/auth/device/poll",
+        auth_device_poll,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Poll a pending device login",
+    )
+    server.routes.register(
+        "/api/auth/login-options",
+        auth_login_options,
+        method="GET",
+        auth=auth,
+        token=token,
+        description="Per-provider login capabilities + callback URL",
+    )
+    server.routes.register(
         "/api/auth/status", auth_status, method="POST", auth=auth, token=token, description="Redacted connection status"
     )
     server.routes.register(
@@ -358,6 +1119,7 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 }
             )
         recent = []
+        store_error = ""
         if loop.store is not None:
             try:
                 for event in loop.store.recent_events(limit=25):
@@ -370,12 +1132,17 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                             "timestamp": event["timestamp"],
                         }
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                # Never present "no activity" as fact when the store failed.
+                # Keep the detail server-side; the client only learns that
+                # the timeline read failed (no paths, DSNs, or SQL leak).
+                logger.warning("stealth recent-events read failed: %s", exc)
+                store_error = "recent-events-unavailable"
         return {
             "ok": True,
             "events_processed": loop.bus.processed,
             "recent_events": recent,
+            "recent_events_error": store_error,
             "interventions": interventions,
             "workflows": [h.to_dict() for h in loop.learner.hypotheses()[:8]],
             "autonomy": loop.policy.autonomy.name,

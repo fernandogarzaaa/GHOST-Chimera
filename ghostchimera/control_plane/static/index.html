@@ -109,6 +109,11 @@
       <input id="conversationTtsRate" type="range" min="70" max="130" value="100" style="flex:1;" title="Playback speed %">
       <button id="conversationTtsTest" title="Preview Ghost voice">Test voice</button>
     </div>
+    <div class="conversation-input-row">
+      <label class="hint" for="ghostTtsServerVoice" style="font-size:11px;">Server voice</label>
+      <select id="ghostTtsServerVoice" title="Neural server voice (Edge TTS, no API key)" style="flex:1;"></select>
+      <label class="inline-check" title="Opt in: sends Ghost reply text to Microsoft Edge TTS over the network. Off by default; the browser voice stays local."><input id="ghostTtsServerUse" type="checkbox"> Use server voice (sends text to Edge TTS)</label>
+    </div>
     <div class="conversation-actions">
       <button id="conversationStartListening" class="primary">Start Listening</button>
       <button id="conversationMute">Mute</button>
@@ -461,6 +466,61 @@
   <div class="tab-content" id="tab-connections">
     <div class="section-hdr" style="margin-top:0;">Account Connections</div>
     <div class="grid" id="connectionsSummary"></div>
+
+    <div class="section-hdr">Provider Logins</div>
+    <p class="hint" style="margin-bottom:10px;">Paste client IDs (and secrets where needed) below — no terminal required. Device login works over LAN with no redirect setup; browser login needs the shown callback URL registered with the provider. Tokens stay local and are never shown.</p>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="providerLoginsRefresh">Refresh Login Status</button>
+      <span class="hint" id="providerLoginsCallback" style="flex:2;min-width:260px;word-break:break-all;"></span>
+    </div>
+    <div id="ghCliBanner" class="hint" style="margin-bottom:12px;"></div>
+    <div id="providerLogins"></div>
+    <pre class="output compact-output" id="providerLoginsOutput">Login status loads here.</pre>
+
+    <div class="section-hdr">Stored Keys</div>
+    <p class="hint" style="margin-bottom:10px;">Pasted API keys and mail app passwords. Values are never displayed — only labels. Pick a key as the chat model credential without re-typing it.</p>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="storedKeysRefresh">Refresh Keys</button>
+      <button id="openrouterLogin" class="primary">Log In With OpenRouter</button>
+    </div>
+    <div id="storedKeys"></div>
+
+    <div class="section-hdr">Bluesky</div>
+    <p class="hint" style="margin-bottom:10px;">Save a Bluesky app password in Stored Keys (label it with your handle), then post or read your timeline. Sessions live only inside each request — nothing is kept.</p>
+    <div class="form-group">
+      <label>Vault key ID (from Stored Keys list — press Refresh Keys to see IDs)</label>
+      <input id="blueskyKeyId" type="text" autocomplete="off" placeholder="key-xxxxxxxxxxxx">
+    </div>
+    <div class="form-group">
+      <label>Post text (max 300 chars)</label>
+      <input id="blueskyPostText" type="text" autocomplete="off" placeholder="Hello Bluesky">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="blueskyPost" class="primary">Post To Bluesky</button>
+      <button id="blueskyTimeline">Read Timeline</button>
+    </div>
+    <pre class="output compact-output" id="blueskyOutput">Bluesky results appear here.</pre>
+
+    <div class="section-hdr">Import Browser Passwords</div>
+    <p class="hint" style="margin-bottom:10px;">Two paths, same result. CSV: export from Chrome/Brave Settings → Passwords → Export, paste below. Direct: read this machine's Chromium login store (explicit consent, Windows-only, nothing leaves this computer). Map each entry to the vault or skip it.</p>
+    <div class="form-group">
+      <label>CSV export text (paste)</label>
+      <textarea id="csvImportText" rows="4" style="width:100%;" placeholder="name,url,username,password&#10;..."></textarea>
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="csvImportPreview" class="primary">Preview CSV</button>
+      <select id="browserImportName" style="max-width:160px;">
+        <option value="chrome">Chrome</option>
+        <option value="brave">Brave</option>
+        <option value="edge">Edge</option>
+      </select>
+      <label class="inline-check"><input id="browserImportConsent" type="checkbox"> I consent to read this machine's saved logins</label>
+      <button id="browserImportPreview" class="primary">Preview Browser Store</button>
+    </div>
+    <div id="credentialImportPreview"></div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="credentialImportCommit" class="primary" disabled>Save Selected To Vault</button>
+    </div>
 
     <div class="section-hdr">GitHub OAuth</div>
     <p class="hint" style="margin-bottom:10px;">Connect GitHub for repo-aware planning, verified skill discovery, and self-evolution source review.</p>

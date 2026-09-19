@@ -156,11 +156,11 @@ _CATALOG: list[ModelCatalogEntry] = [
     # ── Google Gemini (AI Studio) ────────────────────────────────────────────
     ModelCatalogEntry(
         provider="gemini",
-        model_id="gemini-2.0-flash-exp",
-        display_name="Gemini 2.0 Flash (Experimental)",
-        context_window_tokens=1_000_000,
-        input_cost_usd_per_1k=0.0,
-        output_cost_usd_per_1k=0.0,
+        model_id="gemini-3.5-flash",
+        display_name="Gemini 3.5 Flash",
+        context_window_tokens=1_048_576,
+        input_cost_usd_per_1k=0.0015,
+        output_cost_usd_per_1k=0.009,
         supports_streaming=True,
         supports_vision=True,
     ),

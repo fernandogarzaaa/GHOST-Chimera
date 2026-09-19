@@ -63,7 +63,9 @@ def test_providers_and_status_are_redacted(tmp_path) -> None:
     try:
         code, data = _get(BASE + "/api/connectors/providers")
         assert code == 200 and data["ok"] is True
-        assert len(data["providers"]) == 13
+        from ghostchimera.connectors.auth_engine import PROVIDERS
+
+        assert len(data["providers"]) == len(PROVIDERS)
         assert "sk-or" not in json.dumps(data)
         assert data["auth_engine"] == "custom"
         code, status = _get(BASE + "/api/connectors/status")
@@ -134,6 +136,30 @@ def test_first_run_checklist(tmp_path, monkeypatch) -> None:
     status2 = first_run_status(tmp_path)
     assert status2["steps"][0]["done"] is True
     assert status2["first_run"] is False
+
+
+def test_first_run_readiness_completes_from_timeline(tmp_path, monkeypatch) -> None:
+    from ghostchimera.connectors.console_routes import first_run_status
+    from ghostchimera.control_plane.evolution import record_timeline_event
+
+    for var in (
+        "GHOSTCHIMERA_MODEL_PROVIDER",
+        "OPENROUTER_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GROQ_API_KEY",
+        "GOOGLE_API_KEY",
+        "GEMINI_API_KEY",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    before = first_run_status(tmp_path)
+    readiness = next(s for s in before["steps"] if s["id"] == "readiness")
+    assert readiness["done"] is False
+
+    record_timeline_event(tmp_path, "readiness_check_run", {"warning_count": 0})
+    after = first_run_status(tmp_path)
+    readiness = next(s for s in after["steps"] if s["id"] == "readiness")
+    assert readiness["done"] is True
 
 
 def _draft_json() -> str:
@@ -281,7 +307,9 @@ def test_auth_client_id_saved_then_authorizes(tmp_path, monkeypatch) -> None:
         code, saved = _post(
             BASE + "/api/auth/client-id", {"provider": "google-mail", "client_id": "cid.apps.googleusercontent.com"}
         )
-        assert code == 200 and saved == {"ok": True, "provider": "google-mail", "saved": True}
+        assert code == 200 and saved["ok"] is True and saved["saved"] is True
+        assert saved["client_id_configured"] is True and saved["client_id_source"] == "saved"
+        assert saved["client_secret_configured"] is False
         # Saved ID is used without any environment variable...
         code, auth = _post(
             BASE + "/api/auth/authorize",

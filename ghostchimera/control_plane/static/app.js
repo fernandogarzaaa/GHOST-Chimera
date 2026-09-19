@@ -579,8 +579,11 @@
   // ── Ghost voice playback (chunked queue, persisted voice + rate) ──────
   var TTS_VOICE_KEY = "ghostchimera_tts_voice";
   var TTS_RATE_KEY = "ghostchimera_tts_rate";
+  var TTS_SERVER_VOICE_KEY = "ghostchimera_tts_server_voice";
+  var TTS_SERVER_USE_KEY = "ghostchimera_tts_server_use";
   var ttsQueue = [];
   var ttsSpeaking = false;
+  var ttsServerAudio = null;
 
   function ttsVoiceName() {
     try { return localStorage.getItem(TTS_VOICE_KEY) || ""; } catch (_) { return ""; }
@@ -636,9 +639,21 @@
     } catch (_) { ttsSpeaking = false; ttsQueue = []; }
   }
   function speakGhost(text) {
-    if (!text || !("speechSynthesis" in window)) return;
+    if (!text) return;
     var settings = (state.conversation && state.conversation.settings) || {};
     if (!settings.hands_free && !($("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked)) return;
+    if (serverVoiceEnabled()) {
+      speakViaServerChunks(String(text)).then(function() {
+        if ($("#conversationAlwaysListening") && $("#conversationAlwaysListening").checked && !state.voiceRestartBlocked) startConversationListening();
+      }).catch(function() {
+        speakGhostBrowser(text);
+      });
+      return;
+    }
+    speakGhostBrowser(text);
+  }
+  function speakGhostBrowser(text) {
+    if (!("speechSynthesis" in window)) return;
     try {
       window.speechSynthesis.cancel();
       ttsQueue = [];
@@ -655,7 +670,92 @@
   function stopGhostVoice() {
     ttsQueue = [];
     ttsSpeaking = false;
+    try {
+      if (ttsServerAudio) { ttsServerAudio.pause(); ttsServerAudio = null; }
+    } catch (_) {}
     try { window.speechSynthesis.cancel(); } catch (_) {}
+  }
+  function serverVoiceId() {
+    var select = $("#ghostTtsServerVoice");
+    if (select && select.value) return select.value;
+    try { return localStorage.getItem(TTS_SERVER_VOICE_KEY) || ""; } catch (_) { return ""; }
+  }
+  function serverVoiceEnabled() {
+    var box = $("#ghostTtsServerUse");
+    if (box) return !!box.checked;
+    try { return localStorage.getItem(TTS_SERVER_USE_KEY) === "1"; } catch (_) { return false; }
+  }
+  async function refreshServerTtsVoices() {
+    var select = $("#ghostTtsServerVoice");
+    if (!select) return;
+    try {
+      var data = await api("/api/console/voice/tts/voices");
+      if (!data.ok || !data.voices || !data.voices.length) {
+        select.innerHTML = "";
+        select.appendChild(el("option", { value: "" }, "Server voice unavailable"));
+        select.disabled = true;
+        return;
+      }
+      var saved = serverVoiceId();
+      select.innerHTML = "";
+      data.voices.forEach(function(voice) {
+        select.appendChild(el("option", { value: voice.id }, voice.name + " (" + voice.locale + ")"));
+      });
+      if (saved) select.value = saved;
+      select.disabled = false;
+      // Default stays browser voice: the neural server voice sends reply
+      // text to Microsoft's Edge TTS endpoint, so it requires explicit
+      // opt-in via the "Use server voice" checkbox. Never auto-enable.
+      select.addEventListener("change", function() {
+        try { localStorage.setItem(TTS_SERVER_VOICE_KEY, select.value); } catch (_) {}
+      });
+    } catch (_) {
+      select.innerHTML = "";
+      select.appendChild(el("option", { value: "" }, "Server voice unavailable"));
+      select.disabled = true;
+    }
+  }
+  // Chunk long replies on sentence boundaries (≤1900 chars each) so the
+  // server path plays full replies instead of truncating at 2000 chars.
+  async function speakViaServerChunks(text) {
+    var remaining = String(text || "");
+    var pieces = remaining.match(/[^.!?]+[.!?]+["”)]?|\S[^.!?]*$/g) || [remaining];
+    var chunks = [];
+    var current = "";
+    pieces.forEach(function(piece) {
+      var part = String(piece).trim();
+      if (!part) return;
+      if ((current + " " + part).trim().length > 1900 && current) {
+        chunks.push(current.trim());
+        current = part;
+      } else {
+        current = (current ? current + " " : "") + part;
+      }
+    });
+    if (current.trim()) chunks.push(current.trim());
+    if (!chunks.length) chunks.push(remaining.slice(0, 1900));
+    for (var i = 0; i < chunks.length; i++) {
+      await speakViaServer(chunks[i]);
+    }
+  }
+  async function speakViaServer(text) {
+    var data = await api("/api/console/voice/tts/speak", {
+      method: "POST",
+      body: { text: text, voice: serverVoiceId(), speed: ttsRate() },
+    });
+    if (!data.ok || !data.audio_base64) throw new Error(data.error || "Server voice failed.");
+    return new Promise(function(resolve, reject) {
+      try {
+        stopGhostVoice();
+        ttsSpeaking = true;
+        setConversationMicState("Speaking", "ok");
+        var audio = new Audio("data:" + (data.mime_type || "audio/mpeg") + ";base64," + data.audio_base64);
+        ttsServerAudio = audio;
+        audio.onended = function() { ttsSpeaking = false; ttsServerAudio = null; resolve(); };
+        audio.onerror = function() { ttsSpeaking = false; ttsServerAudio = null; reject(new Error("Audio playback failed.")); };
+        audio.play().catch(function(e) { ttsSpeaking = false; ttsServerAudio = null; reject(e); });
+      } catch (e) { reject(e); }
+    });
   }
 
   // ── Hold-to-talk flow dictation (Wispr-style) ──────────────────────────
@@ -1526,6 +1626,477 @@
     });
   }
 
+  // ── Unified Provider Logins (new OAuth engine) ───────────────────────
+  // Paste client IDs/secrets in the console; device login works over LAN
+  // with no redirect setup; browser login needs the shown callback URL
+  // registered with the provider. Secrets and tokens are never displayed.
+  var providerDevicePolls = {};
+
+  function providerLoginsOutput(text) {
+    if ($("#providerLoginsOutput")) $("#providerLoginsOutput").textContent = text;
+  }
+
+  async function renderProviderLogins() {
+    var host = $("#providerLogins");
+    if (!host) return;
+    Object.keys(providerDevicePolls).forEach(stopProviderDevicePoll);
+    host.innerHTML = "";
+    providerLoginsOutput("Loading login status…");
+    renderGhBanner();
+    try {
+      var opts = await api("/api/auth/login-options");
+      if (!opts || !opts.ok) throw new Error((opts && opts.error) || "login options unavailable");
+      var cb = $("#providerLoginsCallback");
+      if (cb) cb.textContent = "Browser-login callback URL — register this exact URL with providers: " + opts.callback_url;
+      var st = await api("/api/auth/status", { method: "POST", body: { entity_id: "console-user" } })
+        .catch(function() { return { connections: [] }; });
+      var connBy = {};
+      ((st && st.connections) || []).forEach(function(c) { connBy[c.provider] = c; });
+      (opts.options || []).forEach(function(p) {
+        host.appendChild(providerLoginCard(p, connBy[p.key], opts.callback_url));
+      });
+      providerLoginsOutput((opts.options || []).length + " providers loaded. Keys stay local; tokens are never shown.");
+    } catch (e) {
+      providerLoginsOutput("Error: " + e.message);
+    }
+  }
+
+  function providerLoginCard(p, conn, callbackUrl) {
+    var card = el("div", { class: "card", style: "margin-bottom:12px;" });
+    var head = el("div", { class: "row" });
+    var title = el("h3", { style: "flex:1;" });
+    title.textContent = p.display;
+    head.appendChild(title);
+    var connected = !!(conn && conn.status === "ACTIVE" && !conn.expired);
+    head.appendChild(el("span", { class: "badge " + (connected ? "ok" : "warn") },
+      connected ? "connected" : (conn && conn.status ? String(conn.status).toLowerCase() : "not connected")));
+    card.appendChild(head);
+
+    var meta = el("div", { class: "meta" });
+    var flows = [];
+    if (p.device_flow) flows.push("device login");
+    if (p.browser_flow) flows.push("browser login");
+    meta.textContent = "Flows: " + flows.join(" + ") +
+      "  ·  Setup: " + (p.setup_cost || "one-time-free") +
+      "  ·  Client ID: " + (p.client_id_configured ? p.client_id_source : "not set") +
+      "  ·  Secret: " + (p.client_secret_configured ? p.client_secret_source : "not set") +
+      (connected && conn.expires_in_s ? "  ·  expires in " + conn.expires_in_s + "s" : "");
+    card.appendChild(meta);
+
+    var idRow = el("div", { class: "row" });
+    var idInput = document.createElement("input");
+    idInput.type = "password"; idInput.autocomplete = "off"; idInput.style.flex = "2";
+    idInput.placeholder = p.client_id_configured ? "client ID saved (" + p.client_id_source + "); leave blank to keep" : "paste " + p.display + " client ID";
+    idInput.setAttribute("data-provider-login-id", p.key);
+    idRow.appendChild(idInput);
+    var secretInput = document.createElement("input");
+    secretInput.type = "password"; secretInput.autocomplete = "off"; secretInput.style.flex = "2";
+    secretInput.placeholder = p.client_secret_configured ? "secret saved (" + p.client_secret_source + "); leave blank to keep" : "client secret — only for confidential clients (Notion, HubSpot)";
+    secretInput.setAttribute("data-provider-login-secret", p.key);
+    idRow.appendChild(secretInput);
+    card.appendChild(idRow);
+
+    var btnRow = el("div", { class: "row" });
+    var save = el("button", { class: "primary" }); save.textContent = "Save keys";
+    save.addEventListener("click", function() { saveProviderKeys(p, idInput, secretInput, save); });
+    btnRow.appendChild(save);
+    var clear = el("button"); clear.textContent = "Clear saved keys";
+    clear.addEventListener("click", function() { clearProviderKeys(p, clear); });
+    btnRow.appendChild(clear);
+    if (p.device_flow) {
+      var dev = el("button", { class: "primary" }); dev.textContent = "Device login";
+      dev.addEventListener("click", function() { startProviderDeviceLogin(p, card); });
+      btnRow.appendChild(dev);
+    }
+    var browse = el("button"); browse.textContent = "Browser login";
+    browse.addEventListener("click", function() { startProviderBrowserLogin(p, callbackUrl); });
+    btnRow.appendChild(browse);
+    if (connected) {
+      var disc = el("button", { class: "danger" }); disc.textContent = "Disconnect";
+      disc.addEventListener("click", function() { disconnectProvider(p, disc); });
+      btnRow.appendChild(disc);
+    }
+    card.appendChild(btnRow);
+
+    var deviceArea = el("div", { class: "meta" });
+    deviceArea.setAttribute("data-provider-device-area", p.key);
+    deviceArea.style.wordBreak = "break-all";
+    card.appendChild(deviceArea);
+    return card;
+  }
+
+  async function saveProviderKeys(p, idInput, secretInput, btn) {
+    var clientId = (idInput.value || "").trim();
+    var clientSecret = (secretInput.value || "").trim();
+    if (!clientId && !clientSecret) { toast("Paste a client ID or secret first.", "warn"); return; }
+    btn.disabled = true;
+    try {
+      var res = await api("/api/auth/client-id",
+        { method: "POST", body: { provider: p.key, client_id: clientId, client_secret: clientSecret } });
+      if (!res.ok) throw new Error(res.error || "save failed");
+      idInput.value = ""; secretInput.value = "";
+      toast("Keys saved locally for " + p.display + ".", "ok");
+      renderProviderLogins();
+    } catch (e) {
+      toast(e.message, "error");
+      btn.disabled = false;
+    }
+  }
+
+  async function clearProviderKeys(p, btn) {
+    btn.disabled = true;
+    try {
+      var res = await api("/api/auth/client-id", { method: "POST", body: { provider: p.key, clear: true } });
+      if (!res.ok) throw new Error(res.error || "clear failed");
+      toast("Saved keys cleared for " + p.display + ".", "ok");
+      renderProviderLogins();
+    } catch (e) {
+      toast(e.message, "error");
+      btn.disabled = false;
+    }
+  }
+
+  function stopProviderDevicePoll(key) {
+    var cur = providerDevicePolls[key];
+    if (cur && cur.timer) clearInterval(cur.timer);
+    delete providerDevicePolls[key];
+  }
+
+  async function startProviderDeviceLogin(p, card) {
+    stopProviderDevicePoll(p.key);
+    var area = card.querySelector('[data-provider-device-area="' + p.key + '"]');
+    try {
+      var data = await api("/api/auth/device/start",
+        { method: "POST", body: { provider: p.key, entity_id: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "device login unavailable");
+      var deadline = Date.now() + (data.expires_in * 1000);
+      var intervalMs = Math.max(2000, (data.interval || 5) * 1000);
+      if (area) {
+        area.innerHTML = "";
+        var code = el("div", { style: "font-size:20px;font-weight:bold;letter-spacing:2px;" });
+        code.textContent = data.user_code;
+        area.appendChild(code);
+        var link = el("div", null);
+        var a = document.createElement("a");
+        a.href = data.verification_uri_complete || data.verification_uri;
+        a.target = "_blank"; a.rel = "noopener";
+        a.textContent = data.verification_uri;
+        link.appendChild(a);
+        area.appendChild(link);
+        var hint = el("div", null, "Enter the code there, approve, and this panel completes automatically.");
+        area.appendChild(hint);
+        var cancel = el("button"); cancel.textContent = "Cancel";
+        cancel.addEventListener("click", function() {
+          stopProviderDevicePoll(p.key);
+          area.textContent = "Device login cancelled.";
+        });
+        area.appendChild(cancel);
+      }
+      if (data.verification_uri) window.open(data.verification_uri, "_blank", "noopener");
+      providerLoginsOutput("Waiting for " + p.display + " approval…");
+      providerDevicePolls[p.key] = {
+        timer: setInterval(function() { pollProviderDeviceLogin(p, data.handle, deadline); }, intervalMs),
+      };
+    } catch (e) {
+      providerLoginsOutput("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  async function pollProviderDeviceLogin(p, handle, deadline) {
+    if (Date.now() > deadline) {
+      stopProviderDevicePoll(p.key);
+      providerLoginsOutput(p.display + " device login expired — start over.");
+      return;
+    }
+    try {
+      var data = await api("/api/auth/device/poll", { method: "POST", body: { handle: handle } });
+      if (!data.ok) {
+        stopProviderDevicePoll(p.key);
+        providerLoginsOutput(p.display + " login ended: " + (data.error || "unknown"));
+        toast(data.error || "Device login ended.", "warn");
+        return;
+      }
+      if (data.status === "complete") {
+        stopProviderDevicePoll(p.key);
+        providerLoginsOutput(p.display + " connected.");
+        toast(p.display + " connected.", "ok");
+        renderProviderLogins();
+      }
+    } catch (e) {
+      stopProviderDevicePoll(p.key);
+      providerLoginsOutput("Error: " + e.message);
+    }
+  }
+
+  async function startProviderBrowserLogin(p, callbackUrl) {
+    try {
+      var redirect = window.location.origin + "/api/auth/callback";
+      var data = await api("/api/auth/authorize",
+        { method: "POST", body: { provider: p.key, entity_id: "console-user", redirect_uri: redirect } });
+      if (!data.ok) throw new Error(data.error || "login unavailable");
+      window.open(data.authorize_url, "_blank", "noopener");
+      providerLoginsOutput("Browser opened for " + p.display + ". Approve access — " +
+        "if the provider rejects the redirect, register exactly: " + callbackUrl);
+      toast("Complete the " + p.display + " login.", "ok");
+    } catch (e) {
+      providerLoginsOutput("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  async function disconnectProvider(p, btn) {
+    btn.disabled = true;
+    try {
+      var data = await api("/api/auth/revoke",
+        { method: "POST", body: { provider: p.key, entity_id: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "revoke failed");
+      toast(p.display + " disconnected.", "ok");
+      renderProviderLogins();
+    } catch (e) {
+      toast(e.message, "error");
+      btn.disabled = false;
+    }
+  }
+
+  // ── gh CLI auto-detect + import ──────────────────────────────────────
+  async function renderGhBanner() {
+    var banner = $("#ghCliBanner");
+    if (!banner) return;
+    banner.innerHTML = "";
+    try {
+      var st = await api("/api/auth/gh/status", { method: "POST", body: {} });
+      if (!st.available) return;
+      banner.textContent = "GitHub CLI login detected (" + (st.user || "unknown user") +
+        (st.scopes && st.scopes.length ? ", scopes: " + st.scopes.join(", ") : "") + "). ";
+      var btn = el("button", { class: "primary" });
+      btn.textContent = "Import gh login";
+      btn.addEventListener("click", importGhLogin);
+      banner.appendChild(btn);
+    } catch (_) {}
+  }
+
+  async function importGhLogin() {
+    try {
+      providerLoginsOutput("Importing GitHub CLI login…");
+      var data = await api("/api/auth/gh/import", { method: "POST", body: { entity_id: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "import failed");
+      toast("GitHub connected via CLI (" + (data.gh_user || "gh") + ").", "ok");
+      providerLoginsOutput("GitHub connected via CLI. Token inherits gh scopes; re-import if it goes stale.");
+      renderProviderLogins();
+    } catch (e) {
+      providerLoginsOutput("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  // ── Stored keys (redacted) ───────────────────────────────────────────
+  async function renderStoredKeys() {
+    var host = $("#storedKeys");
+    if (!host) return;
+    host.innerHTML = "";
+    try {
+      var data = await api("/api/auth/keys/list", { method: "POST", body: { entity_id: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      if (!data.keys.length) {
+        host.appendChild(el("div", { class: "empty" }, "No stored keys yet."));
+        return;
+      }
+      var modelInfo = await api("/api/auth/keys/model-ref", { method: "POST", body: {} })
+        .catch(function() { return null; });
+      var modelKeyId = (modelInfo && modelInfo.vault_key_id) || "";
+      data.keys.forEach(function(k) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "badge ok" }, k.kind));
+        var main = el("div", { style: "flex:1;min-width:180px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = k.label + (k.id === modelKeyId ? "  ·  chat model key" : "");
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        meta.textContent = k.id + "  ·  " + (k.provider_hint || "no hint") +
+          (k.last_used_at ? "  ·  last used " + new Date(k.last_used_at * 1000).toLocaleString() : "  ·  never used");
+        main.appendChild(meta);
+        if (k.kind === "byok") {
+          var useRow = el("div", { class: "row" });
+          var provInput = document.createElement("input");
+          provInput.placeholder = "model provider (e.g. openrouter)";
+          provInput.value = k.provider_hint || "";
+          provInput.style.maxWidth = "220px";
+          useRow.appendChild(provInput);
+          var useBtn = el("button", { class: "primary" });
+          useBtn.textContent = "Use as model";
+          useBtn.addEventListener("click", function() {
+            useKeyAsModel(k, provInput.value, useBtn);
+          });
+          useRow.appendChild(useBtn);
+          main.appendChild(useRow);
+        }
+        item.appendChild(main);
+        var del = el("button", { class: "danger" });
+        del.textContent = "Delete";
+        del.addEventListener("click", async function() {
+          del.disabled = true;
+          try {
+            await api("/api/auth/keys/delete", { method: "POST", body: { entity_id: "console-user", id: k.id } });
+            toast("Key deleted.", "ok");
+            renderStoredKeys();
+          } catch (e) { toast(e.message, "error"); del.disabled = false; }
+        });
+        item.appendChild(del);
+        host.appendChild(item);
+      });
+    } catch (e) {
+      host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
+    }
+  }
+
+  async function useKeyAsModel(k, provider, btn) {
+    provider = (provider || "").trim().toLowerCase();
+    if (!provider) { toast("Enter the model provider this key belongs to.", "warn"); return; }
+    btn.disabled = true;
+    try {
+      var data = await api("/api/auth/keys/use-as-model",
+        { method: "POST", body: { entity_id: "console-user", key_id: k.id, provider: provider } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      toast("Chat model now uses '" + k.label + "' for " + provider + ".", "ok");
+      renderStoredKeys();
+    } catch (e) {
+      toast(e.message, "error");
+      btn.disabled = false;
+    }
+  }
+
+  async function startOpenRouterLogin(btn) {
+    btn.disabled = true;
+    try {
+      var data = await api("/api/auth/openrouter/start",
+        { method: "POST", body: { entity_id: "console-user", callback_base: window.location.origin } });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      window.open(data.authorize_url, "_blank", "noopener");
+      providerLoginsOutput("OpenRouter opened — approve, and the key lands in Stored Keys automatically.");
+      toast("Complete the OpenRouter login.", "ok");
+    } catch (e) {
+      toast(e.message, "error");
+    }
+    btn.disabled = false;
+  }
+
+  // ── Credential import (CSV + browser store) ──────────────────────────
+  var importSource = null; // {type: 'csv'|'browser', csv_text?, browser?}
+
+  function importRowCard(row) {
+    var card = el("div", { class: "list-item" });
+    var main = el("div", { style: "flex:1;min-width:200px;" });
+    var title = el("div", { class: "name" });
+    title.textContent = row.url || row.username || ("row " + row.index);
+    main.appendChild(title);
+    var meta = el("div", { class: "meta" });
+    meta.textContent = (row.username ? row.username + "  ·  " : "") + (row.note || "");
+    main.appendChild(meta);
+    var label = document.createElement("input");
+    label.value = row.url || row.username || ("imported-" + row.index);
+    label.style.flex = "1";
+    label.setAttribute("data-import-label", String(row.index));
+    main.appendChild(label);
+    card.appendChild(main);
+    var kind = document.createElement("select");
+    [["byok", "Save as API key"], ["app_password", "Save as app password"], ["skip", "Skip"]].forEach(function(o) {
+      var opt = document.createElement("option");
+      opt.value = o[0]; opt.textContent = o[1];
+      if (o[0] === row.suggested_kind) opt.selected = true;
+      kind.appendChild(opt);
+    });
+    kind.setAttribute("data-import-kind", String(row.index));
+    card.appendChild(kind);
+    return card;
+  }
+
+  function renderImportPreview(rows, source) {
+    var host = $("#credentialImportPreview");
+    if (!host) return;
+    host.innerHTML = "";
+    importSource = source;
+    var commit = $("#credentialImportCommit");
+    if (!rows.length) {
+      host.appendChild(el("div", { class: "empty" }, "No entries found."));
+      if (commit) commit.disabled = true;
+      return;
+    }
+    rows.forEach(function(r) { host.appendChild(importRowCard(r)); });
+    if (commit) commit.disabled = false;
+    providerLoginsOutput(rows.length + " entries ready — choose a mapping per row, then Save Selected To Vault.");
+  }
+
+  async function previewCsvImport() {
+    var text = ($("#csvImportText") && $("#csvImportText").value) || "";
+    if (!text.trim()) { toast("Paste the CSV export text first.", "warn"); return; }
+    try {
+      var data = await api("/api/auth/import-csv/preview", { method: "POST", body: { csv_text: text } });
+      if (!data.ok) throw new Error(data.error || "preview failed");
+      renderImportPreview(data.rows, { type: "csv", csv_text: text });
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  async function previewBrowserImport() {
+    if (!($("#browserImportConsent") && $("#browserImportConsent").checked)) {
+      toast("Tick the consent checkbox first — direct store reading is explicit opt-in.", "warn");
+      return;
+    }
+    var browser = ($("#browserImportName") && $("#browserImportName").value) || "chrome";
+    try {
+      providerLoginsOutput("Reading " + browser + " login store on this machine…");
+      var data = await api("/api/auth/browser/preview",
+        { method: "POST", body: { browser: browser, consent: true } });
+      if (!data.ok) throw new Error(data.error || "preview failed");
+      renderImportPreview(data.entries, { type: "browser", browser: browser });
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  async function commitCredentialImport() {
+    var host = $("#credentialImportPreview");
+    if (!host || !importSource) return;
+    if (importSource.type === "browser" && !($("#browserImportConsent") && $("#browserImportConsent").checked)) {
+      toast("Consent is required for browser store import.", "warn");
+      return;
+    }
+    var selections = [];
+    Array.prototype.forEach.call(host.querySelectorAll("[data-import-kind]"), function(sel) {
+      var idx = sel.getAttribute("data-import-kind");
+      var labelEl = host.querySelector('[data-import-label="' + idx + '"]');
+      selections.push({
+        index: parseInt(idx, 10),
+        kind: sel.value,
+        label: (labelEl && labelEl.value) || ("imported-" + idx),
+      });
+    });
+    selections = selections.filter(function(s) { return s.kind !== "skip" && !isNaN(s.index); });
+    if (!selections.length) { toast("Nothing selected — pick a mapping per row first.", "warn"); return; }
+    try {
+      var body = { entity_id: "console-user", selections: selections };
+      var path, data;
+      if (importSource.type === "csv") {
+        body.csv_text = importSource.csv_text;
+        path = "/api/auth/import-csv/commit";
+      } else {
+        body.browser = importSource.browser;
+        body.consent = true;
+        path = "/api/auth/browser/import";
+      }
+      data = await api(path, { method: "POST", body: body });
+      if (!data.ok) throw new Error(data.error || "import failed");
+      var okCount = data.saved.filter(function(s) { return s.saved; }).length;
+      providerLoginsOutput("Saved " + okCount + "/" + data.saved.length + " entries to the vault.");
+      var failed = data.saved.filter(function(s) { return !s.saved; });
+      if (failed.length) toast(failed.length + " rows failed: " + failed[0].error, "warn");
+      else toast("Import complete.", "ok");
+      var commit = $("#credentialImportCommit");
+      if (commit) commit.disabled = true;
+      if ($("#csvImportText")) $("#csvImportText").value = "";
+      renderStoredKeys();
+      renderProviderLogins();
+    } catch (e) { toast(e.message, "error"); }
+  }
+
   function renderConfigModelOptions() {
     var option = selectedProviderOption();
     var models = $("#configModelOptions");
@@ -2147,6 +2718,76 @@
   $("#connectionsGithubStart").addEventListener("click", startGithubDeviceSignIn);
   $("#connectionsGithubPoll").addEventListener("click", pollGithubDeviceSignIn);
   $("#connectionsGithubLogout").addEventListener("click", logoutGithub);
+  if ($("#providerLoginsRefresh")) {
+    $("#providerLoginsRefresh").addEventListener("click", renderProviderLogins);
+  }
+  if ($("#storedKeysRefresh")) {
+    $("#storedKeysRefresh").addEventListener("click", renderStoredKeys);
+  }
+  if ($("#csvImportPreview")) {
+    $("#csvImportPreview").addEventListener("click", previewCsvImport);
+  }
+  if ($("#browserImportPreview")) {
+    $("#browserImportPreview").addEventListener("click", previewBrowserImport);
+  }
+  if ($("#credentialImportCommit")) {
+    $("#credentialImportCommit").addEventListener("click", commitCredentialImport);
+  }
+  if ($("#openrouterLogin")) {
+    $("#openrouterLogin").addEventListener("click", function() { startOpenRouterLogin(this); });
+  }
+  if ($("#blueskyPost")) {
+    $("#blueskyPost").addEventListener("click", blueskyPost);
+  }
+  if ($("#blueskyTimeline")) {
+    $("#blueskyTimeline").addEventListener("click", blueskyTimeline);
+  }
+  try { renderProviderLogins(); } catch (_) {}
+  try { renderStoredKeys(); } catch (_) {}
+
+  function blueskyKeyId() {
+    return (($("#blueskyKeyId") && $("#blueskyKeyId").value) || "").trim();
+  }
+
+  function blueskyOut(text) {
+    if ($("#blueskyOutput")) $("#blueskyOutput").textContent = text;
+  }
+
+  async function blueskyPost() {
+    var keyId = blueskyKeyId();
+    var text = (($("#blueskyPostText") && $("#blueskyPostText").value) || "").trim();
+    if (!keyId) { toast("Paste the vault key ID first (see Stored Keys).", "warn"); return; }
+    if (!text) { toast("Write the post text first.", "warn"); return; }
+    try {
+      blueskyOut("Posting…");
+      var data = await api("/api/auth/bluesky/post",
+        { method: "POST", body: { entity_id: "console-user", key_id: keyId, text: text } });
+      if (!data.ok) throw new Error(data.error || "post failed");
+      blueskyOut("Posted as " + data.handle + "\n" + (data.uri || ""));
+      if ($("#blueskyPostText")) $("#blueskyPostText").value = "";
+      toast("Posted to Bluesky.", "ok");
+    } catch (e) {
+      blueskyOut("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  async function blueskyTimeline() {
+    var keyId = blueskyKeyId();
+    if (!keyId) { toast("Paste the vault key ID first (see Stored Keys).", "warn"); return; }
+    try {
+      blueskyOut("Reading timeline…");
+      var data = await api("/api/auth/bluesky/timeline",
+        { method: "POST", body: { entity_id: "console-user", key_id: keyId, limit: 10 } });
+      if (!data.ok) throw new Error(data.error || "timeline failed");
+      blueskyOut((data.items || []).map(function(it) {
+        return "@" + it.author + " (" + it.likes + " likes)\n" + it.text;
+      }).join("\n\n") || "Empty timeline.");
+    } catch (e) {
+      blueskyOut("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
   $("#githubSelfEvolutionPreview").addEventListener("click", previewSelfEvolution);
   $("#githubPlan").addEventListener("click", planGithubIssue);
   $("#githubPolicyPreview").addEventListener("click", previewGithubPolicy);
@@ -3281,12 +3922,26 @@
       try { localStorage.setItem(TTS_RATE_KEY, String(rate.value)); } catch (_) {}
     });
     var test = $("#conversationTtsTest");
-    if (test) test.addEventListener("click", function() {
-      if (!("speechSynthesis" in window)) { toast("No speech synthesis in this browser.", "warn"); return; }
+    if (test) test.addEventListener("click", async function() {
       stopGhostVoice();
-      ttsQueue.push("Ghost voice check. This is how I will sound.");
+      var sample = "Ghost voice check. This is how I will sound.";
+      try {
+        await speakViaServer(sample);
+        toast("Server voice check played.", "ok");
+        return;
+      } catch (_) {}
+      if (!("speechSynthesis" in window)) { toast("No speech synthesis in this browser.", "warn"); return; }
+      ttsQueue.push(sample);
       speakNextChunk();
     });
+    var serverUse = $("#ghostTtsServerUse");
+    if (serverUse) {
+      try { serverUse.checked = localStorage.getItem(TTS_SERVER_USE_KEY) === "1"; } catch (_) {}
+      serverUse.addEventListener("change", function() {
+        try { localStorage.setItem(TTS_SERVER_USE_KEY, serverUse.checked ? "1" : "0"); } catch (_) {}
+        toast(serverUse.checked ? "Ghost replies will use the server voice." : "Ghost replies will use the browser voice.", "");
+      });
+    }
     try {
       if (window.speechSynthesis && window.speechSynthesis.onvoiceschanged !== undefined) {
         window.speechSynthesis.onvoiceschanged = function() { pickTtsVoice(); };
@@ -4939,6 +5594,9 @@
       var go = $("#firstRunGo");
       if (go) go.onclick = function() {
         var next = (data.steps || []).find(function(s) { return !s.done; });
+        // Always narrate the next step: when its tab is the one already
+        // open, navigation alone is invisible and the button looks dead.
+        if (next) toast(next.title + " — " + (next.detail || ""), "");
         openTab(next ? next.tab : "config");
       };
     } catch (e) {
@@ -5131,6 +5789,7 @@
     refreshTrust();
     refreshLivePresence();
     refreshConversationStatus();
+    refreshServerTtsVoices();
     refreshIntegrations();
     refreshFirstRun();
     refreshStealth();
