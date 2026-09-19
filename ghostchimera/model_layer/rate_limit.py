@@ -15,6 +15,7 @@ Usage::
 
 from __future__ import annotations
 
+import math
 import os
 import threading
 import time
@@ -25,10 +26,17 @@ class RateLimitExceeded(RuntimeError):
 
 
 def _env_float(name: str, default: float) -> float:
+    """Env override or *default*; missing/non-numeric/non-finite/non-positive → default."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
     try:
-        return max(0.0, float(os.environ.get(name, default)))
+        value = float(raw)
     except (TypeError, ValueError):
         return default
+    if not math.isfinite(value) or value <= 0.0:
+        return default
+    return value
 
 
 class RateLimiter:
@@ -103,11 +111,14 @@ def limiter_from_env(provider_name: str, *, default_rps: float = 0.0, default_bu
     """Build a limiter from ``GHOSTCHIMERA_RL_<NAME>_RPS/BURST`` env vars."""
     key = provider_name.upper().replace("-", "_")
     rps = _env_float(f"GHOSTCHIMERA_RL_{key}_RPS", _env_float("GHOSTCHIMERA_RL_DEFAULT_RPS", default_rps))
+    burst_default = default_burst or max(1, int(rps))
     burst_raw = os.environ.get(f"GHOSTCHIMERA_RL_{key}_BURST", os.environ.get("GHOSTCHIMERA_RL_DEFAULT_BURST", ""))
     try:
-        burst = int(burst_raw) if str(burst_raw).strip() else (default_burst or max(1, int(rps)))
-    except (TypeError, ValueError):
-        burst = default_burst or max(1, int(rps))
+        burst = int(burst_raw) if str(burst_raw).strip() else burst_default
+        if burst <= 0:
+            burst = burst_default
+    except (TypeError, ValueError, OverflowError):
+        burst = burst_default
     return RateLimiter(rps, burst)
 
 

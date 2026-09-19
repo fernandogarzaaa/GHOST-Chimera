@@ -77,6 +77,40 @@ class MultiLLMTests(unittest.TestCase):
         self.assertTrue(status["a"]["available"])
         self.assertFalse(status["b"]["available"])
 
+    def test_ask_first_does_not_wait_for_slow_provider(self) -> None:
+        import threading
+        import time
+
+        release = threading.Event()
+
+        class SlowProvider(FakeProvider):
+            def chat(self, system_message: str, user_message: str) -> str:
+                self.calls += 1
+                release.wait(timeout=30)
+                return "slow answer"
+
+        providers = {"slow": SlowProvider(), "fast": FakeProvider(answer="fast answer")}
+        fabric = _fabric(["slow", "fast"], providers)
+        started = time.monotonic()
+        try:
+            outcome = fabric.ask_first("sys", "hi")
+        finally:
+            release.set()
+        self.assertEqual(outcome["answer"], "fast answer")
+        self.assertLess(time.monotonic() - started, 25)
+
+    def test_budget_blocks_over_spend(self) -> None:
+        # Priced catalog model: 1000 output tokens at $0.0015/1k.
+        ledger = CostLedger()
+        ledger.set_budget("openai", 0.001)
+        providers = {"openai": FakeProvider(answer="x" * 4000, model="gpt-3.5-turbo")}
+        with mock.patch("ghostchimera.model_layer.multi_llm.get_provider", side_effect=lambda n: providers.get(n)):
+            fabric = MultiLLM(["openai"], ledger=ledger)
+            first = fabric.ask_all("sys", "hi")
+            self.assertTrue(first["openai"]["ok"])
+            second = fabric.ask_all("sys", "hi")
+        self.assertIn("budget blocked", second["openai"]["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

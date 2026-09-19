@@ -82,7 +82,7 @@ class LimiterEnvTests(unittest.TestCase):
 
     def test_env_configures_limiter(self) -> None:
         env = {"GHOSTCHIMERA_RL_OPENAI_RPS": "4", "GHOSTCHIMERA_RL_OPENAI_BURST": "2"}
-        with mock.patch.dict("os.environ", env, clear=False):
+        with mock.patch.dict("os.environ", env, clear=True):
             limiter = limiter_from_env("openai")
             self.assertEqual(limiter.rate_per_second, 4.0)
             self.assertEqual(limiter.burst, 2)
@@ -90,7 +90,7 @@ class LimiterEnvTests(unittest.TestCase):
             self.assertIs(cached, get_limiter("openai"))
 
     def test_bad_env_falls_back_to_zero(self) -> None:
-        with mock.patch.dict("os.environ", {"GHOSTCHIMERA_RL_X_RPS": "nonsense"}, clear=False):
+        with mock.patch.dict("os.environ", {"GHOSTCHIMERA_RL_X_RPS": "nonsense"}, clear=True):
             self.assertTrue(limiter_from_env("x").unlimited)
 
 

@@ -287,6 +287,23 @@ class ModelsDevDiscoveryTests(unittest.TestCase):
         payload = {"broken": {"models": {"": {"name": "nameless"}}}, "alsobroken": "nope"}
         self.assertEqual(normalize_modelsdev_models(payload, timestamp=1.0), [])
 
+    def test_unknown_pricing_omitted_not_free(self) -> None:
+        payload = {
+            "prov": {
+                "id": "prov",
+                "env": ["SOME_KEY"],
+                "models": {"m": {"id": "m", "name": "M", "cost": {}, "limit": {}}},
+            }
+        }
+        models = normalize_modelsdev_models(payload, timestamp=1.0)
+        self.assertEqual(len(models), 1)
+        self.assertEqual(models[0].pricing, {})
+        self.assertEqual(models[0].cost_class, "unknown")
+
+    def test_env_names_keep_casing(self) -> None:
+        models = normalize_modelsdev_models(self._payload(), timestamp=1.0)
+        self.assertIn("ANTHROPIC_API_KEY", models[0].raw_metadata["env"])
+
     def test_refresh_modelsdev_source_with_mock_fetch(self) -> None:
         payload = self._payload()
 

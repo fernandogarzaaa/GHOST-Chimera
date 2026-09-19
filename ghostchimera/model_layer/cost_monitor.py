@@ -18,9 +18,11 @@ Usage::
 
 from __future__ import annotations
 
+import contextlib
 import json
 import threading
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +60,29 @@ class CostLedger:
         self._calls: dict[str, int] = {}
         self._budgets: dict[str, float] = {}
         self._by_model: dict[str, float] = {}
+        self._provider_locks: dict[str, threading.Lock] = {}
+
+    def _serial(self, provider: str) -> threading.Lock:
+        """Per-provider lock so same-provider attempts serialize."""
+        with self._lock:
+            lock = self._provider_locks.get(provider)
+            if lock is None:
+                lock = threading.Lock()
+                self._provider_locks[provider] = lock
+            return lock
+
+    @contextlib.contextmanager
+    def guard(self, provider: str) -> Iterator[CostLedger]:
+        """Serialize check-call-record for one provider.
+
+        Holds the provider's lock across the whole attempt and budget-checks
+        on entry, so concurrent attempts can never jointly overshoot a cap.
+        Different providers proceed in parallel; wrap the provider call AND
+        its ``record()`` inside.
+        """
+        with self._serial(provider):
+            self.check(provider)
+            yield self
 
     def record(
         self,
@@ -137,15 +162,36 @@ class CostLedger:
         if not isinstance(data, dict):
             return ledger
         with ledger._lock:
-            for key, value in dict(data.get("spend_usd", {})).items():
-                ledger._spend[str(key)] = float(value)
-            for key, value in dict(data.get("calls", {})).items():
-                ledger._calls[str(key)] = int(value)
-            for key, value in dict(data.get("budgets_usd", {})).items():
-                ledger._budgets[str(key)] = float(value)
-            for key, value in dict(data.get("by_model_usd", {})).items():
-                ledger._by_model[str(key)] = float(value)
+            for key, value in cls._float_section(data.get("spend_usd")).items():
+                ledger._spend[str(key)] = value
+            calls = data.get("calls")
+            if isinstance(calls, dict):
+                for key, value in calls.items():
+                    try:
+                        ledger._calls[str(key)] = int(value)
+                    except (TypeError, ValueError):
+                        continue
+            for key, value in cls._float_section(data.get("budgets_usd")).items():
+                ledger._budgets[str(key)] = value
+            for key, value in cls._float_section(data.get("by_model_usd")).items():
+                ledger._by_model[str(key)] = value
         return ledger
+
+    @staticmethod
+    def _float_section(section: Any) -> dict[str, float]:
+        """Safely coerce a persisted mapping to str->float, skipping junk."""
+        if not isinstance(section, dict):
+            return {}
+        cleaned: dict[str, float] = {}
+        for key, value in section.items():
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                continue
+            if number != number or number in (float("inf"), float("-inf")):  # NaN / inf
+                continue
+            cleaned[str(key)] = number
+        return cleaned
 
 
 _ledger = CostLedger()

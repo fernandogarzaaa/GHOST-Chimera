@@ -22,7 +22,7 @@ import concurrent.futures
 import logging
 from typing import Any
 
-from .cost_monitor import CostLedger, get_ledger
+from .cost_monitor import BudgetExceeded, CostLedger, get_ledger
 from .providers import BaseProvider, get_provider
 from .rate_limit import RateLimitExceeded, get_limiter
 
@@ -47,7 +47,11 @@ class MultiLLM:
             self._providers[name] = get_provider(name)
 
     def _attempt(self, name: str, system_message: str, user_message: str) -> dict[str, Any]:
-        """One provider attempt: rate-limit, budget-check, call, record."""
+        """One provider attempt: rate-limit, budget-guard, call, record.
+
+        The ledger guard serializes same-provider attempts so concurrent
+        calls can never jointly overshoot a budget cap.
+        """
         provider = self._providers.get(name)
         if provider is None:
             return {"name": name, "ok": False, "error": "unknown provider", "answer": ""}
@@ -58,16 +62,17 @@ class MultiLLM:
         except RateLimitExceeded as exc:
             return {"name": name, "ok": False, "error": f"rate limited: {exc}", "answer": ""}
         try:
-            self.ledger.check(name)
-        except Exception as exc:
+            with self.ledger.guard(name):
+                answer = provider.chat(system_message, user_message)
+                model = str(getattr(provider, "model", "") or "")
+                cost = self.ledger.record(
+                    name, model, input_text=f"{system_message}\n{user_message}", output_text=answer
+                )
+        except BudgetExceeded as exc:
             return {"name": name, "ok": False, "error": f"budget blocked: {exc}", "answer": ""}
-        try:
-            answer = provider.chat(system_message, user_message)
         except Exception as exc:
             logger.warning("MultiLLM: provider '%s' failed – %s", name, exc)
             return {"name": name, "ok": False, "error": str(exc), "answer": ""}
-        model = str(getattr(provider, "model", "") or "")
-        cost = self.ledger.record(name, model, input_text=f"{system_message}\n{user_message}", output_text=answer)
         return {"name": name, "ok": True, "error": "", "answer": answer, "model": model, "cost_usd": cost}
 
     def ask_all(self, system_message: str, user_message: str) -> dict[str, dict[str, Any]]:
@@ -90,14 +95,34 @@ class MultiLLM:
     def ask_first(self, system_message: str, user_message: str) -> dict[str, Any]:
         """Parallel fallback: return the first successful answer.
 
-        Raises ``RuntimeError`` only when every provider fails.
+        Attempts run simultaneously; the first success to *complete* wins
+        instead of waiting for every provider. Remaining attempts are
+        cancelled where still pending. Raises ``RuntimeError`` only when
+        every provider fails.
         """
-        outcomes = self.ask_all(system_message, user_message)
-        for name in self.provider_names:
-            outcome = outcomes.get(name)
-            if outcome and outcome.get("ok"):
-                outcome["strategy"] = "parallel-first-success"
-                return outcome
+        if not self.provider_names:
+            raise RuntimeError("All providers failed: no providers configured")
+        outcomes: dict[str, dict[str, Any]] = {}
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers)
+        try:
+            futures = {
+                pool.submit(self._attempt, name, system_message, user_message): name for name in self.provider_names
+            }
+            pending = set(futures)
+            while pending:
+                done, pending = concurrent.futures.wait(pending, return_when=concurrent.futures.FIRST_COMPLETED)
+                for future in done:
+                    name = futures[future]
+                    try:
+                        outcomes[name] = future.result()
+                    except Exception as exc:  # pragma: no cover - defensive
+                        outcomes[name] = {"name": name, "ok": False, "error": str(exc), "answer": ""}
+                    if outcomes[name].get("ok"):
+                        outcome = dict(outcomes[name])
+                        outcome["strategy"] = "parallel-first-success"
+                        return outcome
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
         errors = "; ".join(f"{n}: {o.get('error')}" for n, o in outcomes.items())
         raise RuntimeError(f"All providers failed: {errors}")
 

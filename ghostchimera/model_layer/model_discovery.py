@@ -441,7 +441,7 @@ def normalize_modelsdev_models(payload: dict[str, Any], *, timestamp: float) -> 
         models = provider.get("models")
         if not isinstance(models, dict):
             continue
-        env_keys = _listify(provider.get("env"))
+        env_keys = _env_names(provider.get("env"))
         for model_id, item in models.items():
             if not isinstance(item, dict):
                 continue
@@ -453,10 +453,9 @@ def normalize_modelsdev_models(payload: dict[str, Any], *, timestamp: float) -> 
             out_modalities = _listify(modalities.get("output")) or ["text"]
             limit = item.get("limit") if isinstance(item.get("limit"), dict) else {}
             cost = item.get("cost") if isinstance(item.get("cost"), dict) else {}
-            pricing = {
-                "prompt": _per_million(cost.get("input")),
-                "completion": _per_million(cost.get("output")),
-            }
+            # Omit unknown prices instead of 0.0: a missing price is "unknown",
+            # while an explicit 0.0 means genuinely free.
+            pricing = _modelsdev_pricing(cost)
             badges = _capability_badges(
                 full_id, str(item.get("name") or full_id), in_modalities, [], int(limit.get("context") or 0), pricing
             )
@@ -489,12 +488,29 @@ def normalize_modelsdev_models(payload: dict[str, Any], *, timestamp: float) -> 
     return normalized
 
 
-def _per_million(value: Any) -> float:
-    """models.dev per-1M-token price to per-token float (0.0 when unknown)."""
-    try:
-        return max(0.0, float(value)) / 1_000_000.0
-    except (TypeError, ValueError):
-        return 0.0
+def _modelsdev_pricing(cost: dict[str, Any]) -> dict[str, float]:
+    """Build a pricing dict with only known prices (missing stays unknown)."""
+    pricing: dict[str, float] = {}
+    for source_key, target_key in (("input", "prompt"), ("output", "completion")):
+        try:
+            price = max(0.0, float(cost.get(source_key)))
+        except (TypeError, ValueError):
+            continue
+        pricing[target_key] = price / 1_000_000.0
+    return pricing
+
+
+def _env_names(value: Any) -> list[str]:
+    """Environment-variable names with original casing preserved.
+
+    Unlike :func:`_listify` (which lowercases for matching), env names are
+    identifiers — ``ANTHROPIC_API_KEY`` must not become ``anthropic_api_key``.
+    """
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
 
 
 def _huggingface_model(item: dict[str, Any], *, has_api_key: bool, timestamp: float) -> DiscoveredModel:

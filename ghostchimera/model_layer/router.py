@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from .cost_monitor import CostLedger, get_ledger
+from .cost_monitor import BudgetExceeded, CostLedger, get_ledger
 from .providers import BaseProvider, get_provider
 from .rate_limit import RateLimitExceeded, get_limiter
 
@@ -67,11 +67,16 @@ class ModelRouter:
                 logger.warning("Router: provider '%s' rate limited", name)
                 continue
             try:
-                result = provider.chat(system_message, user_message)
-                model = str(getattr(provider, "model", "") or "")
-                self.ledger.record(name, model, input_text=f"{system_message}\n{user_message}", output_text=result)
+                with self.ledger.guard(name):
+                    result = provider.chat(system_message, user_message)
+                    model = str(getattr(provider, "model", "") or "")
+                    self.ledger.record(name, model, input_text=f"{system_message}\n{user_message}", output_text=result)
                 logger.info("Router: selected provider '%s'", name)
                 return result
+            except BudgetExceeded as exc:
+                errors.append(f"{name}: budget blocked ({exc})")
+                logger.warning("Router: provider '%s' over budget", name)
+                continue
             except Exception as exc:
                 errors.append(f"{name}: {exc}")
                 logger.warning("Router: provider '%s' failed – %s", name, exc)
