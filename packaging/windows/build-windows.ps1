@@ -24,6 +24,13 @@ Write-Output "Bundle ready: $exe"
 $iscc = Get-Command iscc -ErrorAction SilentlyContinue
 if ($iscc) {
     & $iscc packaging/windows/ghost-chimera.iss /DAppVersion=$version
+    if ($LASTEXITCODE -ne 0) {
+        throw "Inno Setup failed with exit code $LASTEXITCODE"
+    }
+    $installer = Join-Path $root "dist-desktop/installer/GhostChimeraSetup-$version.exe"
+    if (-not (Test-Path -LiteralPath $installer)) {
+        throw "Build failed: $installer not found"
+    }
     Write-Output "Installer written to dist-desktop/installer/"
 } else {
     Write-Output "Inno Setup (iscc) not on PATH — bundle built, installer skipped."

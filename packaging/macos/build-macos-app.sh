@@ -25,12 +25,17 @@ cp -R dist-desktop/GhostChimera/* "$APP/Contents/MacOS/"
 cp packaging/assets/ghost.icns "$APP/Contents/Resources/ghost.icns"
 sed "s/__GHOSTCHIMERA_VERSION__/${VERSION}/g" packaging/macos/Info.plist > "$APP/Contents/Info.plist"
 
-# Smoke test: launch, wait for /health, kill.
+# Smoke test: launch, wait for /health on the RESOLVED url, kill.
+# Ports auto-resolve when busy, so parse the printed console URL instead of
+# assuming 8766. Unbuffered output keeps the URL line visible promptly.
+export PYTHONUNBUFFERED=1
 "$APP/Contents/MacOS/GhostConsole" &>/tmp/ghost-console-smoke.log &
 SMOKE_PID=$!
 SMOKE_OK=0
-for _ in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:8766/health" >/dev/null 2>&1; then SMOKE_OK=1; break; fi
+SMOKE_URL=""
+for _ in $(seq 1 40); do
+  SMOKE_URL=$(grep -oE 'Ghost Console: http://[^ ]+' /tmp/ghost-console-smoke.log 2>/dev/null | tail -1 | sed 's/^Ghost Console: //')
+  if [ -n "$SMOKE_URL" ] && curl -fsS "${SMOKE_URL}health" >/dev/null 2>&1; then SMOKE_OK=1; break; fi
   sleep 3
 done
 kill "$SMOKE_PID" 2>/dev/null || true
@@ -38,7 +43,7 @@ if [ "$SMOKE_OK" != "1" ]; then
   echo "Smoke test failed — see /tmp/ghost-console-smoke.log"
   exit 1
 fi
-echo "Smoke test passed."
+echo "Smoke test passed ($SMOKE_URL)."
 
 # Pack a drag-to-Applications DMG.
 DMG_DIR="dist-desktop/dmg-staging"

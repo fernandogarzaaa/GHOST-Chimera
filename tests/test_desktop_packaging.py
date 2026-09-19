@@ -74,6 +74,8 @@ class DesktopPackagingTests(unittest.TestCase):
             self.assertTrue((out / "icon.png").is_file())
             self.assertTrue((out / "ghost.ico").is_file())
             self.assertGreater((out / "ghost.ico").stat().st_size, 0)
+            self.assertTrue((out / "ghost.icns").is_file())
+            self.assertGreater((out / "ghost.icns").stat().st_size, 0)
 
 
 if __name__ == "__main__":
