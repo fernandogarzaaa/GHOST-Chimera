@@ -439,6 +439,46 @@ def wait_for_device_token(
         sleep(wait)
 
 
+# -- OpenRouter PKCE login ------------------------------------------------------
+# Not standard OAuth: the user authorizes at openrouter.ai/auth, the
+# browser returns ?code= to our callback, and the code is exchanged for a
+# user-controlled API key (a normal Bearer key afterwards).
+OPENROUTER_AUTH_URL = "https://openrouter.ai/auth"
+OPENROUTER_KEYS_URL = "https://openrouter.ai/api/v1/auth/keys"
+
+
+def build_openrouter_login_url(*, callback_url: str) -> tuple[str, str]:
+    """Return (authorize_url, verifier). The verifier is unused at exchange
+    (OpenRouter binds the code to the challenge server-side) but kept for
+    future proofing; the code is single-use and short-lived."""
+    verifier, challenge = pkce_pair()
+    params = {"callback_url": callback_url, "code_challenge": challenge, "code_challenge_method": "S256"}
+    return OPENROUTER_AUTH_URL + "?" + urllib.parse.urlencode(params), verifier
+
+
+def exchange_openrouter_code(code: str) -> dict[str, Any]:
+    """Exchange an OpenRouter authorization code for the user's API key."""
+    if not code:
+        raise ValueError("OpenRouter code is required")
+    body = json.dumps({"code": code}).encode()
+    req = urllib.request.Request(
+        OPENROUTER_KEYS_URL, data=body, headers={"Content-Type": "application/json", "Accept": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30.0) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as exc:
+        raise ValueError(f"OpenRouter exchange failed: HTTP {exc.code}") from exc
+    except Exception as exc:
+        raise ValueError(f"OpenRouter unreachable: {type(exc).__name__}") from exc
+    key = str(data.get("key", "")) if isinstance(data, dict) else ""
+    if not key:
+        raise ValueError(
+            f"OpenRouter gave no key: {data.get('error', 'unknown error') if isinstance(data, dict) else 'bad response'}"
+        )
+    return {"key": key, "label": str(data.get("label", "") or "OpenRouter")}
+
+
 # -- Token vault ------------------------------------------------------------
 class TokenVault:
     """Owner-only JSON token files under the state dir. Status is redacted."""
@@ -504,10 +544,14 @@ def oauth_status(state_dir: str | Path) -> dict[str, dict[str, Any]]:
 
 __all__ = [
     "OAUTH_PRESETS",
+    "OPENROUTER_AUTH_URL",
+    "OPENROUTER_KEYS_URL",
     "ProviderPreset",
     "TokenVault",
     "build_authorize_url",
+    "build_openrouter_login_url",
     "exchange_code",
+    "exchange_openrouter_code",
     "get_preset",
     "oauth_status",
     "pkce_pair",

@@ -164,6 +164,20 @@ codes, never account passwords), label it, and Ghost stores it
 Fernet-encrypted. Listings show labels only; values are never displayed,
 logged, or returned by any route. API: `/api/auth/keys/save|list|delete`.
 
+- **Use as model**: each API key row takes a provider name and points the
+  chat model config at it — no re-typing, existing ping/activation flows
+  work unchanged, and the row gains a "chat model key" badge
+  (`/api/auth/keys/use-as-model`, `/api/auth/keys/model-ref`).
+- **Log In With OpenRouter**: browser PKCE flow that lands a
+  user-controlled OpenRouter key straight in the vault (no paste step).
+
+### Gemini without an API key (Login with Google)
+
+Provider Logins → **Gemini (Google login)**: browser OAuth with the
+`generative-language` scope on top of the same free Desktop client. Chat
+calls then send `Authorization: Bearer` and bill your Google account —
+no `GOOGLE_API_KEY` needed. OAuth wins when both are configured.
+
 App passwords become usable mail through `POST /api/auth/mail/fetch`
 (key ID or label, max 50 messages, IMAP UNSEEN by default): read-only,
 consent-gated (Personal MiniMind email-crawl consent required), headers +

@@ -1902,17 +1902,35 @@
         host.appendChild(el("div", { class: "empty" }, "No stored keys yet."));
         return;
       }
+      var modelInfo = await api("/api/auth/keys/model-ref", { method: "POST", body: {} })
+        .catch(function() { return null; });
+      var modelKeyId = (modelInfo && modelInfo.vault_key_id) || "";
       data.keys.forEach(function(k) {
         var item = el("div", { class: "list-item" });
         item.appendChild(el("span", { class: "badge ok" }, k.kind));
         var main = el("div", { style: "flex:1;min-width:180px;" });
         var title = el("div", { class: "name" });
-        title.textContent = k.label;
+        title.textContent = k.label + (k.id === modelKeyId ? "  ·  chat model key" : "");
         main.appendChild(title);
         var meta = el("div", { class: "meta" });
         meta.textContent = k.id + "  ·  " + (k.provider_hint || "no hint") +
           (k.last_used_at ? "  ·  last used " + new Date(k.last_used_at * 1000).toLocaleString() : "  ·  never used");
         main.appendChild(meta);
+        if (k.kind === "byok") {
+          var useRow = el("div", { class: "row" });
+          var provInput = document.createElement("input");
+          provInput.placeholder = "model provider (e.g. openrouter)";
+          provInput.value = k.provider_hint || "";
+          provInput.style.maxWidth = "220px";
+          useRow.appendChild(provInput);
+          var useBtn = el("button", { class: "primary" });
+          useBtn.textContent = "Use as model";
+          useBtn.addEventListener("click", function() {
+            useKeyAsModel(k, provInput.value, useBtn);
+          });
+          useRow.appendChild(useBtn);
+          main.appendChild(useRow);
+        }
         item.appendChild(main);
         var del = el("button", { class: "danger" });
         del.textContent = "Delete";
@@ -1930,6 +1948,37 @@
     } catch (e) {
       host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
     }
+  }
+
+  async function useKeyAsModel(k, provider, btn) {
+    provider = (provider || "").trim().toLowerCase();
+    if (!provider) { toast("Enter the model provider this key belongs to.", "warn"); return; }
+    btn.disabled = true;
+    try {
+      var data = await api("/api/auth/keys/use-as-model",
+        { method: "POST", body: { entity_id: "console-user", key_id: k.id, provider: provider } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      toast("Chat model now uses '" + k.label + "' for " + provider + ".", "ok");
+      renderStoredKeys();
+    } catch (e) {
+      toast(e.message, "error");
+      btn.disabled = false;
+    }
+  }
+
+  async function startOpenRouterLogin(btn) {
+    btn.disabled = true;
+    try {
+      var data = await api("/api/auth/openrouter/start",
+        { method: "POST", body: { entity_id: "console-user", callback_base: window.location.origin } });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      window.open(data.authorize_url, "_blank", "noopener");
+      providerLoginsOutput("OpenRouter opened — approve, and the key lands in Stored Keys automatically.");
+      toast("Complete the OpenRouter login.", "ok");
+    } catch (e) {
+      toast(e.message, "error");
+    }
+    btn.disabled = false;
   }
 
   // ── Credential import (CSV + browser store) ──────────────────────────
@@ -2683,6 +2732,9 @@
   }
   if ($("#credentialImportCommit")) {
     $("#credentialImportCommit").addEventListener("click", commitCredentialImport);
+  }
+  if ($("#openrouterLogin")) {
+    $("#openrouterLogin").addEventListener("click", function() { startOpenRouterLogin(this); });
   }
   if ($("#blueskyPost")) {
     $("#blueskyPost").addEventListener("click", blueskyPost);

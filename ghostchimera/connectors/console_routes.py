@@ -50,6 +50,10 @@ _SETUP_COST: dict[str, tuple[str, str]] = {
         "one-time-free",
         "Register a free Desktop client once — or skip it entirely with a Gmail app password.",
     ),
+    "google-gemini": (
+        "one-time-free",
+        "Same Google Desktop client; adds the Gemini API scope so chat bills your Google account, no API key.",
+    ),
     "slack": ("one-time-free", "Create a free app with PKCE enabled, then paste its client ID."),
     "airtable": ("one-time-free", "Create a free OAuth integration, then paste its client ID."),
     "notion": ("one-time-free", "Create a public integration, then paste ID + secret."),
@@ -235,6 +239,13 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             from .oauth import get_preset
 
             scopes = list(get_preset("google").scopes) + ["https://www.googleapis.com/auth/gmail.readonly"]
+        if scopes is None and provider in ("google-gemini",):
+            # Gemini API via user OAuth: generative-language scope.
+            from .oauth import get_preset
+
+            scopes = list(get_preset("google").scopes) + [
+                "https://www.googleapis.com/auth/generative-language.retriever"
+            ]
         engine = _engine()
         try:
             result = engine.authorize_url(provider, entity_id, redirect_uri, scopes=scopes)
@@ -700,6 +711,105 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             with suppress(Exception):
                 engine.close()
 
+    def auth_openrouter_start(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Begin Login with OpenRouter (yields a normal API key)."""
+        data = _body(ctx)
+        host = str((ctx.get("headers") or {}).get("host", "127.0.0.1:8766"))
+        callback_base = str(data.get("callback_base") or "").strip() or f"http://{host}"
+        engine = _engine()
+        try:
+            return engine.start_openrouter_login(str(data.get("entity_id") or "console-user"), callback_base)
+        except (AuthEngineError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_openrouter_landing(ctx: dict[str, Any]) -> Any:
+        """Browser landing for the OpenRouter redirect (?code=&setup=)."""
+        query = ctx.get("query") if isinstance(ctx.get("query"), dict) else {}
+        query = query or {}
+        code, setup = str(query.get("code", "")), str(query.get("setup", ""))
+        if not code or not setup:
+            return _callback_html(False, "Incomplete login", "Missing code. Start over from Stored Keys.")
+        engine = _engine()
+        try:
+            result = engine.finish_openrouter_login(code, setup)
+            return _callback_html(
+                True,
+                "OpenRouter connected",
+                f"Key '{result['label']}' saved to the vault. You can close this tab.",
+            )
+        except (AuthEngineError, ValueError) as exc:
+            return _callback_html(False, "Login failed", str(exc)[:300])
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_keys_use_as_model(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Point the console model config at a vault key (no re-typing).
+
+        Body: {key_id, provider, model?}. Mirrors the key value into the
+        existing model.api_key path (existing ping/activation flows work
+        unchanged) and records vault_key_id for the "used by model" badge.
+        """
+        data = _body(ctx)
+        key_id = str(data.get("key_id") or "")
+        provider = str(data.get("provider") or "").strip().lower()
+        model = str(data.get("model") or "").strip()
+        if not key_id or not provider:
+            return {"ok": False, "error": "key_id and provider are required"}
+        if len(provider) > 80 or len(model) > 300:
+            return {"ok": False, "error": "provider/model is too long"}
+        engine = _engine()
+        try:
+            try:
+                revealed = engine.reveal_custom_key(str(data.get("entity_id") or "console-user"), key_id)
+            except AuthEngineError as exc:
+                return {"ok": False, "error": str(exc)}
+            if revealed["kind"] != "byok":
+                return {"ok": False, "error": "only API keys (byok) can back a model provider"}
+        finally:
+            with suppress(Exception):
+                engine.close()
+        try:
+            from ..control_plane.config import CONFIG_FILE, load_config, save_config
+
+            config = load_config()
+            section = config.get("model")
+            if not isinstance(section, dict):
+                section = {}
+                config["model"] = section
+            section["provider"] = provider
+            if model:
+                section["model"] = model
+            section["api_key"] = revealed["secret"]
+            section["vault_key_id"] = revealed["id"]
+            section["vault_label"] = revealed["label"]
+            save_config(config)
+            with suppress(OSError):
+                os.chmod(CONFIG_FILE, 0o600)
+            return {"ok": True, "provider": provider, "label": revealed["label"]}
+        except Exception as exc:
+            return {"ok": False, "error": f"could not save: {type(exc).__name__}"}
+
+    def auth_keys_model_ref(_ctx: dict[str, Any]) -> dict[str, Any]:
+        """Which vault key (if any) backs the console chat model. Labels only."""
+        try:
+            from ..control_plane.config import load_config
+
+            model = load_config().get("model", {})
+            if not isinstance(model, dict):
+                return {"ok": True, "vault_key_id": "", "provider": ""}
+            return {
+                "ok": True,
+                "vault_key_id": str(model.get("vault_key_id") or ""),
+                "vault_label": str(model.get("vault_label") or ""),
+                "provider": str(model.get("provider") or ""),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": f"could not read: {type(exc).__name__}"}
+
     def auth_device_start(ctx: dict[str, Any]) -> dict[str, Any]:
         """Begin an RFC 8628 device login (no redirect URI — LAN-friendly).
 
@@ -918,6 +1028,37 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         auth=auth,
         token=token,
         description="Bluesky timeline via vault app password",
+    )
+    server.routes.register(
+        "/api/auth/openrouter/start",
+        auth_openrouter_start,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Start Login with OpenRouter",
+    )
+    server.routes.register(
+        "/api/auth/openrouter/landing",
+        auth_openrouter_landing,
+        method="GET",
+        auth="open",
+        description="OpenRouter browser landing page",
+    )
+    server.routes.register(
+        "/api/auth/keys/use-as-model",
+        auth_keys_use_as_model,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Point model config at a vault key",
+    )
+    server.routes.register(
+        "/api/auth/keys/model-ref",
+        auth_keys_model_ref,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Which vault key backs the chat model",
     )
     server.routes.register(
         "/api/auth/device/start",

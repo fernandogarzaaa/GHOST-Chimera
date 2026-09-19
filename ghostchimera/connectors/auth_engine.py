@@ -69,6 +69,9 @@ class EngineProvider:
 # existing connection registries keep working; 'google-mail' aliases google).
 PROVIDERS: dict[str, EngineProvider] = {
     "google-mail": EngineProvider("google-mail", "Gmail", "comms", "https://gmail.googleapis.com"),
+    "google-gemini": EngineProvider(
+        "google-gemini", "Gemini (Google login)", "models", "https://generativelanguage.googleapis.com"
+    ),
     "slack": EngineProvider("slack", "Slack", "comms", "https://slack.com/api"),
     "zendesk": EngineProvider("zendesk", "Zendesk", "support"),
     "freshdesk": EngineProvider("freshdesk", "Freshdesk", "support"),
@@ -126,6 +129,7 @@ def _env_client_id_names(preset_id: str) -> tuple[str, ...]:
 
 _PRESET_FOR = {
     "google-mail": "google",
+    "google-gemini": "google",
     "slack": "slack",
     "zendesk": "zendesk",
     "freshdesk": "freshdesk",
@@ -814,6 +818,53 @@ class CustomAuthEngine:
         if not login:
             raise AuthEngineError("github token validation failed: no login returned")
         return login
+
+    # -- OpenRouter login (PKCE-style, yields a normal API key) --------------
+    def _openrouter_path(self, nonce: str) -> Path:
+        safe = "".join(c for c in nonce if c.isalnum() or c in ("-", "_"))
+        return self.state_dir / "connector_oauth" / f"openrouter-{safe}.json"
+
+    def start_openrouter_login(self, entity_id: str, callback_base: str) -> dict[str, Any]:
+        """Begin Login with OpenRouter. Returns the authorize URL to open."""
+        from . import oauth as _oauth
+
+        if not entity_id:
+            raise AuthEngineError("entity_id is required")
+        callback_base = (callback_base or "").strip().rstrip("/")
+        if not (callback_base.startswith("http://") or callback_base.startswith("https://")):
+            raise AuthEngineError("a valid callback base URL is required")
+        nonce = secrets.token_urlsafe(16)
+        landing = callback_base + "/api/auth/openrouter/landing?setup=" + nonce
+        url, _ = _oauth.build_openrouter_login_url(callback_url=landing)
+        path = self._openrouter_path(nonce)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"entity_id": entity_id, "ts": time.time()}), encoding="utf-8")
+        except OSError as exc:
+            raise AuthEngineError(f"Cannot persist login state: {exc}") from exc
+        return {"ok": True, "authorize_url": url, "setup": nonce, "entity_id": entity_id}
+
+    def finish_openrouter_login(self, code: str, setup: str) -> dict[str, Any]:
+        """Exchange the returned code and store the key (single-use setup)."""
+        from . import oauth as _oauth
+
+        path = self._openrouter_path(setup)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            path.unlink(missing_ok=True)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise AuthEngineError(f"Login session missing/expired: {exc}") from exc
+        if time.time() - float(data.get("ts", 0)) > 900:
+            raise AuthEngineError("Login session expired; start over")
+        entity_id = str(data.get("entity_id") or "")
+        if not entity_id:
+            raise AuthEngineError("Login session invalid; start over")
+        try:
+            result = _oauth.exchange_openrouter_code(code)
+        except ValueError as exc:
+            raise AuthEngineError(str(exc)) from exc
+        saved = self.save_custom_key(entity_id, "byok", "OpenRouter", result["key"], provider_hint="openrouter")
+        return {"ok": True, "id": saved["id"], "label": saved["label"], "entity_id": entity_id}
 
     # -- custom keys: engine wrappers (validate + encrypt) --------------------
     CUSTOM_KEY_KINDS = ("byok", "app_password")
