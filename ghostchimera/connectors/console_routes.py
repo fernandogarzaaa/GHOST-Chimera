@@ -17,6 +17,41 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# `gh` detection cache (module-level: a subprocess per page-load is wasteful).
+_GH_STATUS_CACHE: dict[str, Any] = {}
+
+
+def _selection_indices(selections: list[Any]) -> list[int]:
+    """Row indices from import selections (malformed entries skipped)."""
+    indices: list[int] = []
+    for sel in selections:
+        if isinstance(sel, dict):
+            with suppress(TypeError, ValueError):
+                indices.append(int(sel.get("index", -1)))
+    return indices
+
+
+# Honest setup cost per provider (engine key -> (cost, note)).
+# "none" = works with zero registration (device flow, gh CLI, app password).
+_SETUP_COST: dict[str, tuple[str, str]] = {
+    "github": ("none", "Device login, gh CLI import, or any OAuth app — no registration needed for the first two."),
+    "google-mail": (
+        "one-time-free",
+        "Register a free Desktop client once — or skip it entirely with a Gmail app password.",
+    ),
+    "slack": ("one-time-free", "Create a free app with PKCE enabled, then paste its client ID."),
+    "airtable": ("one-time-free", "Create a free OAuth integration, then paste its client ID."),
+    "notion": ("one-time-free", "Create a public integration, then paste ID + secret."),
+    "hubspot": ("one-time-free", "Create a developer app, then paste ID + secret."),
+    "salesforce": ("one-time-free", "Create an External Client App, then paste its ID."),
+    "linkedin": ("one-time-free", "Self-serve sign-in app; automation is banned by LinkedIn regardless."),
+    "zendesk": ("one-time-free", "OAuth client per Zendesk subdomain."),
+    "freshdesk": ("one-time-free", "OAuth client per Freshdesk domain."),
+    "gorgias": ("one-time-free", "OAuth client per Gorgias domain."),
+    "hubstaff": ("one-time-free", "OAuth client from Hubstaff."),
+    "time-doctor": ("one-time-free", "OAuth client from Time Doctor."),
+}
+
 
 def _body(ctx: dict[str, Any]) -> dict[str, Any]:
     raw = str(ctx.get("body") or "").strip()
@@ -330,6 +365,191 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             with suppress(Exception):
                 engine.close()
 
+    def auth_gh_status(_ctx: dict[str, Any]) -> dict[str, Any]:
+        """Detect a local `gh` login (no token touched). Cached 5 minutes."""
+        from .gh_cli import gh_status
+
+        now = time.time()
+        cached = _GH_STATUS_CACHE.get("at", 0.0)
+        if now - cached < 300 and "result" in _GH_STATUS_CACHE:
+            return {"ok": True, **_GH_STATUS_CACHE["result"]}
+        result = gh_status()
+        _GH_STATUS_CACHE["at"] = now
+        _GH_STATUS_CACHE["result"] = result
+        return {"ok": True, **result}
+
+    def auth_gh_import(ctx: dict[str, Any]) -> dict[str, Any]:
+        """One-click import of the user's own `gh` login (explicit consent)."""
+        data = _body(ctx)
+        entity_id = str(data.get("entity_id", ""))
+        if not entity_id:
+            return {"ok": False, "error": "entity_id is required"}
+        engine = _engine()
+        try:
+            return engine.import_gh_cli(entity_id)
+        except (AuthEngineError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_keys_save(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Store a pasted secret (BYOK key or mail app password). Write-only."""
+        data = _body(ctx)
+        engine = _engine()
+        try:
+            return engine.save_custom_key(
+                str(data.get("entity_id") or "console-user"),
+                str(data.get("kind") or ""),
+                str(data.get("label") or ""),
+                str(data.get("secret") or ""),
+                provider_hint=str(data.get("provider_hint") or ""),
+            )
+        except (AuthEngineError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_keys_list(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Redacted key listing (labels only, never values)."""
+        data = _body(ctx)
+        engine = _engine()
+        try:
+            keys = engine.store.list_custom_keys(str(data.get("entity_id") or "console-user"))
+            return {"ok": True, "keys": keys}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_keys_delete(ctx: dict[str, Any]) -> dict[str, Any]:
+        data = _body(ctx)
+        key_id = str(data.get("id") or "")
+        if not key_id:
+            return {"ok": False, "error": "id is required"}
+        engine = _engine()
+        try:
+            deleted = engine.store.delete_custom_key(str(data.get("entity_id") or "console-user"), key_id)
+            return {"ok": True, "deleted": deleted}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_csv_preview(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Preview a browser CSV export (labels only, never passwords)."""
+        from .credential_import import CredentialImportError, parse_browser_csv
+
+        data = _body(ctx)
+        try:
+            rows = parse_browser_csv(str(data.get("csv_text") or ""))
+            return {"ok": True, "rows": rows, "count": len(rows)}
+        except CredentialImportError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def auth_csv_commit(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Store selected CSV rows as vault keys. Response carries no passwords."""
+        from .credential_import import extract_passwords
+
+        data = _body(ctx)
+        csv_text = str(data.get("csv_text") or "")
+        selections = data.get("selections")
+        if not isinstance(selections, list) or not selections:
+            return {"ok": False, "error": "selections is required"}
+        passwords = extract_passwords(csv_text)
+        entity_id = str(data.get("entity_id") or "console-user")
+        engine = _engine()
+        try:
+            saved: list[dict[str, Any]] = []
+            for sel in selections:
+                if not isinstance(sel, dict):
+                    continue
+                try:
+                    index = int(sel.get("index", -1))
+                except (TypeError, ValueError):
+                    continue
+                password = passwords.get(index, "")
+                if not password:
+                    saved.append({"index": index, "saved": False, "error": "no password in export for this row"})
+                    continue
+                try:
+                    res = engine.save_custom_key(
+                        entity_id,
+                        str(sel.get("kind") or "byok"),
+                        str(sel.get("label") or f"imported-{index}"),
+                        password,
+                        provider_hint=str(sel.get("provider_hint") or str(sel.get("url") or ""))[:80],
+                    )
+                    saved.append({"index": index, "saved": True, "id": res["id"], "label": res["label"]})
+                except (AuthEngineError, ValueError) as exc:
+                    saved.append({"index": index, "saved": False, "error": str(exc)})
+            logger.info("csv import committed %d/%d rows", sum(1 for s in saved if s["saved"]), len(saved))
+            return {"ok": True, "saved": saved}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_browser_preview(ctx: dict[str, Any]) -> dict[str, Any]:
+        """List browser-saved-login labels after explicit consent (no passwords)."""
+        from .browser_vault import BrowserVaultError, preview_chromium
+
+        data = _body(ctx)
+        if data.get("consent") is not True:
+            return {"ok": False, "error": "explicit consent is required"}
+        try:
+            result = preview_chromium(str(data.get("browser") or "chrome"), consent=True)
+            logger.info(
+                "browser store preview: %s/%s %d entries",
+                result["browser"],
+                result["profile"],
+                len(result["entries"]),
+            )
+            return {"ok": True, **result}
+        except BrowserVaultError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def auth_browser_import(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Decrypt selected browser entries straight into the vault."""
+        from .browser_vault import BrowserVaultError, import_chromium
+
+        data = _body(ctx)
+        if data.get("consent") is not True:
+            return {"ok": False, "error": "explicit consent is required"}
+        selections = data.get("selections")
+        if not isinstance(selections, list) or not selections:
+            return {"ok": False, "error": "selections is required"}
+        indices = _selection_indices(selections)
+        engine = _engine()
+        try:
+            try:
+                entries = import_chromium(str(data.get("browser") or "chrome"), consent=True, indices=indices)
+            except BrowserVaultError as exc:
+                return {"ok": False, "error": str(exc)}
+            by_index = {}
+            for sel in selections:
+                if isinstance(sel, dict):
+                    with suppress(TypeError, ValueError):
+                        by_index[int(sel.get("index", -1))] = sel
+            entity_id = str(data.get("entity_id") or "console-user")
+            saved: list[dict[str, Any]] = []
+            for entry in entries:
+                sel = by_index.get(int(entry.get("index", -1)), {})
+                try:
+                    res = engine.save_custom_key(
+                        entity_id,
+                        str(sel.get("kind") or "byok"),
+                        str(sel.get("label") or entry["url"] or f"browser-{entry['username']}")[:120],
+                        entry["password"],
+                        provider_hint=entry["url"][:80],
+                    )
+                    saved.append({"url": entry["url"], "saved": True, "id": res["id"], "label": res["label"]})
+                except (AuthEngineError, ValueError) as exc:
+                    saved.append({"url": entry["url"], "saved": False, "error": str(exc)})
+            logger.info("browser import committed %d entries", sum(1 for s in saved if s["saved"]))
+            return {"ok": True, "saved": saved}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
     def auth_device_start(ctx: dict[str, Any]) -> dict[str, Any]:
         """Begin an RFC 8628 device login (no redirect URI — LAN-friendly).
 
@@ -389,6 +609,7 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                     continue
                 source = engine.client_id_source(preset_id)
                 secret_source = engine.client_secret_source(preset_id)
+                setup = _SETUP_COST.get(key, ("one-time-free", "Register a free OAuth client, then paste its ID."))
                 options.append(
                     {
                         "key": key,
@@ -400,6 +621,8 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                         "client_id_configured": source != "none",
                         "client_secret_source": secret_source,
                         "client_secret_configured": secret_source != "none",
+                        "setup_cost": setup[0],
+                        "setup_note": setup[1],
                     }
                 )
             return {"ok": True, "options": options, "callback_url": callback_url}
@@ -449,6 +672,78 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
     )
     server.routes.register(
         "/api/auth/callback", auth_callback_page, method="GET", auth="open", description="OAuth browser landing page"
+    )
+    server.routes.register(
+        "/api/auth/gh/status",
+        auth_gh_status,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Detect a local GitHub CLI login",
+    )
+    server.routes.register(
+        "/api/auth/gh/import",
+        auth_gh_import,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Import the local GitHub CLI login",
+    )
+    server.routes.register(
+        "/api/auth/keys/save",
+        auth_keys_save,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Store a pasted key (write-only)",
+    )
+    server.routes.register(
+        "/api/auth/keys/list",
+        auth_keys_list,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Redacted key listing",
+    )
+    server.routes.register(
+        "/api/auth/keys/delete",
+        auth_keys_delete,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Delete a stored key",
+    )
+    server.routes.register(
+        "/api/auth/import-csv/preview",
+        auth_csv_preview,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Preview a browser CSV export",
+    )
+    server.routes.register(
+        "/api/auth/import-csv/commit",
+        auth_csv_commit,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Store selected CSV rows as keys",
+    )
+    server.routes.register(
+        "/api/auth/browser/preview",
+        auth_browser_preview,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Preview browser-saved logins (consent)",
+    )
+    server.routes.register(
+        "/api/auth/browser/import",
+        auth_browser_import,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Import selected browser logins (consent)",
     )
     server.routes.register(
         "/api/auth/device/start",

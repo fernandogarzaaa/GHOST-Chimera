@@ -35,6 +35,10 @@ from typing import Any
 
 REFRESH_SKEW_SECONDS = 300.0
 STATE_TTL_SECONDS = 600.0
+# Imported `gh` tokens have no refresh token; treat them as valid for 90
+# days, then surface NEEDS_REAUTH (one-click re-import). `gh auth logout`
+# or revocation surfaces earlier via API errors at use time.
+GH_TOKEN_TTL_SECONDS = 90 * 86400.0
 
 
 class AuthEngineError(RuntimeError):
@@ -157,6 +161,19 @@ class AuthStore:
               UNIQUE(entity_id, provider)
             );
             CREATE INDEX IF NOT EXISTS idx_auth_entity ON integration_auth_tokens(entity_id);
+            CREATE TABLE IF NOT EXISTS custom_keys (
+              id TEXT PRIMARY KEY,
+              entity_id TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              label TEXT NOT NULL,
+              provider_hint TEXT NOT NULL DEFAULT '',
+              secret TEXT NOT NULL,
+              created_at REAL NOT NULL,
+              updated_at REAL NOT NULL,
+              last_used_at REAL NOT NULL DEFAULT 0,
+              UNIQUE(entity_id, kind, label)
+            );
+            CREATE INDEX IF NOT EXISTS idx_keys_entity ON custom_keys(entity_id);
             """)
             self._conn.commit()
 
@@ -230,6 +247,67 @@ class AuthStore:
                 (status, time.time(), entity_id, provider),
             )
             self._conn.commit()
+
+    # -- generic secret store (BYOK keys, app passwords) ----------------------
+    # Secrets are Fernet-encrypted by the engine before reaching these
+    # methods. Listings are redacted (label/kind only, never values).
+    def upsert_custom_key(
+        self, entity_id: str, kind: str, label: str, secret_cipher: str, *, provider_hint: str = ""
+    ) -> str:
+        record_id = f"key-{uuid.uuid4().hex[:12]}"
+        now = time.time()
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO custom_keys(id, entity_id, kind, label, provider_hint, secret, created_at, updated_at)"
+                " VALUES(?,?,?,?,?,?,?,?)"
+                " ON CONFLICT(entity_id, kind, label) DO UPDATE SET"
+                " provider_hint=excluded.provider_hint, secret=excluded.secret, updated_at=excluded.updated_at",
+                (record_id, entity_id, kind, label, provider_hint, secret_cipher, now, now),
+            )
+            self._conn.commit()
+        return record_id
+
+    def list_custom_keys(self, entity_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, kind, label, provider_hint, created_at, updated_at, last_used_at"
+                " FROM custom_keys WHERE entity_id = ? ORDER BY updated_at DESC",
+                (entity_id,),
+            ).fetchall()
+        return [
+            {
+                "id": r[0],
+                "kind": r[1],
+                "label": r[2],
+                "provider_hint": r[3],
+                "created_at": r[4],
+                "updated_at": r[5],
+                "last_used_at": r[6],
+            }
+            for r in rows
+        ]
+
+    def get_custom_key(self, entity_id: str, key_id: str) -> dict[str, Any] | None:
+        """Fetch one key WITH its ciphertext (engine decrypts; updates last_used)."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id, kind, label, provider_hint, secret FROM custom_keys WHERE entity_id = ? AND id = ?",
+                (entity_id, key_id),
+            ).fetchone()
+            if row is None:
+                return None
+            self._conn.execute(
+                "UPDATE custom_keys SET last_used_at = ? WHERE entity_id = ? AND id = ?",
+                (time.time(), entity_id, key_id),
+            )
+            self._conn.commit()
+        return {"id": row[0], "kind": row[1], "label": row[2], "provider_hint": row[3], "secret": row[4]}
+
+    def delete_custom_key(self, entity_id: str, key_id: str) -> bool:
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM custom_keys WHERE entity_id = ? AND id = ?", (entity_id, key_id))
+            self._conn.commit()
+            return cursor.rowcount > 0
 
     def list_for(self, entity_id: str) -> list[dict[str, Any]]:
         with self._lock:
@@ -653,6 +731,110 @@ class CustomAuthEngine:
         finally:
             listener.close()
         return self.handle_callback(provider, str(query["code"]), str(query.get("state", "")), listener.redirect_uri)
+
+    # -- GitHub CLI import (explicit consent, own-machine reuse) ------------
+    def import_gh_cli(self, entity_id: str) -> dict[str, Any]:
+        """Import the user's own `gh` login into the vault (github entity).
+
+        Runs `gh auth token` (the supported call), validates the token with
+        a read-only /user probe, then stores it encrypted. The token
+        inherits `gh`'s scopes and lifetime; staleness surfaces as
+        NEEDS_REAUTH with one-click re-import. Nothing is transmitted
+        except the validation probe to api.github.com.
+        """
+        from .gh_cli import GhCliError, gh_status, gh_token
+
+        if not entity_id:
+            raise AuthEngineError("entity_id is required")
+        status = gh_status()
+        if not status["available"]:
+            raise AuthEngineError(f"GitHub CLI login unavailable: {status['reason'] or 'not logged in'}")
+        try:
+            token = gh_token()
+        except GhCliError as exc:
+            raise AuthEngineError(str(exc)) from exc
+        login = self._github_user_login(token)
+        scopes = list(status["scopes"]) or ["repo"]
+        stored = self._store_token(
+            "github",
+            entity_id,
+            {
+                "access_token": token,
+                "expires_in": GH_TOKEN_TTL_SECONDS,
+                "scope": " ".join(scopes),
+            },
+        )
+        return {
+            "ok": True,
+            "provider": "github",
+            "source": "github-cli",
+            "gh_user": status["user"] or login,
+            **stored,
+        }
+
+    def _github_user_login(self, token: str) -> str:
+        """Read-only /user probe validating an imported token. Redacted errors."""
+        import urllib.request
+
+        req = urllib.request.Request(
+            "https://api.github.com/user", headers={"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15.0) as resp:
+                data = json.loads(resp.read().decode("utf-8", "replace"))
+        except Exception as exc:
+            raise AuthEngineError(f"github token validation failed: {type(exc).__name__}") from exc
+        login = str(data.get("login", "")) if isinstance(data, dict) else ""
+        if not login:
+            raise AuthEngineError("github token validation failed: no login returned")
+        return login
+
+    # -- custom keys: engine wrappers (validate + encrypt) --------------------
+    CUSTOM_KEY_KINDS = ("byok", "app_password")
+
+    def save_custom_key(
+        self, entity_id: str, kind: str, label: str, secret: str, *, provider_hint: str = ""
+    ) -> dict[str, Any]:
+        """Store a pasted secret (BYOK key or mail app password). Write-only."""
+        kind = str(kind or "").strip()
+        label = str(label or "").strip()[:120]
+        secret = str(secret or "").strip()
+        if kind not in self.CUSTOM_KEY_KINDS:
+            raise AuthEngineError(f"unknown key kind: {kind}")
+        if not entity_id or not label:
+            raise AuthEngineError("entity_id and label are required")
+        if not (8 <= len(secret) <= 512):
+            raise AuthEngineError("that does not look like a key (length)")
+        if kind == "app_password":
+            normalized = secret.replace(" ", "")
+            if not (12 <= len(normalized) <= 64):
+                raise AuthEngineError(
+                    "app passwords are the 12–64 char codes from your provider, not account passwords"
+                )
+            secret = normalized
+        cipher = self._fernet.encrypt(secret.encode()).decode()
+        key_id = self.store.upsert_custom_key(entity_id, kind, label, cipher, provider_hint=str(provider_hint)[:80])
+        return {"ok": True, "id": key_id, "kind": kind, "label": label}
+
+    def reveal_custom_key(self, entity_id: str, key_id: str) -> dict[str, Any]:
+        """Decrypt one key for an internal consumer (mail fetch, model auth).
+
+        Never exposed through console routes — listings stay redacted.
+        """
+        record = self.store.get_custom_key(entity_id, key_id)
+        if record is None:
+            raise AuthEngineError("key not found")
+        try:
+            secret = self._fernet.decrypt(record["secret"].encode()).decode()
+        except Exception as exc:
+            raise AuthEngineError("key undecryptable") from exc
+        return {
+            "id": record["id"],
+            "kind": record["kind"],
+            "label": record["label"],
+            "provider_hint": record["provider_hint"],
+            "secret": secret,
+        }
 
     def _store_token(self, provider: str, entity_id: str, token: dict[str, Any]) -> dict[str, Any]:
         access = self._fernet.encrypt(str(token["access_token"]).encode()).decode()

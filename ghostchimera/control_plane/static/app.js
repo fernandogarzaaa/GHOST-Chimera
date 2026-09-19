@@ -1642,6 +1642,7 @@
     Object.keys(providerDevicePolls).forEach(stopProviderDevicePoll);
     host.innerHTML = "";
     providerLoginsOutput("Loading login status…");
+    renderGhBanner();
     try {
       var opts = await api("/api/auth/login-options");
       if (!opts || !opts.ok) throw new Error((opts && opts.error) || "login options unavailable");
@@ -1676,6 +1677,7 @@
     if (p.device_flow) flows.push("device login");
     if (p.browser_flow) flows.push("browser login");
     meta.textContent = "Flows: " + flows.join(" + ") +
+      "  ·  Setup: " + (p.setup_cost || "one-time-free") +
       "  ·  Client ID: " + (p.client_id_configured ? p.client_id_source : "not set") +
       "  ·  Secret: " + (p.client_secret_configured ? p.client_secret_source : "not set") +
       (connected && conn.expires_in_s ? "  ·  expires in " + conn.expires_in_s + "s" : "");
@@ -1855,6 +1857,195 @@
       toast(e.message, "error");
       btn.disabled = false;
     }
+  }
+
+  // ── gh CLI auto-detect + import ──────────────────────────────────────
+  async function renderGhBanner() {
+    var banner = $("#ghCliBanner");
+    if (!banner) return;
+    banner.innerHTML = "";
+    try {
+      var st = await api("/api/auth/gh/status", { method: "POST", body: {} });
+      if (!st.available) return;
+      banner.textContent = "GitHub CLI login detected (" + (st.user || "unknown user") +
+        (st.scopes && st.scopes.length ? ", scopes: " + st.scopes.join(", ") : "") + "). ";
+      var btn = el("button", { class: "primary" });
+      btn.textContent = "Import gh login";
+      btn.addEventListener("click", importGhLogin);
+      banner.appendChild(btn);
+    } catch (_) {}
+  }
+
+  async function importGhLogin() {
+    try {
+      providerLoginsOutput("Importing GitHub CLI login…");
+      var data = await api("/api/auth/gh/import", { method: "POST", body: { entity_id: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "import failed");
+      toast("GitHub connected via CLI (" + (data.gh_user || "gh") + ").", "ok");
+      providerLoginsOutput("GitHub connected via CLI. Token inherits gh scopes; re-import if it goes stale.");
+      renderProviderLogins();
+    } catch (e) {
+      providerLoginsOutput("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  // ── Stored keys (redacted) ───────────────────────────────────────────
+  async function renderStoredKeys() {
+    var host = $("#storedKeys");
+    if (!host) return;
+    host.innerHTML = "";
+    try {
+      var data = await api("/api/auth/keys/list", { method: "POST", body: { entity_id: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      if (!data.keys.length) {
+        host.appendChild(el("div", { class: "empty" }, "No stored keys yet."));
+        return;
+      }
+      data.keys.forEach(function(k) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "badge ok" }, k.kind));
+        var main = el("div", { style: "flex:1;min-width:180px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = k.label;
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        meta.textContent = (k.provider_hint || "no hint") +
+          (k.last_used_at ? "  ·  last used " + new Date(k.last_used_at * 1000).toLocaleString() : "  ·  never used");
+        main.appendChild(meta);
+        item.appendChild(main);
+        var del = el("button", { class: "danger" });
+        del.textContent = "Delete";
+        del.addEventListener("click", async function() {
+          del.disabled = true;
+          try {
+            await api("/api/auth/keys/delete", { method: "POST", body: { entity_id: "console-user", id: k.id } });
+            toast("Key deleted.", "ok");
+            renderStoredKeys();
+          } catch (e) { toast(e.message, "error"); del.disabled = false; }
+        });
+        item.appendChild(del);
+        host.appendChild(item);
+      });
+    } catch (e) {
+      host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
+    }
+  }
+
+  // ── Credential import (CSV + browser store) ──────────────────────────
+  var importSource = null; // {type: 'csv'|'browser', csv_text?, browser?}
+
+  function importRowCard(row) {
+    var card = el("div", { class: "list-item" });
+    var main = el("div", { style: "flex:1;min-width:200px;" });
+    var title = el("div", { class: "name" });
+    title.textContent = row.url || row.username || ("row " + row.index);
+    main.appendChild(title);
+    var meta = el("div", { class: "meta" });
+    meta.textContent = (row.username ? row.username + "  ·  " : "") + (row.note || "");
+    main.appendChild(meta);
+    var label = document.createElement("input");
+    label.value = row.url || row.username || ("imported-" + row.index);
+    label.style.flex = "1";
+    label.setAttribute("data-import-label", String(row.index));
+    main.appendChild(label);
+    card.appendChild(main);
+    var kind = document.createElement("select");
+    [["byok", "Save as API key"], ["app_password", "Save as app password"], ["skip", "Skip"]].forEach(function(o) {
+      var opt = document.createElement("option");
+      opt.value = o[0]; opt.textContent = o[1];
+      if (o[0] === row.suggested_kind) opt.selected = true;
+      kind.appendChild(opt);
+    });
+    kind.setAttribute("data-import-kind", String(row.index));
+    card.appendChild(kind);
+    return card;
+  }
+
+  function renderImportPreview(rows, source) {
+    var host = $("#credentialImportPreview");
+    if (!host) return;
+    host.innerHTML = "";
+    importSource = source;
+    var commit = $("#credentialImportCommit");
+    if (!rows.length) {
+      host.appendChild(el("div", { class: "empty" }, "No entries found."));
+      if (commit) commit.disabled = true;
+      return;
+    }
+    rows.forEach(function(r) { host.appendChild(importRowCard(r)); });
+    if (commit) commit.disabled = false;
+    providerLoginsOutput(rows.length + " entries ready — choose a mapping per row, then Save Selected To Vault.");
+  }
+
+  async function previewCsvImport() {
+    var text = ($("#csvImportText") && $("#csvImportText").value) || "";
+    if (!text.trim()) { toast("Paste the CSV export text first.", "warn"); return; }
+    try {
+      var data = await api("/api/auth/import-csv/preview", { method: "POST", body: { csv_text: text } });
+      if (!data.ok) throw new Error(data.error || "preview failed");
+      renderImportPreview(data.rows, { type: "csv", csv_text: text });
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  async function previewBrowserImport() {
+    if (!($("#browserImportConsent") && $("#browserImportConsent").checked)) {
+      toast("Tick the consent checkbox first — direct store reading is explicit opt-in.", "warn");
+      return;
+    }
+    var browser = ($("#browserImportName") && $("#browserImportName").value) || "chrome";
+    try {
+      providerLoginsOutput("Reading " + browser + " login store on this machine…");
+      var data = await api("/api/auth/browser/preview",
+        { method: "POST", body: { browser: browser, consent: true } });
+      if (!data.ok) throw new Error(data.error || "preview failed");
+      renderImportPreview(data.entries, { type: "browser", browser: browser });
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  async function commitCredentialImport() {
+    var host = $("#credentialImportPreview");
+    if (!host || !importSource) return;
+    if (importSource.type === "browser" && !($("#browserImportConsent") && $("#browserImportConsent").checked)) {
+      toast("Consent is required for browser store import.", "warn");
+      return;
+    }
+    var selections = [];
+    Array.prototype.forEach.call(host.querySelectorAll("[data-import-kind]"), function(sel) {
+      var idx = sel.getAttribute("data-import-kind");
+      var labelEl = host.querySelector('[data-import-label="' + idx + '"]');
+      selections.push({
+        index: parseInt(idx, 10),
+        kind: sel.value,
+        label: (labelEl && labelEl.value) || ("imported-" + idx),
+      });
+    });
+    selections = selections.filter(function(s) { return s.kind !== "skip" && !isNaN(s.index); });
+    if (!selections.length) { toast("Nothing selected — pick a mapping per row first.", "warn"); return; }
+    try {
+      var body = { entity_id: "console-user", selections: selections };
+      var path, data;
+      if (importSource.type === "csv") {
+        body.csv_text = importSource.csv_text;
+        path = "/api/auth/import-csv/commit";
+      } else {
+        body.browser = importSource.browser;
+        body.consent = true;
+        path = "/api/auth/browser/import";
+      }
+      data = await api(path, { method: "POST", body: body });
+      if (!data.ok) throw new Error(data.error || "import failed");
+      var okCount = data.saved.filter(function(s) { return s.saved; }).length;
+      providerLoginsOutput("Saved " + okCount + "/" + data.saved.length + " entries to the vault.");
+      var failed = data.saved.filter(function(s) { return !s.saved; });
+      if (failed.length) toast(failed.length + " rows failed: " + failed[0].error, "warn");
+      else toast("Import complete.", "ok");
+      var commit = $("#credentialImportCommit");
+      if (commit) commit.disabled = true;
+      if ($("#csvImportText")) $("#csvImportText").value = "";
+      renderStoredKeys();
+      renderProviderLogins();
+    } catch (e) { toast(e.message, "error"); }
   }
 
   function renderConfigModelOptions() {
@@ -2481,7 +2672,20 @@
   if ($("#providerLoginsRefresh")) {
     $("#providerLoginsRefresh").addEventListener("click", renderProviderLogins);
   }
+  if ($("#storedKeysRefresh")) {
+    $("#storedKeysRefresh").addEventListener("click", renderStoredKeys);
+  }
+  if ($("#csvImportPreview")) {
+    $("#csvImportPreview").addEventListener("click", previewCsvImport);
+  }
+  if ($("#browserImportPreview")) {
+    $("#browserImportPreview").addEventListener("click", previewBrowserImport);
+  }
+  if ($("#credentialImportCommit")) {
+    $("#credentialImportCommit").addEventListener("click", commitCredentialImport);
+  }
   try { renderProviderLogins(); } catch (_) {}
+  try { renderStoredKeys(); } catch (_) {}
   $("#githubSelfEvolutionPreview").addEventListener("click", previewSelfEvolution);
   $("#githubPlan").addEventListener("click", planGithubIssue);
   $("#githubPolicyPreview").addEventListener("click", previewGithubPolicy);

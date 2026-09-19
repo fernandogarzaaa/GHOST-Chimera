@@ -31,7 +31,6 @@ Two login flows exist per provider. The Integrations tab
 (`GET /api/auth/login-options`) tells you which each provider supports.
 
 ## Flow 1 — Device login (recommended, works over LAN)
-
 No redirect URI, no browser on the server machine. The console shows a
 `user_code` (e.g. `ABCD-1234`) and a verification URL; you open the URL on
 **any** device, enter the code, approve, and the console polls until done.
@@ -144,3 +143,39 @@ $env:SALESFORCE_LOGIN_HOST = "example.my.salesforce.com"  # or test.salesforce.c
   server-side and are deleted on completion, denial, or expiry.
 - Disconnect actually revokes: Integrations → Revoke, or
   `POST /api/auth/revoke`.
+
+## Zero-friction logins (no registration at all)
+
+### GitHub CLI import
+
+If `gh` is logged in on the same machine, Ghost reuses it — no OAuth app,
+no browser clicks. Connections → Provider Logins shows a "GitHub CLI login
+detected" banner automatically; one click imports the token into Ghost's
+vault (source labeled `github-cli`, inheriting `gh`'s scopes). If the token
+goes stale (`gh auth logout`, revocation), status shows `NEEDS_REAUTH` with
+the same one-click re-import. API: `POST /api/auth/gh/status`,
+`POST /api/auth/gh/import`.
+
+### Stored keys (API keys + mail app passwords)
+
+Connections → Stored Keys. Paste any key once (OpenAI/Anthropic/xAI keys,
+Gmail/Outlook/Yahoo **app passwords** — the 12–64 char provider-issued
+codes, never account passwords), label it, and Ghost stores it
+Fernet-encrypted. Listings show labels only; values are never displayed,
+logged, or returned by any route. API: `/api/auth/keys/save|list|delete`.
+
+### Browser password import (CSV or direct)
+
+Connections → Import Browser Passwords. Two paths, same per-row mapping UI
+(save as API key / app password / skip):
+
+- **CSV**: export from Chrome/Brave Settings → Passwords → Export, paste
+  the text, preview, commit. Delete the CSV after (Ghost offers guidance).
+- **Direct**: tick the consent checkbox to read this machine's Chromium
+  login store (Chrome/Brave/Edge, Windows-only v1, DPAPI). Nothing leaves
+  the computer; the temp DB copy is shredded after reading. Firefox and
+  non-Windows: use CSV.
+
+Google rows in a CSV hold *account* passwords, which Google rejects over
+IMAP/SMTP — Ghost suggests skipping them and points at OAuth or a fresh
+app password instead. Mail-provider rows suggest the app-password kind.
