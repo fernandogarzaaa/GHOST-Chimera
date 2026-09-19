@@ -44,6 +44,10 @@ class ProviderPreset:
     # clients must request user scopes via `user_scope`; bot `scope`
     # requests fail on desktop/loopback redirects.
     scope_param: str = "scope"
+    # Token endpoint auth: when True the client authenticates with HTTP
+    # Basic (client_id as username, secret-or-empty as password) instead
+    # of form fields (Reddit installed/script apps).
+    use_basic_auth: bool = False
 
     @property
     def supports_device_flow(self) -> bool:
@@ -141,7 +145,9 @@ OAUTH_PRESETS: dict[str, ProviderPreset] = {
         token_url="https://airtable.com/oauth2/v1/token",
         scopes=("data.records:read", "data.records:write"),
     ),
-    # Workforce / time tracking
+    # -- Social ---------------------------------------------------------------
+    # All standard authorize-code + PKCE unless noted. X is login-only
+    # (enforced in the engine proxy); LinkedIn sign-in only, no automation.
     "hubstaff": ProviderPreset(
         id="hubstaff",
         display="Hubstaff",
@@ -156,6 +162,62 @@ OAUTH_PRESETS: dict[str, ProviderPreset] = {
         authorize_url="https://api2.timedoctor.com/oauth/authorize",
         token_url="https://api2.timedoctor.com/oauth/token",
         scopes=("read", "write"),
+    ),
+    "mastodon": ProviderPreset(
+        id="mastodon",
+        display="Mastodon",
+        authorize_url="https://mastodon.social/oauth/authorize",
+        token_url="https://mastodon.social/oauth/token",
+        scopes=("read",),
+    ),
+    "reddit": ProviderPreset(
+        id="reddit",
+        display="Reddit",
+        authorize_url="https://www.reddit.com/api/v1/authorize",
+        token_url="https://www.reddit.com/api/v1/access_token",
+        scopes=("identity", "history", "read"),
+        # Installed/script apps authenticate the token call with HTTP
+        # Basic (client_id as username); confidential web apps use the
+        # client_secret the same way.
+        use_basic_auth=True,
+        extra_authorize={"duration": "permanent"},
+    ),
+    "discord": ProviderPreset(
+        id="discord",
+        display="Discord",
+        authorize_url="https://discord.com/oauth2/authorize",
+        token_url="https://discord.com/api/oauth2/token",
+        scopes=("identify", "guilds"),
+    ),
+    "tiktok": ProviderPreset(
+        id="tiktok",
+        display="TikTok",
+        authorize_url="https://www.tiktok.com/v2/auth/authorize/",
+        token_url="https://open.tiktokapis.com/v2/oauth/token/",
+        scopes=("user.info.basic",),
+    ),
+    "facebook": ProviderPreset(
+        id="facebook",
+        display="Facebook",
+        authorize_url="https://www.facebook.com/v18.0/dialog/oauth",
+        token_url="https://graph.facebook.com/v18.0/oauth/access_token",
+        scopes=("email", "public_profile"),
+        use_pkce=False,  # confidential client; secret required
+    ),
+    "instagram": ProviderPreset(
+        id="instagram",
+        display="Instagram",
+        authorize_url="https://www.instagram.com/oauth/authorize",
+        token_url="https://api.instagram.com/oauth/access_token",
+        scopes=("instagram_business_basic",),
+        use_pkce=False,  # Business Login; Business/Creator accounts only
+    ),
+    "x": ProviderPreset(
+        id="x",
+        display="X",
+        authorize_url="https://x.com/i/oauth2/authorize",
+        token_url="https://api.x.com/2/oauth2/token",
+        scopes=("tweet.read", "users.read", "offline.access"),
     ),
 }
 
@@ -179,6 +241,20 @@ def get_preset(provider: str) -> ProviderPreset:
             preset,
             authorize_url=f"https://{base}/services/oauth2/authorize",
             token_url=f"https://{base}/services/oauth2/token",
+        )
+    if provider == "mastodon":
+        from dataclasses import replace
+
+        host = (
+            (os.environ.get("MASTODON_INSTANCE", "mastodon.social").strip() or "mastodon.social")
+            .replace("https://", "")
+            .replace("http://", "")
+            .rstrip("/")
+        )
+        preset = replace(
+            preset,
+            authorize_url=f"https://{host}/oauth/authorize",
+            token_url=f"https://{host}/oauth/token",
         )
     return preset
 

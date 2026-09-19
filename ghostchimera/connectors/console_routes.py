@@ -21,6 +21,17 @@ logger = logging.getLogger(__name__)
 _GH_STATUS_CACHE: dict[str, Any] = {}
 
 
+def _vault_key_for(engine: Any, entity_id: str, key_id: str) -> dict[str, str] | None:
+    """Reveal one custom key as {label, hint, secret} (internal use only)."""
+    if not key_id:
+        return None
+    try:
+        revealed = engine.reveal_custom_key(entity_id, key_id)
+    except Exception:
+        return None
+    return {"label": revealed["label"], "hint": revealed.get("provider_hint", ""), "secret": revealed["secret"]}
+
+
 def _selection_indices(selections: list[Any]) -> list[int]:
     """Row indices from import selections (malformed entries skipped)."""
     indices: list[int] = []
@@ -50,6 +61,25 @@ _SETUP_COST: dict[str, tuple[str, str]] = {
     "gorgias": ("one-time-free", "OAuth client per Gorgias domain."),
     "hubstaff": ("one-time-free", "OAuth client from Hubstaff."),
     "time-doctor": ("one-time-free", "OAuth client from Time Doctor."),
+    "mastodon": (
+        "none",
+        "No registration: pick your instance (MASTODON_INSTANCE), paste its client ID — or get one auto-provisioned per instance.",
+    ),
+    "reddit": (
+        "one-time-free",
+        "Free personal script/web app at reddit.com/prefs/apps; secret authenticates via HTTP Basic automatically.",
+    ),
+    "discord": ("one-time-free", "Free app at discord.com/developers; user OAuth here, bot tokens go in Stored Keys."),
+    "tiktok": ("one-time-free", "Free Login Kit app; basic scopes self-serve, publishing needs TikTok audit."),
+    "facebook": ("one-time-free", "Free Meta app; basic login self-serve, deeper permissions need App Review."),
+    "instagram": (
+        "one-time-free",
+        "Business/Creator account + linked Page required; own-account access needs no review.",
+    ),
+    "x": (
+        "paid",
+        "Login is free, but every X API call is billed pay-per-use: Ghost stores the token and refuses API calls until you approve spending.",
+    ),
 }
 
 
@@ -550,6 +580,126 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             with suppress(Exception):
                 engine.close()
 
+    def auth_mail_fetch(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Read-only inbox fetch via a stored app password (consent-gated).
+
+        Body: {key_id?, label?, max_messages?, query?}. Requires Personal
+        MiniMind email-crawl consent, like the OAuth crawl. Returns headers
+        + OTP-scrubbed snippets only — never full bodies, never secrets.
+        """
+        from ..integrations.mail_basic import fetch_inbox, resolve_app_password
+
+        data = _body(ctx)
+        entity_id = str(data.get("entity_id") or "console-user")
+        try:
+            from ..model_layer.minimind_personal_agent import MiniMindPersonalAgent
+
+            consent = MiniMindPersonalAgent(state_dir=base).load_consent()
+            if not consent.enabled or not consent.allow_email_crawl:
+                return {
+                    "ok": False,
+                    "type": "consent_required",
+                    "error": "Enable Personal MiniMind admin controls and email crawl consent before fetching mail.",
+                }
+        except Exception as exc:
+            return {"ok": False, "error": f"consent check failed: {type(exc).__name__}"}
+        engine = _engine()
+        try:
+            try:
+                account = resolve_app_password(
+                    engine, entity_id, key_id=str(data.get("key_id") or ""), label=str(data.get("label") or "")
+                )
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)}
+            try:
+                max_messages = max(1, min(50, int(data.get("max_messages") or 10)))
+            except (TypeError, ValueError):
+                max_messages = 10
+            try:
+                result = fetch_inbox(
+                    account["email"],
+                    account["secret"],
+                    max_messages=max_messages,
+                    query=str(data.get("query") or "UNSEEN"),
+                )
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)[:200]}
+            result["account"] = account["label"]
+            logger.info("app-password mail fetch for '%s': %d messages", account["label"], len(result["messages"]))
+            return result
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_bluesky_post(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Publish a Bluesky post using a vault-stored app password.
+
+        Login + post happen inside one call; session tokens never leave
+        the request scope and are never stored. Body: {key_id, text}.
+        """
+        from ..integrations.bluesky_basic import BlueskyError, create_session, send_post
+
+        data = _body(ctx)
+        text = str(data.get("text") or "").strip()
+        if not text:
+            return {"ok": False, "error": "text is required"}
+        engine = _engine()
+        try:
+            account = _vault_key_for(
+                engine, str(data.get("entity_id") or "console-user"), str(data.get("key_id") or "")
+            )
+            if account is None:
+                return {"ok": False, "error": "unknown key; save a Bluesky app password in Stored Keys first"}
+            handle = (account["hint"] or account["label"]).strip()
+            try:
+                session = create_session(handle, account["secret"])
+                result = send_post(session, text)
+            except BlueskyError as exc:
+                return {"ok": False, "error": str(exc)[:200]}
+            return {"ok": True, "uri": result.get("uri", ""), "handle": handle}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_bluesky_timeline(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Read the Bluesky home timeline (text + authors only)."""
+        from ..integrations.bluesky_basic import BlueskyError, create_session, get_timeline
+
+        data = _body(ctx)
+        engine = _engine()
+        try:
+            account = _vault_key_for(
+                engine, str(data.get("entity_id") or "console-user"), str(data.get("key_id") or "")
+            )
+            if account is None:
+                return {"ok": False, "error": "unknown key; save a Bluesky app password in Stored Keys first"}
+            handle = (account["hint"] or account["label"]).strip()
+            try:
+                session = create_session(handle, account["secret"])
+                try:
+                    limit = max(1, min(25, int(data.get("limit") or 10)))
+                except (TypeError, ValueError):
+                    limit = 10
+                feed = get_timeline(session, limit=limit)
+            except BlueskyError as exc:
+                return {"ok": False, "error": str(exc)[:200]}
+            items = []
+            for entry in (feed.get("feed") or [])[:limit]:
+                post = entry.get("post") or {}
+                author = post.get("author") or {}
+                record = post.get("record") or {}
+                items.append(
+                    {
+                        "author": author.get("handle", ""),
+                        "text": str(record.get("text", ""))[:300],
+                        "likes": (post.get("likeCount") or 0),
+                    }
+                )
+            return {"ok": True, "handle": handle, "items": items}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
     def auth_device_start(ctx: dict[str, Any]) -> dict[str, Any]:
         """Begin an RFC 8628 device login (no redirect URI — LAN-friendly).
 
@@ -744,6 +894,30 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         auth=auth,
         token=token,
         description="Import selected browser logins (consent)",
+    )
+    server.routes.register(
+        "/api/auth/mail/fetch",
+        auth_mail_fetch,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="App-password inbox fetch (consent-gated)",
+    )
+    server.routes.register(
+        "/api/auth/bluesky/post",
+        auth_bluesky_post,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Bluesky post via vault app password",
+    )
+    server.routes.register(
+        "/api/auth/bluesky/timeline",
+        auth_bluesky_timeline,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Bluesky timeline via vault app password",
     )
     server.routes.register(
         "/api/auth/device/start",

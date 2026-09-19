@@ -1910,7 +1910,7 @@
         title.textContent = k.label;
         main.appendChild(title);
         var meta = el("div", { class: "meta" });
-        meta.textContent = (k.provider_hint || "no hint") +
+        meta.textContent = k.id + "  ·  " + (k.provider_hint || "no hint") +
           (k.last_used_at ? "  ·  last used " + new Date(k.last_used_at * 1000).toLocaleString() : "  ·  never used");
         main.appendChild(meta);
         item.appendChild(main);
@@ -2684,8 +2684,58 @@
   if ($("#credentialImportCommit")) {
     $("#credentialImportCommit").addEventListener("click", commitCredentialImport);
   }
+  if ($("#blueskyPost")) {
+    $("#blueskyPost").addEventListener("click", blueskyPost);
+  }
+  if ($("#blueskyTimeline")) {
+    $("#blueskyTimeline").addEventListener("click", blueskyTimeline);
+  }
   try { renderProviderLogins(); } catch (_) {}
   try { renderStoredKeys(); } catch (_) {}
+
+  function blueskyKeyId() {
+    return (($("#blueskyKeyId") && $("#blueskyKeyId").value) || "").trim();
+  }
+
+  function blueskyOut(text) {
+    if ($("#blueskyOutput")) $("#blueskyOutput").textContent = text;
+  }
+
+  async function blueskyPost() {
+    var keyId = blueskyKeyId();
+    var text = (($("#blueskyPostText") && $("#blueskyPostText").value) || "").trim();
+    if (!keyId) { toast("Paste the vault key ID first (see Stored Keys).", "warn"); return; }
+    if (!text) { toast("Write the post text first.", "warn"); return; }
+    try {
+      blueskyOut("Posting…");
+      var data = await api("/api/auth/bluesky/post",
+        { method: "POST", body: { entity_id: "console-user", key_id: keyId, text: text } });
+      if (!data.ok) throw new Error(data.error || "post failed");
+      blueskyOut("Posted as " + data.handle + "\n" + (data.uri || ""));
+      if ($("#blueskyPostText")) $("#blueskyPostText").value = "";
+      toast("Posted to Bluesky.", "ok");
+    } catch (e) {
+      blueskyOut("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  async function blueskyTimeline() {
+    var keyId = blueskyKeyId();
+    if (!keyId) { toast("Paste the vault key ID first (see Stored Keys).", "warn"); return; }
+    try {
+      blueskyOut("Reading timeline…");
+      var data = await api("/api/auth/bluesky/timeline",
+        { method: "POST", body: { entity_id: "console-user", key_id: keyId, limit: 10 } });
+      if (!data.ok) throw new Error(data.error || "timeline failed");
+      blueskyOut((data.items || []).map(function(it) {
+        return "@" + it.author + " (" + it.likes + " likes)\n" + it.text;
+      }).join("\n\n") || "Empty timeline.");
+    } catch (e) {
+      blueskyOut("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
   $("#githubSelfEvolutionPreview").addEventListener("click", previewSelfEvolution);
   $("#githubPlan").addEventListener("click", planGithubIssue);
   $("#githubPolicyPreview").addEventListener("click", previewGithubPolicy);

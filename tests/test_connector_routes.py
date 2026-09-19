@@ -63,7 +63,9 @@ def test_providers_and_status_are_redacted(tmp_path) -> None:
     try:
         code, data = _get(BASE + "/api/connectors/providers")
         assert code == 200 and data["ok"] is True
-        assert len(data["providers"]) == 13
+        from ghostchimera.connectors.auth_engine import PROVIDERS
+
+        assert len(data["providers"]) == len(PROVIDERS)
         assert "sk-or" not in json.dumps(data)
         assert data["auth_engine"] == "custom"
         code, status = _get(BASE + "/api/connectors/status")

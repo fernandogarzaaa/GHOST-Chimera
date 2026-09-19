@@ -483,6 +483,22 @@
     </div>
     <div id="storedKeys"></div>
 
+    <div class="section-hdr">Bluesky</div>
+    <p class="hint" style="margin-bottom:10px;">Save a Bluesky app password in Stored Keys (label it with your handle), then post or read your timeline. Sessions live only inside each request — nothing is kept.</p>
+    <div class="form-group">
+      <label>Vault key ID (from Stored Keys list — press Refresh Keys to see IDs)</label>
+      <input id="blueskyKeyId" type="text" autocomplete="off" placeholder="key-xxxxxxxxxxxx">
+    </div>
+    <div class="form-group">
+      <label>Post text (max 300 chars)</label>
+      <input id="blueskyPostText" type="text" autocomplete="off" placeholder="Hello Bluesky">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="blueskyPost" class="primary">Post To Bluesky</button>
+      <button id="blueskyTimeline">Read Timeline</button>
+    </div>
+    <pre class="output compact-output" id="blueskyOutput">Bluesky results appear here.</pre>
+
     <div class="section-hdr">Import Browser Passwords</div>
     <p class="hint" style="margin-bottom:10px;">Two paths, same result. CSV: export from Chrome/Brave Settings → Passwords → Export, paste below. Direct: read this machine's Chromium login store (explicit consent, Windows-only, nothing leaves this computer). Map each entry to the vault or skip it.</p>
     <div class="form-group">

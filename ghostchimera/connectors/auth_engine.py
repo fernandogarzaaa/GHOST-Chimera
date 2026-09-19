@@ -39,6 +39,9 @@ STATE_TTL_SECONDS = 600.0
 # days, then surface NEEDS_REAUTH (one-click re-import). `gh auth logout`
 # or revocation surfaces earlier via API errors at use time.
 GH_TOKEN_TTL_SECONDS = 90 * 86400.0
+# Providers whose tokens may be stored but never used for API calls until
+# the operator explicitly approves usage (X is pay-per-use per call).
+LOGIN_ONLY_PROVIDERS = frozenset({"x"})
 
 
 class AuthEngineError(RuntimeError):
@@ -78,6 +81,13 @@ PROVIDERS: dict[str, EngineProvider] = {
     "time-doctor": EngineProvider("time-doctor", "Time Doctor", "workforce"),
     "github": EngineProvider("github", "GitHub", "dev", "https://api.github.com"),
     "linkedin": EngineProvider("linkedin", "LinkedIn", "social", "https://api.linkedin.com/v2"),
+    "mastodon": EngineProvider("mastodon", "Mastodon", "social", ""),
+    "reddit": EngineProvider("reddit", "Reddit", "social", "https://oauth.reddit.com"),
+    "discord": EngineProvider("discord", "Discord", "social", "https://discord.com/api/v10"),
+    "tiktok": EngineProvider("tiktok", "TikTok", "social", "https://open.tiktokapis.com"),
+    "facebook": EngineProvider("facebook", "Facebook", "social", "https://graph.facebook.com"),
+    "instagram": EngineProvider("instagram", "Instagram", "social", "https://graph.instagram.com"),
+    "x": EngineProvider("x", "X", "social", "https://api.x.com/2"),
 }
 
 # Shipped shared logins: project-owned OAuth client IDs (Desktop/native type,
@@ -100,6 +110,13 @@ _CLIENT_ID_ENV: dict[str, tuple[str, ...]] = {
     "airtable": ("AIRTABLE_CLIENT_ID",),
     "hubstaff": ("HUBSTAFF_CLIENT_ID",),
     "time-doctor": ("TIMEDOCTOR_CLIENT_ID",),
+    "mastodon": ("MASTODON_CLIENT_ID",),
+    "reddit": ("REDDIT_CLIENT_ID",),
+    "discord": ("DISCORD_CLIENT_ID",),
+    "tiktok": ("TIKTOK_CLIENT_ID",),
+    "facebook": ("FACEBOOK_CLIENT_ID",),
+    "instagram": ("INSTAGRAM_CLIENT_ID",),
+    "x": ("X_CLIENT_ID", "TWITTER_CLIENT_ID"),
 }
 
 
@@ -121,6 +138,13 @@ _PRESET_FOR = {
     "time-doctor": "time-doctor",
     "github": "github",
     "linkedin": "linkedin",
+    "mastodon": "mastodon",
+    "reddit": "reddit",
+    "discord": "discord",
+    "tiktok": "tiktok",
+    "facebook": "facebook",
+    "instagram": "instagram",
+    "x": "x",
 }
 
 
@@ -541,15 +565,17 @@ class CustomAuthEngine:
             raise AuthEngineError("OAuth state mismatch (provider/entity)")
         verifier = str(pending["verifier"])
         client_secret = self._client_secret(preset.id)
+        client_id = self._client_id(preset.id)
         exchange = {
             "grant_type": "authorization_code",
-            "client_id": self._client_id(preset.id),
-            **({"client_secret": client_secret} if client_secret else {}),
+            "client_id": client_id,
+            **({"client_secret": client_secret} if client_secret and not preset.use_basic_auth else {}),
             "code": code,
             "redirect_uri": str(pending.get("redirect_uri") or redirect_uri),
-            "code_verifier": verifier,
+            **({"code_verifier": verifier} if preset.use_pkce else {}),
         }
-        token = self._post_form(preset.token_url, exchange)
+        basic = f"{client_id}:{client_secret}" if preset.use_basic_auth else ""
+        token = self._post_form(preset.token_url, exchange, basic=basic)
         if "access_token" not in token:
             raise AuthEngineError(f"{provider} gave no access token: {token.get('error', 'unknown')}")
         return self._store_token(provider, entity_id, token)
@@ -863,23 +889,27 @@ class CustomAuthEngine:
                 self._locks[key] = lock
             return lock
 
-    def _post_form(self, url: str, payload: dict[str, str]) -> dict[str, Any]:
+    def _post_form(self, url: str, payload: dict[str, str], *, basic: str = "") -> dict[str, Any]:
         # OAuth errors (invalid_grant, invalid_client) arrive WITH the 4xx
         # status — always parse the body before deciding.
         if self._transport is not None:
-            status, raw_body = self._transport("POST", url, payload)
+            transport_payload = dict(payload)
+            if basic:
+                transport_payload["_basic"] = basic  # test-visible marker only
+            status, raw_body = self._transport("POST", url, transport_payload)
             raw = (
                 raw_body.decode("utf-8", "replace")
                 if isinstance(raw_body, (bytes, bytearray))
                 else str(raw_body or "{}")
             )
         else:
+            import base64 as _b64
+
             encoded = urllib.parse.urlencode(payload).encode()
-            req = urllib.request.Request(
-                url,
-                data=encoded,
-                headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
-            )
+            headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
+            if basic:
+                headers["Authorization"] = "Basic " + _b64.b64encode(basic.encode()).decode()
+            req = urllib.request.Request(url, data=encoded, headers=headers)
             try:
                 with urllib.request.urlopen(req, timeout=30.0) as resp:
                     status, raw = resp.status, resp.read().decode("utf-8", "replace")
@@ -917,14 +947,16 @@ class CustomAuthEngine:
             preset = self._preset(provider)
             try:
                 refresh_secret = self._client_secret(preset.id)
+                refresh_client_id = self._client_id(preset.id)
                 fresh = self._post_form(
                     preset.token_url,
                     {
                         "grant_type": "refresh_token",
-                        "client_id": self._client_id(preset.id),
-                        **({"client_secret": refresh_secret} if refresh_secret else {}),
+                        "client_id": refresh_client_id,
+                        **({"client_secret": refresh_secret} if refresh_secret and not preset.use_basic_auth else {}),
                         "refresh_token": refresh,
                     },
+                    basic=f"{refresh_client_id}:{refresh_secret}" if preset.use_basic_auth else "",
                 )
             except AuthEngineError as exc:
                 message = str(exc).lower()
@@ -946,6 +978,8 @@ class CustomAuthEngine:
             return str(fresh["access_token"])
 
     # -- proxy: act with a fresh token, no middleman ------------------------------
+    # LOGIN_ONLY providers authenticate but never call the provider API
+    # until the operator explicitly unlocks spending/use (X: pay-per-use).
     def proxy_request(
         self,
         provider: str,
@@ -956,6 +990,11 @@ class CustomAuthEngine:
         data: dict[str, Any] | None = None,
         params: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        if provider in LOGIN_ONLY_PROVIDERS:
+            raise AuthEngineError(
+                f"{provider} is login-only: the token is stored but API calls are disabled "
+                "until usage is explicitly approved (X bills per call)"
+            )
         token = self.get_valid_token(entity_id, provider)
         full = url + ("?" + urllib.parse.urlencode(params) if params else "")
         body = json.dumps(data).encode() if data is not None and method.upper() != "GET" else None

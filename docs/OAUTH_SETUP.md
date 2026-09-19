@@ -164,6 +164,12 @@ codes, never account passwords), label it, and Ghost stores it
 Fernet-encrypted. Listings show labels only; values are never displayed,
 logged, or returned by any route. API: `/api/auth/keys/save|list|delete`.
 
+App passwords become usable mail through `POST /api/auth/mail/fetch`
+(key ID or label, max 50 messages, IMAP UNSEEN by default): read-only,
+consent-gated (Personal MiniMind email-crawl consent required), headers +
+OTP-scrubbed snippets only. Attach the email address as the key's hint
+when saving so Ghost knows which inbox to open.
+
 ### Browser password import (CSV or direct)
 
 Connections → Import Browser Passwords. Two paths, same per-row mapping UI
