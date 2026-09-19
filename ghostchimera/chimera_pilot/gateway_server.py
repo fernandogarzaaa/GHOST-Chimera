@@ -566,6 +566,7 @@ class GatewayServer(BackgroundService):
             if self.port == 0 and self.http_port == 0:
                 # Fully ephemeral: the OS assigns both; nothing to race.
                 self._launch_ws_thread()
+                self._bind_http()
                 self._serve_http()
                 break
             try:
