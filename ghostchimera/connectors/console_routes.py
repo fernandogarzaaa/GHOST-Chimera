@@ -293,6 +293,80 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             with suppress(Exception):
                 engine.close()
 
+    def auth_device_start(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Begin an RFC 8628 device login (no redirect URI — LAN-friendly).
+
+        Returns user_code + verification_uri for display; the UI then polls
+        /api/auth/device/poll until complete.
+        """
+        data = _body(ctx)
+        provider = str(data.get("provider", ""))
+        entity_id = str(data.get("entity_id", ""))
+        if not provider or not entity_id:
+            return {"ok": False, "error": "provider and entity_id are required"}
+        scopes = data.get("scopes") if isinstance(data.get("scopes"), list) else None
+        engine = _engine()
+        try:
+            return engine.start_device_login(provider, entity_id, scopes=scopes)
+        except (AuthEngineError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_device_poll(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Single poll for a pending device login (UI calls repeatedly)."""
+        data = _body(ctx)
+        handle = str(data.get("handle", ""))
+        if not handle:
+            return {"ok": False, "error": "handle is required"}
+        engine = _engine()
+        try:
+            return engine.poll_device_login(handle)
+        except (AuthEngineError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_login_options(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Per-provider login capabilities for the Integrations tab.
+
+        Tells the UI which flows each provider supports (device vs browser),
+        where the effective client ID comes from, and the exact callback URL
+        to register with the provider (for the redirect-URI mismatch check).
+        """
+        from .auth_engine import _PRESET_FOR
+        from .oauth import get_preset
+
+        host = str((ctx.get("headers") or {}).get("host", "127.0.0.1:8766"))
+        callback_url = os.environ.get("GHOSTCHIMERA_OAUTH_CALLBACK", f"http://{host}/api/auth/callback")
+        engine = _engine()
+        try:
+            options = []
+            for key, provider in PROVIDERS.items():
+                preset_id = _PRESET_FOR.get(key, key)
+                try:
+                    preset = get_preset(preset_id)
+                except ValueError:
+                    continue
+                source = engine.client_id_source(preset_id)
+                options.append(
+                    {
+                        "key": key,
+                        "display": provider.display,
+                        "device_flow": preset.supports_device_flow,
+                        "device_verification_url": preset.device_verification_url,
+                        "browser_flow": True,
+                        "client_id_source": source,
+                        "client_id_configured": source != "none",
+                    }
+                )
+            return {"ok": True, "options": options, "callback_url": callback_url}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
     server.routes.register(
         "/api/connectors/providers",
         providers,
@@ -335,6 +409,30 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
     )
     server.routes.register(
         "/api/auth/callback", auth_callback_page, method="GET", auth="open", description="OAuth browser landing page"
+    )
+    server.routes.register(
+        "/api/auth/device/start",
+        auth_device_start,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Start RFC 8628 device login",
+    )
+    server.routes.register(
+        "/api/auth/device/poll",
+        auth_device_poll,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Poll a pending device login",
+    )
+    server.routes.register(
+        "/api/auth/login-options",
+        auth_login_options,
+        method="GET",
+        auth=auth,
+        token=token,
+        description="Per-provider login capabilities + callback URL",
     )
     server.routes.register(
         "/api/auth/status", auth_status, method="POST", auth=auth, token=token, description="Redacted connection status"

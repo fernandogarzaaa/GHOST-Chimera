@@ -419,10 +419,11 @@ class CustomAuthEngine:
         if pending.get("provider") != provider or str(pending.get("entity_id", "")) != entity_id:
             raise AuthEngineError("OAuth state mismatch (provider/entity)")
         verifier = str(pending["verifier"])
+        client_secret = os.environ.get(f"{preset.id.upper()}_CLIENT_SECRET", "").strip()
         exchange = {
             "grant_type": "authorization_code",
             "client_id": self._client_id(preset.id),
-            "client_secret": os.environ.get(f"{preset.id.upper()}_CLIENT_SECRET", ""),
+            **({"client_secret": client_secret} if client_secret else {}),
             "code": code,
             "redirect_uri": str(pending.get("redirect_uri") or redirect_uri),
             "code_verifier": verifier,
@@ -431,6 +432,184 @@ class CustomAuthEngine:
         if "access_token" not in token:
             raise AuthEngineError(f"{provider} gave no access token: {token.get('error', 'unknown')}")
         return self._store_token(provider, entity_id, token)
+
+    # -- Device flow (RFC 8628): no redirect URI, LAN-friendly ---------------
+    # Pending logins live in connector_oauth/device-{handle}.json so the
+    # short-lived per-request engine instances can share them. The file
+    # holds the device_code (single-use credential) — never returned to UI.
+    def _device_path(self, handle: str) -> Path:
+        safe = "".join(c for c in handle if c.isalnum() or c in ("-", "_"))
+        return self.state_dir / "connector_oauth" / f"device-{safe}.json"
+
+    def start_device_login(self, provider: str, entity_id: str, *, scopes: list[str] | None = None) -> dict[str, Any]:
+        """Begin a device login. Returns handle + user-facing instructions.
+
+        The UI shows verification_uri + user_code, then calls
+        poll_device_login(handle) until it reports complete.
+        """
+        if provider not in PROVIDERS:
+            raise UnknownProvider(f"Unknown provider: {provider}")
+        if not entity_id:
+            raise AuthEngineError("entity_id is required")
+        from .oauth import request_device_code
+
+        preset = self._preset(provider)
+        if not preset.supports_device_flow:
+            raise AuthEngineError(f"{provider} has no device flow; use the browser login")
+        client_id = self._client_id(preset.id)
+        if not client_id:
+            raise AuthEngineError(f"No client ID configured for {provider}")
+
+        def _post(url: str, payload: dict[str, str]) -> dict[str, Any]:
+            # self._post_form raises on provider error bodies; the device
+            # start call must see the raw body to report failures itself.
+            if self._transport is not None:
+                status, raw_body = self._transport("POST", url, payload)
+                raw = (
+                    raw_body.decode("utf-8", "replace")
+                    if isinstance(raw_body, (bytes, bytearray))
+                    else str(raw_body or "{}")
+                )
+            else:
+                encoded = urllib.parse.urlencode(payload).encode()
+                req = urllib.request.Request(
+                    url,
+                    data=encoded,
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "Accept": "application/json",
+                    },
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=30.0) as resp:
+                        raw = resp.read().decode("utf-8", "replace")
+                except urllib.error.HTTPError as exc:
+                    raw = exc.read().decode("utf-8", "replace")
+            try:
+                decoded = json.loads(raw or "{}")
+            except json.JSONDecodeError:
+                decoded = dict(urllib.parse.parse_qsl(raw or ""))
+            return decoded if isinstance(decoded, dict) else {}
+
+        started = request_device_code(
+            preset,
+            client_id=client_id,
+            scopes=scopes if scopes is not None else list(preset.scopes),
+            post_fn=_post,
+        )
+        handle = secrets.token_urlsafe(16)
+        path = self._device_path(handle)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "provider": provider,
+                        "entity_id": entity_id,
+                        "device_code": started["device_code"],
+                        "ts": time.time(),
+                        "expires_in": started["expires_in"],
+                        "interval": started["interval"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            raise AuthEngineError(f"Cannot persist device login: {exc}") from exc
+        return {
+            "ok": True,
+            "handle": handle,
+            "provider": provider,
+            "entity_id": entity_id,
+            "user_code": started["user_code"],
+            "verification_uri": started["verification_uri"],
+            "verification_uri_complete": started["verification_uri_complete"],
+            "expires_in": started["expires_in"],
+            "interval": started["interval"],
+        }
+
+    def poll_device_login(self, handle: str) -> dict[str, Any]:
+        """Single poll for a pending device login (UI calls repeatedly).
+
+        Returns {"ok": True, "status": "pending", ...} while waiting,
+        {"ok": True, "status": "complete", ...} once stored, and raises
+        AuthEngineError on denial/expiry/provider errors.
+        """
+        path = self._device_path(handle)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise AuthEngineError(f"Device login missing/expired: {exc}") from exc
+        if not isinstance(data, dict) or not data.get("device_code"):
+            path.unlink(missing_ok=True)
+            raise AuthEngineError("Device login missing/expired; start over")
+        if time.time() - float(data.get("ts", 0)) > float(data.get("expires_in", 900)):
+            path.unlink(missing_ok=True)
+            raise AuthEngineError("Device login expired; start over")
+        provider = str(data["provider"])
+        entity_id = str(data["entity_id"])
+        preset = self._preset(provider)
+        try:
+            token = self._post_form(
+                preset.token_url,
+                {
+                    "grant_type": preset.device_grant,
+                    "client_id": self._client_id(preset.id),
+                    "device_code": str(data["device_code"]),
+                },
+            )
+        except AuthEngineError as exc:
+            message = str(exc).lower()
+            # The transport layer surfaces provider "error" fields as
+            # AuthEngineError("token endpoint error: <code>") — map the
+            # RFC 8628 non-terminal codes back to pending.
+            if "authorization_pending" in message:
+                return {"ok": True, "status": "pending", "interval": int(data.get("interval", 5))}
+            if "slow_down" in message:
+                return {"ok": True, "status": "pending", "interval": int(data.get("interval", 5)) + 5}
+            if "access_denied" in message or "expired_token" in message:
+                path.unlink(missing_ok=True)
+                raise AuthEngineError("Device login denied or expired; start over") from exc
+            raise
+        if "access_token" not in token:
+            raise AuthEngineError(f"{provider} gave no access token")
+        path.unlink(missing_ok=True)
+        stored = self._store_token(provider, entity_id, token)
+        return {"ok": True, "status": "complete", "connection": stored}
+
+    # -- Loopback login (RFC 8252): localhost browser, ephemeral port -------
+    def loopback_login(
+        self,
+        provider: str,
+        entity_id: str,
+        *,
+        scopes: list[str] | None = None,
+        timeout: float = 300.0,
+        open_browser: bool = True,
+    ) -> dict[str, Any]:
+        """Browser login via a 127.0.0.1 listener (CLI / same-machine use).
+
+        Returns the authorize URL for display, waits for the provider
+        redirect, then exchanges and stores the token. LAN browsers cannot
+        reach loopback — those installs must use the device flow.
+        """
+        from .loopback import LoopbackListener
+
+        if provider not in PROVIDERS:
+            raise UnknownProvider(f"Unknown provider: {provider}")
+        listener = LoopbackListener().start()
+        try:
+            created = self.authorize_url(provider, entity_id, listener.redirect_uri, scopes=scopes)
+            if open_browser:
+                import contextlib
+                import webbrowser
+
+                with contextlib.suppress(Exception):
+                    webbrowser.open(created["authorize_url"])
+            query = listener.wait(timeout=timeout)
+        finally:
+            listener.close()
+        return self.handle_callback(provider, str(query["code"]), str(query.get("state", "")), listener.redirect_uri)
 
     def _store_token(self, provider: str, entity_id: str, token: dict[str, Any]) -> dict[str, Any]:
         access = self._fernet.encrypt(str(token["access_token"]).encode()).decode()
@@ -512,12 +691,13 @@ class CustomAuthEngine:
                 raise NeedsReauth(f"No refresh token for {entity_id}/{provider}: reconnect")
             preset = self._preset(provider)
             try:
+                refresh_secret = os.environ.get(f"{preset.id.upper()}_CLIENT_SECRET", "").strip()
                 fresh = self._post_form(
                     preset.token_url,
                     {
                         "grant_type": "refresh_token",
                         "client_id": self._client_id(preset.id),
-                        "client_secret": os.environ.get(f"{preset.id.upper()}_CLIENT_SECRET", ""),
+                        **({"client_secret": refresh_secret} if refresh_secret else {}),
                         "refresh_token": refresh,
                     },
                 )

@@ -1,0 +1,124 @@
+# OAuth Setup (localhost + LAN, local-only registration)
+
+Ghost connects to Google/Gmail, GitHub, Slack, and more via self-hosted
+OAuth2. **No credentials ever leave your machine**: tokens are
+Fernet-encrypted in the local state dir, the console only reports
+connected/expiry status, and client secrets stay in environment variables.
+
+Two login flows exist per provider. The Integrations tab
+(`GET /api/auth/login-options`) tells you which each provider supports.
+
+## Flow 1 — Device login (recommended, works over LAN)
+
+No redirect URI, no browser on the server machine. The console shows a
+`user_code` (e.g. `ABCD-1234`) and a verification URL; you open the URL on
+**any** device, enter the code, approve, and the console polls until done.
+
+Supported today: **GitHub** (more providers as they gain device flows).
+
+### GitHub (one-time registration, ~3 min)
+
+1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App.
+   - Application name: `Ghost Chimera (local)`; Homepage URL: anything.
+   - **Authorization callback URL**: any placeholder (device flow ignores it).
+2. Copy the **Client ID** (no secret needed for device flow).
+3. In the app's settings, check **Enable Device Flow**.
+4. Give Ghost the ID (pick one, first wins):
+   - env: `GHOSTCHIMERA_GITHUB_CLIENT_ID=<id>`, or
+   - Console → Integrations tab → paste into the GitHub client-ID field.
+5. Integrations tab → GitHub → Device login → enter the code at
+   https://github.com/login/device → approve.
+
+## Flow 2 — Browser login (redirect flow)
+
+For providers without device flow (Google/Gmail, Slack, …). The console
+builds an authorize URL, you approve in your browser, the provider
+redirects back to the console callback with a code.
+
+### The redirect-URI rule (read this once)
+
+Providers match the redirect URI **exactly**. Two cases:
+
+- **Same-machine browser** (console + browser on one PC): use a
+  **Desktop/native app** client type (Google "Desktop app", Slack PKCE
+  public client). Redirects go to `http://127.0.0.1:<any-port>/callback`
+  and need no per-port pre-registration.
+- **LAN browser** (console on a server, browser on another device):
+  register the exact LAN callback in the provider app, e.g.
+  `http://192.168.1.50:8766/api/auth/callback`, and **pin the console
+  port** so it never changes (see below). Find your exact callback at
+  any time via `GET /api/auth/login-options` → `callback_url`.
+
+### Pinning the console address
+
+```powershell
+$env:GHOSTCHIMERA_HTTP_PORT = "8766"   # stable port, survives restarts
+$env:GHOSTCHIMERA_OAUTH_CALLBACK = "http://192.168.1.50:8766/api/auth/callback"
+```
+
+Or save `"console": {"http_port": 8766}` in the Ghost config file. On
+startup Ghost warns if the bound address doesn't match the registered
+callback (`redirect_uri_mismatch` is a startup warning now, not a login
+mystery later). Override per-launch with the `http_port=` argument.
+
+### Google / Gmail (one-time registration, ~5 min)
+
+1. Google Cloud Console → new project → APIs & Services → Credentials →
+   Create Credentials → OAuth client ID → **Desktop app**.
+2. Enable the **Gmail API** for the project (APIs & Services → Library).
+3. Copy the Client ID → `GOOGLE_OAUTH_CLIENT_ID` env (or Integrations tab).
+   No secret needed for the Desktop/PKCE path.
+4. Integrations → Gmail → Browser login → approve. First consent asks for
+   `gmail.readonly` (extra scopes are requested incrementally later).
+5. Notes: Google shows an "unverified app" screen until the project is
+   verified (fine for personal use — click through). Past ~100 users,
+   Restricted scopes (Gmail) require verification + possibly a security
+   assessment. **Device flow cannot do Gmail** (Google forbids Gmail
+   scopes on it) — use the browser flow.
+
+### Slack (one-time registration, ~5 min)
+
+1. api.slack.com/apps → Create New App → From scratch.
+2. Enable **PKCE** (makes it a public client — no secret needed).
+3. Add redirect `http://127.0.0.1:<port>/callback` (same-machine) and/or
+   your LAN callback.
+4. Copy the Client ID → `SLACK_CLIENT_ID` env (or Integrations tab).
+5. Ghost requests **user (xoxp) scopes** (`channels:history`,
+   `channels:read`, `groups:history`, `groups:read`, `users:read`).
+   PKCE/desktop installs **cannot** request bot scopes — if you need a bot
+   token, register a classic confidential app and set `SLACK_CLIENT_SECRET`
+   instead (Ghost omits the secret automatically when it is empty).
+
+### Salesforce
+
+Standard browser flow. If your org uses a sandbox or My Domain, set the
+login host (no code change needed):
+
+```powershell
+$env:SALESFORCE_LOGIN_HOST = "example.my.salesforce.com"  # or test.salesforce.com
+```
+
+### Per-provider environment reference
+
+| Provider | Client ID env | Secret env (confidential only) | Notes |
+|---|---|---|---|
+| GitHub | `GHOSTCHIMERA_GITHUB_CLIENT_ID` | — | enable Device Flow on the app |
+| Google/Gmail | `GOOGLE_OAUTH_CLIENT_ID` | — | Desktop app type; Gmail API on |
+| Slack | `SLACK_CLIENT_ID` | `SLACK_CLIENT_SECRET` | PKCE public client needs no secret |
+| Salesforce | `SALESFORCE_CLIENT_ID` | `SALESFORCE_CLIENT_SECRET` | `SALESFORCE_LOGIN_HOST` for sandboxes |
+| Notion | `NOTION_CLIENT_ID` | `NOTION_CLIENT_SECRET` | confidential: secret required |
+| HubSpot | `HUBSPOT_CLIENT_ID` | `HUBSPOT_CLIENT_SECRET` | confidential: secret required |
+| Airtable | `AIRTABLE_CLIENT_ID` | — | PKCE, secret optional |
+| LinkedIn | `LINKEDIN_CLIENT_ID` | `LINKEDIN_CLIENT_SECRET` | native PKCE gated by LinkedIn |
+
+## Security notes
+
+- Client IDs are public identifiers — safe in the local config file.
+  **Secrets and tokens are never committed**: keep them in env vars.
+- `SHIPPED_CLIENT_IDS` in `auth_engine.py` is intentionally empty in the
+  public repo. Do not paste your private client IDs there — use env or
+  the Integrations tab.
+- Device login handles (`device-{...}.json`) hold single-use device codes
+  server-side and are deleted on completion, denial, or expiry.
+- Disconnect actually revokes: Integrations → Revoke, or
+  `POST /api/auth/revoke`.

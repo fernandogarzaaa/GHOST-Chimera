@@ -5676,6 +5676,73 @@ def register_console_routes(
     )
 
 
+def _resolve_http_port(http_port: int | None) -> int | None:
+    """Pin the console HTTP port for OAuth redirect stability.
+
+    Explicit argument wins; otherwise a saved ``console.http_port`` value
+    keeps the address stable across restarts so provider-registered redirect
+    URIs keep working. None falls through to the server default.
+    """
+    if http_port is not None:
+        return http_port
+    try:
+        from .config import load_config
+
+        saved = load_config().get("console", {})
+        if isinstance(saved, dict) and saved.get("http_port"):
+            return int(saved["http_port"])
+    except Exception:
+        pass
+    return None
+
+
+def _oauth_ids_configured() -> bool:
+    """True when any provider OAuth client ID is configured (env or saved)."""
+    try:
+        from ..connectors.auth_engine import _CLIENT_ID_ENV
+        from .config import load_config
+
+        for names in _CLIENT_ID_ENV.values():
+            if any(os.environ.get(n, "").strip() for n in names):
+                return True
+        saved = load_config().get("provider_oauth", {})
+        if isinstance(saved, dict):
+            return any(isinstance(v, dict) and str(v.get("client_id", "")).strip() for v in saved.values())
+    except Exception:
+        pass
+    return False
+
+
+def _warn_oauth_origin_mismatch(server: GatewayServer) -> None:
+    """Warn when the bound console address can't match a registered redirect.
+
+    Provider redirect URIs are exact strings. If the operator registered a
+    callback for a pinned address but the console bound somewhere else
+    (ephemeral port, different host), browser logins fail with
+    redirect_uri_mismatch — surface that here instead of at login time.
+    """
+    registered = os.environ.get("GHOSTCHIMERA_OAUTH_CALLBACK", "").strip()
+    if not registered or not _oauth_ids_configured():
+        return
+    actual_port = server.http_port
+    if server._http_server is not None:
+        actual_port = int(server._http_server.server_address[1])
+    actual = f"{server.host}:{actual_port}"
+    if actual not in registered:
+        try:
+            from ..logging_config import get_logger
+
+            get_logger("console").warning(
+                "OAuth redirect mismatch: console is at http://%s but the registered "
+                "callback is %s. Browser logins will fail until they match "
+                "(pin GHOSTCHIMERA_HTTP_PORT or update the provider app).",
+                actual,
+                registered,
+            )
+        except Exception:
+            print(f"OAuth redirect mismatch: console at http://{actual}, registered {registered}")
+
+
 def _console_url(server: GatewayServer) -> str:
     http_port = server.http_port
     if server._http_server is not None:
@@ -5699,7 +5766,7 @@ def run_console(
     Parameters:
         host (str): Hostname or IP address the gateway listens on.
         port (int): TCP port for the gateway's primary (websocket) service.
-        http_port (int | None): Optional explicit HTTP port for determining the console URL; if None the server chooses its default.
+        http_port (int | None): Optional explicit HTTP port for determining the console URL; if None a saved console.http_port pins it, else the server chooses its default.
         state_dir (str | Path | None): Optional directory for persistent state (overrides environment config); used for workspace, queue, and scheduler storage.
         open_browser (bool): If True, attempt to open the console URL in the user's default web browser after the server starts.
         block (bool): If True, block the current thread until interrupted; on KeyboardInterrupt the server is stopped before returning.
@@ -5716,7 +5783,7 @@ def run_console(
         config = replace(
             config, state_dir=resolved, memory_db=resolved / "memory.sqlite3", audit_file=resolved / "audit.json"
         )
-    server = GatewayServer(host=host, port=port, http_port=http_port, config=config)
+    server = GatewayServer(host=host, port=port, http_port=_resolve_http_port(http_port), config=config)
     _register_static_routes(server)
     register_console_routes(server, state_dir=state_dir or config.state_dir, console_token=auth_token or "")
     try:
@@ -5750,6 +5817,7 @@ def run_console(
     except Exception:
         pass
     server.start()
+    _warn_oauth_origin_mismatch(server)
     url = _console_url(server)
     print(f"Ghost Console: {url}")
     if auth_token:

@@ -32,6 +32,22 @@ class ProviderPreset:
     # Some providers (Slack) rotate refresh tokens; all are optional except id/urls.
     use_pkce: bool = True
     extra_authorize: dict[str, str] = field(default_factory=dict)
+    # OAuth 2.0 Device Authorization Grant (RFC 8628). Empty device_code_url
+    # means the provider has no usable device flow (e.g. Google forbids Gmail
+    # scopes on its device endpoint; Notion/HubSpot are confidential-only).
+    device_code_url: str = ""
+    # Human-facing page shown to the user (may be overridden by the device
+    # response's verification_uri / verification_uri_complete).
+    device_verification_url: str = ""
+    device_grant: str = "urn:ietf:params:oauth:grant-type:device_code"
+    # Authorization endpoint scope parameter name. Slack's public (PKCE)
+    # clients must request user scopes via `user_scope`; bot `scope`
+    # requests fail on desktop/loopback redirects.
+    scope_param: str = "scope"
+
+    @property
+    def supports_device_flow(self) -> bool:
+        return bool(self.device_code_url)
 
 
 OAUTH_PRESETS: dict[str, ProviderPreset] = {
@@ -40,7 +56,10 @@ OAUTH_PRESETS: dict[str, ProviderPreset] = {
         display="Slack",
         authorize_url="https://slack.com/oauth/v2/authorize",
         token_url="https://slack.com/api/oauth.v2.access",
+        # User (xoxp) scopes: PKCE public clients and desktop/loopback
+        # redirects cannot request bot scopes — those installs fail.
         scopes=("channels:history", "channels:read", "groups:history", "groups:read", "users:read"),
+        scope_param="user_scope",
     ),
     "notion": ProviderPreset(
         id="notion",
@@ -63,6 +82,10 @@ OAUTH_PRESETS: dict[str, ProviderPreset] = {
         authorize_url="https://github.com/login/oauth/authorize",
         token_url="https://github.com/login/oauth/access_token",
         scopes=("read:user", "repo"),
+        # Device flow is first-class: no redirect_uri, no secret required.
+        # The OAuth App must have "Enable Device Flow" checked.
+        device_code_url="https://github.com/login/device/code",
+        device_verification_url="https://github.com/login/device",
     ),
     "google": ProviderPreset(
         id="google",
@@ -137,11 +160,27 @@ OAUTH_PRESETS: dict[str, ProviderPreset] = {
 }
 
 
+def _salesforce_base() -> str:
+    """Login host for Salesforce (login / test / My Domain), no scheme."""
+    host = os.environ.get("SALESFORCE_LOGIN_HOST", "login.salesforce.com").strip() or "login.salesforce.com"
+    return host.replace("https://", "").replace("http://", "").rstrip("/")
+
+
 def get_preset(provider: str) -> ProviderPreset:
     try:
-        return OAUTH_PRESETS[provider]
+        preset = OAUTH_PRESETS[provider]
     except KeyError as exc:
         raise ValueError(f"Unknown OAuth provider: {provider}. Known: {sorted(OAUTH_PRESETS)}") from exc
+    if provider == "salesforce":
+        from dataclasses import replace
+
+        base = _salesforce_base()
+        preset = replace(
+            preset,
+            authorize_url=f"https://{base}/services/oauth2/authorize",
+            token_url=f"https://{base}/services/oauth2/token",
+        )
+    return preset
 
 
 # -- PKCE -----------------------------------------------------------------
@@ -167,7 +206,7 @@ def build_authorize_url(
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "state": state,
-        "scope": " ".join(scopes if scopes is not None else list(preset.scopes)),
+        preset.scope_param: " ".join(scopes if scopes is not None else list(preset.scopes)),
         **preset.extra_authorize,
     }
     if preset.use_pkce:
@@ -215,7 +254,7 @@ def refresh_access_token(
         {
             "grant_type": "refresh_token",
             "client_id": client_id,
-            "client_secret": client_secret,
+            **({"client_secret": client_secret} if client_secret else {}),
             "refresh_token": refresh_token,
         },
     )
@@ -228,6 +267,100 @@ def refresh_access_token(
     if "refresh_token" not in token:
         token["refresh_token"] = refresh_token  # providers that don't rotate
     return token
+
+
+# -- Device Authorization Grant (RFC 8628) ------------------------------------
+# Two-step UX with no redirect URI: the user opens verification_uri on any
+# device, enters user_code, and the app polls the token endpoint. Designed
+# for single-poll-per-call use (console UI polls via repeated API calls);
+# use poll_device_token in a loop (or wait_for_device_token) for CLI use.
+def request_device_code(
+    preset: ProviderPreset,
+    *,
+    client_id: str,
+    scopes: list[str] | None = None,
+    post_fn: Any = None,
+) -> dict[str, Any]:
+    """Start a device login. Returns device_code + user-facing instructions."""
+    if not preset.supports_device_flow:
+        raise ValueError(f"{preset.id} has no device flow; use the browser (redirect) flow")
+    if not client_id:
+        raise ValueError(f"No client ID configured for {preset.id}")
+    post = post_fn or _form_post
+    data = post(
+        preset.device_code_url,
+        {"client_id": client_id, "scope": " ".join(scopes if scopes is not None else list(preset.scopes))},
+    )
+    if "device_code" not in data or "user_code" not in data:
+        raise ValueError(f"{preset.id} device request failed: {data.get('error', 'unknown error')}")
+    return {
+        "provider": preset.id,
+        "device_code": str(data["device_code"]),
+        "user_code": str(data["user_code"]),
+        "verification_uri": str(data.get("verification_uri") or preset.device_verification_url),
+        "verification_uri_complete": str(data.get("verification_uri_complete") or ""),
+        "expires_in": int(data.get("expires_in") or 900),
+        "interval": int(data.get("interval") or 5),
+    }
+
+
+def poll_device_token(
+    preset: ProviderPreset, *, client_id: str, device_code: str, post_fn: Any = None
+) -> dict[str, Any]:
+    """Single token-endpoint poll for a pending device login.
+
+    Returns {"status": "pending"} while the user has not approved yet,
+    {"status": "complete", ...token...} on success, and raises ValueError
+    on terminal states (denied / expired / provider error).
+    """
+    if not preset.supports_device_flow:
+        raise ValueError(f"{preset.id} has no device flow; use the browser (redirect) flow")
+    post = post_fn or _form_post
+    token = post(
+        preset.token_url,
+        {"grant_type": preset.device_grant, "client_id": client_id, "device_code": device_code},
+    )
+    error = str(token.get("error") or "")
+    if error in ("authorization_pending",):
+        return {"status": "pending"}
+    if error == "slow_down":
+        return {"status": "pending", "slow_down": True}
+    if error in ("access_denied", "expired_token"):
+        raise ValueError(f"{preset.id} device login ended by user or expired ({error})")
+    if error:
+        raise ValueError(f"{preset.id} device poll failed: {error}")
+    if "access_token" not in token:
+        raise ValueError(f"{preset.id} device poll returned no access token")
+    now = time.time()
+    token["provider"] = preset.id
+    token["created_at"] = now
+    token["expires_at"] = now + float(token.get("expires_in") or 3600)
+    return {"status": "complete", **token}
+
+
+def wait_for_device_token(
+    preset: ProviderPreset,
+    *,
+    client_id: str,
+    device_code: str,
+    interval: float = 5.0,
+    timeout: float = 900.0,
+    sleep_fn: Any = None,
+    post_fn: Any = None,
+) -> dict[str, Any]:
+    """Block until the device login completes (CLI use). Honors slow_down."""
+    sleep = sleep_fn or time.sleep
+    deadline = time.time() + timeout
+    wait = max(1.0, float(interval))
+    while True:
+        result = poll_device_token(preset, client_id=client_id, device_code=device_code, post_fn=post_fn)
+        if result.get("status") == "complete":
+            return result
+        if result.get("slow_down"):
+            wait += 5.0
+        if time.time() + wait > deadline:
+            raise ValueError(f"{preset.id} device login timed out waiting for approval")
+        sleep(wait)
 
 
 # -- Token vault ------------------------------------------------------------
@@ -302,5 +435,8 @@ __all__ = [
     "get_preset",
     "oauth_status",
     "pkce_pair",
+    "poll_device_token",
     "refresh_access_token",
+    "request_device_code",
+    "wait_for_device_token",
 ]
