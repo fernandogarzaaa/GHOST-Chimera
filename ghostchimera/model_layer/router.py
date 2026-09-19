@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 
+from .cost_monitor import BudgetExceeded, CostLedger, get_ledger
 from .providers import BaseProvider, get_provider
+from .rate_limit import RateLimitExceeded, get_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +17,15 @@ class ModelRouter:
     Providers are tried in the order specified at construction time.
     ``select()`` returns the first available provider.
     ``route()`` tries each provider in order and returns the first successful result.
+
+    Every attempt passes through the provider's rate limiter (unlimited
+    unless ``GHOSTCHIMERA_RL_*`` env vars configure one) and every success
+    is recorded on the cost ledger (zero-cost unless catalog-priced).
     """
 
-    def __init__(self, provider_names: list[str]) -> None:
+    def __init__(self, provider_names: list[str], *, ledger: CostLedger | None = None) -> None:
         self.provider_names: list[str] = list(provider_names)
+        self.ledger = ledger or get_ledger()
         self._providers: dict[str, BaseProvider | None] = {}
         for name in self.provider_names:
             self._providers[name] = get_provider(name)
@@ -54,9 +61,22 @@ class ModelRouter:
                 logger.warning("Router: provider '%s' not available", name)
                 continue
             try:
-                result = provider.chat(system_message, user_message)
+                get_limiter(name).acquire()
+            except RateLimitExceeded as exc:
+                errors.append(f"{name}: rate limited ({exc})")
+                logger.warning("Router: provider '%s' rate limited", name)
+                continue
+            try:
+                with self.ledger.guard(name):
+                    result = provider.chat(system_message, user_message)
+                    model = str(getattr(provider, "model", "") or "")
+                    self.ledger.record(name, model, input_text=f"{system_message}\n{user_message}", output_text=result)
                 logger.info("Router: selected provider '%s'", name)
                 return result
+            except BudgetExceeded as exc:
+                errors.append(f"{name}: budget blocked ({exc})")
+                logger.warning("Router: provider '%s' over budget", name)
+                continue
             except Exception as exc:
                 errors.append(f"{name}: {exc}")
                 logger.warning("Router: provider '%s' failed – %s", name, exc)

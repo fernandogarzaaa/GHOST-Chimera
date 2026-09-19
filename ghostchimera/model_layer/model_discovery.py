@@ -21,7 +21,7 @@ FetchJson = Callable[[str, dict[str, str], float], dict[str, Any] | list[Any]]
 CACHE_FILE_NAME = "model_discovery_cache.json"
 CACHE_VERSION = 1
 DEFAULT_SOURCES = ("openrouter", "local")
-SUPPORTED_SOURCES = {"openrouter", "vultr", "huggingface", "local"}
+SUPPORTED_SOURCES = {"openrouter", "vultr", "huggingface", "local", "modelsdev"}
 SELECTABLE_COMPATIBILITY = {"ready", "needs_key"}
 
 
@@ -337,6 +337,16 @@ def _discover_source(
         return normalize_huggingface_models(payload, has_api_key=bool(api_key), timestamp=timestamp)
     if source == "local":
         return _discover_local(fetch_json=fetch_json, timestamp=timestamp)
+    if source == "modelsdev":
+        # Same community registry OpenCode uses (models.dev/api.json): 200+
+        # providers with env-key names, base URLs, and per-model capabilities.
+        # Needs a browser User-Agent; plain urllib gets a 403.
+        payload = fetch_json(
+            "https://models.dev/api.json",
+            {"User-Agent": "Mozilla/5.0 (compatible; GhostChimera/0.4 model-discovery)"},
+            15.0,
+        )
+        return normalize_modelsdev_models(_ensure_dict(payload), timestamp=timestamp)
     raise ValueError(f"Unsupported discovery source: {source}")
 
 
@@ -413,6 +423,94 @@ def _vultr_model(item: dict[str, Any], *, timestamp: float) -> DiscoveredModel:
         cost_class=_cost_class(item),
         capability_badges=badges,
     )
+
+
+def normalize_modelsdev_models(payload: dict[str, Any], *, timestamp: float) -> list[DiscoveredModel]:
+    """Normalize the models.dev registry (the same source OpenCode uses).
+
+    Shape: ``{provider_id: {id, env, npm, api, name, doc, models: {model_id:
+    {name, description, modalities, limit: {context}, cost: {input, output
+    per 1M tokens}, tool_call, reasoning, ...}}}}``. Prices are converted to
+    per-token floats matching the OpenRouter pricing shape.
+    """
+    normalized: list[DiscoveredModel] = []
+    providers = payload if isinstance(payload, dict) else {}
+    for provider_id, provider in providers.items():
+        if not isinstance(provider, dict):
+            continue
+        models = provider.get("models")
+        if not isinstance(models, dict):
+            continue
+        env_keys = _env_names(provider.get("env"))
+        for model_id, item in models.items():
+            if not isinstance(item, dict):
+                continue
+            full_id = str(item.get("id") or model_id).strip()
+            if not full_id:
+                continue
+            modalities = item.get("modalities") if isinstance(item.get("modalities"), dict) else {}
+            in_modalities = _listify(modalities.get("input")) or ["text"]
+            out_modalities = _listify(modalities.get("output")) or ["text"]
+            limit = item.get("limit") if isinstance(item.get("limit"), dict) else {}
+            cost = item.get("cost") if isinstance(item.get("cost"), dict) else {}
+            # Omit unknown prices instead of 0.0: a missing price is "unknown",
+            # while an explicit 0.0 means genuinely free.
+            pricing = _modelsdev_pricing(cost)
+            badges = _capability_badges(
+                full_id, str(item.get("name") or full_id), in_modalities, [], int(limit.get("context") or 0), pricing
+            )
+            if item.get("tool_call"):
+                badges = sorted(set(badges + ["tool-call"]))
+            if item.get("reasoning"):
+                badges = sorted(set(badges + ["reasoning"]))
+            if item.get("open_weights"):
+                badges = sorted(set(badges + ["open-weight"]))
+            normalized.append(
+                DiscoveredModel(
+                    source="modelsdev",
+                    provider=str(provider.get("id") or provider_id),
+                    model_id=full_id,
+                    display_name=str(item.get("name") or full_id),
+                    description=str(item.get("description") or ""),
+                    modalities=sorted(set(in_modalities) | set(out_modalities)),
+                    context_length=int(limit.get("context") or 0),
+                    pricing=pricing,
+                    supported_parameters=["temperature"] + (["tools"] if item.get("tool_call") else []),
+                    compatibility_status="candidate_only",
+                    auth_required=True,
+                    recommended_use_cases=_recommended_use_cases(full_id, str(item.get("name") or full_id), badges),
+                    last_refreshed=timestamp,
+                    raw_metadata={"env": env_keys, "api": provider.get("api"), "doc": provider.get("doc")},
+                    cost_class=_cost_class(pricing),
+                    capability_badges=badges,
+                )
+            )
+    return normalized
+
+
+def _modelsdev_pricing(cost: dict[str, Any]) -> dict[str, float]:
+    """Build a pricing dict with only known prices (missing stays unknown)."""
+    pricing: dict[str, float] = {}
+    for source_key, target_key in (("input", "prompt"), ("output", "completion")):
+        try:
+            price = max(0.0, float(cost.get(source_key)))
+        except (TypeError, ValueError):
+            continue
+        pricing[target_key] = price / 1_000_000.0
+    return pricing
+
+
+def _env_names(value: Any) -> list[str]:
+    """Environment-variable names with original casing preserved.
+
+    Unlike :func:`_listify` (which lowercases for matching), env names are
+    identifiers — ``ANTHROPIC_API_KEY`` must not become ``anthropic_api_key``.
+    """
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
 
 
 def _huggingface_model(item: dict[str, Any], *, has_api_key: bool, timestamp: float) -> DiscoveredModel:
