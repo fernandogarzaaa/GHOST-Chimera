@@ -305,7 +305,9 @@ def test_auth_client_id_saved_then_authorizes(tmp_path, monkeypatch) -> None:
         code, saved = _post(
             BASE + "/api/auth/client-id", {"provider": "google-mail", "client_id": "cid.apps.googleusercontent.com"}
         )
-        assert code == 200 and saved == {"ok": True, "provider": "google-mail", "saved": True}
+        assert code == 200 and saved["ok"] is True and saved["saved"] is True
+        assert saved["client_id_configured"] is True and saved["client_id_source"] == "saved"
+        assert saved["client_secret_configured"] is False
         # Saved ID is used without any environment variable...
         code, auth = _post(
             BASE + "/api/auth/authorize",

@@ -466,6 +466,15 @@
     <div class="section-hdr" style="margin-top:0;">Account Connections</div>
     <div class="grid" id="connectionsSummary"></div>
 
+    <div class="section-hdr">Provider Logins</div>
+    <p class="hint" style="margin-bottom:10px;">Paste client IDs (and secrets where needed) below — no terminal required. Device login works over LAN with no redirect setup; browser login needs the shown callback URL registered with the provider. Tokens stay local and are never shown.</p>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="providerLoginsRefresh">Refresh Login Status</button>
+      <span class="hint" id="providerLoginsCallback" style="flex:2;min-width:260px;word-break:break-all;"></span>
+    </div>
+    <div id="providerLogins"></div>
+    <pre class="output compact-output" id="providerLoginsOutput">Login status loads here.</pre>
+
     <div class="section-hdr">GitHub OAuth</div>
     <p class="hint" style="margin-bottom:10px;">Connect GitHub for repo-aware planning, verified skill discovery, and self-evolution source review.</p>
     <div class="form-group">

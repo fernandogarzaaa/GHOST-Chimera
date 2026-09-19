@@ -339,6 +339,49 @@ class CustomAuthEngine:
             return "shared"
         return "none"
 
+    def _client_secret(self, preset_id: str) -> str:
+        """Resolve a provider client secret: environment first, saved config second.
+
+        Saved secrets live in the local config file (owner-only permissions
+        enforced on save) so confidential clients (Notion, HubSpot) can be
+        pasted in the console without touching the terminal. Never logged
+        or returned by status routes.
+        """
+        for name in (f"{preset_id.upper()}_CLIENT_SECRET", f"GHOSTCHIMERA_{preset_id.upper()}_CLIENT_SECRET"):
+            value = os.environ.get(name, "").strip()
+            if value:
+                return value
+        try:
+            from ..control_plane.config import load_config
+
+            saved = load_config().get("provider_oauth", {})
+            if isinstance(saved, dict):
+                entry = saved.get(preset_id, {})
+                if isinstance(entry, dict) and str(entry.get("client_secret", "")).strip():
+                    return str(entry["client_secret"]).strip()
+        except Exception:
+            pass
+        return ""
+
+    def client_secret_source(self, preset_id: str) -> str:
+        """Where the effective client secret comes from — never the value."""
+        for name in (f"{preset_id.upper()}_CLIENT_SECRET", f"GHOSTCHIMERA_{preset_id.upper()}_CLIENT_SECRET"):
+            if os.environ.get(name, "").strip():
+                return "environment"
+        try:
+            from ..control_plane.config import load_config
+
+            saved = load_config().get("provider_oauth", {})
+            if (
+                isinstance(saved, dict)
+                and isinstance(saved.get(preset_id), dict)
+                and str(saved[preset_id].get("client_secret", "")).strip()
+            ):
+                return "saved"
+        except Exception:
+            pass
+        return "none"
+
     # -- Step 1: authorize URL ------------------------------------------------
     def authorize_url(
         self, provider: str, entity_id: str, redirect_uri: str, *, scopes: list[str] | None = None
@@ -419,7 +462,7 @@ class CustomAuthEngine:
         if pending.get("provider") != provider or str(pending.get("entity_id", "")) != entity_id:
             raise AuthEngineError("OAuth state mismatch (provider/entity)")
         verifier = str(pending["verifier"])
-        client_secret = os.environ.get(f"{preset.id.upper()}_CLIENT_SECRET", "").strip()
+        client_secret = self._client_secret(preset.id)
         exchange = {
             "grant_type": "authorization_code",
             "client_id": self._client_id(preset.id),
@@ -691,7 +734,7 @@ class CustomAuthEngine:
                 raise NeedsReauth(f"No refresh token for {entity_id}/{provider}: reconnect")
             preset = self._preset(provider)
             try:
-                refresh_secret = os.environ.get(f"{preset.id.upper()}_CLIENT_SECRET", "").strip()
+                refresh_secret = self._client_secret(preset.id)
                 fresh = self._post_form(
                     preset.token_url,
                     {

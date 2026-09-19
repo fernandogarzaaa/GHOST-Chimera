@@ -5,6 +5,28 @@ OAuth2. **No credentials ever leave your machine**: tokens are
 Fernet-encrypted in the local state dir, the console only reports
 connected/expiry status, and client secrets stay in environment variables.
 
+## Paste keys in the console (no terminal needed)
+
+Connections tab → **Provider Logins** section. Every provider shows its
+supported flows, whether its client ID/secret is set (and from where:
+environment or saved), and the exact callback URL to register. Per
+provider you can:
+
+- paste the **client ID** and, for confidential clients (Notion, HubSpot),
+  the **client secret**, then Save keys (secrets are stored in the local
+  config file with owner-only permissions and are never displayed back);
+- **Device login**: shows a code + verification link, opens the provider
+  page, and completes automatically when you approve (works over LAN,
+  no redirect setup);
+- **Browser login**: opens the provider approval in a new tab;
+- **Disconnect**: revokes the stored connection;
+- **Clear saved keys**: removes locally saved credentials for that provider.
+
+The same operations exist as API routes (`POST /api/auth/client-id`,
+`/api/auth/device/start`, `/api/auth/device/poll`,
+`GET /api/auth/login-options`). Environment variables always win over
+saved values, so containers and production can keep using env-only config.
+
 Two login flows exist per provider. The Integrations tab
 (`GET /api/auth/login-options`) tells you which each provider supports.
 

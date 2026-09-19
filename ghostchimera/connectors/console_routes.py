@@ -181,18 +181,27 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 engine.close()
 
     def auth_client_id(ctx: dict[str, Any]) -> dict[str, Any]:
-        """Save a provider OAuth client ID from the console (no terminal).
+        """Save (or clear) provider OAuth credentials from the console.
 
-        Client IDs are public identifiers, not secrets — safe to store in
-        the local config file. Secrets stay in environment variables.
+        Client IDs are public identifiers. Client secrets are accepted too
+        (needed for confidential clients like Notion/HubSpot) and stored in
+        the local config file with owner-only permissions. Values are
+        write-only: responses confirm what is configured, never the values.
+        Body: {provider, client_id?, client_secret?, clear?}
         """
         data = _body(ctx)
         provider = str(data.get("provider", "")).strip()
         client_id = str(data.get("client_id", "")).strip()
-        if not provider or not client_id:
-            return {"ok": False, "error": "provider and client_id are required"}
+        client_secret = str(data.get("client_secret", "")).strip()
+        clear = bool(data.get("clear"))
+        if not provider:
+            return {"ok": False, "error": "provider is required"}
+        if not clear and not client_id and not client_secret:
+            return {"ok": False, "error": "client_id, client_secret, or clear is required"}
         if len(client_id) > 200 or "/" in client_id or "\\" in client_id:
             return {"ok": False, "error": "that does not look like a client ID"}
+        if len(client_secret) > 500:
+            return {"ok": False, "error": "that does not look like a client secret"}
         try:
             from ..control_plane.config import load_config, save_config
 
@@ -205,13 +214,41 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             from .auth_engine import _PRESET_FOR
 
             preset_id = _PRESET_FOR.get(provider, provider)
+            if clear:
+                section.pop(preset_id, None)
+                save_config(config)
+                return {"ok": True, "provider": provider, "cleared": True}
             entry = section.get(preset_id)
             if not isinstance(entry, dict):
                 entry = {}
                 section[preset_id] = entry
-            entry["client_id"] = client_id
+            if client_id:
+                entry["client_id"] = client_id
+            if client_secret:
+                entry["client_secret"] = client_secret
             save_config(config)
-            return {"ok": True, "provider": provider, "saved": True}
+            if client_secret:
+                # Secrets at rest: owner-only permissions (best-effort).
+                from ..control_plane.config import CONFIG_FILE
+
+                with suppress(OSError):
+                    os.chmod(CONFIG_FILE, 0o600)
+            engine = _engine()
+            try:
+                source = engine.client_id_source(preset_id)
+                secret_source = engine.client_secret_source(preset_id)
+            finally:
+                with suppress(Exception):
+                    engine.close()
+            return {
+                "ok": True,
+                "provider": provider,
+                "saved": True,
+                "client_id_configured": source != "none",
+                "client_id_source": source,
+                "client_secret_configured": secret_source != "none",
+                "client_secret_source": secret_source,
+            }
         except Exception as exc:
             return {"ok": False, "error": f"could not save: {type(exc).__name__}"}
 
@@ -351,6 +388,7 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 except ValueError:
                     continue
                 source = engine.client_id_source(preset_id)
+                secret_source = engine.client_secret_source(preset_id)
                 options.append(
                     {
                         "key": key,
@@ -360,6 +398,8 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                         "browser_flow": True,
                         "client_id_source": source,
                         "client_id_configured": source != "none",
+                        "client_secret_source": secret_source,
+                        "client_secret_configured": secret_source != "none",
                     }
                 )
             return {"ok": True, "options": options, "callback_url": callback_url}

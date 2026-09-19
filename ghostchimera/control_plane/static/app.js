@@ -1626,6 +1626,237 @@
     });
   }
 
+  // ── Unified Provider Logins (new OAuth engine) ───────────────────────
+  // Paste client IDs/secrets in the console; device login works over LAN
+  // with no redirect setup; browser login needs the shown callback URL
+  // registered with the provider. Secrets and tokens are never displayed.
+  var providerDevicePolls = {};
+
+  function providerLoginsOutput(text) {
+    if ($("#providerLoginsOutput")) $("#providerLoginsOutput").textContent = text;
+  }
+
+  async function renderProviderLogins() {
+    var host = $("#providerLogins");
+    if (!host) return;
+    Object.keys(providerDevicePolls).forEach(stopProviderDevicePoll);
+    host.innerHTML = "";
+    providerLoginsOutput("Loading login status…");
+    try {
+      var opts = await api("/api/auth/login-options");
+      if (!opts || !opts.ok) throw new Error((opts && opts.error) || "login options unavailable");
+      var cb = $("#providerLoginsCallback");
+      if (cb) cb.textContent = "Browser-login callback URL — register this exact URL with providers: " + opts.callback_url;
+      var st = await api("/api/auth/status", { method: "POST", body: { entity_id: "console-user" } })
+        .catch(function() { return { connections: [] }; });
+      var connBy = {};
+      ((st && st.connections) || []).forEach(function(c) { connBy[c.provider] = c; });
+      (opts.options || []).forEach(function(p) {
+        host.appendChild(providerLoginCard(p, connBy[p.key], opts.callback_url));
+      });
+      providerLoginsOutput((opts.options || []).length + " providers loaded. Keys stay local; tokens are never shown.");
+    } catch (e) {
+      providerLoginsOutput("Error: " + e.message);
+    }
+  }
+
+  function providerLoginCard(p, conn, callbackUrl) {
+    var card = el("div", { class: "card", style: "margin-bottom:12px;" });
+    var head = el("div", { class: "row" });
+    var title = el("h3", { style: "flex:1;" });
+    title.textContent = p.display;
+    head.appendChild(title);
+    var connected = !!(conn && conn.status === "ACTIVE" && !conn.expired);
+    head.appendChild(el("span", { class: "badge " + (connected ? "ok" : "warn") },
+      connected ? "connected" : (conn && conn.status ? String(conn.status).toLowerCase() : "not connected")));
+    card.appendChild(head);
+
+    var meta = el("div", { class: "meta" });
+    var flows = [];
+    if (p.device_flow) flows.push("device login");
+    if (p.browser_flow) flows.push("browser login");
+    meta.textContent = "Flows: " + flows.join(" + ") +
+      "  ·  Client ID: " + (p.client_id_configured ? p.client_id_source : "not set") +
+      "  ·  Secret: " + (p.client_secret_configured ? p.client_secret_source : "not set") +
+      (connected && conn.expires_in_s ? "  ·  expires in " + conn.expires_in_s + "s" : "");
+    card.appendChild(meta);
+
+    var idRow = el("div", { class: "row" });
+    var idInput = document.createElement("input");
+    idInput.type = "password"; idInput.autocomplete = "off"; idInput.style.flex = "2";
+    idInput.placeholder = p.client_id_configured ? "client ID saved (" + p.client_id_source + "); leave blank to keep" : "paste " + p.display + " client ID";
+    idInput.setAttribute("data-provider-login-id", p.key);
+    idRow.appendChild(idInput);
+    var secretInput = document.createElement("input");
+    secretInput.type = "password"; secretInput.autocomplete = "off"; secretInput.style.flex = "2";
+    secretInput.placeholder = p.client_secret_configured ? "secret saved (" + p.client_secret_source + "); leave blank to keep" : "client secret — only for confidential clients (Notion, HubSpot)";
+    secretInput.setAttribute("data-provider-login-secret", p.key);
+    idRow.appendChild(secretInput);
+    card.appendChild(idRow);
+
+    var btnRow = el("div", { class: "row" });
+    var save = el("button", { class: "primary" }); save.textContent = "Save keys";
+    save.addEventListener("click", function() { saveProviderKeys(p, idInput, secretInput, save); });
+    btnRow.appendChild(save);
+    var clear = el("button"); clear.textContent = "Clear saved keys";
+    clear.addEventListener("click", function() { clearProviderKeys(p, clear); });
+    btnRow.appendChild(clear);
+    if (p.device_flow) {
+      var dev = el("button", { class: "primary" }); dev.textContent = "Device login";
+      dev.addEventListener("click", function() { startProviderDeviceLogin(p, card); });
+      btnRow.appendChild(dev);
+    }
+    var browse = el("button"); browse.textContent = "Browser login";
+    browse.addEventListener("click", function() { startProviderBrowserLogin(p, callbackUrl); });
+    btnRow.appendChild(browse);
+    if (connected) {
+      var disc = el("button", { class: "danger" }); disc.textContent = "Disconnect";
+      disc.addEventListener("click", function() { disconnectProvider(p, disc); });
+      btnRow.appendChild(disc);
+    }
+    card.appendChild(btnRow);
+
+    var deviceArea = el("div", { class: "meta" });
+    deviceArea.setAttribute("data-provider-device-area", p.key);
+    deviceArea.style.wordBreak = "break-all";
+    card.appendChild(deviceArea);
+    return card;
+  }
+
+  async function saveProviderKeys(p, idInput, secretInput, btn) {
+    var clientId = (idInput.value || "").trim();
+    var clientSecret = (secretInput.value || "").trim();
+    if (!clientId && !clientSecret) { toast("Paste a client ID or secret first.", "warn"); return; }
+    btn.disabled = true;
+    try {
+      var res = await api("/api/auth/client-id",
+        { method: "POST", body: { provider: p.key, client_id: clientId, client_secret: clientSecret } });
+      if (!res.ok) throw new Error(res.error || "save failed");
+      idInput.value = ""; secretInput.value = "";
+      toast("Keys saved locally for " + p.display + ".", "ok");
+      renderProviderLogins();
+    } catch (e) {
+      toast(e.message, "error");
+      btn.disabled = false;
+    }
+  }
+
+  async function clearProviderKeys(p, btn) {
+    btn.disabled = true;
+    try {
+      var res = await api("/api/auth/client-id", { method: "POST", body: { provider: p.key, clear: true } });
+      if (!res.ok) throw new Error(res.error || "clear failed");
+      toast("Saved keys cleared for " + p.display + ".", "ok");
+      renderProviderLogins();
+    } catch (e) {
+      toast(e.message, "error");
+      btn.disabled = false;
+    }
+  }
+
+  function stopProviderDevicePoll(key) {
+    var cur = providerDevicePolls[key];
+    if (cur && cur.timer) clearInterval(cur.timer);
+    delete providerDevicePolls[key];
+  }
+
+  async function startProviderDeviceLogin(p, card) {
+    stopProviderDevicePoll(p.key);
+    var area = card.querySelector('[data-provider-device-area="' + p.key + '"]');
+    try {
+      var data = await api("/api/auth/device/start",
+        { method: "POST", body: { provider: p.key, entity_id: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "device login unavailable");
+      var deadline = Date.now() + (data.expires_in * 1000);
+      var intervalMs = Math.max(2000, (data.interval || 5) * 1000);
+      if (area) {
+        area.innerHTML = "";
+        var code = el("div", { style: "font-size:20px;font-weight:bold;letter-spacing:2px;" });
+        code.textContent = data.user_code;
+        area.appendChild(code);
+        var link = el("div", null);
+        var a = document.createElement("a");
+        a.href = data.verification_uri_complete || data.verification_uri;
+        a.target = "_blank"; a.rel = "noopener";
+        a.textContent = data.verification_uri;
+        link.appendChild(a);
+        area.appendChild(link);
+        var hint = el("div", null, "Enter the code there, approve, and this panel completes automatically.");
+        area.appendChild(hint);
+        var cancel = el("button"); cancel.textContent = "Cancel";
+        cancel.addEventListener("click", function() {
+          stopProviderDevicePoll(p.key);
+          area.textContent = "Device login cancelled.";
+        });
+        area.appendChild(cancel);
+      }
+      if (data.verification_uri) window.open(data.verification_uri, "_blank", "noopener");
+      providerLoginsOutput("Waiting for " + p.display + " approval…");
+      providerDevicePolls[p.key] = {
+        timer: setInterval(function() { pollProviderDeviceLogin(p, data.handle, deadline); }, intervalMs),
+      };
+    } catch (e) {
+      providerLoginsOutput("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  async function pollProviderDeviceLogin(p, handle, deadline) {
+    if (Date.now() > deadline) {
+      stopProviderDevicePoll(p.key);
+      providerLoginsOutput(p.display + " device login expired — start over.");
+      return;
+    }
+    try {
+      var data = await api("/api/auth/device/poll", { method: "POST", body: { handle: handle } });
+      if (!data.ok) {
+        stopProviderDevicePoll(p.key);
+        providerLoginsOutput(p.display + " login ended: " + (data.error || "unknown"));
+        toast(data.error || "Device login ended.", "warn");
+        return;
+      }
+      if (data.status === "complete") {
+        stopProviderDevicePoll(p.key);
+        providerLoginsOutput(p.display + " connected.");
+        toast(p.display + " connected.", "ok");
+        renderProviderLogins();
+      }
+    } catch (e) {
+      stopProviderDevicePoll(p.key);
+      providerLoginsOutput("Error: " + e.message);
+    }
+  }
+
+  async function startProviderBrowserLogin(p, callbackUrl) {
+    try {
+      var redirect = window.location.origin + "/api/auth/callback";
+      var data = await api("/api/auth/authorize",
+        { method: "POST", body: { provider: p.key, entity_id: "console-user", redirect_uri: redirect } });
+      if (!data.ok) throw new Error(data.error || "login unavailable");
+      window.open(data.authorize_url, "_blank", "noopener");
+      providerLoginsOutput("Browser opened for " + p.display + ". Approve access — " +
+        "if the provider rejects the redirect, register exactly: " + callbackUrl);
+      toast("Complete the " + p.display + " login.", "ok");
+    } catch (e) {
+      providerLoginsOutput("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  async function disconnectProvider(p, btn) {
+    btn.disabled = true;
+    try {
+      var data = await api("/api/auth/revoke",
+        { method: "POST", body: { provider: p.key, entity_id: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "revoke failed");
+      toast(p.display + " disconnected.", "ok");
+      renderProviderLogins();
+    } catch (e) {
+      toast(e.message, "error");
+      btn.disabled = false;
+    }
+  }
+
   function renderConfigModelOptions() {
     var option = selectedProviderOption();
     var models = $("#configModelOptions");
@@ -2247,6 +2478,10 @@
   $("#connectionsGithubStart").addEventListener("click", startGithubDeviceSignIn);
   $("#connectionsGithubPoll").addEventListener("click", pollGithubDeviceSignIn);
   $("#connectionsGithubLogout").addEventListener("click", logoutGithub);
+  if ($("#providerLoginsRefresh")) {
+    $("#providerLoginsRefresh").addEventListener("click", renderProviderLogins);
+  }
+  try { renderProviderLogins(); } catch (_) {}
   $("#githubSelfEvolutionPreview").addEventListener("click", previewSelfEvolution);
   $("#githubPlan").addEventListener("click", planGithubIssue);
   $("#githubPolicyPreview").addEventListener("click", previewGithubPolicy);
