@@ -62,7 +62,7 @@ HEAVY_PREFIXES = (
 
 
 def phase_a() -> dict[str, Any]:
-    """Static: button IDs vs JS listeners."""
+    """Static: button IDs vs JS listeners; data-tab buttons vs tab panes."""
     html = (ROOT / "ghostchimera" / "control_plane" / "static" / "index.html").read_text(encoding="utf-8")
     js = (ROOT / "ghostchimera" / "control_plane" / "static" / "app.js").read_text(encoding="utf-8")
     button_ids = re.findall(r'<button[^>]*\sid="([^"]+)"', html)
@@ -72,7 +72,21 @@ def phase_a() -> dict[str, Any]:
             wired.append(bid)
         else:
             orphan.append(bid)
-    return {"total_buttons": len(button_ids), "wired": len(wired), "orphans": orphan, "ok": not orphan}
+    # Navigation buttons carry data-tab instead of handlers: each must name
+    # an existing tab pane that the router knows about.
+    data_tabs = sorted(set(re.findall(r'data-tab="([a-z0-9-]+)"', html)))
+    panes = set(re.findall(r'id="(tab-[a-z-]+)"', html))
+    dangling_tabs = [t for t in data_tabs if f"tab-{t}" not in panes]
+    unrouted_tabs = [t for t in data_tabs if t not in js]
+    return {
+        "total_buttons": len(button_ids),
+        "wired": len(wired),
+        "orphans": orphan,
+        "data_tabs": len(data_tabs),
+        "dangling_tabs": dangling_tabs,
+        "unrouted_tabs": unrouted_tabs,
+        "ok": not orphan and not dangling_tabs and not unrouted_tabs,
+    }
 
 
 def _call(base: str, method: str, path: str) -> tuple[str, str]:
