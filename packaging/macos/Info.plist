@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>Ghost Chimera</string>
+  <key>CFBundleDisplayName</key>
+  <string>Ghost Chimera</string>
+  <key>CFBundleIdentifier</key>
+  <string>ai.ghostchimera.console</string>
+  <!-- Stamped by build-macos-app.sh from GHOSTCHIMERA_VERSION -->
+  <key>CFBundleShortVersionString</key>
+  <string>__GHOSTCHIMERA_VERSION__</string>
+  <key>CFBundleVersion</key>
+  <string>__GHOSTCHIMERA_VERSION__</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleExecutable</key>
+  <string>GhostConsole</string>
+  <key>CFBundleIconFile</key>
+  <string>ghost</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>LSUIElement</key>
+  <!-- No Dock icon: the console lives in the browser, not the Dock. -->
+  <true/>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>

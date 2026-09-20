@@ -1,0 +1,62 @@
+name: Desktop installers
+
+# Builds the Windows Setup exe and macOS DMG on every published Release
+# (and on demand). Artifacts attach to the release; both are UNSIGNED —
+# signing/notarization remain operator steps (see docs/DESKTOP_APP.md).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: "Existing release tag to attach artifacts to (required for manual runs)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release-tag || github.ref }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Build bundle
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File packaging/windows/build-windows.ps1
+      - name: Install Inno Setup
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+        with:
+          path: packaging/windows/ghost-chimera.iss
+          options: /DAppVersion=${{ inputs.release-tag || github.ref_name }}
+      - name: Attach installer to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release-tag || github.ref_name }}
+          files: dist-desktop/installer/GhostChimeraSetup-*.exe
+
+  macos-dmg:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release-tag || github.ref }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Build app and DMG
+        run: bash packaging/macos/build-macos-app.sh
+      - name: Attach DMG to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release-tag || github.ref_name }}
+          files: dist-desktop/GhostChimera-*-macOS.dmg

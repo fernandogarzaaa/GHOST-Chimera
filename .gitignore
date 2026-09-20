@@ -30,5 +30,14 @@ venv/
 .idea/
 .vscode/
 
+# Desktop distribution build outputs
+dist-desktop/
+build-desktop/
+*.dmg
+GhostChimeraSetup-*.exe
+packaging/assets/icon.png
+packaging/assets/ghost.ico
+packaging/assets/ghost.icns
+
 .coverage
 .coverage.*

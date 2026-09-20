@@ -1877,6 +1877,22 @@ class ConsoleCliTests(unittest.TestCase):
         self.assertIn("tab-rag-builder", html)
         self.assertIn("tab-mcp", html)
 
+    def test_console_keyboard_and_motion_baseline(self) -> None:
+        from pathlib import Path
+
+        root = Path(__file__).parent.parent
+        html = (root / "ghostchimera" / "control_plane" / "static" / "index.html").read_text(encoding="utf-8")
+        css = (root / "ghostchimera" / "control_plane" / "static" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('class="skip-link"', html)
+        self.assertIn('href="#main"', html)
+        self.assertIn('<main id="main"', html)
+        self.assertIn('aria-label="Minimize Ghost Conversation"', html)
+        self.assertIn('aria-label="Hide Ghost Conversation"', html)
+        self.assertIn("prefers-reduced-motion", css)
+        self.assertIn("a:focus-visible", css)
+        self.assertIn("tabular-nums", css)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to main content</a>
   <!-- Toast container -->
   <div id="toastContainer"></div>
 
@@ -79,8 +80,8 @@
       </div>
       <div class="conversation-head-actions">
         <span id="conversationMicState" class="badge warn">Muted</span>
-        <button id="conversationMinimize" class="icon-btn" type="button" title="Minimize Ghost Conversation">_</button>
-        <button id="conversationHide" class="icon-btn" type="button" title="Hide Ghost Conversation (reopen from the Conversation tab)">×</button>
+        <button id="conversationMinimize" class="icon-btn" type="button" title="Minimize Ghost Conversation" aria-label="Minimize Ghost Conversation">_</button>
+        <button id="conversationHide" class="icon-btn" type="button" title="Hide Ghost Conversation (reopen from the Conversation tab)" aria-label="Hide Ghost Conversation">×</button>
       </div>
     </div>
     <div class="conversation-controls">
@@ -121,6 +122,7 @@
     </div>
   </aside>
 
+  <main id="main" tabindex="-1">
   <!-- ── OPERATOR HOME ─────────────────────────────────────────────────── -->
   <div class="tab-content active" id="tab-operator">
     <div id="firstRunBanner" class="next-action" style="display:none; margin-bottom:14px;">
@@ -133,9 +135,8 @@
     <section id="operatorWorkbench" class="operator-workbench">
       <div class="workbench-hero">
         <div>
-          <div class="section-hdr" style="margin-top:0;">Operator Workbench</div>
-          <h2>Command Ghost from one place</h2>
-          <p class="hint">Setup, connect, train, run, approve, review, and evolve without editing files or environment variables.</p>
+          <h2>Operator Workbench</h2>
+          <p class="hint">Command Ghost from one place: setup, connect, train, run, approve, review, and evolve without editing files or environment variables.</p>
         </div>
         <div class="workbench-search">
           <label for="operatorCommandSearch">Command or next action</label>
@@ -1564,6 +1565,7 @@
     <div id="conversationMirror" class="conversation-mirror"></div>
     <div id="dictationStats" class="meta" style="margin-top:8px;"></div>
   </div>
+  </main>
 
   <script src="/static/app.js"></script>
 </body>

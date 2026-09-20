@@ -8,9 +8,11 @@ remote agent management, and an HTTP route registry (Gap 6 — mirrors OpenClaw'
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import secrets
+import socket
 import threading
 import time
 from collections.abc import Callable
@@ -38,6 +40,64 @@ HTTP_PORT = int(os.environ.get("GHOSTCHIMERA_HTTP_PORT", _default_http_port))
 WS_MAX_MESSAGE_BYTES = int(os.environ.get("GHOSTCHIMERA_WS_MAX_MESSAGE", "10_000_000"))
 WS_PING_INTERVAL = float(os.environ.get("GHOSTCHIMERA_WS_PING_INTERVAL", "20.0"))
 WS_CLOSE_GRACE_PERIOD = float(os.environ.get("GHOSTCHIMERA_WS_CLOSE_GRACE", "5.0"))
+
+#: How many consecutive ports to probe when the preferred gateway port is taken.
+PORT_FALLBACK_ATTEMPTS = int(os.environ.get("GHOSTCHIMERA_PORT_FALLBACK_ATTEMPTS", "64"))
+
+#: Coordinated bind attempts in GatewayServer.start() before giving up.
+_START_ATTEMPTS = 8
+
+
+def _port_is_free(host: str, port: int) -> bool:
+    """Return True when nothing is listening on ``host:port`` right now.
+
+    Two checks, in order: first ``connect_ex`` detects an active listener
+    (reliable on every platform, regardless of socket options); then a plain
+    ``bind`` without ``SO_REUSEADDR`` confirms the port is truly claimable.
+    ``SO_REUSEADDR`` must NOT be set on the probe: on Windows it lets the
+    probe bind succeed even on an occupied port, reporting false "free".
+    """
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.settimeout(0.5)
+        if probe.connect_ex((host, port)) == 0:
+            return False
+    except OSError:
+        return False
+    finally:
+        probe.close()
+    binder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        binder.bind((host, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        binder.close()
+
+
+def find_free_port(
+    host: str,
+    preferred: int,
+    *,
+    max_attempts: int = PORT_FALLBACK_ATTEMPTS,
+    reserved: tuple[int, ...] | frozenset[int] | set[int] = (),
+) -> int:
+    """Return ``preferred`` when free, else the next free port after it.
+
+    Ports listed in ``reserved`` are skipped so the gateway WebSocket and HTTP
+    listeners never collide with each other. Raises :class:`OSError` when no
+    free port is found within ``max_attempts`` probes.
+    """
+    skip = set(reserved)
+    attempts = max(1, int(max_attempts))
+    for offset in range(attempts):
+        candidate = int(preferred) + offset
+        if candidate in skip or candidate > 65535:
+            continue
+        if _port_is_free(host, candidate):
+            return candidate
+    raise OSError(f"No free port found for {host} starting at {preferred} ({attempts} attempts)")
 
 
 # ---------------------------------------------------------------------------
@@ -268,13 +328,26 @@ class GatewayServer(BackgroundService):
     ):
         self.host = host
         self.port = port
-        self.http_port = http_port if http_port is not None else HTTP_PORT
+        env_http_port = os.environ.get("GHOSTCHIMERA_HTTP_PORT")
+        if http_port is not None:
+            self.http_port = http_port
+            self._http_port_explicit = True
+        elif env_http_port is not None:
+            try:
+                self.http_port = int(env_http_port)
+            except (TypeError, ValueError):
+                self.http_port = HTTP_PORT
+            self._http_port_explicit = True
+        else:
+            self.http_port = HTTP_PORT
+            self._http_port_explicit = False
         self.config = config or GhostChimeraConfig.from_env()
         self._sessions: dict[str, GatewaySession] = {}
         self._lock = threading.RLock()
         self._websocket_server = None
         self._http_server: HTTPServer | None = None
         self._http_thread: threading.Thread | None = None
+        self._thread: threading.Thread | None = None
         self._running = False
         self._credentials = get_pool()
         self._toolset_manager = ToolsetManager()
@@ -452,9 +525,103 @@ class GatewayServer(BackgroundService):
                 ).to_json()
             )
 
+    def _resolve_ports(self) -> None:
+        """Auto-select free ports so parallel consoles never overlap.
+
+        A port of ``0`` keeps its existing meaning — let the OS pick an
+        ephemeral free port — so tests and scripts that request
+        ``port=0, http_port=0`` are unaffected. Concrete ports are moved
+        to the next free port when occupied. The preferred HTTP port
+        defaults to WS+1 and is resolved independently when passed
+        explicitly, so parallel consoles never overlap.
+        """
+        if self.port > 0:
+            resolved_ws = find_free_port(self.host, self.port)
+            if resolved_ws != self.port:
+                logger.info("Gateway WS port %d in use; using %d instead", self.port, resolved_ws)
+            self.port = resolved_ws
+        if self.http_port > 0:
+            if not self._http_port_explicit and self.port == 0:
+                # Both sides ephemeral: let the OS pick the HTTP port too
+                # instead of deriving unbindable port 1.
+                self.http_port = 0
+            else:
+                http_preferred = self.http_port if self._http_port_explicit else self.port + 1
+                resolved_http = find_free_port(self.host, http_preferred, reserved={self.port})
+                if resolved_http != self.http_port:
+                    logger.info("Gateway HTTP port %d in use; using %d instead", self.http_port, resolved_http)
+                self.http_port = resolved_http
+
     def start(self) -> None:
-        """Start the WebSocket server and the HTTP route server."""
+        """Start the WebSocket server and the HTTP route server.
+
+        Binding is one coordinated attempt with retries: both listeners must
+        be confirmed live before this returns, so a printed console URL is
+        never stale. Raises :class:`OSError` when no free pair is found.
+        """
         self._running = True
+        last_error: OSError | None = None
+        for _ in range(_START_ATTEMPTS):
+            self._resolve_ports()
+            if self.port == 0 and self.http_port == 0:
+                # Fully ephemeral: the OS assigns both; nothing to race.
+                self._launch_ws_thread()
+                self._bind_http()
+                self._serve_http()
+                break
+            try:
+                self._bind_http()
+            except OSError as exc:
+                last_error = exc
+                logger.info("HTTP port %d busy during bind; retrying pair", self.http_port)
+                self._bump_ports()
+                continue
+            self._launch_ws_thread()
+            if self._await_ws_ready(timeout=5.0):
+                self._serve_http()
+                break
+            # WS lost the race: release HTTP and try a fresh pair.
+            last_error = OSError(f"WebSocket bind failed on port {self.port}")
+            logger.info("WebSocket port %d busy during bind; retrying pair", self.port)
+            self._release_http()
+            self._bump_ports()
+        else:
+            raise OSError(f"Could not bind gateway listeners: {last_error}")
+
+        logger.info(
+            "Gateway server starting on ws://%s:%d, http://%s:%d", self.host, self.port, self.host, self.http_port
+        )
+
+    def _bump_ports(self) -> None:
+        """Advance past a lost race so the next resolution starts higher."""
+        if self.port > 0:
+            self.port += 1
+        if self.http_port > 0:
+            floor = self.port + 1 if self.port > 0 else self.http_port + 1
+            self.http_port = max(self.http_port + 1, floor)
+
+    def _await_ws_ready(self, *, timeout: float) -> bool:
+        """Wait until the WS background thread confirms its bind."""
+        thread = self._thread
+        if self._websocket_server is not None:
+            return True
+        if thread is not None and not thread.is_alive():
+            return False
+        deadline = time.monotonic() + max(0.1, timeout)
+        while time.monotonic() < deadline:
+            if self._websocket_server is not None:
+                return True
+            thread = self._thread
+            if thread is not None and not thread.is_alive():
+                return False
+            time.sleep(0.05)
+        if self._websocket_server is not None:
+            return True
+        thread = self._thread
+        return bool(thread is not None and thread.is_alive())
+
+    def _launch_ws_thread(self) -> None:
+        """Start the WebSocket listener thread on the resolved port."""
         import asyncio
 
         async def _start_async():
@@ -479,15 +646,26 @@ class GatewayServer(BackgroundService):
         self._thread = threading.Thread(target=_run, daemon=True)
         self._thread.start()
 
-        # Start HTTP server on adjacent port
-        self._start_http_server()
-
-        logger.info(
-            "Gateway server starting on ws://%s:%d, http://%s:%d", self.host, self.port, self.host, self.http_port
-        )
+    def _release_http(self) -> None:
+        """Shut down a bound-but-unpaired HTTP listener (lost race cleanup)."""
+        server, self._http_server = self._http_server, None
+        if server is not None:
+            with contextlib.suppress(Exception):
+                server.shutdown()
+                server.server_close()
 
     def _start_http_server(self) -> None:
         """Start a lightweight HTTP server for route registry."""
+        self._bind_http()
+        self._serve_http()
+
+    def _bind_http(self) -> None:
+        """Bind (but do not yet serve) the HTTP route server.
+
+        Binding synchronously surfaces EADDRINUSE immediately so callers
+        can retry a fresh port pair instead of discovering the conflict
+        after printing a URL.
+        """
         registry = self.routes
 
         class _Handler(BaseHTTPRequestHandler):
@@ -558,13 +736,15 @@ class GatewayServer(BackgroundService):
             def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A002
                 logger.debug("HTTP %s", fmt % args)
 
-        try:
-            self._http_server = HTTPServer((self.host, self.http_port), _Handler)
-            self._http_thread = threading.Thread(target=self._http_server.serve_forever, daemon=True)
-            self._http_thread.start()
-            logger.info("HTTP route server listening on http://%s:%d", self.host, self.http_port)
-        except OSError as exc:
-            logger.warning("Could not start HTTP route server on port %d: %s", self.http_port, exc)
+        self._http_server = HTTPServer((self.host, self.http_port), _Handler)
+
+    def _serve_http(self) -> None:
+        """Serve the bound HTTP listener on its background thread."""
+        if self._http_server is None:
+            raise OSError("HTTP server is not bound")
+        self._http_thread = threading.Thread(target=self._http_server.serve_forever, daemon=True)
+        self._http_thread.start()
+        logger.info("HTTP route server listening on http://%s:%d", self.host, self.http_port)
 
     async def _handle_connection(self, websocket, path) -> None:
         """Handle incoming WebSocket connection — create or resume session."""
@@ -649,6 +829,7 @@ __all__ = [
     "HttpRoute",
     "HttpRouteRegistry",
     "get_server",
+    "find_free_port",
     "start_gateway",
     "stop_gateway",
 ]
