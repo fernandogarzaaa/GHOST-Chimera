@@ -14,6 +14,7 @@ If stdin is not a TTY, prints environment variable instructions instead.
 
 from __future__ import annotations
 
+import contextlib
 import getpass
 import sys
 
@@ -299,6 +300,105 @@ def _setup_gateway(config: dict) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Section 3b: Account Connections (OAuth / keys, no terminal needed later)
+# ──────────────────────────────────────────────────────────────────────
+
+WIZARD_CONNECTION_PROVIDERS = (
+    ("github", "GitHub", ("GHOSTCHIMERA_GITHUB_CLIENT_ID", "GITHUB_CLIENT_ID")),
+    ("google", "Google / Gmail", ("GOOGLE_OAUTH_CLIENT_ID", "GMAIL_OAUTH_CLIENT_ID")),
+    ("slack", "Slack", ("SLACK_CLIENT_ID",)),
+)
+
+WIZARD_ENTITY_ID = "console-user"
+
+
+def _setup_connections(config: dict) -> None:
+    """Interactive account-connection setup: IDs, gh import, port pin, gate."""
+    from ..connectors.auth_engine import CustomAuthEngine
+    from ..connectors.gh_cli import gh_status
+
+    print_header("Account Connections (optional)")
+    print_info("Connect GitHub, Google, Slack and more. Browser/device login")
+    print_info("happens in the console afterwards; here we stage credentials")
+    print_info("and detect what already works. Secrets are never displayed.")
+    print()
+
+    state_dir = ensure_state_dir()
+    engine = CustomAuthEngine(state_dir)
+    try:
+        # 1. GitHub CLI reuse: zero registration when gh is logged in.
+        try:
+            status = gh_status()
+        except Exception:
+            status = {"available": False, "reason": "detection failed"}
+        if status.get("available"):
+            print_success(
+                f"  GitHub CLI login detected ({status.get('user') or 'unknown user'})."
+                " Ghost can reuse it with no registration."
+            )
+            if prompt_yes_no("  Import the gh login into Ghost?", True):
+                try:
+                    imported = engine.import_gh_cli(WIZARD_ENTITY_ID)
+                    print_success(f"  GitHub connected via CLI ({imported.get('gh_user') or 'gh'}).")
+                except Exception as exc:
+                    print_error(f"  Import failed: {exc}")
+        else:
+            print_info("  No GitHub CLI login detected (gh not installed or not logged in).")
+
+        # 2. Paste client IDs for the big three (env wins; saved otherwise).
+        section = config.get("provider_oauth")
+        if not isinstance(section, dict):
+            section = {}
+            config["provider_oauth"] = section
+        for preset_id, display, _envs in WIZARD_CONNECTION_PROVIDERS:
+            source = engine.client_id_source(preset_id)
+            print_info(f"  {display} client ID: {source if source != 'none' else 'not set'}")
+            if source == "none" and prompt_yes_no(f"  Paste the {display} client ID now?", False):
+                value = prompt(f"  {display} client ID", password=False)
+                if value:
+                    entry = section.get(preset_id)
+                    if not isinstance(entry, dict):
+                        entry = {}
+                        section[preset_id] = entry
+                    entry["client_id"] = value
+                    print_success(f"  {display} client ID saved locally.")
+
+        # 3. Pin the console port so provider redirect URIs stay valid.
+        console_section = config.get("console")
+        if not isinstance(console_section, dict):
+            console_section = {}
+            config["console"] = console_section
+        current_pin = console_section.get("http_port") or ""
+        if prompt_yes_no("  Pin the console HTTP port (keeps OAuth redirects working)?", bool(current_pin)):
+            port_raw = prompt("  Console HTTP port", str(current_pin or "8766"))
+            try:
+                pinned = int(port_raw)
+                if 1 <= pinned <= 65535:
+                    console_section["http_port"] = pinned
+                    print_success(f"  Console port pinned to {pinned}.")
+                else:
+                    print_error("  Out of range; leaving unpinned.")
+            except ValueError:
+                print_error("  Not a number; leaving unpinned.")
+
+        # 4. Write-approval gate (default off).
+        auth_section = config.get("auth")
+        if not isinstance(auth_section, dict):
+            auth_section = {}
+            config["auth"] = auth_section
+        gate_on = bool(auth_section.get("require_write_approval"))
+        if prompt_yes_no("  Require your approval for connector writes?", gate_on):
+            auth_section["require_write_approval"] = True
+            print_success("  Connector writes will need one-time approval.")
+        else:
+            auth_section["require_write_approval"] = False
+    finally:
+        with contextlib.suppress(Exception):
+            engine.close()
+    print()
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Section 3: Safety Policy
 # ──────────────────────────────────────────────────────────────────────
 
@@ -376,6 +476,20 @@ def _show_summary(config: dict) -> None:
     fwriter = "yes" if safety.get("allow_file_write") else "no"
     print(f"  Safety:        shell={shell}, network={network}, read={freader}, write={fwriter}")
 
+    oauth_section = config.get("provider_oauth", {})
+    staged = (
+        [k for k, v in oauth_section.items() if isinstance(v, dict) and v.get("client_id")]
+        if isinstance(oauth_section, dict)
+        else []
+    )
+    auth_section = config.get("auth", {})
+    gate = "on" if isinstance(auth_section, dict) and auth_section.get("require_write_approval") else "off"
+    pinned = config.get("console", {}).get("http_port", "") if isinstance(config.get("console"), dict) else ""
+    print(
+        f"  Connections:   staged IDs: {', '.join(staged) if staged else 'none'}, "
+        f"port pin: {pinned or 'auto'}, write gate: {gate}"
+    )
+
     print()
     print(color("═" * 50, Colors.DIM))
     print()
@@ -431,6 +545,9 @@ def run_setup_wizard() -> None:
     # Show gateway if provider is configured
     if config.get("model", {}).get("provider", ""):
         _setup_gateway(config)
+
+    # Account connections (credentials staging, gh reuse, port pin, gate)
+    _setup_connections(config)
 
     # Safety policy
     _setup_safety(config)

@@ -5,6 +5,11 @@ OAuth2. **No credentials ever leave your machine**: tokens are
 Fernet-encrypted in the local state dir, the console only reports
 connected/expiry status, and client secrets stay in environment variables.
 
+Prefer the terminal? `ghostchimera setup` walks through an Account
+Connections step: gh-CLI reuse detection, client-ID staging for
+GitHub/Google/Slack, console port pinning, and the write-approval gate —
+the same settings the console UI manages.
+
 ## Paste keys in the console (no terminal needed)
 
 Connections tab → **Provider Logins** section. Every provider shows its
