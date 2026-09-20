@@ -41,7 +41,17 @@ Connections → Trust & Approvals → View Audit Trail
 
 ## What this does not do (yet)
 
-- Takeover-mode browser login (you type passwords into real sites while
-  the agent looks away) — planned, session-only.
 - OTP/reset-link filtering for mail fetch — shipped in `mail_basic`.
 - Automations with run-history threads (scheduled triggers) — planned.
+
+## Takeover mode (shipped)
+
+Connections → Trust & Approvals → **Take over**: Ghost pauses the
+stealth loop policy, blocks all live browser/desktop agent actions, and
+captures nothing while you log in manually in your own browser or desktop
+app. Passwords, 2FA codes, and session cookies never pass through Ghost
+code — the executors themselves refuse with `TakeoverActive`, and the
+loop resumes (restoring its prior enabled state) only on Release or TTL
+expiry (10 minutes). Session-only: the only records are
+`takeover.start/release` audit events with your stated purpose.
+API: `/api/auth/takeover/start|release|status`.

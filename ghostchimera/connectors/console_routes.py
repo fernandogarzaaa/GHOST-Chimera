@@ -895,6 +895,77 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         except Exception as exc:
             return {"ok": False, "error": f"could not update: {type(exc).__name__}"}
 
+    def _takeover_hooks() -> tuple[Any, Any]:
+        """Pause/resume the stealth loop policy around a takeover."""
+        from .stealth_service import get_service_loop
+
+        def _pause() -> bool:
+            loop = get_service_loop(base)
+            was = bool(loop.policy.enabled)
+            loop.policy.enabled = False
+            return was
+
+        def _resume() -> None:
+            loop = get_service_loop(base)
+            loop.policy.enabled = True
+
+        return _pause, _resume
+
+    def auth_takeover_start(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Hand the interactive surface to the operator (takeover mode).
+
+        Pauses the stealth loop, blocks all live-executor agent actions,
+        and stops capture. The operator logs in manually in their own
+        browser/desktop; Ghost sees nothing typed. Body: {purpose?, url?}.
+        """
+        from ..stealth.takeover import TakeoverError, takeover_manager
+
+        data = _body(ctx)
+        manager = takeover_manager()
+        pause, resume = _takeover_hooks()
+        manager.set_loop_hooks(pause=pause, resume=resume)
+        engine = _engine()
+        try:
+            try:
+                state = manager.start(
+                    purpose=str(data.get("purpose") or ""),
+                    url=str(data.get("url") or ""),
+                    actor=str(data.get("actor") or "console-user"),
+                )
+            except TakeoverError as exc:
+                return {"ok": False, "error": str(exc)}
+            engine.audit.record("takeover.start", detail={"purpose": state["purpose"], "url": state["url"] or None})
+            return {"ok": True, **state}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_takeover_release(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Release takeover: resume the loop (restoring prior state)."""
+        from ..stealth.takeover import takeover_manager
+
+        data = _body(ctx)
+        manager = takeover_manager()
+        pause, resume = _takeover_hooks()
+        manager.set_loop_hooks(pause=pause, resume=resume)
+        engine = _engine()
+        try:
+            state = manager.release(actor=str(data.get("actor") or "console-user"))
+            if state.get("released"):
+                engine.audit.record("takeover.release", detail={"purpose": state.get("purpose")})
+            return {"ok": True, **state}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_takeover_status(_ctx: dict[str, Any]) -> dict[str, Any]:
+        from ..stealth.takeover import takeover_manager
+
+        manager = takeover_manager()
+        pause, resume = _takeover_hooks()
+        manager.set_loop_hooks(pause=pause, resume=resume)
+        return {"ok": True, **manager.status()}
+
     def auth_device_start(ctx: dict[str, Any]) -> dict[str, Any]:
         """Begin an RFC 8628 device login (no redirect URI — LAN-friendly).
 
@@ -1184,6 +1255,30 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         auth=auth,
         token=token,
         description="Get/set the write-approval gate",
+    )
+    server.routes.register(
+        "/api/auth/takeover/start",
+        auth_takeover_start,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Hand the browser/desktop to the operator",
+    )
+    server.routes.register(
+        "/api/auth/takeover/release",
+        auth_takeover_release,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Release takeover and resume",
+    )
+    server.routes.register(
+        "/api/auth/takeover/status",
+        auth_takeover_status,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Takeover state",
     )
     server.routes.register(
         "/api/auth/device/start",

@@ -2745,6 +2745,15 @@
   if ($("#auditRefresh")) {
     $("#auditRefresh").addEventListener("click", renderAuditTrail);
   }
+  if ($("#takeoverStart")) {
+    $("#takeoverStart").addEventListener("click", takeoverStart);
+  }
+  if ($("#takeoverRelease")) {
+    $("#takeoverRelease").addEventListener("click", takeoverRelease);
+  }
+  if ($("#takeoverStatus")) {
+    $("#takeoverStatus").addEventListener("click", takeoverRefresh);
+  }
   try { renderWriteGate(); } catch (_) {}
   try { renderPendingApprovals(); } catch (_) {}
   if ($("#blueskyPost")) {
@@ -2841,6 +2850,57 @@
       }).join("\n") || "Audit trail is empty.";
     } catch (e) {
       out.textContent = "Error: " + e.message;
+    }
+  }
+
+  // ── Takeover mode ────────────────────────────────────────────────────
+  function takeoverOut(text) {
+    if ($("#takeoverOutput")) $("#takeoverOutput").textContent = text;
+  }
+
+  function takeoverStatusText(data) {
+    if (!data.active) return "No takeover active." + (data.expired ? " (Previous one expired and released.)" : "");
+    var secs = Math.max(0, Math.round(data.expires_at - Date.now() / 1000));
+    return "TAKEOVER ACTIVE — Ghost actions blocked, nothing captured.\n" +
+      "Purpose: " + (data.purpose || "manual login") + "\n" +
+      (data.url ? "Page: " + data.url + "\n" : "") +
+      "Auto-release in " + secs + "s. Click Release when done.";
+  }
+
+  async function takeoverStart() {
+    try {
+      var data = await api("/api/auth/takeover/start", { method: "POST", body: {
+        purpose: (($("#takeoverPurpose") && $("#takeoverPurpose").value) || "").trim(),
+        url: (($("#takeoverUrl") && $("#takeoverUrl").value) || "").trim(),
+      } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      takeoverOut(takeoverStatusText({ active: true, purpose: data.purpose, url: data.url, expires_at: data.expires_at }));
+      toast("Takeover active — log in yourself, then Release.", "warn");
+    } catch (e) {
+      takeoverOut("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  async function takeoverRelease() {
+    try {
+      var data = await api("/api/auth/takeover/release", { method: "POST", body: {} });
+      if (!data.ok) throw new Error(data.error || "failed");
+      takeoverOut(data.released ? "Released — Ghost resumed." : "Nothing to release.");
+      toast("Takeover released.", "ok");
+    } catch (e) {
+      takeoverOut("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  async function takeoverRefresh() {
+    try {
+      var data = await api("/api/auth/takeover/status", { method: "POST", body: {} });
+      if (!data.ok) throw new Error(data.error || "failed");
+      takeoverOut(takeoverStatusText(data));
+    } catch (e) {
+      takeoverOut("Error: " + e.message);
     }
   }
 

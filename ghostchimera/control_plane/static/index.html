@@ -510,6 +510,23 @@
     <div id="approvalsPending"></div>
     <pre class="output compact-output" id="auditOutput">Audit entries appear here.</pre>
 
+    <div class="section-hdr">Takeover Mode</div>
+    <p class="hint" style="margin-bottom:10px;">Hand the browser/desktop to yourself: Ghost pauses its loop, blocks its own actions, and captures nothing while you log in manually with your own hands. Passwords and sessions never pass through Ghost. Release when done.</p>
+    <div class="form-group">
+      <label>Purpose (shown in the audit trail)</label>
+      <input id="takeoverPurpose" type="text" autocomplete="off" placeholder="e.g. log into LinkedIn">
+    </div>
+    <div class="form-group">
+      <label>Login page URL (optional — open it yourself if blank)</label>
+      <input id="takeoverUrl" type="text" autocomplete="off" placeholder="https://…">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="takeoverStart" class="primary">Take Over</button>
+      <button id="takeoverRelease" class="danger">Release</button>
+      <button id="takeoverStatus">Takeover Status</button>
+    </div>
+    <pre class="output compact-output" id="takeoverOutput">No takeover active.</pre>
+
     <div class="section-hdr">Import Browser Passwords</div>
     <p class="hint" style="margin-bottom:10px;">Two paths, same result. CSV: export from Chrome/Brave Settings → Passwords → Export, paste below. Direct: read this machine's Chromium login store (explicit consent, Windows-only, nothing leaves this computer). Map each entry to the vault or skip it.</p>
     <div class="form-group">

@@ -41,6 +41,10 @@ class CdpBrowserExecutor:
         self._cdp = cdp
 
     def __call__(self, action: dict[str, Any]) -> dict[str, Any]:
+        from .takeover import TakeoverActive, takeover_active
+
+        if takeover_active():
+            raise TakeoverActive("operator takeover active — log in manually, then release")
         operation = str(action.get("operation", ""))
         target = str(action.get("target", ""))
         parameters = action.get("parameters") or {}
@@ -119,6 +123,10 @@ class PyAutoGuiDesktopExecutor:
             raise RuntimeError(f"Desktop click needs 'x,y' coordinates, got {raw!r}") from exc
 
     def __call__(self, action: dict[str, Any]) -> dict[str, Any]:
+        from .takeover import TakeoverActive, takeover_active
+
+        if takeover_active():
+            raise TakeoverActive("operator takeover active — agent desktop actions blocked until release")
         operation = str(action.get("operation", ""))
         target = str(action.get("target", ""))
         parameters = action.get("parameters") or {}
