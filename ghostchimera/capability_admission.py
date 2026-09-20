@@ -51,6 +51,10 @@ class CapabilityAdmissionRecord:
     requested_permissions: list[str] = field(default_factory=list)
     approved_permissions: list[str] = field(default_factory=list)
     trust_class: str = "unreviewed"
+    # Identity inputs: changing any of these yields a different record id,
+    # so artifact/version/permission changes invalidate old admissions.
+    version: str = ""
+    artifact_digest: str = ""
     inspection: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     reviewer: str = ""
@@ -60,6 +64,30 @@ class CapabilityAdmissionRecord:
 
     def to_dict(self) -> dict[str, Any]:
         return _redact_value(asdict(self))
+
+
+def capability_identity(
+    capability_kind: str,
+    source: str,
+    name: str,
+    *,
+    version: str = "",
+    artifact_digest: str = "",
+    requested_permissions: list[str] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> str:
+    """Stable admission identity bound to artifact/version/permissions.
+
+    Version and digest fall back to metadata keys (version, artifact_digest,
+    digest, sha256) so existing call sites benefit without signature churn.
+    """
+    meta = metadata or {}
+    resolved_version = str(version or meta.get("version") or "").strip()
+    resolved_digest = str(
+        artifact_digest or meta.get("artifact_digest") or meta.get("digest") or meta.get("sha256") or ""
+    ).strip()
+    perms = ",".join(sorted({str(p).strip().lower() for p in (requested_permissions or []) if str(p).strip()}))
+    return _stable_id(capability_kind, source, name, resolved_version, resolved_digest, perms, length=24)
 
 
 def _now() -> float:
@@ -96,6 +124,8 @@ class CapabilityAdmissionStore:
         requested_permissions: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         inspection: dict[str, Any] | None = None,
+        version: str = "",
+        artifact_digest: str = "",
     ) -> dict[str, Any]:
         capability_kind = str(capability_kind or "").strip().lower()
         name = str(name or "").strip()
@@ -103,7 +133,20 @@ class CapabilityAdmissionStore:
             raise ValueError("capability_kind is required")
         if not name:
             raise ValueError("name is required")
-        record_id = _stable_id(capability_kind, source, name)
+        permissions = sorted({str(item) for item in (requested_permissions or []) if str(item).strip()})
+        meta = _redact_value(metadata or {})
+        resolved_version = str(version or meta.get("version") or "").strip()
+        resolved_digest = str(
+            artifact_digest or meta.get("artifact_digest") or meta.get("digest") or meta.get("sha256") or ""
+        ).strip()
+        record_id = capability_identity(
+            capability_kind,
+            source,
+            name,
+            version=resolved_version,
+            artifact_digest=resolved_digest,
+            requested_permissions=permissions,
+        )
         records = self._load_records()
         if record_id in records:
             return {
@@ -118,9 +161,11 @@ class CapabilityAdmissionStore:
             source=str(source or "local").strip() or "local",
             risk_level=_normalize_risk(risk_level),
             risk_ceiling=_normalize_risk(risk_ceiling),
-            requested_permissions=sorted({str(item) for item in (requested_permissions or []) if str(item).strip()}),
+            requested_permissions=permissions,
+            version=resolved_version,
+            artifact_digest=resolved_digest,
             inspection=_redact_value(inspection or {}),
-            metadata=_redact_value(metadata or {}),
+            metadata=meta,
         ).to_dict()
         records[record_id] = record
         self._save_records(records)
@@ -137,9 +182,54 @@ class CapabilityAdmissionStore:
         requested_permissions: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         inspection: dict[str, Any] | None = None,
+        version: str = "",
+        artifact_digest: str = "",
     ) -> dict[str, Any]:
-        record_id = _stable_id(capability_kind, source, name)
+        """Register, or refresh a record with the SAME identity.
+
+        If version/artifact/permissions changed, the identity is different:
+        the old admission is left untouched and a fresh ``discovered``
+        record is created, forcing re-review. Mutation never inherits
+        approval.
+        """
+        meta = _redact_value(metadata or {})
         records = self._load_records()
+        permissions_unspecified = requested_permissions is None
+        permissions = sorted({str(p) for p in (requested_permissions or []) if str(p).strip()})
+        # Find siblings (same kind/source/name, possibly older identity).
+        siblings = [
+            rec
+            for rec in records.values()
+            if isinstance(rec, dict)
+            and str(rec.get("capability_kind", "")).strip().lower() == str(capability_kind or "").strip().lower()
+            and str(rec.get("source", "")).strip() == (str(source or "local").strip() or "local")
+            and str(rec.get("name", "")).strip() == str(name or "").strip()
+        ]
+        # Precedence: explicit arguments, then the current call's metadata,
+        # then the newest sibling. A sibling never overrides values the
+        # current call supplies, and an explicitly emptied permission set
+        # is honored as empty (it changes identity) — only a fully
+        # unspecified (None) set inherits the sibling's.
+        newest = max(siblings, key=lambda r: float(r.get("updated_at", 0) or 0)) if siblings else {}
+        resolved_version = str(version or meta.get("version") or newest.get("version") or "").strip()
+        resolved_digest = str(
+            artifact_digest
+            or meta.get("artifact_digest")
+            or meta.get("digest")
+            or meta.get("sha256")
+            or newest.get("artifact_digest")
+            or ""
+        ).strip()
+        if permissions_unspecified and newest:
+            permissions = list(newest.get("requested_permissions") or [])
+        record_id = capability_identity(
+            capability_kind,
+            source,
+            name,
+            version=resolved_version,
+            artifact_digest=resolved_digest,
+            requested_permissions=permissions or None,
+        )
         if record_id not in records:
             return self.create_record(
                 capability_kind=capability_kind,
@@ -147,26 +237,23 @@ class CapabilityAdmissionStore:
                 source=source,
                 risk_level=risk_level,
                 risk_ceiling=risk_ceiling,
-                requested_permissions=requested_permissions,
+                requested_permissions=permissions or None,
                 metadata=metadata,
                 inspection=inspection,
+                version=resolved_version,
+                artifact_digest=resolved_digest,
             )
         record = dict(records[record_id])
         record["risk_level"] = _normalize_risk(risk_level or record.get("risk_level", "medium"))
         record["risk_ceiling"] = _normalize_risk(risk_ceiling or record.get("risk_ceiling", "medium"))
-        record["requested_permissions"] = sorted(
-            {
-                str(item)
-                for item in (requested_permissions or record.get("requested_permissions") or [])
-                if str(item).strip()
-            }
-        )
-        record["metadata"] = _redact_value({**(record.get("metadata") or {}), **(metadata or {})})
-        record["inspection"] = _redact_value({**(record.get("inspection") or {}), **(inspection or {})})
+        if permissions:
+            record["requested_permissions"] = permissions
+        record["metadata"] = _redact_value({**(record.get("metadata") or {}), **meta})
+        record["inspection"] = _redact_value({**(record.get("inspection") or {}), **(_redact_value(inspection or {}))})
         record["updated_at"] = _now()
         records[record_id] = record
         self._save_records(records)
-        return {"ok": True, "record": _redact_value(record)}
+        return {"ok": True, "record": _redact_value(record), "reused_identity": True}
 
     def list_records(self, *, status: str = "", capability_kind: str = "", limit: int = 200) -> dict[str, Any]:
         records = list(self._load_records().values())
@@ -262,4 +349,5 @@ __all__ = [
     "ALLOWED_TRANSITIONS",
     "CapabilityAdmissionRecord",
     "CapabilityAdmissionStore",
+    "capability_identity",
 ]

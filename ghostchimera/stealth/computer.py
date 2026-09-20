@@ -184,6 +184,34 @@ class ComputerAction:
             "risk": self.resolved_risk().value,
         }
 
+    def action_digest(self) -> str:
+        """Canonical hash binding an approval to THIS action (not its id).
+
+        Covers operation, target, parameters, context, and modality: a
+        mutated action (different destination, payload, or surface) never
+        matches an approval granted for the original.
+        """
+        import hashlib as _hashlib
+        import json as _json
+
+        try:
+            modality = self.resolved_modality().value
+        except ValueError:
+            modality = "unknown"
+        canonical = _json.dumps(
+            {
+                "operation": self.operation,
+                "target": self.target,
+                "parameters": self.parameters,
+                "context": self.context,
+                "modality": modality,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        return _hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
 
 @dataclass(frozen=True)
 class ComputerApproval:
@@ -191,10 +219,16 @@ class ComputerApproval:
     action_id: str
     granted_at: float = field(default_factory=time.time)
     expires_at: float | None = None
+    # Optional action digest (see ComputerAction.action_digest). When set,
+    # covers() additionally requires the live action to hash identically —
+    # approvals authorize a specific action, not a caller-chosen id.
+    action_digest: str = ""
 
     def covers(self, action: ComputerAction, *, now: float | None = None) -> bool:
         moment = now if now is not None else time.time()
         if self.action_id != action.action_id:
+            return False
+        if self.action_digest and self.action_digest != action.action_digest():
             return False
         return self.expires_at is None or moment <= self.expires_at
 
