@@ -410,16 +410,22 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 engine.close()
 
     def auth_gh_status(_ctx: dict[str, Any]) -> dict[str, Any]:
-        """Detect a local `gh` login (no token touched). Cached 5 minutes."""
-        from .gh_cli import gh_status
+        """Detect a local `gh` login (no token touched). Cached 5 minutes.
 
+        The cache is keyed on the GHOSTCHIMERA_GH_PATH override so tests
+        (and gh installs appearing mid-process) never read a stale result.
+        """
+        import os as _os
+
+        from .gh_cli import GH_PATH_ENV, gh_status
+
+        cache_key = f"gh:{_os.environ.get(GH_PATH_ENV, '')}"
         now = time.time()
-        cached = _GH_STATUS_CACHE.get("at", 0.0)
-        if now - cached < 300 and "result" in _GH_STATUS_CACHE:
-            return {"ok": True, **_GH_STATUS_CACHE["result"]}
+        cached = _GH_STATUS_CACHE.get(cache_key)
+        if cached is not None and now - cached[0] < 300:
+            return {"ok": True, **cached[1]}
         result = gh_status()
-        _GH_STATUS_CACHE["at"] = now
-        _GH_STATUS_CACHE["result"] = result
+        _GH_STATUS_CACHE[cache_key] = (now, result)
         return {"ok": True, **result}
 
     def auth_gh_import(ctx: dict[str, Any]) -> dict[str, Any]:
