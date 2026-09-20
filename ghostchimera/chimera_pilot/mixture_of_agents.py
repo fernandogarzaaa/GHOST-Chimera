@@ -454,15 +454,48 @@ class MixtureOfAgents:
         if len(texts) < 2:
             return contradictions
 
-        # Look for direct negation patterns
-        patterns = [
-            (r"(\w+)\s+(is|are|was|were)\s+([^\s.]+)", r"\w+\s+(is not|are not|was not|were not)\s+([^\s.]+)"),
-            (r"(\w+)\s+can\s+(not|never)\s+(\w+)", r"(\w+)\s+(can|could)\s+(\w+)"),
-            (r"(\d+)[\.,]?\d*\s+(percent|%)", r"(\d+)[\.,]?\d*\s+(percent|%)"),  # numeric contradictions
+        # Look for direct negation patterns. Positive and negative claims
+        # are reduced to comparable (subject, value) keys with polarity
+        # kept separate: "sky is blue" vs "sky is not blue" share the key
+        # ("sky", "blue") with opposite polarity, which is the contradiction.
+        # (The negative subject must be captured, not backreferenced: an
+        # earlier `\1` form never compiled and crashed this path.)
+        claim_patterns = [
+            (r"(\w+)\s+(is|are|was|were)\s+([^\s.]+)", False),
+            (r"(\w+)\s+(is not|are not|was not|were not)\s+([^\s.]+)", True),
+            (r"(\w+)\s+can\s+(not|never)\s+(\w+)", True),
+            (r"(\w+)\s+(can|could)\s+(\w+)", False),
         ]
 
+        def _claim_keys(text: str) -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
+            positive, negative = set(), set()
+            for pattern, is_negative in claim_patterns:
+                try:
+                    matches = re.findall(pattern, text.lower())
+                except re.error:
+                    continue
+                for match in matches:
+                    if len(match) != 3:
+                        continue
+                    key = (match[0], match[2])
+                    (negative if is_negative else positive).add(key)
+            return positive, negative
+
         for text_a, text_b in [(texts[0], texts[1])]:
-            for pat_a, pat_b in patterns:
+            pos_a, neg_a = _claim_keys(text_a)
+            pos_b, neg_b = _claim_keys(text_b)
+            if (pos_a & neg_b) or (neg_a & pos_b):
+                contradictions.append(
+                    {
+                        "type": "direct_negation",
+                        "text_a": text_a[:200],
+                        "text_b": text_b[:200],
+                    }
+                )
+
+        # Numeric mentions shared across texts (unchanged legacy heuristic).
+        for text_a, text_b in [(texts[0], texts[1])]:
+            for pat_a, pat_b in [(r"(\d+)[\.,]?\d*\s+(percent|%)", r"(\d+)[\.,]?\d*\s+(percent|%)")]:
                 matches_a = set(re.findall(pat_a, text_a.lower()))
                 matches_b = set(re.findall(pat_b, text_b.lower()))
                 if matches_a and matches_b:

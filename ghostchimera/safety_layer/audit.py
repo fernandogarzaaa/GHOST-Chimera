@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,22 @@ def _write_audit(records: list, audit_file: str | None = None) -> None:
         json.dump(records, f, ensure_ascii=False, indent=2)
 
 
+def _key_file_mode_ok(key_path: str) -> bool:
+    """Owner-only (or stricter) permissions required for a stored HMAC key.
+
+    POSIX-only enforcement: Windows ACLs do not express ownership through
+    mode bits (stat reports 0o666), so the check is vacuous there and the
+    file relies on the user's profile directory ACLs instead.
+    """
+    if os.name != "posix":
+        return True
+    try:
+        mode = stat.S_IMODE(os.stat(key_path).st_mode)
+    except OSError:
+        return False
+    return mode & 0o077 == 0
+
+
 def _resolve_key(audit_file: str) -> bytes:
     """HMAC key: explicit env wins; else a per-install key file (0o600).
 
@@ -54,8 +71,20 @@ def _resolve_key(audit_file: str) -> bytes:
     key_path = audit_file + ".key"
     try:
         if os.path.exists(key_path):
+            if not _key_file_mode_ok(key_path):
+                # Repair lax permissions; fail closed if repair is impossible.
+                with contextlib.suppress(OSError):
+                    os.chmod(key_path, 0o600)
+                if not _key_file_mode_ok(key_path):
+                    raise ValueError(
+                        f"audit key file {key_path} is readable by others and cannot be secured; "
+                        "fix its permissions or set GHOSTCHIMERA_AUDIT_KEY"
+                    )
             with open(key_path, "rb") as handle:
-                stored = handle.read().strip()
+                stored = handle.read()
+            # Exact bytes: no stripping — a generated key may legitimately
+            # start or end with whitespace bytes, and read-modify asymmetry
+            # would silently fork the chain.
             if len(stored) >= 16:
                 return stored
     except OSError:
@@ -63,14 +92,33 @@ def _resolve_key(audit_file: str) -> bytes:
     import secrets
 
     generated = secrets.token_bytes(32)
+    fd = None
     try:
         Path(os.path.dirname(key_path) or ".").mkdir(parents=True, exist_ok=True)
-        with open(key_path, "wb") as handle:
+        # Exclusive creation: a concurrent process that wins the race keeps
+        # its key; the loser rereads instead of overwriting (which would
+        # orphan entries the winner already signed).
+        fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            fd = None
             handle.write(generated)
+        return generated
+    except FileExistsError:
         with contextlib.suppress(OSError):
-            os.chmod(key_path, 0o600)
+            if fd is not None:
+                os.close(fd)
+        with contextlib.suppress(OSError):
+            with open(key_path, "rb") as handle:
+                stored = handle.read()
+            if len(stored) >= 16:
+                return stored
+        return generated
     except OSError:
         pass
+    finally:
+        if fd is not None:
+            with contextlib.suppress(OSError):
+                os.close(fd)
     return generated
 
 
@@ -139,7 +187,9 @@ class AuditLog:
         import hashlib as _hashlib
         import hmac as _hmac
 
-        resolved = key or os.environ.get("GHOSTCHIMERA_AUDIT_KEY", "").encode("utf-8")
+        resolved = key
+        if resolved is None:
+            resolved = os.environ.get("GHOSTCHIMERA_AUDIT_KEY", "").strip().encode("utf-8")
         if not resolved:
             raise ValueError("audit HMAC key required: pass key= or set GHOSTCHIMERA_AUDIT_KEY")
         prev_hash = prev_entry["chain_hash"] if prev_entry else "genesis"
