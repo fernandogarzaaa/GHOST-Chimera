@@ -62,21 +62,39 @@ def _post(url: str, payload: dict) -> dict:
 
 
 def _gh_shim(tmp_path: Path) -> str:
-    shim = tmp_path / "gh.cmd"
+    if os.name == "nt":
+        shim = tmp_path / "gh.cmd"
+        shim.write_text(
+            "@echo off\n"
+            'if "%1"=="auth" if "%2"=="status" (\n'
+            "  echo Logged in to github.com account shimuser\n"
+            "  echo Token scopes: repo, gist\n"
+            "  exit /b 0\n"
+            ")\n"
+            'if "%1"=="auth" if "%2"=="token" (\n'
+            "  echo gho_shimtoken1234567890\n"
+            "  exit /b 0\n"
+            ")\n"
+            "exit /b 1\n",
+            encoding="utf-8",
+        )
+        return str(shim)
+    shim = tmp_path / "gh"
     shim.write_text(
-        "@echo off\n"
-        'if "%1"=="auth" if "%2"=="status" (\n'
-        "  echo Logged in to github.com account shimuser\n"
-        "  echo Token scopes: repo, gist\n"
-        "  exit /b 0\n"
-        ")\n"
-        'if "%1"=="auth" if "%2"=="token" (\n'
-        "  echo gho_shimtoken1234567890\n"
-        "  exit /b 0\n"
-        ")\n"
-        "exit /b 1\n",
+        "#!/bin/sh\n"
+        'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then\n'
+        "  echo 'Logged in to github.com account shimuser'\n"
+        "  echo 'Token scopes: repo, gist'\n"
+        "  exit 0\n"
+        "fi\n"
+        'if [ "$1" = "auth" ] && [ "$2" = "token" ]; then\n'
+        "  echo 'gho_shimtoken1234567890'\n"
+        "  exit 0\n"
+        "fi\n"
+        "exit 1\n",
         encoding="utf-8",
     )
+    os.chmod(shim, 0o755)
     return str(shim)
 
 

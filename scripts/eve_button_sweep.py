@@ -72,15 +72,15 @@ def phase_a() -> dict[str, Any]:
             wired.append(bid)
         else:
             orphan.append(bid)
-    return {"total_buttons": len(button_ids), "wired": len(wired), "orphans": orphan,
-            "ok": not orphan}
+    return {"total_buttons": len(button_ids), "wired": len(wired), "orphans": orphan, "ok": not orphan}
 
 
 def _call(base: str, method: str, path: str) -> tuple[str, str]:
     url = base + path
     body = json.dumps({}).encode()
-    req = urllib.request.Request(url, data=body if method == "POST" else None,
-                                 headers={"Content-Type": "application/json"}, method=method)
+    req = urllib.request.Request(
+        url, data=body if method == "POST" else None, headers={"Content-Type": "application/json"}, method=method
+    )
     try:
         with urllib.request.urlopen(req, timeout=PER_CALL_TIMEOUT) as resp:
             raw = resp.read().decode("utf-8", "replace")
@@ -122,8 +122,7 @@ def phase_b() -> dict[str, Any]:
     try:
         tmp = tmpdir.name
         with contextlib.redirect_stdout(io.StringIO()):
-            server = run_console(host="127.0.0.1", port=0, http_port=0, state_dir=tmp,
-                                 open_browser=False, block=False)
+            server = run_console(host="127.0.0.1", port=0, http_port=0, state_dir=tmp, open_browser=False, block=False)
         try:
             http_port = server._http_server.server_address[1] if server._http_server else server.http_port
             base = f"http://127.0.0.1:{http_port}"
@@ -144,8 +143,14 @@ def phase_b() -> dict[str, Any]:
             try:
                 with urllib.request.urlopen(base + "/", timeout=10) as resp:
                     html = resp.read().decode("utf-8", "replace")
-                for marker in ("providerLogins", "storedKeys", "approvalsPending",
-                               "takeoverOutput", "automationsList", "automationRuns"):
+                for marker in (
+                    "providerLogins",
+                    "storedKeys",
+                    "approvalsPending",
+                    "takeoverOutput",
+                    "automationsList",
+                    "automationRuns",
+                ):
                     if marker not in html:
                         results[f"GET / [marker {marker}]"] = {"verdict": "FAIL", "detail": "missing from index"}
                     else:
@@ -159,8 +164,7 @@ def phase_b() -> dict[str, Any]:
     summary = {"PASS": 0, "FAIL": 0, "SKIP": 0, "REVIEW": 0}
     for entry in results.values():
         summary[entry["verdict"]] = summary.get(entry["verdict"], 0) + 1
-    return {"results": results, "summary": summary,
-            "ok": summary["FAIL"] == 0 and summary["REVIEW"] == 0}
+    return {"results": results, "summary": summary, "ok": summary["FAIL"] == 0 and summary["REVIEW"] == 0}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -183,13 +187,22 @@ def main(argv: list[str] | None = None) -> int:
     artifact_dir = Path(args.artifact_dir)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     (artifact_dir / "eve_button_sweep.json").write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
-    print(json.dumps({
-        "ok": ok,
-        "phase_a": report.get("phase_a_static_wiring", {}),
-        "phase_b_summary": report.get("phase_b_live_routes", {}).get("summary", {}),
-        "failures": {k: v for k, v in report.get("phase_b_live_routes", {}).get("results", {}).items()
-                     if v["verdict"] in ("FAIL", "REVIEW")},
-    }, indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "ok": ok,
+                "phase_a": report.get("phase_a_static_wiring", {}),
+                "phase_b_summary": report.get("phase_b_live_routes", {}).get("summary", {}),
+                "failures": {
+                    k: v
+                    for k, v in report.get("phase_b_live_routes", {}).get("results", {}).items()
+                    if v["verdict"] in ("FAIL", "REVIEW")
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0 if ok else 1
 
 

@@ -167,10 +167,10 @@ def _read_rows(db: Path, key: bytes, *, with_passwords: bool) -> list[dict[str, 
 
 def preview_chromium(browser: str, *, consent: bool = False) -> dict[str, Any]:
     """List saved-login labels (no passwords) after explicit consent."""
-    if sys.platform != "win32":
-        raise BrowserVaultError("direct reading is Windows-only in v1; use CSV import on this platform")
     if consent is not True:
         raise BrowserVaultError("explicit consent is required")
+    if sys.platform != "win32":
+        raise BrowserVaultError("direct reading is Windows-only in v1; use CSV import on this platform")
     if browser not in _BROWSERS:
         raise BrowserVaultError(f"unsupported browser: {browser}")
     paths = login_store_paths(browser)
@@ -203,10 +203,10 @@ def import_chromium(browser: str, *, consent: bool = False, indices: list[int] |
 
     The caller stores them in the vault immediately and never logs them.
     """
-    if sys.platform != "win32":
-        raise BrowserVaultError("direct reading is Windows-only in v1; use CSV import on this platform")
     if consent is not True:
         raise BrowserVaultError("explicit consent is required")
+    if sys.platform != "win32":
+        raise BrowserVaultError("direct reading is Windows-only in v1; use CSV import on this platform")
     if browser not in _BROWSERS:
         raise BrowserVaultError(f"unsupported browser: {browser}")
     paths = login_store_paths(browser)
