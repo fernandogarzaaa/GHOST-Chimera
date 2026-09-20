@@ -82,12 +82,35 @@ class CapabilityAdmissionStoreTests(unittest.TestCase):
                 name="github",
                 source="console",
                 risk_level="high",
-                requested_permissions=["repo.read", "repo.write"],
+                requested_permissions=["repo.read"],
             )
 
             self.assertEqual(first["record"]["id"], second["record"]["id"])
             self.assertEqual(second["record"]["risk_level"], "high")
             self.assertEqual(store.list_records()["count"], 1)
+
+    def test_permission_change_forks_identity(self) -> None:
+        """Widening permissions must NOT inherit the old admission identity."""
+        with tempfile.TemporaryDirectory(prefix="ghost-admission-fork-") as tmp:
+            store = CapabilityAdmissionStore(tmp)
+            first = store.register_or_update(
+                capability_kind="connector",
+                name="github",
+                source="console",
+                risk_level="medium",
+                requested_permissions=["repo.read"],
+            )
+            second = store.register_or_update(
+                capability_kind="connector",
+                name="github",
+                source="console",
+                risk_level="high",
+                requested_permissions=["repo.read", "repo.write"],
+            )
+
+            self.assertNotEqual(first["record"]["id"], second["record"]["id"])
+            self.assertEqual(second["record"]["status"], "discovered")
+            self.assertEqual(store.list_records()["count"], 2)
 
 
 if __name__ == "__main__":

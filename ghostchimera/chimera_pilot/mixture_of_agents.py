@@ -187,7 +187,9 @@ class MixtureOfAgents:
         current_result = self.vote(query)
 
         for round_num in range(1, max_rounds):
-            if current_result.consensus_pct >= confidence_threshold:
+            # consensus_pct is 0-100; the threshold is 0-1. The unscaled
+            # comparison used to exit after round one for any consensus.
+            if current_result.consensus_pct / 100.0 >= confidence_threshold:
                 logger.info("Consensus reached at %.1f%% after %d rounds", current_result.consensus_pct, round_num)
                 break
 
@@ -454,7 +456,7 @@ class MixtureOfAgents:
 
         # Look for direct negation patterns
         patterns = [
-            (r"(\w+)\s+(is|are|was|were)\s+([^\s.]+)", r"\1\s+(is not|are not|was not|were not)\s+([^\s.]+)"),
+            (r"(\w+)\s+(is|are|was|were)\s+([^\s.]+)", r"\w+\s+(is not|are not|was not|were not)\s+([^\s.]+)"),
             (r"(\w+)\s+can\s+(not|never)\s+(\w+)", r"(\w+)\s+(can|could)\s+(\w+)"),
             (r"(\d+)[\.,]?\d*\s+(percent|%)", r"(\d+)[\.,]?\d*\s+(percent|%)"),  # numeric contradictions
         ]

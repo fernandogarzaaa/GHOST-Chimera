@@ -581,6 +581,7 @@ class StealthLoop:
                 action_id=str(approval.get("action_id", computer_action.action_id)),
                 granted_at=float(approval.get("granted_at", time.time())),
                 expires_at=approval.get("expires_at"),
+                action_digest=str(approval.get("action_digest", "")),
             )
         receipt = self.computer.execute(plan, self.computer_capability, approval_obj)
         return {"ok": bool(receipt.get("ok", False)), "plan": plan.to_dict(), "receipt": receipt}
