@@ -527,6 +527,45 @@
     </div>
     <pre class="output compact-output" id="takeoverOutput">No takeover active.</pre>
 
+    <div class="section-hdr">Automations</div>
+    <p class="hint" style="margin-bottom:10px;">Describe once, run on schedule or when matching mail arrives. Every firing is a run-history thread you can continue. Connector writes always park for your approval first.</p>
+    <div class="form-group">
+      <label>Name</label>
+      <input id="autoName" type="text" autocomplete="off" placeholder="e.g. Morning inbox brief">
+    </div>
+    <div class="form-group">
+      <label>Instruction (what the run is about)</label>
+      <input id="autoInstruction" type="text" autocomplete="off" placeholder="e.g. Summarize unread mail from my boss">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <select id="autoTriggerType" style="max-width:160px;">
+        <option value="cron">Schedule (cron)</option>
+        <option value="email">Inbound email</option>
+      </select>
+      <input id="autoCron" placeholder="cron, e.g. 0 8 * * *" style="flex:1;min-width:140px;">
+      <input id="autoEmailKey" placeholder="vault key label for mailbox" style="flex:1;min-width:140px;">
+      <input id="autoEmailSender" placeholder="sender filter (optional)" style="flex:1;min-width:140px;">
+      <input id="autoEmailSubject" placeholder="subject filter (optional)" style="flex:1;min-width:140px;">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <select id="autoActionType" style="max-width:200px;">
+        <option value="log">Log the trigger</option>
+        <option value="webhook">POST a webhook</option>
+        <option value="connector_write">Connector write (approval-gated)</option>
+      </select>
+      <input id="autoWebhookUrl" placeholder="webhook URL" style="flex:2;min-width:200px;">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="autoCreate" class="primary">Create Automation</button>
+      <button id="autoRefresh">Refresh</button>
+    </div>
+    <div id="automationsList"></div>
+    <div class="section-hdr">Run History</div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="autoRunsRefresh">Refresh Runs</button>
+    </div>
+    <div id="automationRuns"></div>
+
     <div class="section-hdr">Import Browser Passwords</div>
     <p class="hint" style="margin-bottom:10px;">Two paths, same result. CSV: export from Chrome/Brave Settings → Passwords → Export, paste below. Direct: read this machine's Chromium login store (explicit consent, Windows-only, nothing leaves this computer). Map each entry to the vault or skip it.</p>
     <div class="form-group">

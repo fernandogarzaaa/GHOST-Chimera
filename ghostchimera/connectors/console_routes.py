@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 # `gh` detection cache (module-level: a subprocess per page-load is wasteful).
 _GH_STATUS_CACHE: dict[str, Any] = {}
 
+# Automations engines by state dir (poller threads live with the process).
+_AUTOMATIONS_ENGINES: dict[str, Any] = {}
+
 
 def _vault_key_for(engine: Any, entity_id: str, key_id: str) -> dict[str, str] | None:
     """Reveal one custom key as {label, hint, secret} (internal use only)."""
@@ -966,6 +969,106 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         manager.set_loop_hooks(pause=pause, resume=resume)
         return {"ok": True, **manager.status()}
 
+    def _automations_engine() -> Any:
+        from .automations import AutomationsEngine
+
+        key = str(base)
+        engine = _AUTOMATIONS_ENGINES.get(key)
+        if engine is None:
+            engine = AutomationsEngine(base)
+            _AUTOMATIONS_ENGINES[key] = engine
+        engine.ensure_running()
+        return engine
+
+    def auth_automations(ctx: dict[str, Any]) -> dict[str, Any]:
+        """List automations + poller state."""
+        try:
+            engine = _automations_engine()
+            return {"ok": True, "automations": engine.list(), "poller": "running"}
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+    def auth_automation_create(ctx: dict[str, Any]) -> dict[str, Any]:
+        from .automations import AutomationError
+
+        data = _body(ctx)
+        try:
+            engine = _automations_engine()
+            created = engine.create(
+                name=str(data.get("name") or ""),
+                instruction=str(data.get("instruction") or ""),
+                trigger=data.get("trigger") if isinstance(data.get("trigger"), dict) else {},
+                action=data.get("action") if isinstance(data.get("action"), dict) else {"type": "log"},
+                notify=str(data.get("notify") or "console"),
+            )
+            return {"ok": True, **created}
+        except AutomationError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def auth_automation_set(ctx: dict[str, Any]) -> dict[str, Any]:
+        from .automations import AutomationError
+
+        data = _body(ctx)
+        automation_id = str(data.get("id") or "")
+        if not automation_id:
+            return {"ok": False, "error": "id is required"}
+        try:
+            engine = _automations_engine()
+            if "enabled" in data:
+                updated = engine.set_enabled(automation_id, enabled=bool(data.get("enabled")))
+                return {"ok": True, **updated}
+            if data.get("delete"):
+                return {"ok": True, "deleted": engine.delete(automation_id)}
+            return {"ok": False, "error": "enabled or delete is required"}
+        except AutomationError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def auth_automation_fire(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Run now (or continue with parent_run_id + note)."""
+        from .automations import AutomationError
+
+        data = _body(ctx)
+        automation_id = str(data.get("id") or "")
+        if not automation_id:
+            return {"ok": False, "error": "id is required"}
+        try:
+            engine = _automations_engine()
+            run = engine.fire(
+                automation_id,
+                trigger_context={"type": "manual"},
+                parent_run_id=str(data.get("parent_run_id") or ""),
+                note=str(data.get("note") or ""),
+            )
+            return {"ok": True, "run": run}
+        except AutomationError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def auth_automation_runs(ctx: dict[str, Any]) -> dict[str, Any]:
+        data = _body(ctx)
+        try:
+            engine = _automations_engine()
+            try:
+                limit = max(1, min(200, int(data.get("limit") or 50)))
+            except (TypeError, ValueError):
+                limit = 50
+            return {"ok": True, "runs": engine.runs(str(data.get("id") or ""), limit=limit)}
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+    def auth_automation_execute(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Complete an awaiting-approval run by consuming its approval."""
+        from .automations import AutomationError
+
+        data = _body(ctx)
+        if not str(data.get("run_id") or "") or not str(data.get("approval_id") or ""):
+            return {"ok": False, "error": "run_id and approval_id are required"}
+        try:
+            engine = _automations_engine()
+            done = engine.execute_approved(str(data["run_id"]), str(data["approval_id"]))
+            return {"ok": True, "run": done}
+        except AutomationError as exc:
+            return {"ok": False, "error": str(exc)}
+
     def auth_device_start(ctx: dict[str, Any]) -> dict[str, Any]:
         """Begin an RFC 8628 device login (no redirect URI — LAN-friendly).
 
@@ -1279,6 +1382,54 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         auth=auth,
         token=token,
         description="Takeover state",
+    )
+    server.routes.register(
+        "/api/auth/automations",
+        auth_automations,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="List automations",
+    )
+    server.routes.register(
+        "/api/auth/automations/create",
+        auth_automation_create,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Create an automation",
+    )
+    server.routes.register(
+        "/api/auth/automations/set",
+        auth_automation_set,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Pause/resume/delete an automation",
+    )
+    server.routes.register(
+        "/api/auth/automations/fire",
+        auth_automation_fire,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Run now or continue a run",
+    )
+    server.routes.register(
+        "/api/auth/automations/runs",
+        auth_automation_runs,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Run history",
+    )
+    server.routes.register(
+        "/api/auth/automations/execute",
+        auth_automation_execute,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Execute an approved run",
     )
     server.routes.register(
         "/api/auth/device/start",

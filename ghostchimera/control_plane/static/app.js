@@ -2754,6 +2754,17 @@
   if ($("#takeoverStatus")) {
     $("#takeoverStatus").addEventListener("click", takeoverRefresh);
   }
+  if ($("#autoCreate")) {
+    $("#autoCreate").addEventListener("click", createAutomation);
+  }
+  if ($("#autoRefresh")) {
+    $("#autoRefresh").addEventListener("click", renderAutomations);
+  }
+  if ($("#autoRunsRefresh")) {
+    $("#autoRunsRefresh").addEventListener("click", renderAutomationRuns);
+  }
+  try { renderAutomations(); } catch (_) {}
+  try { renderAutomationRuns(); } catch (_) {}
   try { renderWriteGate(); } catch (_) {}
   try { renderPendingApprovals(); } catch (_) {}
   if ($("#blueskyPost")) {
@@ -2901,6 +2912,157 @@
       takeoverOut(takeoverStatusText(data));
     } catch (e) {
       takeoverOut("Error: " + e.message);
+    }
+  }
+
+  // ── Automations ──────────────────────────────────────────────────────
+  async function renderAutomations() {
+    var host = $("#automationsList");
+    if (!host) return;
+    host.innerHTML = "";
+    try {
+      var data = await api("/api/auth/automations", { method: "POST", body: {} });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      if (!data.automations.length) {
+        host.appendChild(el("div", { class: "empty" }, "No automations yet — describe one above."));
+        return;
+      }
+      data.automations.forEach(function(a) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "badge " + (a.enabled ? "ok" : "warn") },
+          a.enabled ? "on" : "paused"));
+        var main = el("div", { style: "flex:1;min-width:200px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = a.name;
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        var trig = a.trigger.type === "cron" ? "cron " + a.trigger.cron : "email match";
+        meta.textContent = trig + "  ·  " + a.action.type + "  ·  runs: " + (a.run_count || 0);
+        main.appendChild(meta);
+        var inst = el("div", { class: "meta" });
+        inst.textContent = a.instruction;
+        main.appendChild(inst);
+        item.appendChild(main);
+        var run = el("button", { class: "primary" });
+        run.textContent = "Run now";
+        run.addEventListener("click", function() { fireAutomation(a.id, "", ""); });
+        item.appendChild(run);
+        var toggle = el("button");
+        toggle.textContent = a.enabled ? "Pause" : "Resume";
+        toggle.addEventListener("click", async function() {
+          try {
+            await api("/api/auth/automations/set",
+              { method: "POST", body: { id: a.id, enabled: !a.enabled } });
+            renderAutomations();
+          } catch (e) { toast(e.message, "error"); }
+        });
+        item.appendChild(toggle);
+        var del = el("button", { class: "danger" });
+        del.textContent = "Delete";
+        del.addEventListener("click", async function() {
+          try {
+            await api("/api/auth/automations/set", { method: "POST", body: { id: a.id, delete: true } });
+            toast("Automation deleted.", "ok");
+            renderAutomations();
+          } catch (e) { toast(e.message, "error"); }
+        });
+        item.appendChild(del);
+        host.appendChild(item);
+      });
+    } catch (e) {
+      host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
+    }
+  }
+
+  async function createAutomation() {
+    var name = (($("#autoName") && $("#autoName").value) || "").trim();
+    var instruction = (($("#autoInstruction") && $("#autoInstruction").value) || "").trim();
+    if (!name || !instruction) { toast("Name and instruction are required.", "warn"); return; }
+    var triggerType = ($("#autoTriggerType") && $("#autoTriggerType").value) || "cron";
+    var trigger = triggerType === "cron"
+      ? { type: "cron", cron: (($("#autoCron") && $("#autoCron").value) || "").trim() }
+      : { type: "email",
+          label: (($("#autoEmailKey") && $("#autoEmailKey").value) || "").trim(),
+          sender: (($("#autoEmailSender") && $("#autoEmailSender").value) || "").trim(),
+          subject: (($("#autoEmailSubject") && $("#autoEmailSubject").value) || "").trim() };
+    var actionType = ($("#autoActionType") && $("#autoActionType").value) || "log";
+    var action = actionType === "webhook"
+      ? { type: "webhook", url: (($("#autoWebhookUrl") && $("#autoWebhookUrl").value) || "").trim() }
+      : { type: actionType };
+    try {
+      var data = await api("/api/auth/automations/create",
+        { method: "POST", body: { name: name, instruction: instruction, trigger: trigger, action: action } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      toast("Automation created.", "ok");
+      if ($("#autoName")) $("#autoName").value = "";
+      if ($("#autoInstruction")) $("#autoInstruction").value = "";
+      renderAutomations();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  async function fireAutomation(id, parentRunId, note) {
+    try {
+      var data = await api("/api/auth/automations/fire",
+        { method: "POST", body: { id: id, parent_run_id: parentRunId, note: note } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      toast("Run " + data.run.status + ".", data.run.status === "failed" ? "error" : "ok");
+      renderAutomations();
+      renderAutomationRuns();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  async function renderAutomationRuns() {
+    var host = $("#automationRuns");
+    if (!host) return;
+    host.innerHTML = "";
+    try {
+      var data = await api("/api/auth/automations/runs", { method: "POST", body: { limit: 20 } });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      if (!data.runs.length) {
+        host.appendChild(el("div", { class: "empty" }, "No runs yet."));
+        return;
+      }
+      data.runs.forEach(function(r) {
+        var item = el("div", { class: "list-item" });
+        var cls = r.status === "complete" ? "ok" : (r.status === "failed" ? "danger" : "warn");
+        item.appendChild(el("span", { class: "badge " + cls }, r.status));
+        var main = el("div", { style: "flex:1;min-width:200px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = r.automation_name + "  ·  " + new Date(r.started_at * 1000).toLocaleString();
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        meta.textContent = (r.summary || "") + (r.parent_run_id ? "  ·  continues " + r.parent_run_id : "");
+        main.appendChild(meta);
+        item.appendChild(main);
+        var cont = el("button");
+        cont.textContent = "Continue";
+        cont.addEventListener("click", function() {
+          var note = window.prompt("Continuation note:", "") || "";
+          fireAutomation(r.automation_id, r.run_id, note);
+        });
+        item.appendChild(cont);
+        if (r.status === "awaiting-approval" && r.result && r.result.approval_id) {
+          var exec = el("button", { class: "primary" });
+          exec.textContent = "Execute approved";
+          exec.addEventListener("click", async function() {
+            try {
+              var done = await api("/api/auth/automations/execute",
+                { method: "POST", body: { run_id: r.run_id, approval_id: r.result.approval_id } });
+              if (!done.ok) throw new Error(done.error || "failed");
+              toast("Approved run executed.", "ok");
+              renderAutomationRuns();
+            } catch (e) { toast(e.message, "error"); }
+          });
+          item.appendChild(exec);
+        }
+        host.appendChild(item);
+      });
+    } catch (e) {
+      host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
     }
   }
 
