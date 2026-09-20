@@ -130,7 +130,7 @@ def test_first_run_checklist(tmp_path, monkeypatch) -> None:
     status = first_run_status(tmp_path)
     assert status["first_run"] is True
     assert [s["id"] for s in status["steps"]] == ["model", "readiness", "integrations"]
-    assert all(s["tab"] in ("config", "operator", "integrations") for s in status["steps"])
+    assert all(s["tab"] in ("config", "activity", "integrations") for s in status["steps"])
     monkeypatch.setenv("GHOSTCHIMERA_MODEL_PROVIDER", "openrouter")
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     status2 = first_run_status(tmp_path)

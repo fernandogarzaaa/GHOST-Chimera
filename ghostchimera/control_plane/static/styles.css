@@ -94,6 +94,17 @@ header h1 {
 .tab-content { display: none; padding: 24px; max-width: min(1440px, 100%); width: 100%; margin: 0 auto; }
 .tab-content.active { display: block; animation: fadeUp .25s ease; }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes spotlightPulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--accent-strong), var(--accent-glow); }
+  50% { box-shadow: 0 0 0 5px var(--accent-strong), var(--accent-glow); }
+}
+/* Temporary guide highlight: "Start setup" lands the eye on the exact control. */
+.spotlight {
+  outline: 2px solid var(--accent-strong) !important;
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+  animation: spotlightPulse 1s ease-in-out 3;
+}
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 18px; }
 .compact-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
 .card {

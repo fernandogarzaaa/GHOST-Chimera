@@ -142,3 +142,25 @@ def test_console_sections_have_backend_ids() -> None:
         "mailOutput",
     ):
         assert f'id="{section_id}"' in html, f"missing section: {section_id}"
+
+
+def test_first_run_steps_point_at_real_tabs_and_controls(tmp_path) -> None:
+    """Start-setup navigation contract: each step's tab exists as tab-content,
+    and the JS spotlight target for each step id exists. Prevents dead jumps."""
+    import re
+
+    from ghostchimera.connectors.console_routes import first_run_status
+
+    with open("ghostchimera/control_plane/static/index.html", encoding="utf-8") as handle:
+        html = handle.read()
+    with open("ghostchimera/control_plane/static/app.js", encoding="utf-8") as handle:
+        js = handle.read()
+    with open("ghostchimera/control_plane/static/styles.css", encoding="utf-8") as handle:
+        css = handle.read()
+    contents = set(re.findall(r'id="(tab-[a-z-]+)"', html))
+    for step in first_run_status(tmp_path)["steps"]:
+        assert f"tab-{step['tab']}" in contents, f"step {step['id']} points at missing tab-{step['tab']}"
+    assert ".spotlight" in css, "spotlight style missing"
+    for target in ("configProvider", "operatorReadiness", "providerLogins"):
+        assert f'id="{target}"' in html, f"spotlight target missing: {target}"
+        assert target in js, f"spotlight mapping missing: {target}"

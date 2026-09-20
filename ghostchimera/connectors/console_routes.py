@@ -184,9 +184,9 @@ def first_run_status(state_dir: str | Path) -> dict[str, Any]:
         {
             "id": "readiness",
             "title": "Run the readiness check",
-            "detail": "Operator Workbench → Run Readiness Check.",
+            "detail": "Activity tab → Run Readiness Check.",
             "done": readiness_done,
-            "tab": "operator",
+            "tab": "activity",
         },
         {
             "id": "integrations",

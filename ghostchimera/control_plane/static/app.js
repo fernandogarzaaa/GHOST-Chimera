@@ -5951,10 +5951,23 @@
       var go = $("#firstRunGo");
       if (go) go.onclick = function() {
         var next = (data.steps || []).find(function(s) { return !s.done; });
-        // Always narrate the next step: when its tab is the one already
-        // open, navigation alone is invisible and the button looks dead.
+        // Guide the eye to the exact control: navigating to an already-open
+        // tab is invisible, so scroll to the step's control and spotlight it.
+        var targets = {
+          model: "configProvider",
+          readiness: "operatorReadiness",
+          integrations: "providerLogins",
+        };
+        var tab = next ? next.tab : "config";
+        openTab(tab);
         if (next) toast(next.title + " — " + (next.detail || ""), "");
-        openTab(next ? next.tab : "config");
+        var targetId = next && targets[next.id];
+        var targetEl = targetId && document.getElementById(targetId);
+        if (targetEl) {
+          try { targetEl.scrollIntoView({ block: "center" }); } catch (_) {}
+          targetEl.classList.add("spotlight");
+          setTimeout(function() { targetEl.classList.remove("spotlight"); }, 3500);
+        }
       };
     } catch (e) {
       banner.style.display = "none";
