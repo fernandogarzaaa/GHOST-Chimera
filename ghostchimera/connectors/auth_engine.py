@@ -18,6 +18,7 @@ migrations/0001_integration_auth_tokens.sql (Postgres) column for column.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import os
@@ -35,6 +36,13 @@ from typing import Any
 
 REFRESH_SKEW_SECONDS = 300.0
 STATE_TTL_SECONDS = 600.0
+# Imported `gh` tokens have no refresh token; treat them as valid for 90
+# days, then surface NEEDS_REAUTH (one-click re-import). `gh auth logout`
+# or revocation surfaces earlier via API errors at use time.
+GH_TOKEN_TTL_SECONDS = 90 * 86400.0
+# Providers whose tokens may be stored but never used for API calls until
+# the operator explicitly approves usage (X is pay-per-use per call).
+LOGIN_ONLY_PROVIDERS = frozenset({"x"})
 
 
 class AuthEngineError(RuntimeError):
@@ -43,6 +51,10 @@ class AuthEngineError(RuntimeError):
 
 class NeedsReauth(AuthEngineError):
     """Refresh token revoked/expired: user must reconnect this provider."""
+
+
+class NeedsApproval(AuthEngineError):
+    """Write-gated call without a matching single-use approval: ask first."""
 
 
 class UnknownProvider(AuthEngineError):
@@ -62,6 +74,9 @@ class EngineProvider:
 # existing connection registries keep working; 'google-mail' aliases google).
 PROVIDERS: dict[str, EngineProvider] = {
     "google-mail": EngineProvider("google-mail", "Gmail", "comms", "https://gmail.googleapis.com"),
+    "google-gemini": EngineProvider(
+        "google-gemini", "Gemini (Google login)", "models", "https://generativelanguage.googleapis.com"
+    ),
     "slack": EngineProvider("slack", "Slack", "comms", "https://slack.com/api"),
     "zendesk": EngineProvider("zendesk", "Zendesk", "support"),
     "freshdesk": EngineProvider("freshdesk", "Freshdesk", "support"),
@@ -74,6 +89,13 @@ PROVIDERS: dict[str, EngineProvider] = {
     "time-doctor": EngineProvider("time-doctor", "Time Doctor", "workforce"),
     "github": EngineProvider("github", "GitHub", "dev", "https://api.github.com"),
     "linkedin": EngineProvider("linkedin", "LinkedIn", "social", "https://api.linkedin.com/v2"),
+    "mastodon": EngineProvider("mastodon", "Mastodon", "social", ""),
+    "reddit": EngineProvider("reddit", "Reddit", "social", "https://oauth.reddit.com"),
+    "discord": EngineProvider("discord", "Discord", "social", "https://discord.com/api/v10"),
+    "tiktok": EngineProvider("tiktok", "TikTok", "social", "https://open.tiktokapis.com"),
+    "facebook": EngineProvider("facebook", "Facebook", "social", "https://graph.facebook.com"),
+    "instagram": EngineProvider("instagram", "Instagram", "social", "https://graph.instagram.com"),
+    "x": EngineProvider("x", "X", "social", "https://api.x.com/2"),
 }
 
 # Shipped shared logins: project-owned OAuth client IDs (Desktop/native type,
@@ -96,6 +118,13 @@ _CLIENT_ID_ENV: dict[str, tuple[str, ...]] = {
     "airtable": ("AIRTABLE_CLIENT_ID",),
     "hubstaff": ("HUBSTAFF_CLIENT_ID",),
     "time-doctor": ("TIMEDOCTOR_CLIENT_ID",),
+    "mastodon": ("MASTODON_CLIENT_ID",),
+    "reddit": ("REDDIT_CLIENT_ID",),
+    "discord": ("DISCORD_CLIENT_ID",),
+    "tiktok": ("TIKTOK_CLIENT_ID",),
+    "facebook": ("FACEBOOK_CLIENT_ID",),
+    "instagram": ("INSTAGRAM_CLIENT_ID",),
+    "x": ("X_CLIENT_ID", "TWITTER_CLIENT_ID"),
 }
 
 
@@ -105,6 +134,7 @@ def _env_client_id_names(preset_id: str) -> tuple[str, ...]:
 
 _PRESET_FOR = {
     "google-mail": "google",
+    "google-gemini": "google",
     "slack": "slack",
     "zendesk": "zendesk",
     "freshdesk": "freshdesk",
@@ -117,6 +147,13 @@ _PRESET_FOR = {
     "time-doctor": "time-doctor",
     "github": "github",
     "linkedin": "linkedin",
+    "mastodon": "mastodon",
+    "reddit": "reddit",
+    "discord": "discord",
+    "tiktok": "tiktok",
+    "facebook": "facebook",
+    "instagram": "instagram",
+    "x": "x",
 }
 
 
@@ -157,6 +194,19 @@ class AuthStore:
               UNIQUE(entity_id, provider)
             );
             CREATE INDEX IF NOT EXISTS idx_auth_entity ON integration_auth_tokens(entity_id);
+            CREATE TABLE IF NOT EXISTS custom_keys (
+              id TEXT PRIMARY KEY,
+              entity_id TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              label TEXT NOT NULL,
+              provider_hint TEXT NOT NULL DEFAULT '',
+              secret TEXT NOT NULL,
+              created_at REAL NOT NULL,
+              updated_at REAL NOT NULL,
+              last_used_at REAL NOT NULL DEFAULT 0,
+              UNIQUE(entity_id, kind, label)
+            );
+            CREATE INDEX IF NOT EXISTS idx_keys_entity ON custom_keys(entity_id);
             """)
             self._conn.commit()
 
@@ -231,6 +281,67 @@ class AuthStore:
             )
             self._conn.commit()
 
+    # -- generic secret store (BYOK keys, app passwords) ----------------------
+    # Secrets are Fernet-encrypted by the engine before reaching these
+    # methods. Listings are redacted (label/kind only, never values).
+    def upsert_custom_key(
+        self, entity_id: str, kind: str, label: str, secret_cipher: str, *, provider_hint: str = ""
+    ) -> str:
+        record_id = f"key-{uuid.uuid4().hex[:12]}"
+        now = time.time()
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO custom_keys(id, entity_id, kind, label, provider_hint, secret, created_at, updated_at)"
+                " VALUES(?,?,?,?,?,?,?,?)"
+                " ON CONFLICT(entity_id, kind, label) DO UPDATE SET"
+                " provider_hint=excluded.provider_hint, secret=excluded.secret, updated_at=excluded.updated_at",
+                (record_id, entity_id, kind, label, provider_hint, secret_cipher, now, now),
+            )
+            self._conn.commit()
+        return record_id
+
+    def list_custom_keys(self, entity_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, kind, label, provider_hint, created_at, updated_at, last_used_at"
+                " FROM custom_keys WHERE entity_id = ? ORDER BY updated_at DESC",
+                (entity_id,),
+            ).fetchall()
+        return [
+            {
+                "id": r[0],
+                "kind": r[1],
+                "label": r[2],
+                "provider_hint": r[3],
+                "created_at": r[4],
+                "updated_at": r[5],
+                "last_used_at": r[6],
+            }
+            for r in rows
+        ]
+
+    def get_custom_key(self, entity_id: str, key_id: str) -> dict[str, Any] | None:
+        """Fetch one key WITH its ciphertext (engine decrypts; updates last_used)."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id, kind, label, provider_hint, secret FROM custom_keys WHERE entity_id = ? AND id = ?",
+                (entity_id, key_id),
+            ).fetchone()
+            if row is None:
+                return None
+            self._conn.execute(
+                "UPDATE custom_keys SET last_used_at = ? WHERE entity_id = ? AND id = ?",
+                (time.time(), entity_id, key_id),
+            )
+            self._conn.commit()
+        return {"id": row[0], "kind": row[1], "label": row[2], "provider_hint": row[3], "secret": row[4]}
+
+    def delete_custom_key(self, entity_id: str, key_id: str) -> bool:
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM custom_keys WHERE entity_id = ? AND id = ?", (entity_id, key_id))
+            self._conn.commit()
+            return cursor.rowcount > 0
+
     def list_for(self, entity_id: str) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._conn.execute(
@@ -268,8 +379,13 @@ class CustomAuthEngine:
     """Standalone OAuth + vault + proxy. `transport` injects HTTP for tests."""
 
     def __init__(self, state_dir: str | Path, *, transport: Any = None) -> None:
+        from .action_approvals import ActionApprovalStore
+        from .audit_trail import AuditTrail
+
         self.state_dir = Path(state_dir)
         self.store = AuthStore(self.state_dir / "auth.sqlite3")
+        self.actions = ActionApprovalStore(self.state_dir)
+        self.audit = AuditTrail(self.state_dir)
         self._transport = transport
         fernet_cls = _fernet()
         key = base64.urlsafe_b64encode(_vault_key())
@@ -280,6 +396,62 @@ class CustomAuthEngine:
 
     def close(self) -> None:
         self.store.close()
+        with contextlib.suppress(Exception):
+            self.actions.close()
+
+    # -- write-gating ----------------------------------------------------------
+    def write_approval_required(self) -> bool:
+        """Opt-in gate: every non-GET proxy call needs a single-use approval.
+
+        Env GHOSTCHIMERA_REQUIRE_WRITE_APPROVAL=1 wins; otherwise the saved
+        console config auth.require_write_approval applies. Default off.
+        """
+        if os.environ.get("GHOSTCHIMERA_REQUIRE_WRITE_APPROVAL", "").strip() == "1":
+            return True
+        try:
+            from ..control_plane.config import load_config
+
+            section = load_config().get("auth", {})
+            return bool(isinstance(section, dict) and section.get("require_write_approval"))
+        except Exception:
+            return False
+
+    # -- action approvals (agent proposes, human disposes) ---------------------
+    def request_action_approval(
+        self,
+        entity_id: str,
+        provider: str,
+        method: str,
+        url: str,
+        data: Any,
+        *,
+        scope: str = "",
+        summary: str = "",
+        requested_by: str = "",
+    ) -> dict[str, Any]:
+        created = self.actions.request(
+            entity_id, provider, method, url, data, scope=scope, summary=summary, requested_by=requested_by
+        )
+        self.audit.record(
+            "approval.requested",
+            entity_id=entity_id,
+            provider=provider,
+            detail={"id": created["id"], "method": method, "url": url, "scope": scope, "summary": summary},
+        )
+        return {"ok": True, **created}
+
+    def decide_action_approval(self, approval_id: str, *, approved: bool, actor: str) -> dict[str, Any]:
+        from .action_approvals import ActionApprovalError
+
+        try:
+            result = self.actions.decide(approval_id, approved=approved, actor=actor)
+        except ActionApprovalError as exc:
+            raise AuthEngineError(str(exc)) from exc
+        self.audit.record(f"approval.{result['state'].lower()}", detail={"id": approval_id, "actor": actor})
+        return {"ok": True, **result}
+
+    def pending_action_approvals(self, entity_id: str) -> dict[str, Any]:
+        return {"ok": True, "approvals": self.actions.pending(entity_id)}
 
     def __repr__(self) -> str:  # never leak key material
         return f"CustomAuthEngine(state_dir={self.state_dir})"
@@ -337,6 +509,49 @@ class CustomAuthEngine:
             pass
         if SHIPPED_CLIENT_IDS.get(preset_id):
             return "shared"
+        return "none"
+
+    def _client_secret(self, preset_id: str) -> str:
+        """Resolve a provider client secret: environment first, saved config second.
+
+        Saved secrets live in the local config file (owner-only permissions
+        enforced on save) so confidential clients (Notion, HubSpot) can be
+        pasted in the console without touching the terminal. Never logged
+        or returned by status routes.
+        """
+        for name in (f"{preset_id.upper()}_CLIENT_SECRET", f"GHOSTCHIMERA_{preset_id.upper()}_CLIENT_SECRET"):
+            value = os.environ.get(name, "").strip()
+            if value:
+                return value
+        try:
+            from ..control_plane.config import load_config
+
+            saved = load_config().get("provider_oauth", {})
+            if isinstance(saved, dict):
+                entry = saved.get(preset_id, {})
+                if isinstance(entry, dict) and str(entry.get("client_secret", "")).strip():
+                    return str(entry["client_secret"]).strip()
+        except Exception:
+            pass
+        return ""
+
+    def client_secret_source(self, preset_id: str) -> str:
+        """Where the effective client secret comes from — never the value."""
+        for name in (f"{preset_id.upper()}_CLIENT_SECRET", f"GHOSTCHIMERA_{preset_id.upper()}_CLIENT_SECRET"):
+            if os.environ.get(name, "").strip():
+                return "environment"
+        try:
+            from ..control_plane.config import load_config
+
+            saved = load_config().get("provider_oauth", {})
+            if (
+                isinstance(saved, dict)
+                and isinstance(saved.get(preset_id), dict)
+                and str(saved[preset_id].get("client_secret", "")).strip()
+            ):
+                return "saved"
+        except Exception:
+            pass
         return "none"
 
     # -- Step 1: authorize URL ------------------------------------------------
@@ -419,18 +634,356 @@ class CustomAuthEngine:
         if pending.get("provider") != provider or str(pending.get("entity_id", "")) != entity_id:
             raise AuthEngineError("OAuth state mismatch (provider/entity)")
         verifier = str(pending["verifier"])
+        client_secret = self._client_secret(preset.id)
+        client_id = self._client_id(preset.id)
         exchange = {
             "grant_type": "authorization_code",
-            "client_id": self._client_id(preset.id),
-            "client_secret": os.environ.get(f"{preset.id.upper()}_CLIENT_SECRET", ""),
+            "client_id": client_id,
+            **({"client_secret": client_secret} if client_secret and not preset.use_basic_auth else {}),
             "code": code,
             "redirect_uri": str(pending.get("redirect_uri") or redirect_uri),
-            "code_verifier": verifier,
+            **({"code_verifier": verifier} if preset.use_pkce else {}),
         }
-        token = self._post_form(preset.token_url, exchange)
+        basic = f"{client_id}:{client_secret}" if preset.use_basic_auth else ""
+        token = self._post_form(preset.token_url, exchange, basic=basic)
         if "access_token" not in token:
             raise AuthEngineError(f"{provider} gave no access token: {token.get('error', 'unknown')}")
         return self._store_token(provider, entity_id, token)
+
+    # -- Device flow (RFC 8628): no redirect URI, LAN-friendly ---------------
+    # Pending logins live in connector_oauth/device-{handle}.json so the
+    # short-lived per-request engine instances can share them. The file
+    # holds the device_code (single-use credential) — never returned to UI.
+    def _device_path(self, handle: str) -> Path:
+        safe = "".join(c for c in handle if c.isalnum() or c in ("-", "_"))
+        return self.state_dir / "connector_oauth" / f"device-{safe}.json"
+
+    def start_device_login(self, provider: str, entity_id: str, *, scopes: list[str] | None = None) -> dict[str, Any]:
+        """Begin a device login. Returns handle + user-facing instructions.
+
+        The UI shows verification_uri + user_code, then calls
+        poll_device_login(handle) until it reports complete.
+        """
+        if provider not in PROVIDERS:
+            raise UnknownProvider(f"Unknown provider: {provider}")
+        if not entity_id:
+            raise AuthEngineError("entity_id is required")
+        from .oauth import request_device_code
+
+        preset = self._preset(provider)
+        if not preset.supports_device_flow:
+            raise AuthEngineError(f"{provider} has no device flow; use the browser login")
+        client_id = self._client_id(preset.id)
+        if not client_id:
+            raise AuthEngineError(f"No client ID configured for {provider}")
+
+        def _post(url: str, payload: dict[str, str]) -> dict[str, Any]:
+            # self._post_form raises on provider error bodies; the device
+            # start call must see the raw body to report failures itself.
+            if self._transport is not None:
+                status, raw_body = self._transport("POST", url, payload)
+                raw = (
+                    raw_body.decode("utf-8", "replace")
+                    if isinstance(raw_body, (bytes, bytearray))
+                    else str(raw_body or "{}")
+                )
+            else:
+                encoded = urllib.parse.urlencode(payload).encode()
+                req = urllib.request.Request(
+                    url,
+                    data=encoded,
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "Accept": "application/json",
+                    },
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=30.0) as resp:
+                        raw = resp.read().decode("utf-8", "replace")
+                except urllib.error.HTTPError as exc:
+                    raw = exc.read().decode("utf-8", "replace")
+            try:
+                decoded = json.loads(raw or "{}")
+            except json.JSONDecodeError:
+                decoded = dict(urllib.parse.parse_qsl(raw or ""))
+            return decoded if isinstance(decoded, dict) else {}
+
+        started = request_device_code(
+            preset,
+            client_id=client_id,
+            scopes=scopes if scopes is not None else list(preset.scopes),
+            post_fn=_post,
+        )
+        handle = secrets.token_urlsafe(16)
+        path = self._device_path(handle)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "provider": provider,
+                        "entity_id": entity_id,
+                        "device_code": started["device_code"],
+                        "ts": time.time(),
+                        "expires_in": started["expires_in"],
+                        "interval": started["interval"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            raise AuthEngineError(f"Cannot persist device login: {exc}") from exc
+        return {
+            "ok": True,
+            "handle": handle,
+            "provider": provider,
+            "entity_id": entity_id,
+            "user_code": started["user_code"],
+            "verification_uri": started["verification_uri"],
+            "verification_uri_complete": started["verification_uri_complete"],
+            "expires_in": started["expires_in"],
+            "interval": started["interval"],
+        }
+
+    def poll_device_login(self, handle: str) -> dict[str, Any]:
+        """Single poll for a pending device login (UI calls repeatedly).
+
+        Returns {"ok": True, "status": "pending", ...} while waiting,
+        {"ok": True, "status": "complete", ...} once stored, and raises
+        AuthEngineError on denial/expiry/provider errors.
+        """
+        path = self._device_path(handle)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise AuthEngineError(f"Device login missing/expired: {exc}") from exc
+        if not isinstance(data, dict) or not data.get("device_code"):
+            path.unlink(missing_ok=True)
+            raise AuthEngineError("Device login missing/expired; start over")
+        if time.time() - float(data.get("ts", 0)) > float(data.get("expires_in", 900)):
+            path.unlink(missing_ok=True)
+            raise AuthEngineError("Device login expired; start over")
+        provider = str(data["provider"])
+        entity_id = str(data["entity_id"])
+        preset = self._preset(provider)
+        try:
+            token = self._post_form(
+                preset.token_url,
+                {
+                    "grant_type": preset.device_grant,
+                    "client_id": self._client_id(preset.id),
+                    "device_code": str(data["device_code"]),
+                },
+            )
+        except AuthEngineError as exc:
+            message = str(exc).lower()
+            # The transport layer surfaces provider "error" fields as
+            # AuthEngineError("token endpoint error: <code>") — map the
+            # RFC 8628 non-terminal codes back to pending.
+            if "authorization_pending" in message:
+                return {"ok": True, "status": "pending", "interval": int(data.get("interval", 5))}
+            if "slow_down" in message:
+                return {"ok": True, "status": "pending", "interval": int(data.get("interval", 5)) + 5}
+            if "access_denied" in message or "expired_token" in message:
+                path.unlink(missing_ok=True)
+                raise AuthEngineError("Device login denied or expired; start over") from exc
+            raise
+        if "access_token" not in token:
+            raise AuthEngineError(f"{provider} gave no access token")
+        path.unlink(missing_ok=True)
+        stored = self._store_token(provider, entity_id, token)
+        return {"ok": True, "status": "complete", "connection": stored}
+
+    # -- Loopback login (RFC 8252): localhost browser, ephemeral port -------
+    def loopback_login(
+        self,
+        provider: str,
+        entity_id: str,
+        *,
+        scopes: list[str] | None = None,
+        timeout: float = 300.0,
+        open_browser: bool = True,
+    ) -> dict[str, Any]:
+        """Browser login via a 127.0.0.1 listener (CLI / same-machine use).
+
+        Returns the authorize URL for display, waits for the provider
+        redirect, then exchanges and stores the token. LAN browsers cannot
+        reach loopback — those installs must use the device flow.
+        """
+        from .loopback import LoopbackListener
+
+        if provider not in PROVIDERS:
+            raise UnknownProvider(f"Unknown provider: {provider}")
+        listener = LoopbackListener().start()
+        try:
+            created = self.authorize_url(provider, entity_id, listener.redirect_uri, scopes=scopes)
+            if open_browser:
+                import contextlib
+                import webbrowser
+
+                with contextlib.suppress(Exception):
+                    webbrowser.open(created["authorize_url"])
+            query = listener.wait(timeout=timeout)
+        finally:
+            listener.close()
+        return self.handle_callback(provider, str(query["code"]), str(query.get("state", "")), listener.redirect_uri)
+
+    # -- GitHub CLI import (explicit consent, own-machine reuse) ------------
+    def import_gh_cli(self, entity_id: str) -> dict[str, Any]:
+        """Import the user's own `gh` login into the vault (github entity).
+
+        Runs `gh auth token` (the supported call), validates the token with
+        a read-only /user probe, then stores it encrypted. The token
+        inherits `gh`'s scopes and lifetime; staleness surfaces as
+        NEEDS_REAUTH with one-click re-import. Nothing is transmitted
+        except the validation probe to api.github.com.
+        """
+        from .gh_cli import GhCliError, gh_status, gh_token
+
+        if not entity_id:
+            raise AuthEngineError("entity_id is required")
+        status = gh_status()
+        if not status["available"]:
+            raise AuthEngineError(f"GitHub CLI login unavailable: {status['reason'] or 'not logged in'}")
+        try:
+            token = gh_token()
+        except GhCliError as exc:
+            raise AuthEngineError(str(exc)) from exc
+        login = self._github_user_login(token)
+        scopes = list(status["scopes"]) or ["repo"]
+        stored = self._store_token(
+            "github",
+            entity_id,
+            {
+                "access_token": token,
+                "expires_in": GH_TOKEN_TTL_SECONDS,
+                "scope": " ".join(scopes),
+            },
+        )
+        self.audit.record(
+            "token.imported",
+            entity_id=entity_id,
+            provider="github",
+            detail={"source": "github-cli", "gh_user": status["user"] or login},
+        )
+        return {
+            "ok": True,
+            "provider": "github",
+            "source": "github-cli",
+            "gh_user": status["user"] or login,
+            **stored,
+        }
+
+    def _github_user_login(self, token: str) -> str:
+        """Read-only /user probe validating an imported token. Redacted errors."""
+        import urllib.request
+
+        req = urllib.request.Request(
+            "https://api.github.com/user", headers={"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15.0) as resp:
+                data = json.loads(resp.read().decode("utf-8", "replace"))
+        except Exception as exc:
+            raise AuthEngineError(f"github token validation failed: {type(exc).__name__}") from exc
+        login = str(data.get("login", "")) if isinstance(data, dict) else ""
+        if not login:
+            raise AuthEngineError("github token validation failed: no login returned")
+        return login
+
+    # -- OpenRouter login (PKCE-style, yields a normal API key) --------------
+    def _openrouter_path(self, nonce: str) -> Path:
+        safe = "".join(c for c in nonce if c.isalnum() or c in ("-", "_"))
+        return self.state_dir / "connector_oauth" / f"openrouter-{safe}.json"
+
+    def start_openrouter_login(self, entity_id: str, callback_base: str) -> dict[str, Any]:
+        """Begin Login with OpenRouter. Returns the authorize URL to open."""
+        from . import oauth as _oauth
+
+        if not entity_id:
+            raise AuthEngineError("entity_id is required")
+        callback_base = (callback_base or "").strip().rstrip("/")
+        if not (callback_base.startswith("http://") or callback_base.startswith("https://")):
+            raise AuthEngineError("a valid callback base URL is required")
+        nonce = secrets.token_urlsafe(16)
+        landing = callback_base + "/api/auth/openrouter/landing?setup=" + nonce
+        url, _ = _oauth.build_openrouter_login_url(callback_url=landing)
+        path = self._openrouter_path(nonce)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"entity_id": entity_id, "ts": time.time()}), encoding="utf-8")
+        except OSError as exc:
+            raise AuthEngineError(f"Cannot persist login state: {exc}") from exc
+        return {"ok": True, "authorize_url": url, "setup": nonce, "entity_id": entity_id}
+
+    def finish_openrouter_login(self, code: str, setup: str) -> dict[str, Any]:
+        """Exchange the returned code and store the key (single-use setup)."""
+        from . import oauth as _oauth
+
+        path = self._openrouter_path(setup)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            path.unlink(missing_ok=True)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise AuthEngineError(f"Login session missing/expired: {exc}") from exc
+        if time.time() - float(data.get("ts", 0)) > 900:
+            raise AuthEngineError("Login session expired; start over")
+        entity_id = str(data.get("entity_id") or "")
+        if not entity_id:
+            raise AuthEngineError("Login session invalid; start over")
+        try:
+            result = _oauth.exchange_openrouter_code(code)
+        except ValueError as exc:
+            raise AuthEngineError(str(exc)) from exc
+        saved = self.save_custom_key(entity_id, "byok", "OpenRouter", result["key"], provider_hint="openrouter")
+        return {"ok": True, "id": saved["id"], "label": saved["label"], "entity_id": entity_id}
+
+    # -- custom keys: engine wrappers (validate + encrypt) --------------------
+    CUSTOM_KEY_KINDS = ("byok", "app_password")
+
+    def save_custom_key(
+        self, entity_id: str, kind: str, label: str, secret: str, *, provider_hint: str = ""
+    ) -> dict[str, Any]:
+        """Store a pasted secret (BYOK key or mail app password). Write-only."""
+        kind = str(kind or "").strip()
+        label = str(label or "").strip()[:120]
+        secret = str(secret or "").strip()
+        if kind not in self.CUSTOM_KEY_KINDS:
+            raise AuthEngineError(f"unknown key kind: {kind}")
+        if not entity_id or not label:
+            raise AuthEngineError("entity_id and label are required")
+        if not (8 <= len(secret) <= 512):
+            raise AuthEngineError("that does not look like a key (length)")
+        if kind == "app_password":
+            normalized = secret.replace(" ", "")
+            if not (12 <= len(normalized) <= 64):
+                raise AuthEngineError(
+                    "app passwords are the 12–64 char codes from your provider, not account passwords"
+                )
+            secret = normalized
+        cipher = self._fernet.encrypt(secret.encode()).decode()
+        key_id = self.store.upsert_custom_key(entity_id, kind, label, cipher, provider_hint=str(provider_hint)[:80])
+        return {"ok": True, "id": key_id, "kind": kind, "label": label}
+
+    def reveal_custom_key(self, entity_id: str, key_id: str) -> dict[str, Any]:
+        """Decrypt one key for an internal consumer (mail fetch, model auth).
+
+        Never exposed through console routes — listings stay redacted.
+        """
+        record = self.store.get_custom_key(entity_id, key_id)
+        if record is None:
+            raise AuthEngineError("key not found")
+        try:
+            secret = self._fernet.decrypt(record["secret"].encode()).decode()
+        except Exception as exc:
+            raise AuthEngineError("key undecryptable") from exc
+        return {
+            "id": record["id"],
+            "kind": record["kind"],
+            "label": record["label"],
+            "provider_hint": record["provider_hint"],
+            "secret": secret,
+        }
 
     def _store_token(self, provider: str, entity_id: str, token: dict[str, Any]) -> dict[str, Any]:
         access = self._fernet.encrypt(str(token["access_token"]).encode()).decode()
@@ -440,6 +993,12 @@ class CustomAuthEngine:
         scopes = token.get("scope", "")
         scope_list = scopes.split() if isinstance(scopes, str) and scopes else list(token.get("scopes", []) or [])
         self.store.upsert(entity_id, provider, access, refresh, expires_at, scope_list)
+        self.audit.record(
+            "token.stored",
+            entity_id=entity_id,
+            provider=provider,
+            detail={"expires_at": expires_at, "scopes": scope_list},
+        )
         return {
             "ok": True,
             "entity_id": entity_id,
@@ -459,23 +1018,27 @@ class CustomAuthEngine:
                 self._locks[key] = lock
             return lock
 
-    def _post_form(self, url: str, payload: dict[str, str]) -> dict[str, Any]:
+    def _post_form(self, url: str, payload: dict[str, str], *, basic: str = "") -> dict[str, Any]:
         # OAuth errors (invalid_grant, invalid_client) arrive WITH the 4xx
         # status — always parse the body before deciding.
         if self._transport is not None:
-            status, raw_body = self._transport("POST", url, payload)
+            transport_payload = dict(payload)
+            if basic:
+                transport_payload["_basic"] = basic  # test-visible marker only
+            status, raw_body = self._transport("POST", url, transport_payload)
             raw = (
                 raw_body.decode("utf-8", "replace")
                 if isinstance(raw_body, (bytes, bytearray))
                 else str(raw_body or "{}")
             )
         else:
+            import base64 as _b64
+
             encoded = urllib.parse.urlencode(payload).encode()
-            req = urllib.request.Request(
-                url,
-                data=encoded,
-                headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
-            )
+            headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
+            if basic:
+                headers["Authorization"] = "Basic " + _b64.b64encode(basic.encode()).decode()
+            req = urllib.request.Request(url, data=encoded, headers=headers)
             try:
                 with urllib.request.urlopen(req, timeout=30.0) as resp:
                     status, raw = resp.status, resp.read().decode("utf-8", "replace")
@@ -512,14 +1075,17 @@ class CustomAuthEngine:
                 raise NeedsReauth(f"No refresh token for {entity_id}/{provider}: reconnect")
             preset = self._preset(provider)
             try:
+                refresh_secret = self._client_secret(preset.id)
+                refresh_client_id = self._client_id(preset.id)
                 fresh = self._post_form(
                     preset.token_url,
                     {
                         "grant_type": "refresh_token",
-                        "client_id": self._client_id(preset.id),
-                        "client_secret": os.environ.get(f"{preset.id.upper()}_CLIENT_SECRET", ""),
+                        "client_id": refresh_client_id,
+                        **({"client_secret": refresh_secret} if refresh_secret and not preset.use_basic_auth else {}),
                         "refresh_token": refresh,
                     },
+                    basic=f"{refresh_client_id}:{refresh_secret}" if preset.use_basic_auth else "",
                 )
             except AuthEngineError as exc:
                 message = str(exc).lower()
@@ -538,9 +1104,14 @@ class CustomAuthEngine:
             now = time.time()
             expires_at = now + float(fresh.get("expires_in") or 3600)
             self.store.upsert(entity_id, provider, new_access, new_refresh, expires_at, record["scopes"])
+            self.audit.record(
+                "token.refreshed", entity_id=entity_id, provider=provider, detail={"expires_at": expires_at}
+            )
             return str(fresh["access_token"])
 
     # -- proxy: act with a fresh token, no middleman ------------------------------
+    # LOGIN_ONLY providers authenticate but never call the provider API
+    # until the operator explicitly unlocks spending/use (X: pay-per-use).
     def proxy_request(
         self,
         provider: str,
@@ -550,8 +1121,39 @@ class CustomAuthEngine:
         *,
         data: dict[str, Any] | None = None,
         params: dict[str, str] | None = None,
+        approval_id: str = "",
     ) -> dict[str, Any]:
+        if provider in LOGIN_ONLY_PROVIDERS:
+            raise AuthEngineError(
+                f"{provider} is login-only: the token is stored but API calls are disabled "
+                "until usage is explicitly approved (X bills per call)"
+            )
+        write = method.upper() != "GET"
+        if write and self.write_approval_required():
+            consumed = (
+                self.actions.consume(entity_id, provider, method, url, data, approval_id) if approval_id else False
+            )
+            if not consumed:
+                self.audit.record(
+                    "proxy.write_denied",
+                    entity_id=entity_id,
+                    provider=provider,
+                    detail={"method": method, "url": url, "approval_id": approval_id or None},
+                )
+                raise NeedsApproval(f"{provider} write blocked: request a single-use action approval first")
+            self.audit.record(
+                "approval.consumed",
+                entity_id=entity_id,
+                provider=provider,
+                detail={"id": approval_id, "method": method, "url": url},
+            )
         token = self.get_valid_token(entity_id, provider)
+        self.audit.record(
+            "proxy.call",
+            entity_id=entity_id,
+            provider=provider,
+            detail={"method": method.upper(), "url": url, "write": write},
+        )
         full = url + ("?" + urllib.parse.urlencode(params) if params else "")
         body = json.dumps(data).encode() if data is not None and method.upper() != "GET" else None
         req = urllib.request.Request(
@@ -605,7 +1207,10 @@ class CustomAuthEngine:
         return {"entity_id": entity_id, "connections": out}
 
     def revoke(self, entity_id: str, provider: str) -> bool:
-        return self.store.revoke(entity_id, provider)
+        revoked = self.store.revoke(entity_id, provider)
+        if revoked:
+            self.audit.record("token.revoked", entity_id=entity_id, provider=provider)
+        return revoked
 
 
 @dataclass

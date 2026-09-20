@@ -467,6 +467,140 @@
     <div class="section-hdr" style="margin-top:0;">Account Connections</div>
     <div class="grid" id="connectionsSummary"></div>
 
+    <div class="section-hdr">Provider Logins</div>
+    <p class="hint" style="margin-bottom:10px;">Paste client IDs (and secrets where needed) below — no terminal required. Device login works over LAN with no redirect setup; browser login needs the shown callback URL registered with the provider. Tokens stay local and are never shown.</p>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="providerLoginsRefresh">Refresh Login Status</button>
+      <span class="hint" id="providerLoginsCallback" style="flex:2;min-width:260px;word-break:break-all;"></span>
+    </div>
+    <div id="ghCliBanner" class="hint" style="margin-bottom:12px;"></div>
+    <div id="providerLogins"></div>
+    <pre class="output compact-output" id="providerLoginsOutput">Login status loads here.</pre>
+
+    <div class="section-hdr">Stored Keys</div>
+    <p class="hint" style="margin-bottom:10px;">Pasted API keys and mail app passwords. Values are never displayed — only labels. Pick a key as the chat model credential without re-typing it.</p>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="storedKeysRefresh">Refresh Keys</button>
+      <button id="openrouterLogin" class="primary">Log In With OpenRouter</button>
+    </div>
+    <div id="storedKeys"></div>
+
+    <div class="section-hdr">Bluesky</div>
+    <p class="hint" style="margin-bottom:10px;">Save a Bluesky app password in Stored Keys (label it with your handle), then post or read your timeline. Sessions live only inside each request — nothing is kept.</p>
+    <div class="form-group">
+      <label>Vault key ID (from Stored Keys list — press Refresh Keys to see IDs)</label>
+      <input id="blueskyKeyId" type="text" autocomplete="off" placeholder="key-xxxxxxxxxxxx">
+    </div>
+    <div class="form-group">
+      <label>Post text (max 300 chars)</label>
+      <input id="blueskyPostText" type="text" autocomplete="off" placeholder="Hello Bluesky">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="blueskyPost" class="primary">Post To Bluesky</button>
+      <button id="blueskyTimeline">Read Timeline</button>
+    </div>
+    <pre class="output compact-output" id="blueskyOutput">Bluesky results appear here.</pre>
+
+    <div class="section-hdr">Mail Inbox (App Password)</div>
+    <p class="hint" style="margin-bottom:10px;">Read-only inbox fetch using a Stored Keys app password. Requires Personal MiniMind email-crawl consent. Headers + short snippets only; one-time codes and reset links are filtered.</p>
+    <div class="form-group">
+      <label>Vault key label (the app-password entry)</label>
+      <input id="mailKeyLabel" type="text" autocomplete="off" placeholder="e.g. Gmail">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <input id="mailMaxMessages" placeholder="max messages (default 10)" style="max-width:200px;">
+      <input id="mailQuery" placeholder="IMAP query (default UNSEEN)" style="flex:1;min-width:160px;">
+      <button id="mailFetch" class="primary">Fetch Inbox</button>
+    </div>
+    <pre class="output compact-output" id="mailOutput">Inbox messages appear here.</pre>
+
+    <div class="section-hdr">Trust &amp; Approvals</div>
+    <p class="hint" style="margin-bottom:10px;">Connector writes can require your one-time approval: each approval is bound to exactly one action (destination + payload hash) and burns on use. Reads never need approval. The audit trail is append-only and redacted.</p>
+    <div class="row" style="margin-bottom:12px;">
+      <label class="inline-check"><input id="writeGateToggle" type="checkbox"> Require approval for connector writes</label>
+      <button id="approvalsRefresh">Refresh Approvals</button>
+      <button id="auditRefresh">View Audit Trail</button>
+    </div>
+    <div id="approvalsPending"></div>
+    <pre class="output compact-output" id="auditOutput">Audit entries appear here.</pre>
+
+    <div class="section-hdr">Takeover Mode</div>
+    <p class="hint" style="margin-bottom:10px;">Hand the browser/desktop to yourself: Ghost pauses its loop, blocks its own actions, and captures nothing while you log in manually with your own hands. Passwords and sessions never pass through Ghost. Release when done.</p>
+    <div class="form-group">
+      <label>Purpose (shown in the audit trail)</label>
+      <input id="takeoverPurpose" type="text" autocomplete="off" placeholder="e.g. log into LinkedIn">
+    </div>
+    <div class="form-group">
+      <label>Login page URL (optional — open it yourself if blank)</label>
+      <input id="takeoverUrl" type="text" autocomplete="off" placeholder="https://…">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="takeoverStart" class="primary">Take Over</button>
+      <button id="takeoverRelease" class="danger">Release</button>
+      <button id="takeoverStatus">Takeover Status</button>
+    </div>
+    <pre class="output compact-output" id="takeoverOutput">No takeover active.</pre>
+
+    <div class="section-hdr">Automations</div>
+    <p class="hint" style="margin-bottom:10px;">Describe once, run on schedule or when matching mail arrives. Every firing is a run-history thread you can continue. Connector writes always park for your approval first.</p>
+    <div class="form-group">
+      <label>Name</label>
+      <input id="autoName" type="text" autocomplete="off" placeholder="e.g. Morning inbox brief">
+    </div>
+    <div class="form-group">
+      <label>Instruction (what the run is about)</label>
+      <input id="autoInstruction" type="text" autocomplete="off" placeholder="e.g. Summarize unread mail from my boss">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <select id="autoTriggerType" style="max-width:160px;">
+        <option value="cron">Schedule (cron)</option>
+        <option value="email">Inbound email</option>
+      </select>
+      <input id="autoCron" placeholder="cron, e.g. 0 8 * * *" style="flex:1;min-width:140px;">
+      <input id="autoEmailKey" placeholder="vault key label for mailbox" style="flex:1;min-width:140px;">
+      <input id="autoEmailSender" placeholder="sender filter (optional)" style="flex:1;min-width:140px;">
+      <input id="autoEmailSubject" placeholder="subject filter (optional)" style="flex:1;min-width:140px;">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <select id="autoActionType" style="max-width:200px;">
+        <option value="log">Log the trigger</option>
+        <option value="webhook">POST a webhook</option>
+        <option value="connector_write">Connector write (approval-gated)</option>
+      </select>
+      <input id="autoWebhookUrl" placeholder="webhook URL" style="flex:2;min-width:200px;">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="autoCreate" class="primary">Create Automation</button>
+      <button id="autoRefresh">Refresh</button>
+    </div>
+    <div id="automationsList"></div>
+    <div class="section-hdr">Run History</div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="autoRunsRefresh">Refresh Runs</button>
+    </div>
+    <div id="automationRuns"></div>
+
+    <div class="section-hdr">Import Browser Passwords</div>
+    <p class="hint" style="margin-bottom:10px;">Two paths, same result. CSV: export from Chrome/Brave Settings → Passwords → Export, paste below. Direct: read this machine's Chromium login store (explicit consent, Windows-only, nothing leaves this computer). Map each entry to the vault or skip it.</p>
+    <div class="form-group">
+      <label>CSV export text (paste)</label>
+      <textarea id="csvImportText" rows="4" style="width:100%;" placeholder="name,url,username,password&#10;..."></textarea>
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="csvImportPreview" class="primary">Preview CSV</button>
+      <select id="browserImportName" style="max-width:160px;">
+        <option value="chrome">Chrome</option>
+        <option value="brave">Brave</option>
+        <option value="edge">Edge</option>
+      </select>
+      <label class="inline-check"><input id="browserImportConsent" type="checkbox"> I consent to read this machine's saved logins</label>
+      <button id="browserImportPreview" class="primary">Preview Browser Store</button>
+    </div>
+    <div id="credentialImportPreview"></div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="credentialImportCommit" class="primary" disabled>Save Selected To Vault</button>
+    </div>
+
     <div class="section-hdr">GitHub OAuth</div>
     <p class="hint" style="margin-bottom:10px;">Connect GitHub for repo-aware planning, verified skill discovery, and self-evolution source review.</p>
     <div class="form-group">

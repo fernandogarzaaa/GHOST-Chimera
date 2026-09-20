@@ -1626,6 +1626,477 @@
     });
   }
 
+  // ── Unified Provider Logins (new OAuth engine) ───────────────────────
+  // Paste client IDs/secrets in the console; device login works over LAN
+  // with no redirect setup; browser login needs the shown callback URL
+  // registered with the provider. Secrets and tokens are never displayed.
+  var providerDevicePolls = {};
+
+  function providerLoginsOutput(text) {
+    if ($("#providerLoginsOutput")) $("#providerLoginsOutput").textContent = text;
+  }
+
+  async function renderProviderLogins() {
+    var host = $("#providerLogins");
+    if (!host) return;
+    Object.keys(providerDevicePolls).forEach(stopProviderDevicePoll);
+    host.innerHTML = "";
+    providerLoginsOutput("Loading login status…");
+    renderGhBanner();
+    try {
+      var opts = await api("/api/auth/login-options");
+      if (!opts || !opts.ok) throw new Error((opts && opts.error) || "login options unavailable");
+      var cb = $("#providerLoginsCallback");
+      if (cb) cb.textContent = "Browser-login callback URL — register this exact URL with providers: " + opts.callback_url;
+      var st = await api("/api/auth/status", { method: "POST", body: { entity_id: "console-user" } })
+        .catch(function() { return { connections: [] }; });
+      var connBy = {};
+      ((st && st.connections) || []).forEach(function(c) { connBy[c.provider] = c; });
+      (opts.options || []).forEach(function(p) {
+        host.appendChild(providerLoginCard(p, connBy[p.key], opts.callback_url));
+      });
+      providerLoginsOutput((opts.options || []).length + " providers loaded. Keys stay local; tokens are never shown.");
+    } catch (e) {
+      providerLoginsOutput("Error: " + e.message);
+    }
+  }
+
+  function providerLoginCard(p, conn, callbackUrl) {
+    var card = el("div", { class: "card", style: "margin-bottom:12px;" });
+    var head = el("div", { class: "row" });
+    var title = el("h3", { style: "flex:1;" });
+    title.textContent = p.display;
+    head.appendChild(title);
+    var connected = !!(conn && conn.status === "ACTIVE" && !conn.expired);
+    head.appendChild(el("span", { class: "badge " + (connected ? "ok" : "warn") },
+      connected ? "connected" : (conn && conn.status ? String(conn.status).toLowerCase() : "not connected")));
+    card.appendChild(head);
+
+    var meta = el("div", { class: "meta" });
+    var flows = [];
+    if (p.device_flow) flows.push("device login");
+    if (p.browser_flow) flows.push("browser login");
+    meta.textContent = "Flows: " + flows.join(" + ") +
+      "  ·  Setup: " + (p.setup_cost || "one-time-free") +
+      "  ·  Client ID: " + (p.client_id_configured ? p.client_id_source : "not set") +
+      "  ·  Secret: " + (p.client_secret_configured ? p.client_secret_source : "not set") +
+      (connected && conn.expires_in_s ? "  ·  expires in " + conn.expires_in_s + "s" : "");
+    card.appendChild(meta);
+
+    var idRow = el("div", { class: "row" });
+    var idInput = document.createElement("input");
+    idInput.type = "password"; idInput.autocomplete = "off"; idInput.style.flex = "2";
+    idInput.placeholder = p.client_id_configured ? "client ID saved (" + p.client_id_source + "); leave blank to keep" : "paste " + p.display + " client ID";
+    idInput.setAttribute("data-provider-login-id", p.key);
+    idRow.appendChild(idInput);
+    var secretInput = document.createElement("input");
+    secretInput.type = "password"; secretInput.autocomplete = "off"; secretInput.style.flex = "2";
+    secretInput.placeholder = p.client_secret_configured ? "secret saved (" + p.client_secret_source + "); leave blank to keep" : "client secret — only for confidential clients (Notion, HubSpot)";
+    secretInput.setAttribute("data-provider-login-secret", p.key);
+    idRow.appendChild(secretInput);
+    card.appendChild(idRow);
+
+    var btnRow = el("div", { class: "row" });
+    var save = el("button", { class: "primary" }); save.textContent = "Save keys";
+    save.addEventListener("click", function() { saveProviderKeys(p, idInput, secretInput, save); });
+    btnRow.appendChild(save);
+    var clear = el("button"); clear.textContent = "Clear saved keys";
+    clear.addEventListener("click", function() { clearProviderKeys(p, clear); });
+    btnRow.appendChild(clear);
+    if (p.device_flow) {
+      var dev = el("button", { class: "primary" }); dev.textContent = "Device login";
+      dev.addEventListener("click", function() { startProviderDeviceLogin(p, card); });
+      btnRow.appendChild(dev);
+    }
+    var browse = el("button"); browse.textContent = "Browser login";
+    browse.addEventListener("click", function() { startProviderBrowserLogin(p, callbackUrl); });
+    btnRow.appendChild(browse);
+    if (connected) {
+      var disc = el("button", { class: "danger" }); disc.textContent = "Disconnect";
+      disc.addEventListener("click", function() { disconnectProvider(p, disc); });
+      btnRow.appendChild(disc);
+    }
+    card.appendChild(btnRow);
+
+    var deviceArea = el("div", { class: "meta" });
+    deviceArea.setAttribute("data-provider-device-area", p.key);
+    deviceArea.style.wordBreak = "break-all";
+    card.appendChild(deviceArea);
+    return card;
+  }
+
+  async function saveProviderKeys(p, idInput, secretInput, btn) {
+    var clientId = (idInput.value || "").trim();
+    var clientSecret = (secretInput.value || "").trim();
+    if (!clientId && !clientSecret) { toast("Paste a client ID or secret first.", "warn"); return; }
+    btn.disabled = true;
+    try {
+      var res = await api("/api/auth/client-id",
+        { method: "POST", body: { provider: p.key, client_id: clientId, client_secret: clientSecret } });
+      if (!res.ok) throw new Error(res.error || "save failed");
+      idInput.value = ""; secretInput.value = "";
+      toast("Keys saved locally for " + p.display + ".", "ok");
+      renderProviderLogins();
+    } catch (e) {
+      toast(e.message, "error");
+      btn.disabled = false;
+    }
+  }
+
+  async function clearProviderKeys(p, btn) {
+    btn.disabled = true;
+    try {
+      var res = await api("/api/auth/client-id", { method: "POST", body: { provider: p.key, clear: true } });
+      if (!res.ok) throw new Error(res.error || "clear failed");
+      toast("Saved keys cleared for " + p.display + ".", "ok");
+      renderProviderLogins();
+    } catch (e) {
+      toast(e.message, "error");
+      btn.disabled = false;
+    }
+  }
+
+  function stopProviderDevicePoll(key) {
+    var cur = providerDevicePolls[key];
+    if (cur && cur.timer) clearInterval(cur.timer);
+    delete providerDevicePolls[key];
+  }
+
+  async function startProviderDeviceLogin(p, card) {
+    stopProviderDevicePoll(p.key);
+    var area = card.querySelector('[data-provider-device-area="' + p.key + '"]');
+    try {
+      var data = await api("/api/auth/device/start",
+        { method: "POST", body: { provider: p.key, entity_id: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "device login unavailable");
+      var deadline = Date.now() + (data.expires_in * 1000);
+      var intervalMs = Math.max(2000, (data.interval || 5) * 1000);
+      if (area) {
+        area.innerHTML = "";
+        var code = el("div", { style: "font-size:20px;font-weight:bold;letter-spacing:2px;" });
+        code.textContent = data.user_code;
+        area.appendChild(code);
+        var link = el("div", null);
+        var a = document.createElement("a");
+        a.href = data.verification_uri_complete || data.verification_uri;
+        a.target = "_blank"; a.rel = "noopener";
+        a.textContent = data.verification_uri;
+        link.appendChild(a);
+        area.appendChild(link);
+        var hint = el("div", null, "Enter the code there, approve, and this panel completes automatically.");
+        area.appendChild(hint);
+        var cancel = el("button"); cancel.textContent = "Cancel";
+        cancel.addEventListener("click", function() {
+          stopProviderDevicePoll(p.key);
+          area.textContent = "Device login cancelled.";
+        });
+        area.appendChild(cancel);
+      }
+      if (data.verification_uri) window.open(data.verification_uri, "_blank", "noopener");
+      providerLoginsOutput("Waiting for " + p.display + " approval…");
+      providerDevicePolls[p.key] = {
+        timer: setInterval(function() { pollProviderDeviceLogin(p, data.handle, deadline); }, intervalMs),
+      };
+    } catch (e) {
+      providerLoginsOutput("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  async function pollProviderDeviceLogin(p, handle, deadline) {
+    if (Date.now() > deadline) {
+      stopProviderDevicePoll(p.key);
+      providerLoginsOutput(p.display + " device login expired — start over.");
+      return;
+    }
+    try {
+      var data = await api("/api/auth/device/poll", { method: "POST", body: { handle: handle } });
+      if (!data.ok) {
+        stopProviderDevicePoll(p.key);
+        providerLoginsOutput(p.display + " login ended: " + (data.error || "unknown"));
+        toast(data.error || "Device login ended.", "warn");
+        return;
+      }
+      if (data.status === "complete") {
+        stopProviderDevicePoll(p.key);
+        providerLoginsOutput(p.display + " connected.");
+        toast(p.display + " connected.", "ok");
+        renderProviderLogins();
+      }
+    } catch (e) {
+      stopProviderDevicePoll(p.key);
+      providerLoginsOutput("Error: " + e.message);
+    }
+  }
+
+  async function startProviderBrowserLogin(p, callbackUrl) {
+    try {
+      var redirect = window.location.origin + "/api/auth/callback";
+      var data = await api("/api/auth/authorize",
+        { method: "POST", body: { provider: p.key, entity_id: "console-user", redirect_uri: redirect } });
+      if (!data.ok) throw new Error(data.error || "login unavailable");
+      window.open(data.authorize_url, "_blank", "noopener");
+      providerLoginsOutput("Browser opened for " + p.display + ". Approve access — " +
+        "if the provider rejects the redirect, register exactly: " + callbackUrl);
+      toast("Complete the " + p.display + " login.", "ok");
+    } catch (e) {
+      providerLoginsOutput("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  async function disconnectProvider(p, btn) {
+    btn.disabled = true;
+    try {
+      var data = await api("/api/auth/revoke",
+        { method: "POST", body: { provider: p.key, entity_id: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "revoke failed");
+      toast(p.display + " disconnected.", "ok");
+      renderProviderLogins();
+    } catch (e) {
+      toast(e.message, "error");
+      btn.disabled = false;
+    }
+  }
+
+  // ── gh CLI auto-detect + import ──────────────────────────────────────
+  async function renderGhBanner() {
+    var banner = $("#ghCliBanner");
+    if (!banner) return;
+    banner.innerHTML = "";
+    try {
+      var st = await api("/api/auth/gh/status", { method: "POST", body: {} });
+      if (!st.available) return;
+      banner.textContent = "GitHub CLI login detected (" + (st.user || "unknown user") +
+        (st.scopes && st.scopes.length ? ", scopes: " + st.scopes.join(", ") : "") + "). ";
+      var btn = el("button", { class: "primary" });
+      btn.textContent = "Import gh login";
+      btn.addEventListener("click", importGhLogin);
+      banner.appendChild(btn);
+    } catch (_) {}
+  }
+
+  async function importGhLogin() {
+    try {
+      providerLoginsOutput("Importing GitHub CLI login…");
+      var data = await api("/api/auth/gh/import", { method: "POST", body: { entity_id: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "import failed");
+      toast("GitHub connected via CLI (" + (data.gh_user || "gh") + ").", "ok");
+      providerLoginsOutput("GitHub connected via CLI. Token inherits gh scopes; re-import if it goes stale.");
+      renderProviderLogins();
+    } catch (e) {
+      providerLoginsOutput("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  // ── Stored keys (redacted) ───────────────────────────────────────────
+  async function renderStoredKeys() {
+    var host = $("#storedKeys");
+    if (!host) return;
+    host.innerHTML = "";
+    try {
+      var data = await api("/api/auth/keys/list", { method: "POST", body: { entity_id: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      if (!data.keys.length) {
+        host.appendChild(el("div", { class: "empty" }, "No stored keys yet."));
+        return;
+      }
+      var modelInfo = await api("/api/auth/keys/model-ref", { method: "POST", body: {} })
+        .catch(function() { return null; });
+      var modelKeyId = (modelInfo && modelInfo.vault_key_id) || "";
+      data.keys.forEach(function(k) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "badge ok" }, k.kind));
+        var main = el("div", { style: "flex:1;min-width:180px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = k.label + (k.id === modelKeyId ? "  ·  chat model key" : "");
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        meta.textContent = k.id + "  ·  " + (k.provider_hint || "no hint") +
+          (k.last_used_at ? "  ·  last used " + new Date(k.last_used_at * 1000).toLocaleString() : "  ·  never used");
+        main.appendChild(meta);
+        if (k.kind === "byok") {
+          var useRow = el("div", { class: "row" });
+          var provInput = document.createElement("input");
+          provInput.placeholder = "model provider (e.g. openrouter)";
+          provInput.value = k.provider_hint || "";
+          provInput.style.maxWidth = "220px";
+          useRow.appendChild(provInput);
+          var useBtn = el("button", { class: "primary" });
+          useBtn.textContent = "Use as model";
+          useBtn.addEventListener("click", function() {
+            useKeyAsModel(k, provInput.value, useBtn);
+          });
+          useRow.appendChild(useBtn);
+          main.appendChild(useRow);
+        }
+        item.appendChild(main);
+        var del = el("button", { class: "danger" });
+        del.textContent = "Delete";
+        del.addEventListener("click", async function() {
+          del.disabled = true;
+          try {
+            await api("/api/auth/keys/delete", { method: "POST", body: { entity_id: "console-user", id: k.id } });
+            toast("Key deleted.", "ok");
+            renderStoredKeys();
+          } catch (e) { toast(e.message, "error"); del.disabled = false; }
+        });
+        item.appendChild(del);
+        host.appendChild(item);
+      });
+    } catch (e) {
+      host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
+    }
+  }
+
+  async function useKeyAsModel(k, provider, btn) {
+    provider = (provider || "").trim().toLowerCase();
+    if (!provider) { toast("Enter the model provider this key belongs to.", "warn"); return; }
+    btn.disabled = true;
+    try {
+      var data = await api("/api/auth/keys/use-as-model",
+        { method: "POST", body: { entity_id: "console-user", key_id: k.id, provider: provider } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      toast("Chat model now uses '" + k.label + "' for " + provider + ".", "ok");
+      renderStoredKeys();
+    } catch (e) {
+      toast(e.message, "error");
+      btn.disabled = false;
+    }
+  }
+
+  async function startOpenRouterLogin(btn) {
+    btn.disabled = true;
+    try {
+      var data = await api("/api/auth/openrouter/start",
+        { method: "POST", body: { entity_id: "console-user", callback_base: window.location.origin } });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      window.open(data.authorize_url, "_blank", "noopener");
+      providerLoginsOutput("OpenRouter opened — approve, and the key lands in Stored Keys automatically.");
+      toast("Complete the OpenRouter login.", "ok");
+    } catch (e) {
+      toast(e.message, "error");
+    }
+    btn.disabled = false;
+  }
+
+  // ── Credential import (CSV + browser store) ──────────────────────────
+  var importSource = null; // {type: 'csv'|'browser', csv_text?, browser?}
+
+  function importRowCard(row) {
+    var card = el("div", { class: "list-item" });
+    var main = el("div", { style: "flex:1;min-width:200px;" });
+    var title = el("div", { class: "name" });
+    title.textContent = row.url || row.username || ("row " + row.index);
+    main.appendChild(title);
+    var meta = el("div", { class: "meta" });
+    meta.textContent = (row.username ? row.username + "  ·  " : "") + (row.note || "");
+    main.appendChild(meta);
+    var label = document.createElement("input");
+    label.value = row.url || row.username || ("imported-" + row.index);
+    label.style.flex = "1";
+    label.setAttribute("data-import-label", String(row.index));
+    main.appendChild(label);
+    card.appendChild(main);
+    var kind = document.createElement("select");
+    [["byok", "Save as API key"], ["app_password", "Save as app password"], ["skip", "Skip"]].forEach(function(o) {
+      var opt = document.createElement("option");
+      opt.value = o[0]; opt.textContent = o[1];
+      if (o[0] === row.suggested_kind) opt.selected = true;
+      kind.appendChild(opt);
+    });
+    kind.setAttribute("data-import-kind", String(row.index));
+    card.appendChild(kind);
+    return card;
+  }
+
+  function renderImportPreview(rows, source) {
+    var host = $("#credentialImportPreview");
+    if (!host) return;
+    host.innerHTML = "";
+    importSource = source;
+    var commit = $("#credentialImportCommit");
+    if (!rows.length) {
+      host.appendChild(el("div", { class: "empty" }, "No entries found."));
+      if (commit) commit.disabled = true;
+      return;
+    }
+    rows.forEach(function(r) { host.appendChild(importRowCard(r)); });
+    if (commit) commit.disabled = false;
+    providerLoginsOutput(rows.length + " entries ready — choose a mapping per row, then Save Selected To Vault.");
+  }
+
+  async function previewCsvImport() {
+    var text = ($("#csvImportText") && $("#csvImportText").value) || "";
+    if (!text.trim()) { toast("Paste the CSV export text first.", "warn"); return; }
+    try {
+      var data = await api("/api/auth/import-csv/preview", { method: "POST", body: { csv_text: text } });
+      if (!data.ok) throw new Error(data.error || "preview failed");
+      renderImportPreview(data.rows, { type: "csv", csv_text: text });
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  async function previewBrowserImport() {
+    if (!($("#browserImportConsent") && $("#browserImportConsent").checked)) {
+      toast("Tick the consent checkbox first — direct store reading is explicit opt-in.", "warn");
+      return;
+    }
+    var browser = ($("#browserImportName") && $("#browserImportName").value) || "chrome";
+    try {
+      providerLoginsOutput("Reading " + browser + " login store on this machine…");
+      var data = await api("/api/auth/browser/preview",
+        { method: "POST", body: { browser: browser, consent: true } });
+      if (!data.ok) throw new Error(data.error || "preview failed");
+      renderImportPreview(data.entries, { type: "browser", browser: browser });
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  async function commitCredentialImport() {
+    var host = $("#credentialImportPreview");
+    if (!host || !importSource) return;
+    if (importSource.type === "browser" && !($("#browserImportConsent") && $("#browserImportConsent").checked)) {
+      toast("Consent is required for browser store import.", "warn");
+      return;
+    }
+    var selections = [];
+    Array.prototype.forEach.call(host.querySelectorAll("[data-import-kind]"), function(sel) {
+      var idx = sel.getAttribute("data-import-kind");
+      var labelEl = host.querySelector('[data-import-label="' + idx + '"]');
+      selections.push({
+        index: parseInt(idx, 10),
+        kind: sel.value,
+        label: (labelEl && labelEl.value) || ("imported-" + idx),
+      });
+    });
+    selections = selections.filter(function(s) { return s.kind !== "skip" && !isNaN(s.index); });
+    if (!selections.length) { toast("Nothing selected — pick a mapping per row first.", "warn"); return; }
+    try {
+      var body = { entity_id: "console-user", selections: selections };
+      var path, data;
+      if (importSource.type === "csv") {
+        body.csv_text = importSource.csv_text;
+        path = "/api/auth/import-csv/commit";
+      } else {
+        body.browser = importSource.browser;
+        body.consent = true;
+        path = "/api/auth/browser/import";
+      }
+      data = await api(path, { method: "POST", body: body });
+      if (!data.ok) throw new Error(data.error || "import failed");
+      var okCount = data.saved.filter(function(s) { return s.saved; }).length;
+      providerLoginsOutput("Saved " + okCount + "/" + data.saved.length + " entries to the vault.");
+      var failed = data.saved.filter(function(s) { return !s.saved; });
+      if (failed.length) toast(failed.length + " rows failed: " + failed[0].error, "warn");
+      else toast("Import complete.", "ok");
+      var commit = $("#credentialImportCommit");
+      if (commit) commit.disabled = true;
+      if ($("#csvImportText")) $("#csvImportText").value = "";
+      renderStoredKeys();
+      renderProviderLogins();
+    } catch (e) { toast(e.message, "error"); }
+  }
+
   function renderConfigModelOptions() {
     var option = selectedProviderOption();
     var models = $("#configModelOptions");
@@ -2247,6 +2718,433 @@
   $("#connectionsGithubStart").addEventListener("click", startGithubDeviceSignIn);
   $("#connectionsGithubPoll").addEventListener("click", pollGithubDeviceSignIn);
   $("#connectionsGithubLogout").addEventListener("click", logoutGithub);
+  if ($("#providerLoginsRefresh")) {
+    $("#providerLoginsRefresh").addEventListener("click", renderProviderLogins);
+  }
+  if ($("#storedKeysRefresh")) {
+    $("#storedKeysRefresh").addEventListener("click", renderStoredKeys);
+  }
+  if ($("#csvImportPreview")) {
+    $("#csvImportPreview").addEventListener("click", previewCsvImport);
+  }
+  if ($("#browserImportPreview")) {
+    $("#browserImportPreview").addEventListener("click", previewBrowserImport);
+  }
+  if ($("#credentialImportCommit")) {
+    $("#credentialImportCommit").addEventListener("click", commitCredentialImport);
+  }
+  if ($("#openrouterLogin")) {
+    $("#openrouterLogin").addEventListener("click", function() { startOpenRouterLogin(this); });
+  }
+  if ($("#writeGateToggle")) {
+    $("#writeGateToggle").addEventListener("change", function() { setWriteGate(this.checked); });
+  }
+  if ($("#approvalsRefresh")) {
+    $("#approvalsRefresh").addEventListener("click", renderPendingApprovals);
+  }
+  if ($("#auditRefresh")) {
+    $("#auditRefresh").addEventListener("click", renderAuditTrail);
+  }
+  if ($("#takeoverStart")) {
+    $("#takeoverStart").addEventListener("click", takeoverStart);
+  }
+  if ($("#takeoverRelease")) {
+    $("#takeoverRelease").addEventListener("click", takeoverRelease);
+  }
+  if ($("#takeoverStatus")) {
+    $("#takeoverStatus").addEventListener("click", takeoverRefresh);
+  }
+  if ($("#autoCreate")) {
+    $("#autoCreate").addEventListener("click", createAutomation);
+  }
+  if ($("#autoRefresh")) {
+    $("#autoRefresh").addEventListener("click", renderAutomations);
+  }
+  if ($("#autoRunsRefresh")) {
+    $("#autoRunsRefresh").addEventListener("click", renderAutomationRuns);
+  }
+  try { renderAutomations(); } catch (_) {}
+  try { renderAutomationRuns(); } catch (_) {}
+  try { renderWriteGate(); } catch (_) {}
+  try { renderPendingApprovals(); } catch (_) {}
+  if ($("#blueskyPost")) {
+    $("#blueskyPost").addEventListener("click", blueskyPost);
+  }
+  if ($("#blueskyTimeline")) {
+    $("#blueskyTimeline").addEventListener("click", blueskyTimeline);
+  }
+  if ($("#mailFetch")) {
+    $("#mailFetch").addEventListener("click", fetchMailInbox);
+  }
+  try { renderProviderLogins(); } catch (_) {}
+  try { renderStoredKeys(); } catch (_) {}
+
+  // ── Trust & approvals ────────────────────────────────────────────────
+  async function renderWriteGate() {
+    var box = $("#writeGateToggle");
+    if (!box) return;
+    try {
+      var data = await api("/api/auth/write-gate", { method: "POST", body: {} });
+      box.checked = !!(data.ok && data.enabled);
+    } catch (_) {}
+  }
+
+  async function setWriteGate(enabled) {
+    try {
+      var data = await api("/api/auth/write-gate", { method: "POST", body: { enabled: enabled } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      toast("Write-approval gate " + (enabled ? "ON: connector writes need your approval." : "OFF."), enabled ? "warn" : "ok");
+    } catch (e) {
+      toast(e.message, "error");
+      renderWriteGate();
+    }
+  }
+
+  async function renderPendingApprovals() {
+    var host = $("#approvalsPending");
+    if (!host) return;
+    host.innerHTML = "";
+    try {
+      var data = await api("/api/auth/approvals/pending",
+        { method: "POST", body: { entity_id: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      if (!data.approvals.length) {
+        host.appendChild(el("div", { class: "empty" }, "No pending approvals."));
+        return;
+      }
+      data.approvals.forEach(function(a) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "badge warn" }, a.method));
+        var main = el("div", { style: "flex:1;min-width:200px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = a.provider + "  ·  " + (a.summary || a.url);
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        var secs = Math.max(0, Math.round(a.expires_at - Date.now() / 1000));
+        meta.textContent = a.url + (a.scope ? "  ·  scope: " + a.scope : "") +
+          "  ·  expires in " + secs + "s  ·  by " + (a.requested_by || "unknown");
+        main.appendChild(meta);
+        item.appendChild(main);
+        var ok = el("button", { class: "primary" });
+        ok.textContent = "Approve once";
+        ok.addEventListener("click", function() { decideApproval(a.id, true); });
+        item.appendChild(ok);
+        var no = el("button", { class: "danger" });
+        no.textContent = "Deny";
+        no.addEventListener("click", function() { decideApproval(a.id, false); });
+        item.appendChild(no);
+        host.appendChild(item);
+      });
+    } catch (e) {
+      host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
+    }
+  }
+
+  async function decideApproval(id, approved) {
+    try {
+      var data = await api("/api/auth/approvals/decide",
+        { method: "POST", body: { id: id, approved: approved, actor: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      toast("Approval " + data.state + ".", approved ? "ok" : "warn");
+      renderPendingApprovals();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  async function renderAuditTrail() {
+    var out = $("#auditOutput");
+    if (!out) return;
+    try {
+      var data = await api("/api/auth/audit/recent", { method: "POST", body: { limit: 30 } });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      out.textContent = data.entries.map(function(e) {
+        return new Date(e.ts * 1000).toLocaleString() + "  " + e.event +
+          (e.provider ? "  [" + e.provider + "]" : "") + "  " + JSON.stringify(e.detail || {});
+      }).join("\n") || "Audit trail is empty.";
+    } catch (e) {
+      out.textContent = "Error: " + e.message;
+    }
+  }
+
+  // ── Takeover mode ────────────────────────────────────────────────────
+  function takeoverOut(text) {
+    if ($("#takeoverOutput")) $("#takeoverOutput").textContent = text;
+  }
+
+  function takeoverStatusText(data) {
+    if (!data.active) return "No takeover active." + (data.expired ? " (Previous one expired and released.)" : "");
+    var secs = Math.max(0, Math.round(data.expires_at - Date.now() / 1000));
+    return "TAKEOVER ACTIVE — Ghost actions blocked, nothing captured.\n" +
+      "Purpose: " + (data.purpose || "manual login") + "\n" +
+      (data.url ? "Page: " + data.url + "\n" : "") +
+      "Auto-release in " + secs + "s. Click Release when done.";
+  }
+
+  async function takeoverStart() {
+    try {
+      var data = await api("/api/auth/takeover/start", { method: "POST", body: {
+        purpose: (($("#takeoverPurpose") && $("#takeoverPurpose").value) || "").trim(),
+        url: (($("#takeoverUrl") && $("#takeoverUrl").value) || "").trim(),
+      } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      takeoverOut(takeoverStatusText({ active: true, purpose: data.purpose, url: data.url, expires_at: data.expires_at }));
+      toast("Takeover active — log in yourself, then Release.", "warn");
+    } catch (e) {
+      takeoverOut("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  async function takeoverRelease() {
+    try {
+      var data = await api("/api/auth/takeover/release", { method: "POST", body: {} });
+      if (!data.ok) throw new Error(data.error || "failed");
+      takeoverOut(data.released ? "Released — Ghost resumed." : "Nothing to release.");
+      toast("Takeover released.", "ok");
+    } catch (e) {
+      takeoverOut("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  async function takeoverRefresh() {
+    try {
+      var data = await api("/api/auth/takeover/status", { method: "POST", body: {} });
+      if (!data.ok) throw new Error(data.error || "failed");
+      takeoverOut(takeoverStatusText(data));
+    } catch (e) {
+      takeoverOut("Error: " + e.message);
+    }
+  }
+
+  // ── Automations ──────────────────────────────────────────────────────
+  async function renderAutomations() {
+    var host = $("#automationsList");
+    if (!host) return;
+    host.innerHTML = "";
+    try {
+      var data = await api("/api/auth/automations", { method: "POST", body: {} });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      if (!data.automations.length) {
+        host.appendChild(el("div", { class: "empty" }, "No automations yet — describe one above."));
+        return;
+      }
+      data.automations.forEach(function(a) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "badge " + (a.enabled ? "ok" : "warn") },
+          a.enabled ? "on" : "paused"));
+        var main = el("div", { style: "flex:1;min-width:200px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = a.name;
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        var trig = a.trigger.type === "cron" ? "cron " + a.trigger.cron : "email match";
+        meta.textContent = trig + "  ·  " + a.action.type + "  ·  runs: " + (a.run_count || 0);
+        main.appendChild(meta);
+        var inst = el("div", { class: "meta" });
+        inst.textContent = a.instruction;
+        main.appendChild(inst);
+        item.appendChild(main);
+        var run = el("button", { class: "primary" });
+        run.textContent = "Run now";
+        run.addEventListener("click", function() { fireAutomation(a.id, "", ""); });
+        item.appendChild(run);
+        var toggle = el("button");
+        toggle.textContent = a.enabled ? "Pause" : "Resume";
+        toggle.addEventListener("click", async function() {
+          try {
+            await api("/api/auth/automations/set",
+              { method: "POST", body: { id: a.id, enabled: !a.enabled } });
+            renderAutomations();
+          } catch (e) { toast(e.message, "error"); }
+        });
+        item.appendChild(toggle);
+        var del = el("button", { class: "danger" });
+        del.textContent = "Delete";
+        del.addEventListener("click", async function() {
+          try {
+            await api("/api/auth/automations/set", { method: "POST", body: { id: a.id, delete: true } });
+            toast("Automation deleted.", "ok");
+            renderAutomations();
+          } catch (e) { toast(e.message, "error"); }
+        });
+        item.appendChild(del);
+        host.appendChild(item);
+      });
+    } catch (e) {
+      host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
+    }
+  }
+
+  async function createAutomation() {
+    var name = (($("#autoName") && $("#autoName").value) || "").trim();
+    var instruction = (($("#autoInstruction") && $("#autoInstruction").value) || "").trim();
+    if (!name || !instruction) { toast("Name and instruction are required.", "warn"); return; }
+    var triggerType = ($("#autoTriggerType") && $("#autoTriggerType").value) || "cron";
+    var trigger = triggerType === "cron"
+      ? { type: "cron", cron: (($("#autoCron") && $("#autoCron").value) || "").trim() }
+      : { type: "email",
+          label: (($("#autoEmailKey") && $("#autoEmailKey").value) || "").trim(),
+          sender: (($("#autoEmailSender") && $("#autoEmailSender").value) || "").trim(),
+          subject: (($("#autoEmailSubject") && $("#autoEmailSubject").value) || "").trim() };
+    var actionType = ($("#autoActionType") && $("#autoActionType").value) || "log";
+    var action = actionType === "webhook"
+      ? { type: "webhook", url: (($("#autoWebhookUrl") && $("#autoWebhookUrl").value) || "").trim() }
+      : { type: actionType };
+    try {
+      var data = await api("/api/auth/automations/create",
+        { method: "POST", body: { name: name, instruction: instruction, trigger: trigger, action: action } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      toast("Automation created.", "ok");
+      if ($("#autoName")) $("#autoName").value = "";
+      if ($("#autoInstruction")) $("#autoInstruction").value = "";
+      renderAutomations();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  async function fireAutomation(id, parentRunId, note) {
+    try {
+      var data = await api("/api/auth/automations/fire",
+        { method: "POST", body: { id: id, parent_run_id: parentRunId, note: note } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      toast("Run " + data.run.status + ".", data.run.status === "failed" ? "error" : "ok");
+      renderAutomations();
+      renderAutomationRuns();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  async function renderAutomationRuns() {
+    var host = $("#automationRuns");
+    if (!host) return;
+    host.innerHTML = "";
+    try {
+      var data = await api("/api/auth/automations/runs", { method: "POST", body: { limit: 20 } });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      if (!data.runs.length) {
+        host.appendChild(el("div", { class: "empty" }, "No runs yet."));
+        return;
+      }
+      data.runs.forEach(function(r) {
+        var item = el("div", { class: "list-item" });
+        var cls = r.status === "complete" ? "ok" : (r.status === "failed" ? "danger" : "warn");
+        item.appendChild(el("span", { class: "badge " + cls }, r.status));
+        var main = el("div", { style: "flex:1;min-width:200px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = r.automation_name + "  ·  " + new Date(r.started_at * 1000).toLocaleString();
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        meta.textContent = (r.summary || "") + (r.parent_run_id ? "  ·  continues " + r.parent_run_id : "");
+        main.appendChild(meta);
+        item.appendChild(main);
+        var cont = el("button");
+        cont.textContent = "Continue";
+        cont.addEventListener("click", function() {
+          var note = window.prompt("Continuation note:", "") || "";
+          fireAutomation(r.automation_id, r.run_id, note);
+        });
+        item.appendChild(cont);
+        if (r.status === "awaiting-approval" && r.result && r.result.approval_id) {
+          var exec = el("button", { class: "primary" });
+          exec.textContent = "Execute approved";
+          exec.addEventListener("click", async function() {
+            try {
+              var done = await api("/api/auth/automations/execute",
+                { method: "POST", body: { run_id: r.run_id, approval_id: r.result.approval_id } });
+              if (!done.ok) throw new Error(done.error || "failed");
+              toast("Approved run executed.", "ok");
+              renderAutomationRuns();
+            } catch (e) { toast(e.message, "error"); }
+          });
+          item.appendChild(exec);
+        }
+        host.appendChild(item);
+      });
+    } catch (e) {
+      host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
+    }
+  }
+
+  // ── Mail inbox (app password) ────────────────────────────────────────
+  function mailOut(text) {
+    if ($("#mailOutput")) $("#mailOutput").textContent = text;
+  }
+
+  async function fetchMailInbox() {
+    var label = (($("#mailKeyLabel") && $("#mailKeyLabel").value) || "").trim();
+    if (!label) { toast("Enter the vault key label first (see Stored Keys).", "warn"); return; }
+    var maxN = parseInt((($("#mailMaxMessages") && $("#mailMaxMessages").value) || "10"), 10) || 10;
+    var query = (($("#mailQuery") && $("#mailQuery").value) || "").trim() || "UNSEEN";
+    try {
+      mailOut("Fetching inbox…");
+      var data = await api("/api/auth/mail/fetch",
+        { method: "POST", body: { entity_id: "console-user", label: label, max_messages: maxN, query: query } });
+      if (!data.ok) {
+        if (data.type === "consent_required") {
+          mailOut("Consent required: enable Personal MiniMind admin controls + email crawl consent first.");
+          toast("Email consent required.", "warn");
+        } else {
+          throw new Error(data.error || "fetch failed");
+        }
+        return;
+      }
+      mailOut("Account: " + data.account + "  ·  " + data.messages.length + " messages\n\n" +
+        data.messages.map(function(m) {
+          return "From: " + m.from + "\nSubject: " + m.subject + "\nDate: " + m.date + "\n" + m.snippet;
+        }).join("\n\n---\n\n") || "No matching messages.");
+    } catch (e) {
+      mailOut("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  function blueskyKeyId() {
+    return (($("#blueskyKeyId") && $("#blueskyKeyId").value) || "").trim();
+  }
+
+  function blueskyOut(text) {
+    if ($("#blueskyOutput")) $("#blueskyOutput").textContent = text;
+  }
+
+  async function blueskyPost() {
+    var keyId = blueskyKeyId();
+    var text = (($("#blueskyPostText") && $("#blueskyPostText").value) || "").trim();
+    if (!keyId) { toast("Paste the vault key ID first (see Stored Keys).", "warn"); return; }
+    if (!text) { toast("Write the post text first.", "warn"); return; }
+    try {
+      blueskyOut("Posting…");
+      var data = await api("/api/auth/bluesky/post",
+        { method: "POST", body: { entity_id: "console-user", key_id: keyId, text: text } });
+      if (!data.ok) throw new Error(data.error || "post failed");
+      blueskyOut("Posted as " + data.handle + "\n" + (data.uri || ""));
+      if ($("#blueskyPostText")) $("#blueskyPostText").value = "";
+      toast("Posted to Bluesky.", "ok");
+    } catch (e) {
+      blueskyOut("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  async function blueskyTimeline() {
+    var keyId = blueskyKeyId();
+    if (!keyId) { toast("Paste the vault key ID first (see Stored Keys).", "warn"); return; }
+    try {
+      blueskyOut("Reading timeline…");
+      var data = await api("/api/auth/bluesky/timeline",
+        { method: "POST", body: { entity_id: "console-user", key_id: keyId, limit: 10 } });
+      if (!data.ok) throw new Error(data.error || "timeline failed");
+      blueskyOut((data.items || []).map(function(it) {
+        return "@" + it.author + " (" + it.likes + " likes)\n" + it.text;
+      }).join("\n\n") || "Empty timeline.");
+    } catch (e) {
+      blueskyOut("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
   $("#githubSelfEvolutionPreview").addEventListener("click", previewSelfEvolution);
   $("#githubPlan").addEventListener("click", planGithubIssue);
   $("#githubPolicyPreview").addEventListener("click", previewGithubPolicy);
@@ -5053,10 +5951,23 @@
       var go = $("#firstRunGo");
       if (go) go.onclick = function() {
         var next = (data.steps || []).find(function(s) { return !s.done; });
-        // Always narrate the next step: when its tab is the one already
-        // open, navigation alone is invisible and the button looks dead.
+        // Guide the eye to the exact control: navigating to an already-open
+        // tab is invisible, so scroll to the step's control and spotlight it.
+        var targets = {
+          model: "configProvider",
+          readiness: "operatorReadiness",
+          integrations: "providerLogins",
+        };
+        var tab = next ? next.tab : "config";
+        openTab(tab);
         if (next) toast(next.title + " — " + (next.detail || ""), "");
-        openTab(next ? next.tab : "config");
+        var targetId = next && targets[next.id];
+        var targetEl = targetId && document.getElementById(targetId);
+        if (targetEl) {
+          try { targetEl.scrollIntoView({ block: "center" }); } catch (_) {}
+          targetEl.classList.add("spotlight");
+          setTimeout(function() { targetEl.classList.remove("spotlight"); }, 3500);
+        }
       };
     } catch (e) {
       banner.style.display = "none";

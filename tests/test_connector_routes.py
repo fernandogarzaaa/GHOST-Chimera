@@ -63,7 +63,9 @@ def test_providers_and_status_are_redacted(tmp_path) -> None:
     try:
         code, data = _get(BASE + "/api/connectors/providers")
         assert code == 200 and data["ok"] is True
-        assert len(data["providers"]) == 13
+        from ghostchimera.connectors.auth_engine import PROVIDERS
+
+        assert len(data["providers"]) == len(PROVIDERS)
         assert "sk-or" not in json.dumps(data)
         assert data["auth_engine"] == "custom"
         code, status = _get(BASE + "/api/connectors/status")
@@ -128,7 +130,7 @@ def test_first_run_checklist(tmp_path, monkeypatch) -> None:
     status = first_run_status(tmp_path)
     assert status["first_run"] is True
     assert [s["id"] for s in status["steps"]] == ["model", "readiness", "integrations"]
-    assert all(s["tab"] in ("config", "operator", "integrations") for s in status["steps"])
+    assert all(s["tab"] in ("config", "activity", "integrations") for s in status["steps"])
     monkeypatch.setenv("GHOSTCHIMERA_MODEL_PROVIDER", "openrouter")
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     status2 = first_run_status(tmp_path)
@@ -305,7 +307,9 @@ def test_auth_client_id_saved_then_authorizes(tmp_path, monkeypatch) -> None:
         code, saved = _post(
             BASE + "/api/auth/client-id", {"provider": "google-mail", "client_id": "cid.apps.googleusercontent.com"}
         )
-        assert code == 200 and saved == {"ok": True, "provider": "google-mail", "saved": True}
+        assert code == 200 and saved["ok"] is True and saved["saved"] is True
+        assert saved["client_id_configured"] is True and saved["client_id_source"] == "saved"
+        assert saved["client_secret_configured"] is False
         # Saved ID is used without any environment variable...
         code, auth = _post(
             BASE + "/api/auth/authorize",
