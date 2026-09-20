@@ -15,7 +15,7 @@ from ghostchimera.chimera_pilot.gateway_server import GatewayServer
 from ghostchimera.config import GhostChimeraConfig
 from ghostchimera.connectors.console_routes import register_connector_routes
 
-_PORT = [19173]
+_PORT = [19973]
 
 
 def _server(tmp_path: Path) -> GatewayServer:

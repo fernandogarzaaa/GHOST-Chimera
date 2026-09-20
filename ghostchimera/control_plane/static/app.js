@@ -2773,6 +2773,9 @@
   if ($("#blueskyTimeline")) {
     $("#blueskyTimeline").addEventListener("click", blueskyTimeline);
   }
+  if ($("#mailFetch")) {
+    $("#mailFetch").addEventListener("click", fetchMailInbox);
+  }
   try { renderProviderLogins(); } catch (_) {}
   try { renderStoredKeys(); } catch (_) {}
 
@@ -3063,6 +3066,39 @@
       });
     } catch (e) {
       host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
+    }
+  }
+
+  // ── Mail inbox (app password) ────────────────────────────────────────
+  function mailOut(text) {
+    if ($("#mailOutput")) $("#mailOutput").textContent = text;
+  }
+
+  async function fetchMailInbox() {
+    var label = (($("#mailKeyLabel") && $("#mailKeyLabel").value) || "").trim();
+    if (!label) { toast("Enter the vault key label first (see Stored Keys).", "warn"); return; }
+    var maxN = parseInt((($("#mailMaxMessages") && $("#mailMaxMessages").value) || "10"), 10) || 10;
+    var query = (($("#mailQuery") && $("#mailQuery").value) || "").trim() || "UNSEEN";
+    try {
+      mailOut("Fetching inbox…");
+      var data = await api("/api/auth/mail/fetch",
+        { method: "POST", body: { entity_id: "console-user", label: label, max_messages: maxN, query: query } });
+      if (!data.ok) {
+        if (data.type === "consent_required") {
+          mailOut("Consent required: enable Personal MiniMind admin controls + email crawl consent first.");
+          toast("Email consent required.", "warn");
+        } else {
+          throw new Error(data.error || "fetch failed");
+        }
+        return;
+      }
+      mailOut("Account: " + data.account + "  ·  " + data.messages.length + " messages\n\n" +
+        data.messages.map(function(m) {
+          return "From: " + m.from + "\nSubject: " + m.subject + "\nDate: " + m.date + "\n" + m.snippet;
+        }).join("\n\n---\n\n") || "No matching messages.");
+    } catch (e) {
+      mailOut("Error: " + e.message);
+      toast(e.message, "error");
     }
   }
 

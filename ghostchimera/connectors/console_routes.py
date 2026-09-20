@@ -815,6 +815,8 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
 
     def auth_approval_request(ctx: dict[str, Any]) -> dict[str, Any]:
         """Propose one connector write for human approval (agent proposes)."""
+        from .action_approvals import ActionApprovalError
+
         data = _body(ctx)
         engine = _engine()
         try:
@@ -828,7 +830,7 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 summary=str(data.get("summary") or ""),
                 requested_by=str(data.get("requested_by") or "console"),
             )
-        except (AuthEngineError, ValueError) as exc:
+        except (AuthEngineError, ValueError, ActionApprovalError) as exc:
             return {"ok": False, "error": str(exc)}
         finally:
             with suppress(Exception):

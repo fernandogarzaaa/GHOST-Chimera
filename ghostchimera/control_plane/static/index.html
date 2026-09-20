@@ -500,6 +500,19 @@
     </div>
     <pre class="output compact-output" id="blueskyOutput">Bluesky results appear here.</pre>
 
+    <div class="section-hdr">Mail Inbox (App Password)</div>
+    <p class="hint" style="margin-bottom:10px;">Read-only inbox fetch using a Stored Keys app password. Requires Personal MiniMind email-crawl consent. Headers + short snippets only; one-time codes and reset links are filtered.</p>
+    <div class="form-group">
+      <label>Vault key label (the app-password entry)</label>
+      <input id="mailKeyLabel" type="text" autocomplete="off" placeholder="e.g. Gmail">
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <input id="mailMaxMessages" placeholder="max messages (default 10)" style="max-width:200px;">
+      <input id="mailQuery" placeholder="IMAP query (default UNSEEN)" style="flex:1;min-width:160px;">
+      <button id="mailFetch" class="primary">Fetch Inbox</button>
+    </div>
+    <pre class="output compact-output" id="mailOutput">Inbox messages appear here.</pre>
+
     <div class="section-hdr">Trust &amp; Approvals</div>
     <p class="hint" style="margin-bottom:10px;">Connector writes can require your one-time approval: each approval is bound to exactly one action (destination + payload hash) and burns on use. Reads never need approval. The audit trail is append-only and redacted.</p>
     <div class="row" style="margin-bottom:12px;">
