@@ -136,6 +136,30 @@ def test_first_run_checklist(tmp_path, monkeypatch) -> None:
     assert status2["first_run"] is False
 
 
+def test_first_run_readiness_completes_from_timeline(tmp_path, monkeypatch) -> None:
+    from ghostchimera.connectors.console_routes import first_run_status
+    from ghostchimera.control_plane.evolution import record_timeline_event
+
+    for var in (
+        "GHOSTCHIMERA_MODEL_PROVIDER",
+        "OPENROUTER_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GROQ_API_KEY",
+        "GOOGLE_API_KEY",
+        "GEMINI_API_KEY",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    before = first_run_status(tmp_path)
+    readiness = next(s for s in before["steps"] if s["id"] == "readiness")
+    assert readiness["done"] is False
+
+    record_timeline_event(tmp_path, "readiness_check_run", {"warning_count": 0})
+    after = first_run_status(tmp_path)
+    readiness = next(s for s in after["steps"] if s["id"] == "readiness")
+    assert readiness["done"] is True
+
+
 def _draft_json() -> str:
     return json.dumps(
         {

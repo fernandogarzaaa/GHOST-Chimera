@@ -32,10 +32,12 @@ Usage::
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..logging_config import get_logger
@@ -418,6 +420,123 @@ class OpenAISpeechProvider(SpeechProvider):
             return SpeechResult(audio_data=audio, mime_type=f"audio/{format}", provider=self.name)
 
 
+def _module_installed(name: str) -> bool:
+    import importlib.util
+
+    return importlib.util.find_spec(name) is not None
+
+
+def _edge_rate(speed: float) -> str:
+    """Convert a 0.5–2.0 speed multiplier to an edge-tts rate string."""
+    try:
+        pct = int(round((max(0.5, min(2.0, float(speed))) - 1.0) * 100))
+    except (TypeError, ValueError):
+        pct = 0
+    if pct == 0:
+        return "+0%"
+    return f"{pct:+d}%"
+
+
+async def _edge_save(edge_tts: Any, text: str, voice: str, rate: str, pitch: str, path: str) -> None:
+    communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+    await communicate.save(path)
+
+
+def _edge_pitch(pitch: str) -> str:
+    """Validate an edge-tts pitch string (e.g. +0Hz, -10Hz, +5Hz)."""
+    import re
+
+    cleaned = str(pitch or "+0Hz").strip()
+    if re.fullmatch(r"[+-]?\d+Hz", cleaned):
+        return cleaned if cleaned[0] in "+-" else f"+{cleaned}"
+    return "+0Hz"
+
+
+class EdgeSpeechProvider(SpeechProvider):
+    """Neural TTS via Microsoft Edge voices (no API key required).
+
+    Uses the ``edge-tts`` package (install the ``voice`` extra). Set an
+    optional ``EDGE_TTS_VOICE`` default voice, e.g.
+    ``en-US-AvaNeural``. Network access to Microsoft's speech service is
+    required; everything else stays local.
+    """
+
+    name = "edge_speech"
+    DEFAULT_VOICE = "en-US-AvaNeural"
+
+    def __init__(self, profile: AuthProfile | None = None) -> None:
+        if profile is not None:
+            self.voice = profile.model or os.environ.get("EDGE_TTS_VOICE", self.DEFAULT_VOICE)
+        else:
+            self.voice = os.environ.get("EDGE_TTS_VOICE", self.DEFAULT_VOICE)
+        self.available = _module_installed("edge_tts")
+
+    def validate_config(self) -> list[str]:
+        if not self.available:
+            return ['edge-tts is not installed (pip install "ghostchimera[voice]")']
+        return []
+
+    def synthesize(
+        self, text: str, *, voice: str = "", speed: float = 1.0, pitch: str = "+0Hz", format: str = "mp3"
+    ) -> SpeechResult:
+        import asyncio
+        import tempfile
+
+        if not text.strip():
+            raise RuntimeError("EdgeSpeechProvider needs non-empty text")
+        try:
+            import edge_tts
+        except ImportError as exc:
+            raise RuntimeError("edge-tts is not installed") from exc
+        chosen = (voice or self.voice or self.DEFAULT_VOICE).strip()
+        rate = _edge_rate(speed)
+        pitch_value = _edge_pitch(pitch)
+        fd, raw_path = tempfile.mkstemp(prefix="ghost-tts-", suffix=".mp3")
+        os.close(fd)
+        path = Path(raw_path)
+        try:
+            # Bound the network call so a hung Edge endpoint cannot stall
+            # the console request thread forever (60 s wall clock).
+            asyncio.run(asyncio.wait_for(_edge_save(edge_tts, text, chosen, rate, pitch_value, str(path)), 60))
+            audio = path.read_bytes()
+        finally:
+            with contextlib.suppress(OSError):
+                path.unlink()
+        if not audio:
+            raise RuntimeError("Edge TTS returned no audio")
+        return SpeechResult(audio_data=audio, mime_type="audio/mpeg", provider=self.name)
+
+    @staticmethod
+    def list_voices(*, locale_prefix: str = "en") -> list[dict[str, str]]:
+        """List available Edge voices (network call, no key)."""
+        import asyncio
+
+        try:
+            import edge_tts
+        except ImportError as exc:
+            raise RuntimeError("edge-tts is not installed") from exc
+
+        async def _fetch() -> list[dict[str, Any]]:
+            return await edge_tts.list_voices()
+
+        voices = asyncio.run(_fetch())
+        out = []
+        for voice in voices:
+            name = str(voice.get("ShortName") or "")
+            locale = str(voice.get("Locale") or "")
+            if locale_prefix and not locale.startswith(locale_prefix):
+                continue
+            out.append(
+                {
+                    "id": name,
+                    "name": str(voice.get("FriendlyName") or name),
+                    "locale": locale,
+                    "gender": str(voice.get("Gender") or ""),
+                }
+            )
+        return sorted(out, key=lambda item: item["id"])
+
+
 class OpenAIVisionProvider(MediaUnderstandingProvider):
     """Vision understanding via OpenAI GPT-4o vision."""
 
@@ -491,6 +610,7 @@ MEDIA_PROVIDERS: dict[str, dict[str, type]] = {
     },
     "speech": {
         OpenAISpeechProvider.name: OpenAISpeechProvider,
+        EdgeSpeechProvider.name: EdgeSpeechProvider,
     },
     "web_search": {},  # No built-in web search — external plugins register here
     "web_fetch": {
@@ -581,6 +701,7 @@ __all__ = [
     "DocumentExtractionResult",
     "OpenAIImageProvider",
     "OpenAISpeechProvider",
+    "EdgeSpeechProvider",
     "OpenAIVisionProvider",
     "StdlibWebFetchProvider",
     "MEDIA_PROVIDERS",
