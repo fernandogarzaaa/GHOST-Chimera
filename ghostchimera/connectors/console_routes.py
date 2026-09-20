@@ -810,6 +810,91 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         except Exception as exc:
             return {"ok": False, "error": f"could not read: {type(exc).__name__}"}
 
+    def auth_approval_request(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Propose one connector write for human approval (agent proposes)."""
+        data = _body(ctx)
+        engine = _engine()
+        try:
+            return engine.request_action_approval(
+                str(data.get("entity_id") or "console-user"),
+                str(data.get("provider") or ""),
+                str(data.get("method") or "POST"),
+                str(data.get("url") or ""),
+                data.get("data"),
+                scope=str(data.get("scope") or ""),
+                summary=str(data.get("summary") or ""),
+                requested_by=str(data.get("requested_by") or "console"),
+            )
+        except (AuthEngineError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_approval_decide(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Human-only decision on a pending action approval."""
+        data = _body(ctx)
+        approval_id = str(data.get("id") or "")
+        if not approval_id:
+            return {"ok": False, "error": "id is required"}
+        engine = _engine()
+        try:
+            return engine.decide_action_approval(
+                approval_id, approved=bool(data.get("approved")), actor=str(data.get("actor") or "console-user")
+            )
+        except (AuthEngineError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_approval_pending(ctx: dict[str, Any]) -> dict[str, Any]:
+        data = _body(ctx)
+        engine = _engine()
+        try:
+            return engine.pending_action_approvals(str(data.get("entity_id") or "console-user"))
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_audit_recent(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Recent trust-audit entries (redacted by construction)."""
+        data = _body(ctx)
+        engine = _engine()
+        try:
+            try:
+                limit = max(1, min(200, int(data.get("limit") or 50)))
+            except (TypeError, ValueError):
+                limit = 50
+            return {"ok": True, "entries": engine.audit.recent(limit=limit)}
+        finally:
+            with suppress(Exception):
+                engine.close()
+
+    def auth_write_gate(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Get or set the write-approval gate (opt-in; default off)."""
+        data = _body(ctx)
+        try:
+            from ..control_plane.config import load_config, save_config
+
+            if "enabled" in data:
+                config = load_config()
+                section = config.get("auth")
+                if not isinstance(section, dict):
+                    section = {}
+                    config["auth"] = section
+                section["require_write_approval"] = bool(data.get("enabled"))
+                save_config(config)
+                return {"ok": True, "enabled": bool(data.get("enabled"))}
+            engine = _engine()
+            try:
+                return {"ok": True, "enabled": engine.write_approval_required()}
+            finally:
+                with suppress(Exception):
+                    engine.close()
+        except Exception as exc:
+            return {"ok": False, "error": f"could not update: {type(exc).__name__}"}
+
     def auth_device_start(ctx: dict[str, Any]) -> dict[str, Any]:
         """Begin an RFC 8628 device login (no redirect URI — LAN-friendly).
 
@@ -1059,6 +1144,46 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         auth=auth,
         token=token,
         description="Which vault key backs the chat model",
+    )
+    server.routes.register(
+        "/api/auth/approvals/request",
+        auth_approval_request,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Propose a connector write for approval",
+    )
+    server.routes.register(
+        "/api/auth/approvals/decide",
+        auth_approval_decide,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Approve or deny a pending action",
+    )
+    server.routes.register(
+        "/api/auth/approvals/pending",
+        auth_approval_pending,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="List pending action approvals",
+    )
+    server.routes.register(
+        "/api/auth/audit/recent",
+        auth_audit_recent,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Recent trust-audit entries",
+    )
+    server.routes.register(
+        "/api/auth/write-gate",
+        auth_write_gate,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Get/set the write-approval gate",
     )
     server.routes.register(
         "/api/auth/device/start",

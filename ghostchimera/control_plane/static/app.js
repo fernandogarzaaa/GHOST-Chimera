@@ -2736,6 +2736,17 @@
   if ($("#openrouterLogin")) {
     $("#openrouterLogin").addEventListener("click", function() { startOpenRouterLogin(this); });
   }
+  if ($("#writeGateToggle")) {
+    $("#writeGateToggle").addEventListener("change", function() { setWriteGate(this.checked); });
+  }
+  if ($("#approvalsRefresh")) {
+    $("#approvalsRefresh").addEventListener("click", renderPendingApprovals);
+  }
+  if ($("#auditRefresh")) {
+    $("#auditRefresh").addEventListener("click", renderAuditTrail);
+  }
+  try { renderWriteGate(); } catch (_) {}
+  try { renderPendingApprovals(); } catch (_) {}
   if ($("#blueskyPost")) {
     $("#blueskyPost").addEventListener("click", blueskyPost);
   }
@@ -2744,6 +2755,94 @@
   }
   try { renderProviderLogins(); } catch (_) {}
   try { renderStoredKeys(); } catch (_) {}
+
+  // ── Trust & approvals ────────────────────────────────────────────────
+  async function renderWriteGate() {
+    var box = $("#writeGateToggle");
+    if (!box) return;
+    try {
+      var data = await api("/api/auth/write-gate", { method: "POST", body: {} });
+      box.checked = !!(data.ok && data.enabled);
+    } catch (_) {}
+  }
+
+  async function setWriteGate(enabled) {
+    try {
+      var data = await api("/api/auth/write-gate", { method: "POST", body: { enabled: enabled } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      toast("Write-approval gate " + (enabled ? "ON: connector writes need your approval." : "OFF."), enabled ? "warn" : "ok");
+    } catch (e) {
+      toast(e.message, "error");
+      renderWriteGate();
+    }
+  }
+
+  async function renderPendingApprovals() {
+    var host = $("#approvalsPending");
+    if (!host) return;
+    host.innerHTML = "";
+    try {
+      var data = await api("/api/auth/approvals/pending",
+        { method: "POST", body: { entity_id: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      if (!data.approvals.length) {
+        host.appendChild(el("div", { class: "empty" }, "No pending approvals."));
+        return;
+      }
+      data.approvals.forEach(function(a) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "badge warn" }, a.method));
+        var main = el("div", { style: "flex:1;min-width:200px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = a.provider + "  ·  " + (a.summary || a.url);
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        var secs = Math.max(0, Math.round(a.expires_at - Date.now() / 1000));
+        meta.textContent = a.url + (a.scope ? "  ·  scope: " + a.scope : "") +
+          "  ·  expires in " + secs + "s  ·  by " + (a.requested_by || "unknown");
+        main.appendChild(meta);
+        item.appendChild(main);
+        var ok = el("button", { class: "primary" });
+        ok.textContent = "Approve once";
+        ok.addEventListener("click", function() { decideApproval(a.id, true); });
+        item.appendChild(ok);
+        var no = el("button", { class: "danger" });
+        no.textContent = "Deny";
+        no.addEventListener("click", function() { decideApproval(a.id, false); });
+        item.appendChild(no);
+        host.appendChild(item);
+      });
+    } catch (e) {
+      host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
+    }
+  }
+
+  async function decideApproval(id, approved) {
+    try {
+      var data = await api("/api/auth/approvals/decide",
+        { method: "POST", body: { id: id, approved: approved, actor: "console-user" } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      toast("Approval " + data.state + ".", approved ? "ok" : "warn");
+      renderPendingApprovals();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  async function renderAuditTrail() {
+    var out = $("#auditOutput");
+    if (!out) return;
+    try {
+      var data = await api("/api/auth/audit/recent", { method: "POST", body: { limit: 30 } });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      out.textContent = data.entries.map(function(e) {
+        return new Date(e.ts * 1000).toLocaleString() + "  " + e.event +
+          (e.provider ? "  [" + e.provider + "]" : "") + "  " + JSON.stringify(e.detail || {});
+      }).join("\n") || "Audit trail is empty.";
+    } catch (e) {
+      out.textContent = "Error: " + e.message;
+    }
+  }
 
   function blueskyKeyId() {
     return (($("#blueskyKeyId") && $("#blueskyKeyId").value) || "").trim();

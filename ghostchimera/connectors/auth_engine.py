@@ -18,6 +18,7 @@ migrations/0001_integration_auth_tokens.sql (Postgres) column for column.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import os
@@ -50,6 +51,10 @@ class AuthEngineError(RuntimeError):
 
 class NeedsReauth(AuthEngineError):
     """Refresh token revoked/expired: user must reconnect this provider."""
+
+
+class NeedsApproval(AuthEngineError):
+    """Write-gated call without a matching single-use approval: ask first."""
 
 
 class UnknownProvider(AuthEngineError):
@@ -374,8 +379,13 @@ class CustomAuthEngine:
     """Standalone OAuth + vault + proxy. `transport` injects HTTP for tests."""
 
     def __init__(self, state_dir: str | Path, *, transport: Any = None) -> None:
+        from .action_approvals import ActionApprovalStore
+        from .audit_trail import AuditTrail
+
         self.state_dir = Path(state_dir)
         self.store = AuthStore(self.state_dir / "auth.sqlite3")
+        self.actions = ActionApprovalStore(self.state_dir)
+        self.audit = AuditTrail(self.state_dir)
         self._transport = transport
         fernet_cls = _fernet()
         key = base64.urlsafe_b64encode(_vault_key())
@@ -386,6 +396,62 @@ class CustomAuthEngine:
 
     def close(self) -> None:
         self.store.close()
+        with contextlib.suppress(Exception):
+            self.actions.close()
+
+    # -- write-gating ----------------------------------------------------------
+    def write_approval_required(self) -> bool:
+        """Opt-in gate: every non-GET proxy call needs a single-use approval.
+
+        Env GHOSTCHIMERA_REQUIRE_WRITE_APPROVAL=1 wins; otherwise the saved
+        console config auth.require_write_approval applies. Default off.
+        """
+        if os.environ.get("GHOSTCHIMERA_REQUIRE_WRITE_APPROVAL", "").strip() == "1":
+            return True
+        try:
+            from ..control_plane.config import load_config
+
+            section = load_config().get("auth", {})
+            return bool(isinstance(section, dict) and section.get("require_write_approval"))
+        except Exception:
+            return False
+
+    # -- action approvals (agent proposes, human disposes) ---------------------
+    def request_action_approval(
+        self,
+        entity_id: str,
+        provider: str,
+        method: str,
+        url: str,
+        data: Any,
+        *,
+        scope: str = "",
+        summary: str = "",
+        requested_by: str = "",
+    ) -> dict[str, Any]:
+        created = self.actions.request(
+            entity_id, provider, method, url, data, scope=scope, summary=summary, requested_by=requested_by
+        )
+        self.audit.record(
+            "approval.requested",
+            entity_id=entity_id,
+            provider=provider,
+            detail={"id": created["id"], "method": method, "url": url, "scope": scope, "summary": summary},
+        )
+        return {"ok": True, **created}
+
+    def decide_action_approval(self, approval_id: str, *, approved: bool, actor: str) -> dict[str, Any]:
+        from .action_approvals import ActionApprovalError
+
+        try:
+            result = self.actions.decide(approval_id, approved=approved, actor=actor)
+        except ActionApprovalError as exc:
+            raise AuthEngineError(str(exc)) from exc
+        self.audit.record(f"approval.{result['state'].lower()}", detail={"id": approval_id, "actor": actor})
+        return {"ok": True, **result}
+
+    def pending_action_approvals(self, entity_id: str) -> dict[str, Any]:
+        return {"ok": True, "approvals": self.actions.pending(entity_id)}
 
     def __repr__(self) -> str:  # never leak key material
         return f"CustomAuthEngine(state_dir={self.state_dir})"
@@ -794,6 +860,12 @@ class CustomAuthEngine:
                 "scope": " ".join(scopes),
             },
         )
+        self.audit.record(
+            "token.imported",
+            entity_id=entity_id,
+            provider="github",
+            detail={"source": "github-cli", "gh_user": status["user"] or login},
+        )
         return {
             "ok": True,
             "provider": "github",
@@ -921,6 +993,12 @@ class CustomAuthEngine:
         scopes = token.get("scope", "")
         scope_list = scopes.split() if isinstance(scopes, str) and scopes else list(token.get("scopes", []) or [])
         self.store.upsert(entity_id, provider, access, refresh, expires_at, scope_list)
+        self.audit.record(
+            "token.stored",
+            entity_id=entity_id,
+            provider=provider,
+            detail={"expires_at": expires_at, "scopes": scope_list},
+        )
         return {
             "ok": True,
             "entity_id": entity_id,
@@ -1026,6 +1104,9 @@ class CustomAuthEngine:
             now = time.time()
             expires_at = now + float(fresh.get("expires_in") or 3600)
             self.store.upsert(entity_id, provider, new_access, new_refresh, expires_at, record["scopes"])
+            self.audit.record(
+                "token.refreshed", entity_id=entity_id, provider=provider, detail={"expires_at": expires_at}
+            )
             return str(fresh["access_token"])
 
     # -- proxy: act with a fresh token, no middleman ------------------------------
@@ -1040,13 +1121,39 @@ class CustomAuthEngine:
         *,
         data: dict[str, Any] | None = None,
         params: dict[str, str] | None = None,
+        approval_id: str = "",
     ) -> dict[str, Any]:
         if provider in LOGIN_ONLY_PROVIDERS:
             raise AuthEngineError(
                 f"{provider} is login-only: the token is stored but API calls are disabled "
                 "until usage is explicitly approved (X bills per call)"
             )
+        write = method.upper() != "GET"
+        if write and self.write_approval_required():
+            consumed = (
+                self.actions.consume(entity_id, provider, method, url, data, approval_id) if approval_id else False
+            )
+            if not consumed:
+                self.audit.record(
+                    "proxy.write_denied",
+                    entity_id=entity_id,
+                    provider=provider,
+                    detail={"method": method, "url": url, "approval_id": approval_id or None},
+                )
+                raise NeedsApproval(f"{provider} write blocked: request a single-use action approval first")
+            self.audit.record(
+                "approval.consumed",
+                entity_id=entity_id,
+                provider=provider,
+                detail={"id": approval_id, "method": method, "url": url},
+            )
         token = self.get_valid_token(entity_id, provider)
+        self.audit.record(
+            "proxy.call",
+            entity_id=entity_id,
+            provider=provider,
+            detail={"method": method.upper(), "url": url, "write": write},
+        )
         full = url + ("?" + urllib.parse.urlencode(params) if params else "")
         body = json.dumps(data).encode() if data is not None and method.upper() != "GET" else None
         req = urllib.request.Request(
@@ -1100,7 +1207,10 @@ class CustomAuthEngine:
         return {"entity_id": entity_id, "connections": out}
 
     def revoke(self, entity_id: str, provider: str) -> bool:
-        return self.store.revoke(entity_id, provider)
+        revoked = self.store.revoke(entity_id, provider)
+        if revoked:
+            self.audit.record("token.revoked", entity_id=entity_id, provider=provider)
+        return revoked
 
 
 @dataclass

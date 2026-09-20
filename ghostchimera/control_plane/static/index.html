@@ -500,6 +500,16 @@
     </div>
     <pre class="output compact-output" id="blueskyOutput">Bluesky results appear here.</pre>
 
+    <div class="section-hdr">Trust &amp; Approvals</div>
+    <p class="hint" style="margin-bottom:10px;">Connector writes can require your one-time approval: each approval is bound to exactly one action (destination + payload hash) and burns on use. Reads never need approval. The audit trail is append-only and redacted.</p>
+    <div class="row" style="margin-bottom:12px;">
+      <label class="inline-check"><input id="writeGateToggle" type="checkbox"> Require approval for connector writes</label>
+      <button id="approvalsRefresh">Refresh Approvals</button>
+      <button id="auditRefresh">View Audit Trail</button>
+    </div>
+    <div id="approvalsPending"></div>
+    <pre class="output compact-output" id="auditOutput">Audit entries appear here.</pre>
+
     <div class="section-hdr">Import Browser Passwords</div>
     <p class="hint" style="margin-bottom:10px;">Two paths, same result. CSV: export from Chrome/Brave Settings → Passwords → Export, paste below. Direct: read this machine's Chromium login store (explicit consent, Windows-only, nothing leaves this computer). Map each entry to the vault or skip it.</p>
     <div class="form-group">
