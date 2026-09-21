@@ -333,28 +333,68 @@
   });
 
   // ── API helper ───────────────────────────────────────────────────────────
+  // Request orchestration (transparent to all callers):
+  // - In-flight dedupe: identical concurrent requests share one fetch.
+  //   The boot storm (~30 refreshes + refreshStatus's 14, many overlapping)
+  //   collapses into one network call per unique request.
+  // - Stale replacement: if request N resolves after a newer identical
+  //   request already completed, callers receive the NEWER payload instead
+  //   of rendering stale data. Same return contract — always a valid
+  //   payload or a thrown error, never a stale render, never a fake ok.
+  var apiSeq = 0;
+  var apiInflight = {};
+  var apiLastDone = {};
+  var API_CACHE_KEYS = 200;
+  function apiCacheKey(method, path, bodyText) {
+    return method + " " + path + " " + (bodyText || "");
+  }
+  function apiCacheStore(key, id, payload) {
+    apiLastDone[key] = { id: id, payload: payload };
+    var keys = Object.keys(apiLastDone);
+    if (keys.length > API_CACHE_KEYS) delete apiLastDone[keys[0]];
+  }
+  function apiFetch(path, opts) {
+    var method = (opts.method || "GET").toUpperCase();
+    var key = apiCacheKey(method, path, typeof opts.body === "string" ? opts.body : "");
+    var pending = apiInflight[key];
+    if (pending) return pending;
+    var id = ++apiSeq;
+    pending = (async function() {
+      var r = await fetch(path, opts);
+      if (r.status === 401) {
+        state.token = "";
+        clearStoredToken();
+        showTokenOverlay();
+        throw new Error("Unauthorized — enter the console token");
+      }
+      if (!r.ok) {
+        var errText = await r.text().catch(function() { return ""; });
+        throw new Error("HTTP " + r.status + ": " + errText);
+      }
+      var ct = r.headers.get("content-type") || "";
+      var payload;
+      if (ct.indexOf("application/json") !== -1) {
+        try { payload = await r.json(); } catch (e) { payload = null; }
+      } else {
+        payload = await r.text().catch(function() { return null; });
+      }
+      var last = apiLastDone[key];
+      if (last && last.id > id) return last.payload; // stale: serve newer
+      apiCacheStore(key, id, payload);
+      return payload;
+    })();
+    apiInflight[key] = pending;
+    pending.then(function() { if (apiInflight[key] === pending) delete apiInflight[key]; },
+      function() { if (apiInflight[key] === pending) delete apiInflight[key]; });
+    return pending;
+  }
   async function api(path, opts) {
     opts = opts || {};
     if (!opts.headers) opts.headers = {};
     opts.headers["Content-Type"] = "application/json";
     if (state.token) opts.headers["X-Gateway-Token"] = state.token;
     if (opts.body && typeof opts.body === "object") opts.body = JSON.stringify(opts.body);
-    var r = await fetch(path, opts);
-    if (r.status === 401) {
-      state.token = "";
-      clearStoredToken();
-      showTokenOverlay();
-      throw new Error("Unauthorized — enter the console token");
-    }
-    if (!r.ok) {
-      var errText = await r.text().catch(function() { return ""; });
-      throw new Error("HTTP " + r.status + ": " + errText);
-    }
-    var ct = r.headers.get("content-type") || "";
-    if (ct.indexOf("application/json") !== -1) {
-      try { return await r.json(); } catch (e) { return null; }
-    }
-    return await r.text().catch(function() { return null; });
+    return apiFetch(path, opts);
   }
 
   function badge(el, text, cls) { el.textContent = text; el.className = "badge " + (cls || ""); }
