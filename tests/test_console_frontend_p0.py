@@ -50,16 +50,17 @@ def test_csp_covers_console_assets() -> None:
 def test_static_responses_carry_csp(tmp_path) -> None:
     config = GhostChimeraConfig.from_env()
     config = replace(config, state_dir=tmp_path, memory_db=tmp_path / "m.sqlite3", audit_file=tmp_path / "a.json")
-    server = GatewayServer(host="127.0.0.1", port=19211, http_port=19212, config=config)
+    server = GatewayServer(host="127.0.0.1", port=0, http_port=0, config=config)
     _register_static_routes(server)
     server.start()
     try:
+        http_port = server._http_server.server_address[1] if server._http_server else server.http_port
         for path, content_type in (
             ("/", "text/html"),
             ("/static/app.js", "application/javascript"),
             ("/static/styles.css", "text/css"),
         ):
-            req = urllib.request.Request(f"http://127.0.0.1:19212{path}")
+            req = urllib.request.Request(f"http://127.0.0.1:{http_port}{path}")
             with urllib.request.urlopen(req, timeout=10) as resp:
                 assert resp.status == 200
                 assert content_type in resp.headers.get("Content-Type", "")

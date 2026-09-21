@@ -75,7 +75,7 @@ def phase_a() -> dict[str, Any]:
     # Navigation buttons carry data-tab instead of handlers: each must name
     # an existing tab pane that the router knows about.
     data_tabs = sorted(set(re.findall(r'data-tab="([a-z0-9-]+)"', html)))
-    panes = set(re.findall(r'id="(tab-[a-z-]+)"', html))
+    panes = set(re.findall(r'id="(tab-[a-z0-9-]+)"', html))
     dangling_tabs = [t for t in data_tabs if f"tab-{t}" not in panes]
     unrouted_tabs = [t for t in data_tabs if t not in js]
     return {

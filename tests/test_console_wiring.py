@@ -157,7 +157,7 @@ def test_first_run_steps_point_at_real_tabs_and_controls(tmp_path) -> None:
         js = handle.read()
     with open("ghostchimera/control_plane/static/styles.css", encoding="utf-8") as handle:
         css = handle.read()
-    contents = set(re.findall(r'id="(tab-[a-z-]+)"', html))
+    contents = set(re.findall(r'id="(tab-[a-z0-9-]+)"', html))
     for step in first_run_status(tmp_path)["steps"]:
         assert f"tab-{step['tab']}" in contents, f"step {step['id']} points at missing tab-{step['tab']}"
     assert ".spotlight" in css, "spotlight style missing"
