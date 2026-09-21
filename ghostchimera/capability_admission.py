@@ -194,6 +194,7 @@ class CapabilityAdmissionStore:
         """
         meta = _redact_value(metadata or {})
         records = self._load_records()
+        permissions_unspecified = requested_permissions is None
         permissions = sorted({str(p) for p in (requested_permissions or []) if str(p).strip()})
         # Find siblings (same kind/source/name, possibly older identity).
         siblings = [
@@ -204,19 +205,22 @@ class CapabilityAdmissionStore:
             and str(rec.get("source", "")).strip() == (str(source or "local").strip() or "local")
             and str(rec.get("name", "")).strip() == str(name or "").strip()
         ]
-        # Default unspecified identity inputs from the newest sibling so a
-        # plain re-register updates in place; any real change forks identity.
+        # Precedence: explicit arguments, then the current call's metadata,
+        # then the newest sibling. A sibling never overrides values the
+        # current call supplies, and an explicitly emptied permission set
+        # is honored as empty (it changes identity) — only a fully
+        # unspecified (None) set inherits the sibling's.
         newest = max(siblings, key=lambda r: float(r.get("updated_at", 0) or 0)) if siblings else {}
-        resolved_version = str(version or newest.get("version") or meta.get("version") or "").strip()
+        resolved_version = str(version or meta.get("version") or newest.get("version") or "").strip()
         resolved_digest = str(
             artifact_digest
-            or newest.get("artifact_digest")
             or meta.get("artifact_digest")
             or meta.get("digest")
             or meta.get("sha256")
+            or newest.get("artifact_digest")
             or ""
         ).strip()
-        if not permissions and newest:
+        if permissions_unspecified and newest:
             permissions = list(newest.get("requested_permissions") or [])
         record_id = capability_identity(
             capability_kind,

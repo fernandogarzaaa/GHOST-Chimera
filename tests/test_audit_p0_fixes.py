@@ -98,6 +98,41 @@ def test_verify_entry_with_explicit_key(tmp_path, monkeypatch) -> None:
     assert AuditLog.verify_entry(entry, None, key=b"wrong") is False
 
 
+def test_verify_entry_strips_env_whitespace(tmp_path, monkeypatch) -> None:
+    """Thread 6: padded env keys verify against stripped keys."""
+    from ghostchimera.safety_layer.audit import AuditLog
+
+    monkeypatch.setenv("GHOSTCHIMERA_AUDIT_KEY", "  k1  ")
+    log = AuditLog(str(tmp_path / "audit.json"))
+    entry = log.record("a", {"x": 1})
+    assert AuditLog.verify_entry(entry, None, key=b"k1") is True
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits only")
+def test_lax_key_file_permissions_repaired(tmp_path, monkeypatch) -> None:
+    """Thread 4: group-readable key files are locked down, not trusted as-is."""
+    from ghostchimera.safety_layer import audit as audit_mod
+
+    monkeypatch.delenv("GHOSTCHIMERA_AUDIT_KEY", raising=False)
+    key_path = str(tmp_path / "audit.json.key")
+    with open(key_path, "wb") as handle:
+        handle.write(b"x" * 32)
+    os.chmod(key_path, 0o640)
+    log = audit_mod.AuditLog(str(tmp_path / "audit.json"))
+    assert log.key == b"x" * 32
+    assert stat.S_IMODE(os.stat(key_path).st_mode) == 0o600
+
+
+def test_concurrent_key_creation_keeps_one_key(tmp_path, monkeypatch) -> None:
+    """Thread 5: exclusive creation — losers reread, nobody overwrites."""
+    from ghostchimera.safety_layer import audit as audit_mod
+
+    monkeypatch.delenv("GHOSTCHIMERA_AUDIT_KEY", raising=False)
+    first = audit_mod._resolve_key(str(tmp_path / "audit.json"))
+    second = audit_mod._resolve_key(str(tmp_path / "audit.json"))
+    assert first == second and len(first) == 32
+
+
 # -- MoA revote units ----------------------------------------------------------------------
 def _moa_result(pct, agreeing=True):
     from ghostchimera.chimera_pilot.mixture_of_agents import MoAResult
@@ -149,6 +184,24 @@ def test_revote_skipped_above_threshold(monkeypatch) -> None:
     monkeypatch.setattr(moa, "_revote_agent", lambda old_vote, prompt: calls.append(prompt))
     moa.vote_with_revote("q", max_rounds=2, confidence_threshold=0.65)
     assert calls == []
+
+
+def test_negation_contradiction_detected() -> None:
+    """Thread 3: 'sky is blue' vs 'sky is not blue' must contradict."""
+    from ghostchimera.chimera_pilot.mixture_of_agents import MixtureOfAgents
+
+    moa = MixtureOfAgents()
+    found = moa._detect_contradictions_for_text(["sky is blue", "ocean is not blue"])
+    assert found == []
+    found = moa._detect_contradictions_for_text(["sky is blue", "sky is not blue"])
+    assert len(found) == 1 and found[0]["type"] == "direct_negation"
+
+
+def test_same_polarity_not_flagged() -> None:
+    from ghostchimera.chimera_pilot.mixture_of_agents import MixtureOfAgents
+
+    moa = MixtureOfAgents()
+    assert moa._detect_contradictions_for_text(["sky is blue", "sky is blue"]) == []
 
 
 # -- ComputerApproval digest ------------------------------------------------------------------
@@ -247,3 +300,28 @@ def test_identity_includes_artifact_digest(tmp_path) -> None:
     assert capability_identity("mcp", "local", "s", version="1") == capability_identity(
         "mcp", "local", "s", metadata={"version": "1"}
     )
+
+
+def test_metadata_version_beats_sibling_version(tmp_path) -> None:
+    """Thread 1: current-call metadata wins over the sibling's version."""
+    from ghostchimera.capability_admission import CapabilityAdmissionStore
+
+    store = CapabilityAdmissionStore(tmp_path)
+    first = store.create_record(capability_kind="mcp", name="srv", version="v1")
+    assert first["ok"] is True
+    upgraded = store.register_or_update(capability_kind="mcp", name="srv", metadata={"version": "v2"})
+    assert upgraded["ok"] is True
+    assert upgraded["record"]["id"] != first["record"]["id"]
+    assert upgraded["record"]["version"] == "v2"
+
+
+def test_explicit_empty_permissions_not_backfilled(tmp_path) -> None:
+    """Thread 2: requested_permissions=[] is a real empty set, not 'unspecified'."""
+    from ghostchimera.capability_admission import CapabilityAdmissionStore
+
+    store = CapabilityAdmissionStore(tmp_path)
+    first = store.create_record(capability_kind="skill", name="s", requested_permissions=["read", "write"])
+    emptied = store.register_or_update(capability_kind="skill", name="s", requested_permissions=[])
+    assert emptied["record"]["id"] != first["record"]["id"]
+    assert emptied["record"]["requested_permissions"] == []
+    assert emptied["record"]["status"] == "discovered"
