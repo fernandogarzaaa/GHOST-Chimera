@@ -200,6 +200,76 @@ def first_run_status(state_dir: str | Path) -> dict[str, Any]:
     return {"ok": True, "steps": steps, "done_count": done, "total": len(steps), "first_run": not model_configured}
 
 
+def _stealth_loop_with_authority(base: Path, engine: Any) -> Any:
+    """Service loop with its approval queue bridged to the canonical store."""
+    from .stealth_service import get_service_loop
+
+    loop = get_service_loop(base)
+    queue = getattr(loop, "approvals", None)
+    if queue is not None and getattr(queue, "_authority", None) is None:
+        with suppress(Exception):
+            queue.attach_authority(engine.actions)
+    return loop
+
+
+def _stealth_pending_approvals(base: Path, engine: Any) -> list[dict[str, Any]]:
+    """Stealth loop asks mapped onto the Trust item shape (source stealth)."""
+    try:
+        loop = _stealth_loop_with_authority(base, engine)
+    except Exception:
+        return []
+    queue = getattr(loop, "approvals", None)
+    if queue is None:
+        return []
+    with suppress(Exception):
+        queue.sync()
+        out = []
+        for item in queue.pending():
+            data = item.to_dict() if hasattr(item, "to_dict") else {}
+            out.append(
+                {
+                    "id": data.get("id", ""),
+                    "provider": "stealth",
+                    "method": "APPROVE",
+                    "url": f"stealth://{data.get('source_kind', '')}/{data.get('source_id', '')}",
+                    "scope": data.get("workflow", ""),
+                    "summary": data.get("subject", ""),
+                    "requested_by": data.get("requested_by", ""),
+                    "created_at": data.get("created_at", 0),
+                    "expires_at": data.get("expires_at", 0),
+                    "source": "stealth",
+                }
+            )
+        return out
+    return []
+
+
+def _decide_stealth_approval(base: Path, engine: Any, approval_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    """Decide a stealth ask through the loop queue (cascades to durable)."""
+    try:
+        loop = _stealth_loop_with_authority(base, engine)
+    except Exception as exc:
+        return {"ok": False, "error": f"stealth loop unavailable: {type(exc).__name__}"}
+    queue = getattr(loop, "approvals", None)
+    if queue is None:
+        return {"ok": False, "error": "no stealth approval queue"}
+    actor = str(data.get("actor") or "console-user")
+    try:
+        done = queue.approve(approval_id, actor) if data.get("approved") else queue.deny(approval_id, actor)
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    if not done:
+        return {"ok": False, "error": "already resolved or expired"}
+    with suppress(Exception):
+        engine.audit.record(
+            f"approval.{'approved' if data.get('approved') else 'denied'}",
+            detail={"id": approval_id, "actor": actor, "source": "stealth"},
+        )
+    item = queue.get(approval_id)
+    state = item.state.value if item is not None and hasattr(item.state, "value") else "resolved"
+    return {"ok": True, "id": approval_id, "state": state, "source": "stealth"}
+
+
 def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str = "open", token: str = "") -> None:
     """Register /api/connectors/* and /api/auth/* routes on a GatewayServer."""
     from .auth_engine import PROVIDERS, AuthEngineError, CustomAuthEngine
@@ -843,13 +913,20 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 engine.close()
 
     def auth_approval_decide(ctx: dict[str, Any]) -> dict[str, Any]:
-        """Human-only decision on a pending action approval."""
+        """Human-only decision on a pending action approval.
+
+        IDs starting with "apr-" are stealth loop asks: decided through the
+        loop queue (which cascades to the durable record); everything else
+        goes straight to the canonical authority.
+        """
         data = _body(ctx)
         approval_id = str(data.get("id") or "")
         if not approval_id:
             return {"ok": False, "error": "id is required"}
         engine = _engine()
         try:
+            if approval_id.startswith("apr-"):
+                return _decide_stealth_approval(base, engine, approval_id, data)
             return engine.decide_action_approval(
                 approval_id, approved=bool(data.get("approved")), actor=str(data.get("actor") or "console-user")
             )
@@ -860,10 +937,21 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 engine.close()
 
     def auth_approval_pending(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Pending approvals from the canonical store plus stealth asks.
+
+        Connector items come from the durable authority; stealth loop items
+        (source "stealth") are the loop queue mirrored there — one Trust
+        surface for both, decided in one place.
+        """
         data = _body(ctx)
+        entity_id = str(data.get("entity_id") or "console-user")
         engine = _engine()
         try:
-            return engine.pending_action_approvals(str(data.get("entity_id") or "console-user"))
+            connector = engine.pending_action_approvals(entity_id)["approvals"]
+            for item in connector:
+                item["source"] = "connector"
+            stealth = _stealth_pending_approvals(base, engine)
+            return {"ok": True, "approvals": [*connector, *stealth]}
         finally:
             with suppress(Exception):
                 engine.close()

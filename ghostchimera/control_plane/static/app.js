@@ -2867,7 +2867,7 @@
         main.appendChild(title);
         var meta = el("div", { class: "meta" });
         var secs = Math.max(0, Math.round(a.expires_at - Date.now() / 1000));
-        meta.textContent = a.url + (a.scope ? "  ·  scope: " + a.scope : "") +
+        meta.textContent = (a.source ? "[" + a.source + "] " : "") + a.url + (a.scope ? "  ·  scope: " + a.scope : "") +
           "  ·  expires in " + secs + "s  ·  by " + (a.requested_by || "unknown");
         main.appendChild(meta);
         item.appendChild(main);

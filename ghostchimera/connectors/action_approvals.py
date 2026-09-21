@@ -203,6 +203,32 @@ class ActionApprovalStore:
             for r in rows
         ]
 
+    def describe(self, approval_id: str) -> dict[str, Any] | None:
+        """Fetch one record by id (for cross-system sync). Redacted summary only."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id, entity_id, provider, method, url, scope, summary,"
+                " state, requested_by, decided_by, created_at, expires_at"
+                " FROM action_approvals WHERE id = ?",
+                (approval_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "entity_id": row[1],
+            "provider": row[2],
+            "method": row[3],
+            "url": row[4],
+            "scope": row[5],
+            "summary": row[6],
+            "state": row[7],
+            "requested_by": row[8],
+            "decided_by": row[9],
+            "created_at": row[10],
+            "expires_at": row[11],
+        }
+
     def sweep(self) -> int:
         now = time.time()
         with self._lock:
