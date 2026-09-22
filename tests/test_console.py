@@ -449,7 +449,16 @@ class ConsoleRouteTests(unittest.TestCase):
         self.assertIsNotNone(route)
 
         with (
-            patch.dict("os.environ", {"GHOSTCHIMERA_GITHUB_CLIENT_ID": "", "GITHUB_CLIENT_ID": ""}, clear=False),
+            patch.dict(
+                "os.environ",
+                {
+                    "GHOSTCHIMERA_GITHUB_CLIENT_ID": "",
+                    "GITHUB_CLIENT_ID": "",
+                    "GHOSTCHIMERA_GITHUB_TOKEN": "",
+                    "GITHUB_TOKEN": "",
+                },
+                clear=False,
+            ),
             patch(
                 "ghostchimera.integrations.github_client.GitHubClient.get_json",
                 return_value={"login": "octocat", "name": "Octo Cat", "html_url": "https://github.com/octocat"},

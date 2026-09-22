@@ -141,6 +141,13 @@ $env:SALESFORCE_LOGIN_HOST = "example.my.salesforce.com"  # or test.salesforce.c
 
 - Client IDs are public identifiers — safe in the local config file.
   **Secrets and tokens are never committed**: keep them in env vars.
+- Two storage tiers exist — know which you are using:
+  - **Encrypted vault** (`auth.sqlite3`, Fernet): OAuth access/refresh
+    tokens, pasted API keys, app passwords. Never displayed back.
+  - **Plaintext local config** (`config.json`, `.env`): model API keys,
+    OAuth client IDs/secrets saved via the console. Owner-only on disk
+    (`0600` files, `0700` dirs on POSIX, atomic writes) but NOT
+    encrypted — prefer env vars or the vault for shared machines.
 - `SHIPPED_CLIENT_IDS` in `auth_engine.py` is intentionally empty in the
   public repo. Do not paste your private client IDs there — use env or
   the Integrations tab.

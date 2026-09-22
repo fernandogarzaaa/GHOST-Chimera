@@ -322,7 +322,18 @@ def _write_env_file(config_file: Path, env_vars: dict[str, str]) -> Path:
     env_file = config_file.parent / ".env"
     config_file.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"{key}={value}" for key, value in sorted(env_vars.items()) if value]
-    env_file.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    # Atomic private write: provider secrets duplicate into .env, so it is
+    # owner-only (0600 on POSIX) regardless of umask, like config.json.
+    tmp = env_file.parent / f".env.{os.getpid()}.tmp"
+    try:
+        tmp.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+        if os.name == "posix":
+            with contextlib.suppress(OSError):
+                os.chmod(tmp, 0o600)
+        os.replace(tmp, env_file)
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
     return env_file
 
 
@@ -5800,7 +5811,9 @@ def run_console(
         config = replace(
             config, state_dir=resolved, memory_db=resolved / "memory.sqlite3", audit_file=resolved / "audit.json"
         )
-    server = GatewayServer(host=host, port=port, http_port=_resolve_http_port(http_port), config=config)
+    server = GatewayServer(
+        host=host, port=port, http_port=_resolve_http_port(http_port), config=config, auth_token=auth_token or ""
+    )
     _register_static_routes(server)
     register_console_routes(
         server,
@@ -5843,7 +5856,10 @@ def run_console(
     url = _console_url(server)
     print(f"Ghost Console: {url}")
     if auth_token:
-        print(f"Auth token required — set X-Gateway-Token header: {auth_token}")
+        # The value itself is never printed: it would leak into terminal
+        # scrollback, Docker logs, CI logs, and support captures. The
+        # operator already holds it (argument, file, or environment).
+        print("Auth token required — set the X-Gateway-Token header (and ?token= for WebSocket).")
     if open_browser:
         webbrowser.open(url)
     if block:

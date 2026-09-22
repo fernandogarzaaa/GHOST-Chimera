@@ -7,7 +7,9 @@ is the canonical config written by the setup wizard.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -30,20 +32,41 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
         return {}
 
 
+def _private_mode(path: Path, mode: int) -> None:
+    """Best-effort owner-only permissions (POSIX; Windows uses directory ACLs)."""
+    if os.name != "posix":
+        return
+    with contextlib.suppress(OSError):
+        os.chmod(path, mode)
+
+
 def save_config(config: dict[str, Any], path: Path | None = None) -> None:
-    """Write config to disk, creating parent dirs if needed."""
+    """Write config to disk, creating parent dirs if needed.
+
+    The config file routinely holds API keys and client secrets, so it is
+    always created owner-only (0600 on POSIX) regardless of umask.
+    """
     if path is None:
         path = CONFIG_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(config, f, indent=2, sort_keys=True)
+    _private_mode(path.parent, 0o700)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "w") as f:
+            json.dump(config, f, indent=2, sort_keys=True)
+        _private_mode(tmp, 0o600)
+        os.replace(tmp, path)
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
 
 
 def ensure_state_dir(path: Path | None = None) -> Path:
-    """Ensure the state directory exists."""
+    """Ensure the state directory exists (owner-only on POSIX)."""
     if path is None:
         path = DEFAULT_STATE_DIR
     path.mkdir(parents=True, exist_ok=True)
+    _private_mode(path, 0o700)
     return path
 
 
