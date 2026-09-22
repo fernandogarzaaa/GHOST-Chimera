@@ -6,6 +6,8 @@ import os
 import sys
 import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from ghostchimera.chimera_pilot.gateway_server import GatewayServer
 from ghostchimera.control_plane.console import register_console_routes
@@ -51,6 +53,36 @@ class LocalVoiceTranscriberTests(unittest.TestCase):
             self.assertEqual(result["provider"], "custom-command")
             self.assertEqual(result["transcript"], "hello local ghost")
             self.assertFalse(result["raw_audio_stored"])
+
+    def test_custom_command_audio_path_is_single_argument(self) -> None:
+        """A hostile audio path must not escape into shell metacharacters."""
+        import subprocess as _subprocess
+
+        captured: dict[str, object] = {}
+
+        def fake_run(argv, **kwargs):
+            captured["argv"] = argv
+            captured["shell"] = kwargs.get("shell")
+
+            class _Done:
+                returncode = 0
+                stdout = "ok"
+                stderr = ""
+
+            return _Done()
+
+        with tempfile.TemporaryDirectory(prefix="ghost-local-voice-") as tmp:
+            nasty = Path(tmp) / "clip; rm -rf ~.wav"
+            nasty.write_bytes(b"x" * 2048)
+            os.environ["GHOSTCHIMERA_LOCAL_STT_COMMAND"] = "stt-bin --input {audio} --flag"
+            with mock.patch.object(_subprocess, "run", fake_run):
+                result = LocalVoiceTranscriber(tmp).transcribe_file(nasty)
+            self.assertTrue(result["ok"])
+            self.assertFalse(captured["shell"])
+            argv = captured["argv"]
+            assert isinstance(argv, list)
+            self.assertIn(str(nasty), argv)
+            self.assertNotIn("clip;", argv)
 
     def test_invalid_audio_base64_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghost-local-voice-") as tmp:

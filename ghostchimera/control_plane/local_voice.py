@@ -93,6 +93,13 @@ def _audio_suffix(mime_type: str, filename: str = "") -> str:
     return ".webm"
 
 
+def _strip_quotes(part: str) -> str:
+    """Remove one layer of matching quotes (Windows non-POSIX shlex keeps them)."""
+    if len(part) >= 2 and part[0] == part[-1] and part[0] in ("'", '"'):
+        return part[1:-1]
+    return part
+
+
 class LocalVoiceTranscriber:
     """Best-effort local STT provider adapter.
 
@@ -308,13 +315,24 @@ class LocalVoiceTranscriber:
         return known
 
     def _transcribe_custom_command(self, audio_path: Path) -> str:
+        import shlex
+
         command = os.environ.get("GHOSTCHIMERA_LOCAL_STT_COMMAND", "").strip()
         if not command:
             raise RuntimeError("GHOSTCHIMERA_LOCAL_STT_COMMAND is not configured")
-        rendered = command.replace("{audio}", str(audio_path))
+        # No shell: split the operator template and substitute the audio
+        # path as a single argument, so a hostile path can never escape
+        # into shell metacharacters. Templates without {audio} run as-is
+        # (they are expected to source audio themselves).
+        if os.name == "nt":
+            argv = [
+                _strip_quotes(part).replace("{audio}", str(audio_path)) for part in shlex.split(command, posix=False)
+            ]
+        else:
+            argv = [part.replace("{audio}", str(audio_path)) for part in shlex.split(command, posix=True)]
         completed = subprocess.run(
-            rendered,
-            shell=True,
+            argv,
+            shell=False,
             check=False,
             capture_output=True,
             text=True,

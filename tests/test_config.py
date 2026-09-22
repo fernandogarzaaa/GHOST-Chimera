@@ -260,5 +260,28 @@ class GhostChimeraConfigTests(unittest.TestCase):
         self.assertEqual(payload["policy"]["denied_desktop_windows"], ["Admin"])
 
 
+class SecretFileModeTests(unittest.TestCase):
+    def test_save_config_round_trips(self) -> None:
+        from ghostchimera.control_plane.config import load_config, save_config
+
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-config-mode-") as tmp:
+            path = Path(tmp) / "config.json"
+            save_config({"model": {"api_key": "sk-test"}}, path)
+            self.assertEqual(load_config(path), {"model": {"api_key": "sk-test"}})
+
+    @unittest.skipIf(os.name != "posix", "POSIX permission bits only")
+    def test_save_config_is_owner_only(self) -> None:
+        import stat
+
+        from ghostchimera.control_plane.config import ensure_state_dir, save_config
+
+        with tempfile.TemporaryDirectory(prefix="ghostchimera-config-mode-") as tmp:
+            state = ensure_state_dir(Path(tmp) / "sub")
+            self.assertEqual(stat.S_IMODE(os.stat(state).st_mode), 0o700)
+            path = state / "config.json"
+            save_config({"model": {"api_key": "sk-test"}}, path)
+            self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
+
+
 if __name__ == "__main__":
     unittest.main()

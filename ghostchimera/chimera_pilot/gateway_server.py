@@ -325,9 +325,14 @@ class GatewayServer(BackgroundService):
         port: int = PORT,
         config: GhostChimeraConfig | None = None,
         http_port: int | None = None,
+        auth_token: str = "",
     ):
         self.host = host
         self.port = port
+        # Console token also guarding the WebSocket listener. Empty means
+        # local single-user default (same posture as before this change);
+        # when set, every WS handshake must present it.
+        self._ws_token = str(auth_token or "")
         env_http_port = os.environ.get("GHOSTCHIMERA_HTTP_PORT")
         if http_port is not None:
             self.http_port = http_port
@@ -746,10 +751,77 @@ class GatewayServer(BackgroundService):
         self._http_thread.start()
         logger.info("HTTP route server listening on http://%s:%d", self.host, self.http_port)
 
-    async def _handle_connection(self, websocket, path) -> None:
-        """Handle incoming WebSocket connection — create or resume session."""
+    def _ws_handshake_token(self, websocket: Any, path: str) -> str:
+        """Extract a presented console token from a WS handshake (any source)."""
+        import urllib.parse
+
+        query = urllib.parse.urlparse(path).query
+        params = urllib.parse.parse_qs(query)
+        if params.get("token", [""])[0].strip():
+            return params["token"][0].strip()
+        headers = {}
+        try:
+            raw_headers = getattr(getattr(websocket, "request", None), "headers", None)
+            if raw_headers is not None:
+                headers = {str(k).lower(): str(v) for k, v in dict(raw_headers).items()}
+        except Exception:
+            headers = {}
+        bearer = headers.get("authorization", "")
+        if bearer.lower().startswith("bearer "):
+            return bearer[7:].strip()
+        return headers.get("x-gateway-token", "").strip()
+
+    def _ws_origin_allowed(self, websocket: Any) -> bool:
+        """Browser-origin check: absent Origin (non-browser) always passes;
+        a present Origin must resolve to this host or a loopback name."""
+        import urllib.parse
+
+        try:
+            raw_headers = getattr(getattr(websocket, "request", None), "headers", None)
+            headers = {str(k).lower(): str(v) for k, v in dict(raw_headers).items()} if raw_headers else {}
+        except Exception:
+            return True
+        origin = headers.get("origin", "").strip()
+        if not origin:
+            return True
+        try:
+            host = (urllib.parse.urlparse(origin).hostname or "").lower()
+        except Exception:
+            return False
+        allowed = {str(self.host).lower(), "localhost", "127.0.0.1", "::1"}
+        return host in allowed
+
+    def _ws_authorized(self, websocket: Any, path: str) -> bool:
+        """Handshake gate: token (when configured) + browser origin."""
+        import secrets as _secrets
+
+        if not self._ws_origin_allowed(websocket):
+            return False
+        if not self._ws_token:
+            return True
+        presented = self._ws_handshake_token(websocket, path)
+        return bool(presented) and _secrets.compare_digest(presented, self._ws_token)
+
+    async def _handle_connection(self, websocket: Any, path: str | None = None) -> None:
+        """Handle incoming WebSocket connection — create or resume session.
+
+        Compatible with both handler APIs: legacy ``websockets`` (<13)
+        passes ``(websocket, path)``; modern versions pass only the
+        connection, in which case the path is derived from the request.
+        Unauthorized handshakes are rejected before any session exists.
+        """
         import uuid
 
+        if path is None:
+            try:
+                path = str(getattr(getattr(websocket, "request", None), "path", "") or "/")
+            except Exception:
+                path = "/"
+        if not self._ws_authorized(websocket, path):
+            with contextlib.suppress(Exception):
+                await websocket.close(code=1008, reason="unauthorized")
+            logger.warning("Rejected unauthorized WebSocket handshake for %s", path)
+            return
         session_id = f"ws-{uuid.uuid4().hex[:8]}"
         await self.handle_client(websocket, session_id)
 
