@@ -124,11 +124,160 @@ class ApprovalRequest:
 
 
 class ApprovalQueue:
-    """Bounded store for approval requests; refuses (never recycles) when full."""
+    """Bounded store for approval requests; refuses (never recycles) when full.
+
+    Optionally attached to a durable authority
+    (connectors ActionApprovalStore): every request is mirrored there under
+    provider "stealth" so asks survive restarts and appear in the canonical
+    Trust surface; decisions in either place are reflected in the other via
+    sync(). Without an attached authority the queue behaves exactly as
+    before (in-memory only).
+    """
 
     def __init__(self, *, max_pending: int = MAX_PENDING_APPROVALS) -> None:
         self.max_pending = max(1, max_pending)
         self._requests: dict[str, ApprovalRequest] = {}
+        self._authority: Any = None
+        self._authority_entity = "stealth"
+
+    def attach_authority(self, store: Any, *, entity_id: str = "stealth") -> None:
+        """Write-through durable backend (ActionApprovalStore).
+
+        Pre-existing pending items are mirrored immediately, and durable
+        pending stealth records unknown here (e.g. from before a restart)
+        are imported — so no ask is lost in either direction.
+        """
+        self._authority = store
+        self._authority_entity = entity_id
+        for item in self._requests.values():
+            if item.state == ApprovalState.PENDING and not item.details.get("authority_id"):
+                self._mirror_request(item)
+        self._import_durable_pending()
+        self.sync()
+
+    def _import_durable_pending(self) -> int:
+        """Reconstruct queue items from durable stealth records (restart recovery)."""
+        if self._authority is None:
+            return 0
+        try:
+            records = self._authority.pending(self._authority_entity)
+        except Exception:
+            return 0
+        known = {item.details.get("authority_id") for item in self._requests.values()}
+        imported = 0
+        for record in records:
+            if record.get("provider") != "stealth" or record.get("id") in known:
+                continue
+            url = str(record.get("url") or "")
+            source_kind, _, source_id = url.removeprefix("stealth://").partition("/")
+            try:
+                expires_in = max(1.0, float(record.get("expires_at", 0) or 0) - time.time())
+            except (TypeError, ValueError):
+                continue
+            if expires_in <= 0:
+                continue
+            item = ApprovalRequest(
+                id=new_event_id("apr"),
+                subject=str(record.get("summary") or "stealth approval"),
+                body="",
+                workflow=str(record.get("scope") or ""),
+                source_kind=source_kind or "unknown",
+                source_id=source_id,
+                requested_by=str(record.get("requested_by") or ""),
+                created_at=float(record.get("created_at", 0) or time.time()),
+                expires_at=time.time() + expires_in,
+                details={"authority_id": record["id"], "imported": True},
+            )
+            self._requests[item.id] = item
+            imported += 1
+        return imported
+
+    def _mirror_request(self, item: ApprovalRequest) -> None:
+        if self._authority is None:
+            return
+        try:
+            remaining = max(1.0, float(item.expires_at - item.created_at))
+            created = self._authority.request(
+                self._authority_entity,
+                "stealth",
+                "APPROVE",
+                f"stealth://{item.source_kind}/{item.source_id or item.id}",
+                {"subject": item.subject, "body": item.body, "risk": item.risk, "details": item.details},
+                scope=item.workflow,
+                summary=item.subject[:300],
+                requested_by=item.requested_by,
+                ttl_s=remaining,
+            )
+            item.details = {**item.details, "authority_id": created["id"]}
+        except Exception:
+            pass
+
+    def _decide_durable_first(self, item: ApprovalRequest, *, approved: bool, actor: str) -> bool:
+        """Decide the durable record before touching local state.
+
+        Returns True only when the authority confirms the requested
+        outcome. An EXPIRED (or otherwise non-matching) authority marks
+        the local item expired and reports failure — local state is never
+        finalized ahead of the canonical record.
+        """
+        if self._authority is None:
+            return True
+        authority_id = item.details.get("authority_id", "")
+        if not authority_id:
+            return True
+        try:
+            result = self._authority.decide(authority_id, approved=approved, actor=actor or "stealth-loop")
+        except Exception:
+            return False
+        want = "APPROVED" if approved else "DENIED"
+        if isinstance(result, dict) and result.get("state") == want:
+            return True
+        if isinstance(result, dict) and result.get("state") == "EXPIRED":
+            item.state = ApprovalState.EXPIRED
+        return False
+
+    def sync(self, now: float | None = None) -> int:
+        """Pull external decisions from the authority into memory.
+
+        Returns the number of items updated. Items decided in the Trust UI
+        (or expired there) are reflected here; unknown here but pending
+        there are NOT imported (stealth asks originate in the loop).
+        """
+        if self._authority is None:
+            return 0
+        moment = now if now is not None else time.time()
+        updated = 0
+        try:
+            states = {item.details.get("authority_id"): item for item in self._requests.values()}
+            states.pop("", None)
+            if not states:
+                return 0
+            # The authority store is the source of truth for mirrored state.
+            # It expires lazily, so apply the TTL here as well as the state.
+            for authority_id, item in states.items():
+                try:
+                    record = self._authority.describe(authority_id)
+                except Exception:
+                    continue
+                if record is None:
+                    continue
+                state = str(record.get("state", ""))
+                overdue = moment >= float(record.get("expires_at", 0) or 0)
+                if state == "APPROVED" and item.state == ApprovalState.PENDING:
+                    item.state = ApprovalState.APPROVED
+                    item.decided_by = str(record.get("decided_by", "") or "trust-ui")
+                    updated += 1
+                elif state == "DENIED" and item.state == ApprovalState.PENDING:
+                    item.state = ApprovalState.DENIED
+                    item.decided_by = str(record.get("decided_by", "") or "trust-ui")
+                    updated += 1
+                elif state == "EXPIRED" or (overdue and item.state == ApprovalState.PENDING):
+                    item.state = ApprovalState.EXPIRED
+                    updated += 1
+            updated += self.sweep(moment)
+        except Exception:
+            pass
+        return updated
 
     def _has_room(self) -> bool:
         return sum(1 for item in self._requests.values() if not item.terminal()) < self.max_pending
@@ -166,6 +315,7 @@ class ApprovalQueue:
             expires_at=moment + (ttl_s if ttl_s is not None else DEFAULT_APPROVAL_TTL_S),
         )
         self._requests[item.id] = item
+        self._mirror_request(item)
         return item
 
     def request_for_proposal(
@@ -217,11 +367,19 @@ class ApprovalQueue:
 
     def approve(self, request_id: str, actor: str, note: str = "", *, now: float | None = None) -> bool:
         item = self._requests.get(request_id)
-        return item.approve(actor, note, now=now) if item is not None else False
+        if item is None:
+            return False
+        if not self._decide_durable_first(item, approved=True, actor=actor):
+            return False
+        return item.approve(actor, note, now=now)
 
     def deny(self, request_id: str, actor: str, note: str = "", *, now: float | None = None) -> bool:
         item = self._requests.get(request_id)
-        return item.deny(actor, note, now=now) if item is not None else False
+        if item is None:
+            return False
+        if not self._decide_durable_first(item, approved=False, actor=actor):
+            return False
+        return item.deny(actor, note, now=now)
 
     def pending(self) -> list[ApprovalRequest]:
         return sorted(

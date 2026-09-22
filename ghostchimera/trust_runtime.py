@@ -98,6 +98,9 @@ class ApprovalCheckpoint:
     resolved_at: float = 0.0
     decision: str = ""
     reviewer: str = ""
+    # Canonical authority record backing this checkpoint (connectors
+    # ActionApprovalStore id). Empty when the checkpoint is standalone.
+    authority_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return _redact_value(asdict(self))
@@ -389,6 +392,7 @@ class TrustRuntimeStore:
         risk_level: str = "medium",
         requested_by: str = "",
         metadata: dict[str, Any] | None = None,
+        authority_id: str = "",
     ) -> dict[str, Any]:
         summary = summary or reason
         approval_id = _stable_id(run_id, step_id, summary or _now(), length=18)
@@ -398,6 +402,7 @@ class TrustRuntimeStore:
             step_id=step_id or "manual",
             summary=summary,
             risk_level=risk_level,
+            authority_id=str(authority_id or ""),
         ).to_dict()
         checkpoint["id"] = approval_id
         if requested_by:
@@ -419,7 +424,15 @@ class TrustRuntimeStore:
         self._touch_run(run_id, status="pending_approval")
         return checkpoint
 
-    def resolve_approval(self, approval_id: str, decision: str, *, reviewer: str = "operator") -> dict[str, Any]:
+    def resolve_approval(
+        self, approval_id: str, decision: str, *, reviewer: str = "operator", authority: Any = None
+    ) -> dict[str, Any]:
+        """Resolve a checkpoint, cascading to the canonical authority record.
+
+        When the checkpoint carries an authority_id and an authority store
+        is supplied, the same decision lands there too, so the Trust UI,
+        the loop queue, and the connector gate never disagree.
+        """
         decision = decision.strip().lower()
         if decision not in {"approved", "denied"}:
             raise ValueError("decision must be approved or denied")
@@ -437,6 +450,23 @@ class TrustRuntimeStore:
         checkpoint["decision"] = decision
         checkpoint["reviewer"] = reviewer
         checkpoint["resolved_at"] = _now()
+        if authority is not None and checkpoint.get("authority_id"):
+            # Authority first: only finalize the checkpoint when the
+            # canonical record confirms the same outcome. A mismatch
+            # (expired, already used) leaves the checkpoint pending.
+            try:
+                outcome = authority.decide(
+                    str(checkpoint["authority_id"]), approved=decision == "approved", actor=reviewer
+                )
+            except Exception as exc:
+                outcome = {"state": "ERROR", "error": f"{type(exc).__name__}: {exc}"}
+            want = "APPROVED" if decision == "approved" else "DENIED"
+            if not isinstance(outcome, dict) or outcome.get("state") != want:
+                return {
+                    "ok": False,
+                    "error": f"authority did not confirm {decision} (state: {outcome.get('state') if isinstance(outcome, dict) else 'error'}).",
+                    "approval": _redact_value(checkpoint),
+                }
         approvals[approval_id] = checkpoint
         self._write_json(self.approvals_path, approvals)
         self.record_step(
