@@ -200,22 +200,22 @@ def first_run_status(state_dir: str | Path) -> dict[str, Any]:
     return {"ok": True, "steps": steps, "done_count": done, "total": len(steps), "first_run": not model_configured}
 
 
-def _stealth_loop_with_authority(base: Path, engine: Any) -> Any:
-    """Service loop with its approval queue bridged to the canonical store."""
+def _stealth_loop_with_authority(base: Path) -> Any:
+    """Service loop whose queue is bridged to the process-local authority.
+
+    The authority store is owned by the service layer (never closed), so —
+    unlike a per-request engine store — the bridged queue never operates
+    on a dead SQLite connection.
+    """
     from .stealth_service import get_service_loop
 
-    loop = get_service_loop(base)
-    queue = getattr(loop, "approvals", None)
-    if queue is not None and getattr(queue, "_authority", None) is None:
-        with suppress(Exception):
-            queue.attach_authority(engine.actions)
-    return loop
+    return get_service_loop(base)
 
 
-def _stealth_pending_approvals(base: Path, engine: Any) -> list[dict[str, Any]]:
+def _stealth_pending_approvals(base: Path) -> list[dict[str, Any]]:
     """Stealth loop asks mapped onto the Trust item shape (source stealth)."""
     try:
-        loop = _stealth_loop_with_authority(base, engine)
+        loop = _stealth_loop_with_authority(base)
     except Exception:
         return []
     queue = getattr(loop, "approvals", None)
@@ -247,7 +247,7 @@ def _stealth_pending_approvals(base: Path, engine: Any) -> list[dict[str, Any]]:
 def _decide_stealth_approval(base: Path, engine: Any, approval_id: str, data: dict[str, Any]) -> dict[str, Any]:
     """Decide a stealth ask through the loop queue (cascades to durable)."""
     try:
-        loop = _stealth_loop_with_authority(base, engine)
+        loop = _stealth_loop_with_authority(base)
     except Exception as exc:
         return {"ok": False, "error": f"stealth loop unavailable: {type(exc).__name__}"}
     queue = getattr(loop, "approvals", None)
@@ -941,17 +941,25 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
 
         Connector items come from the durable authority; stealth loop items
         (source "stealth") are the loop queue mirrored there — one Trust
-        surface for both, decided in one place.
+        surface for both, decided in one place. Mirrored stealth records
+        (provider "stealth") are excluded from the connector list to avoid
+        showing the same ask twice; for entity "stealth" the durable
+        records are shown directly without queue mapping.
         """
         data = _body(ctx)
         entity_id = str(data.get("entity_id") or "console-user")
         engine = _engine()
         try:
             connector = engine.pending_action_approvals(entity_id)["approvals"]
-            for item in connector:
+            if entity_id == "stealth":
+                for item in connector:
+                    item["source"] = "connector"
+                return {"ok": True, "approvals": connector}
+            visible = [item for item in connector if item.get("provider") != "stealth"]
+            for item in visible:
                 item["source"] = "connector"
-            stealth = _stealth_pending_approvals(base, engine)
-            return {"ok": True, "approvals": [*connector, *stealth]}
+            stealth = _stealth_pending_approvals(base)
+            return {"ok": True, "approvals": [*visible, *stealth]}
         finally:
             with suppress(Exception):
                 engine.close()

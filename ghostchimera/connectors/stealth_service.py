@@ -53,8 +53,28 @@ def draft_actions(intervention: Any) -> list[dict[str, Any]]:
     return [a for a in actions if isinstance(a, dict)]
 
 
-_lock = threading.Lock()
+_lock = threading.RLock()
 _loops: dict[str, Any] = {}
+_authorities: dict[str, Any] = {}
+
+
+def get_authority_store(state_dir: str | Path) -> Any:
+    """Process-local canonical approval store (one per state dir).
+
+    Unlike per-request engine stores, this connection is never closed for
+    the life of the process: the stealth loop's bridged queue holds it
+    across requests, and a closed SQLite connection would silently drop
+    mirrors and syncs (suppressed as ProgrammingError).
+    """
+    from .action_approvals import ActionApprovalStore
+
+    key = str(Path(state_dir))
+    with _lock:
+        store = _authorities.get(key)
+        if store is None:
+            store = ActionApprovalStore(Path(key))
+            _authorities[key] = store
+        return store
 
 
 def get_service_loop(state_dir: str | Path) -> Any:
@@ -72,6 +92,10 @@ def get_service_loop(state_dir: str | Path) -> Any:
                 store=StealthStore(Path(key) / "ghost-stealth.sqlite3"),
             )
             _loops[key] = loop
+        queue = getattr(loop, "approvals", None)
+        if queue is not None and getattr(queue, "_authority", None) is None:
+            with suppress(Exception):
+                queue.attach_authority(get_authority_store(key))
         return loop
 
 

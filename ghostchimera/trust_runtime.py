@@ -450,12 +450,23 @@ class TrustRuntimeStore:
         checkpoint["decision"] = decision
         checkpoint["reviewer"] = reviewer
         checkpoint["resolved_at"] = _now()
-        authority_error = ""
         if authority is not None and checkpoint.get("authority_id"):
+            # Authority first: only finalize the checkpoint when the
+            # canonical record confirms the same outcome. A mismatch
+            # (expired, already used) leaves the checkpoint pending.
             try:
-                authority.decide(str(checkpoint["authority_id"]), approved=decision == "approved", actor=reviewer)
+                outcome = authority.decide(
+                    str(checkpoint["authority_id"]), approved=decision == "approved", actor=reviewer
+                )
             except Exception as exc:
-                authority_error = f"{type(exc).__name__}: {exc}"
+                outcome = {"state": "ERROR", "error": f"{type(exc).__name__}: {exc}"}
+            want = "APPROVED" if decision == "approved" else "DENIED"
+            if not isinstance(outcome, dict) or outcome.get("state") != want:
+                return {
+                    "ok": False,
+                    "error": f"authority did not confirm {decision} (state: {outcome.get('state') if isinstance(outcome, dict) else 'error'}).",
+                    "approval": _redact_value(checkpoint),
+                }
         approvals[approval_id] = checkpoint
         self._write_json(self.approvals_path, approvals)
         self.record_step(
@@ -467,10 +478,7 @@ class TrustRuntimeStore:
             idempotency_key=f"{checkpoint['run_id']}:approval_resolved:{approval_id}",
         )
         self._touch_run(str(checkpoint["run_id"]), status="resumable" if decision == "approved" else "denied")
-        result: dict[str, Any] = {"ok": True, "approval": _redact_value(checkpoint)}
-        if authority_error:
-            result["authority_error"] = authority_error
-        return result
+        return {"ok": True, "approval": _redact_value(checkpoint)}
 
     def resume_run(self, run_id: str) -> dict[str, Any]:
         run = self.get_run(run_id)
