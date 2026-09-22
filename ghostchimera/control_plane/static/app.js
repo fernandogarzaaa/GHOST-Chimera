@@ -122,13 +122,39 @@
   ].join(" ");
 
   // ── Token auth ───────────────────────────────────────────────────────────
+  // Threat model: the token unlocks this console's API on this machine.
+  // Stored in sessionStorage (dies with the session) rather than
+  // localStorage; a pre-existing localStorage token is migrated once and
+  // removed. In-memory state.token is the runtime source of truth.
+  // Follow-up: HttpOnly cookie or OS-keyring-backed session.
+  var TOKEN_KEY = "ghostchimera_console_token";
+  function readStoredToken() {
+    var t = "";
+    try { t = sessionStorage.getItem(TOKEN_KEY) || ""; } catch (_) {}
+    if (!t) {
+      try { t = localStorage.getItem(TOKEN_KEY) || ""; } catch (_) {}
+      if (t) {
+        try { sessionStorage.setItem(TOKEN_KEY, t); } catch (_) {}
+        try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
+      }
+    }
+    return t;
+  }
+  function writeStoredToken(t) {
+    try { sessionStorage.setItem(TOKEN_KEY, t); } catch (_) {}
+    try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
+  }
+  function clearStoredToken() {
+    try { sessionStorage.removeItem(TOKEN_KEY); } catch (_) {}
+    try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
+  }
   function showTokenOverlay() { $("#tokenOverlay").style.display = "flex"; }
   function hideTokenOverlay() { $("#tokenOverlay").style.display = "none"; }
   $("#tokenSubmit").addEventListener("click", function() {
     var t = ($("#tokenInput").value || "").trim();
     if (!t) return;
     state.token = t;
-    try { localStorage.setItem("ghostchimera_console_token", t); } catch (_) {}
+    writeStoredToken(t);
     hideTokenOverlay();
     refreshStatus();
   });
@@ -138,8 +164,7 @@
     try {
       var meta = await fetch("/api/console/token").then(function(r) { return r.json(); });
       if (meta && meta.auth_enabled) {
-        var stored = "";
-        try { stored = localStorage.getItem("ghostchimera_console_token") || ""; } catch (_) {}
+        var stored = readStoredToken();
         if (stored) { state.token = stored; } else { showTokenOverlay(); }
       }
     } catch (_) {}
@@ -153,8 +178,29 @@
     return name.indexOf("tab-") === 0 ? name.slice(4) : name;
   }
 
+  // Tab registry: the only legal tab names, read from the DOM once.
+  // All navigation resolves through this whitelist — untrusted input
+  // (URL hash, stored values) is never interpolated into a selector.
+  var KNOWN_TABS = null;
+  function knownTabs() {
+    if (!KNOWN_TABS) {
+      KNOWN_TABS = [];
+      $$$(".tab").forEach(function(t) {
+        var n = t.getAttribute("data-tab") || "";
+        if (/^[a-z0-9-]+$/.test(n)) KNOWN_TABS.push(n);
+      });
+    }
+    return KNOWN_TABS;
+  }
   function tabExists(name) {
-    return !!$(".tab[data-tab='" + name + "']");
+    return knownTabs().indexOf(String(name || "")) !== -1;
+  }
+  function tabElement(name) {
+    var found = null;
+    $$$(".tab").forEach(function(t) {
+      if (t.getAttribute("data-tab") === name) found = t;
+    });
+    return found;
   }
 
   function activateTab(name, opts) {
@@ -162,8 +208,8 @@
     var options = opts || {};
     $$$(".tab").forEach(function(t) { t.classList.remove("active"); });
     $$$(".tab-content").forEach(function(c) { c.classList.remove("active"); });
-    var tab = $(".tab[data-tab='" + target + "']");
-    var content = $("#tab-" + target);
+    var tab = tabElement(target);
+    var content = document.getElementById("tab-" + target);
     if (tab) tab.classList.add("active");
     if (content) content.classList.add("active");
     showTabGroup(target === "operator" ? persistedGroup() : groupOfTab(target));
@@ -296,7 +342,7 @@
     var r = await fetch(path, opts);
     if (r.status === 401) {
       state.token = "";
-      try { localStorage.removeItem("ghostchimera_console_token"); } catch (_) {}
+      clearStoredToken();
       showTokenOverlay();
       throw new Error("Unauthorized — enter the console token");
     }
@@ -4597,10 +4643,12 @@
 
   // Personal MiniMind
   function pathLines(id) {
-    return ($("#" + id).value || "").split(/\r?\n/).map(function(x) { return x.trim(); }).filter(Boolean);
+    var node = document.getElementById(id);
+    return ((node && node.value) || "").split(/\r?\n/).map(function(x) { return x.trim(); }).filter(Boolean);
   }
   function setPathLines(id, values) {
-    $("#" + id).value = Array.isArray(values) ? values.join("\n") : "";
+    var node = document.getElementById(id);
+    if (node) node.value = Array.isArray(values) ? values.join("\n") : "";
   }
   function pmOut(r) { $("#pmOutput").textContent = JSON.stringify(r, null, 2); }
   function renderEmailOAuthStatus(data) {

@@ -5873,6 +5873,22 @@ def _static_dir() -> Path:
     return _STATIC_DIR
 
 
+# Defense-in-depth browser policy for the console's own assets. No inline
+# scripts exist (single external app.js), so scripts stay 'self'-only.
+# Inline styles are still widespread: style-src keeps 'unsafe-inline'
+# until the CSS migration completes (audit P2). Tighten then.
+CONSOLE_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "frame-ancestors 'self'"
+)
+
+
 def _register_static_routes(server: GatewayServer) -> None:
     """
     Register HTTP routes that serve packaged static console assets.
@@ -5904,7 +5920,9 @@ def _register_static_routes(server: GatewayServer) -> None:
             Returns:
                 Callable[[dict[str, Any]], HttpResponse]: A handler that accepts a request context and returns an HttpResponse with `body` set to `data` and `content_type` set to `ct_`.
             """
-            return lambda ctx: HttpResponse(body=data, content_type=ct_)
+            return lambda ctx: HttpResponse(
+                body=data, content_type=ct_, headers={"Content-Security-Policy": CONSOLE_CSP}
+            )
 
         if rel == "index.html":
             server.routes.register(

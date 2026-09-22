@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import threading
 import unittest
@@ -20,6 +21,60 @@ from ghostchimera.chimera_pilot.mcp_wrapper import (
     list_available_tools,
     register_mcp_server,
 )
+
+_CANDIDATE_BASES = (49311, 49411, 49511, 49611, 49711)
+
+
+def claim_port_block(testcase: unittest.TestCase, size: int, *, occupied: tuple[int, ...] = ()) -> int:
+    """Return a base port with `size` consecutive free ports, or skip.
+
+    Ports listed in `occupied` (offsets from base) stay bound for the
+    test duration; the rest are released immediately before return. Shared
+    CI runners hand ephemeral source ports across the whole range, so
+    hardcoded binds flaked with EADDRINUSE — and even a verified-free port
+    can be squatted between release and use, hence the retry wrapper below.
+    """
+    for base in _CANDIDATE_BASES:
+        holders: dict[int, socket.socket] = {}
+        try:
+            for offset in range(size):
+                holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                holder.bind(("127.0.0.1", base + offset))
+                holder.listen(1)
+                holders[offset] = holder
+        except OSError:
+            for holder in holders.values():
+                with contextlib.suppress(OSError):
+                    holder.close()
+            continue
+        for offset, holder in holders.items():
+            if offset in occupied:
+                testcase.addCleanup(holder.close)
+            else:
+                with contextlib.suppress(OSError):
+                    holder.close()
+        return base
+    testcase.skipTest("no free port block on this runner")
+    raise AssertionError("unreachable")
+
+
+def retry_on_port_assertion(test_fn):
+    """Retry a port-assertion test: an ephemeral squat clears within seconds."""
+    import functools
+    import time as _time
+
+    @functools.wraps(test_fn)
+    def wrapper(self):
+        last_error = None
+        for _ in range(3):
+            try:
+                return test_fn(self)
+            except AssertionError as exc:
+                last_error = exc
+                _time.sleep(1.0)
+        raise last_error  # type: ignore[misc]
+
+    return wrapper
 
 
 class GatewayMessageTests(unittest.TestCase):
@@ -114,61 +169,68 @@ class GatewayServerTests(unittest.TestCase):
 
     def test_port_resolution_keeps_concrete_ports_when_free(self) -> None:
         # Sanity: a concrete, free port is left untouched; HTTP stays WS+1.
-        server = GatewayServer(host="127.0.0.1", port=49351, http_port=None)
+        # Claimed first: shared runners may hold any fixed number.
+        base = claim_port_block(self, 2)
+        server = GatewayServer(host="127.0.0.1", port=base, http_port=None)
         server._resolve_ports()
-        self.assertEqual(server.port, 49351)
-        self.assertEqual(server.http_port, 49352)
+        self.assertEqual(server.port, base)
+        self.assertEqual(server.http_port, base + 1)
 
 
 class GatewayPortSelectionTests(unittest.TestCase):
-    def _occupy(self, port: int) -> socket.socket:
-        holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        holder.bind(("127.0.0.1", port))
-        holder.listen(1)
-        self.addCleanup(holder.close)
-        return holder
+    # Candidate bases are only starting points: claim_port_block verifies a
+    # run of free ports first, so shared CI runners holding one of these do
+    # not break the suite (previously hardcoded binds flaked EADDRINUSE).
+    def _claim_block(self, size: int) -> int:
+        return claim_port_block(self, size)
 
     def test_preferred_port_returned_when_free(self) -> None:
-        port = find_free_port("127.0.0.1", 49301, max_attempts=4)
-        self.assertGreaterEqual(port, 49301)
-        self.assertLess(port, 49305)
+        base = self._claim_block(4)
+        port = find_free_port("127.0.0.1", base, max_attempts=4)
+        self.assertGreaterEqual(port, base)
+        self.assertLess(port, base + 4)
 
+    @retry_on_port_assertion
     def test_occupied_port_is_skipped(self) -> None:
-        self._occupy(49311)
-        self.assertEqual(find_free_port("127.0.0.1", 49311, max_attempts=8), 49312)
+        base = claim_port_block(self, 9, occupied=(0,))
+        self.assertEqual(find_free_port("127.0.0.1", base, max_attempts=8), base + 1)
 
+    @retry_on_port_assertion
     def test_reuseaddr_holder_still_counts_as_occupied(self) -> None:
         # Regression test: http.server sets SO_REUSEADDR, and a probe that
         # also sets SO_REUSEADDR would falsely report such a port as free
         # on Windows. The probe must detect the active listener instead.
+        base = claim_port_block(self, 9)
         holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         holder.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        holder.bind(("127.0.0.1", 49315))
+        holder.bind(("127.0.0.1", base))
         holder.listen(1)
         self.addCleanup(holder.close)
-        self.assertEqual(find_free_port("127.0.0.1", 49315, max_attempts=8), 49316)
+        self.assertEqual(find_free_port("127.0.0.1", base, max_attempts=8), base + 1)
 
+    @retry_on_port_assertion
     def test_reserved_ports_are_skipped(self) -> None:
+        base = claim_port_block(self, 4)
         self.assertEqual(
-            find_free_port("127.0.0.1", 49321, max_attempts=8, reserved={49321, 49322}),
-            49323,
+            find_free_port("127.0.0.1", base, max_attempts=8, reserved={base, base + 1}),
+            base + 2,
         )
 
     def test_no_free_port_raises(self) -> None:
-        self._occupy(49331)
+        base = claim_port_block(self, 1, occupied=(0,))
         with self.assertRaises(OSError):
-            find_free_port("127.0.0.1", 49331, max_attempts=1)
+            find_free_port("127.0.0.1", base, max_attempts=1)
 
     def test_server_start_falls_back_from_occupied_ports(self) -> None:
         import time
         import urllib.request
 
-        self._occupy(49341)
-        server = GatewayServer(host="127.0.0.1", port=49341, http_port=49342)
+        base = claim_port_block(self, 4, occupied=(0,))
+        server = GatewayServer(host="127.0.0.1", port=base, http_port=base + 1)
         try:
             server.start()
-            self.assertNotEqual(server.port, 49341)
-            self.assertNotEqual(server.http_port, 49341)
+            self.assertNotEqual(server.port, base)
+            self.assertNotEqual(server.http_port, base)
             self.assertNotEqual(server.port, server.http_port)
             deadline = time.time() + 10
             body = None
@@ -195,10 +257,12 @@ class GatewayPortSelectionTests(unittest.TestCase):
 
     def test_port_resolution_keeps_concrete_ports_when_free(self) -> None:
         # Sanity: a concrete, free port is left untouched; HTTP stays WS+1.
-        server = GatewayServer(host="127.0.0.1", port=49351, http_port=None)
+        # Claimed first: shared runners may hold any fixed number.
+        base = claim_port_block(self, 2)
+        server = GatewayServer(host="127.0.0.1", port=base, http_port=None)
         server._resolve_ports()
-        self.assertEqual(server.port, 49351)
-        self.assertEqual(server.http_port, 49352)
+        self.assertEqual(server.port, base)
+        self.assertEqual(server.http_port, base + 1)
 
 
 class MCPClientTests(unittest.TestCase):
