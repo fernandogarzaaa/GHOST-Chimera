@@ -932,6 +932,89 @@ class LMStudioProvider(BaseProvider):
         return choices[0]["message"]["content"].strip()
 
 
+class GeminiOpenAIProvider(OpenAICompatibleProvider):
+    """Google Gemini via its OpenAI-compatible shim (free tier friendly).
+
+    Same free AI Studio key as GeminiProvider (``GOOGLE_API_KEY``), but the
+    OpenAI request shape, so it slots into shared tooling. Free tier is
+    generous (Flash-Lite ~1,500 req/day); inputs may be used to improve
+    Google products — never send secrets here (see sensitivity guard).
+    Set ``GEMINI_FREE_MODEL`` to override the default model.
+    """
+
+    name = "gemini-openai"
+    _DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    _DEFAULT_MODEL = "gemini-2.5-flash-lite"
+    _KEY_ENV_VAR = "GOOGLE_API_KEY"
+    _MODEL_ENV_VAR = "GEMINI_FREE_MODEL"
+
+
+class PollinationsProvider(BaseProvider):
+    """Pollinations.ai legacy keyless tier (emergency fallback only).
+
+    No signup, no key: ``GET https://text.pollinations.ai/{prompt}``.
+    Anonymous ~1 request / 15 s, basic models, community-run uptime, mid-
+    migration to a keyed system — never core infrastructure, only the last
+    resort when every keyed free tier is exhausted. No secrets ever.
+    """
+
+    name = "pollinations"
+    _TEXT_URL = "https://text.pollinations.ai/"
+
+    def __init__(self, profile: AuthProfile | None = None) -> None:
+        self.model = "openai"
+        if profile is not None and profile.model:
+            self.model = profile.model
+        self.available = True
+        logger.debug("Provider %s initialized (keyless)", self.name)
+
+    def validate_config(self) -> list[str]:
+        return []
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "available": self.available, "model": self.model}
+
+    def chat(self, system_message: str, user_message: str) -> str:
+        import urllib.parse
+
+        prompt = f"{system_message}\n\n{user_message}" if system_message else user_message
+        url = self._TEXT_URL + urllib.parse.quote(prompt[:4000], safe="")
+        if self.model and self.model != "openai":
+            url += "?model=" + urllib.parse.quote(self.model, safe="")
+        req = urllib_request.Request(url, method="GET")
+        context = ssl.create_default_context()
+        with urllib_request.urlopen(req, context=context) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"{self.name} API returned HTTP {resp.status}")
+            return resp.read().decode("utf-8", "replace").strip()
+
+
+class CloudflareProvider(OpenAICompatibleProvider):
+    """Cloudflare Workers AI (free daily neuron allowance).
+
+    Needs a free Cloudflare account: ``CF_ACCOUNT_ID`` plus ``CF_API_TOKEN``.
+    Set ``CF_MODEL`` to override (small Llama variants stretch furthest).
+    Good independent overflow quota when the big free tiers are exhausted.
+    """
+
+    name = "cloudflare"
+    _DEFAULT_BASE_URL = ""
+    _DEFAULT_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+    _KEY_ENV_VAR = "CF_API_TOKEN"
+    _MODEL_ENV_VAR = "CF_MODEL"
+
+    def __init__(self, profile: AuthProfile | None = None) -> None:
+        super().__init__(profile)
+        account = os.environ.get("CF_ACCOUNT_ID", "")
+        if profile is not None and profile.base_url:
+            self._base_url = profile.base_url
+        elif account:
+            self._base_url = f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1/chat/completions"
+        else:
+            self._base_url = ""
+            self.available = False
+
+
 __all__ = [
     "OpenAICompatibleProvider",
     "GroqProvider",
@@ -956,4 +1039,7 @@ __all__ = [
     "GlmProvider",
     "VeniceProvider",
     "LMStudioProvider",
+    "GeminiOpenAIProvider",
+    "PollinationsProvider",
+    "CloudflareProvider",
 ]

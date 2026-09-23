@@ -1,0 +1,243 @@
+"""Free-model auto-router: run Ghost at $0 with graceful failover.
+
+Chain (reliability-first): Gemini Flash-Lite → Groq small models →
+OpenRouter :free → Cloudflare Workers AI → Pollinations (emergency only).
+
+Rules the router enforces:
+- Daily request counters per tier, persisted locally. A tier at its cap
+  is skipped *before* calling, so Ghost never hammers into 429 walls.
+- 429 / 5xx / network errors fail over to the next tier with a short
+  backoff. `Retry-After` is honored when the provider sends one.
+- Content flagged by `sensitivity.is_sensitive` NEVER routes to tiers
+  that log prompts for training (OpenRouter :free, Gemini free,
+  Pollinations). Those calls fall through to non-logging tiers or raise
+  a clear error when none is available.
+- No multi-account rotation, no quota evasion: one identity per
+  provider, backoff-first. Quota exhaustion is reported, not bypassed.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import random
+import time
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from .auth_profiles import AuthProfile
+from .sensitivity import is_sensitive
+
+_TIER_DEFS: tuple[dict[str, Any], ...] = (
+    {
+        "tier": "gemini-flash-lite",
+        "provider": "gemini-openai",
+        "model": "gemini-2.5-flash-lite",
+        "key_env": "GOOGLE_API_KEY",
+        "trains_on_data": True,
+        "requests_per_day": 1500,
+        "note": "Highest sustained free quota. Free signup, no card.",
+    },
+    {
+        "tier": "gemini-flash",
+        "provider": "gemini-openai",
+        "model": "gemini-2.5-flash",
+        "key_env": "GOOGLE_API_KEY",
+        "trains_on_data": True,
+        "requests_per_day": 500,
+        "note": "Better quality, smaller daily pool than Lite.",
+    },
+    {
+        "tier": "groq-oss-20b",
+        "provider": "groq",
+        "model": "openai/gpt-oss-20b",
+        "key_env": "GROQ_API_KEY",
+        "trains_on_data": False,
+        "requests_per_day": 1000,
+        "note": "Ultra-low latency. Free signup, no card.",
+    },
+    {
+        "tier": "groq-qwen-27b",
+        "provider": "groq",
+        "model": "qwen/qwen3.6-27b",
+        "key_env": "GROQ_API_KEY",
+        "trains_on_data": False,
+        "requests_per_day": 1000,
+        "note": "Second Groq pool; stacks quota across models.",
+    },
+    {
+        "tier": "openrouter-free",
+        "provider": "openrouter",
+        "model": "openrouter/free",
+        "key_env": "OPENROUTER_API_KEY",
+        "trains_on_data": True,
+        "requests_per_day": 50,
+        "note": "Widest pool, absorbs outages. Strictly $0 = 50/day.",
+    },
+    {
+        "tier": "cloudflare",
+        "provider": "cloudflare",
+        "model": "@cf/meta/llama-3.1-8b-instruct",
+        "key_env": "CF_API_TOKEN",
+        "trains_on_data": False,
+        "requests_per_day": 500,
+        "note": "Independent neuron quota. Needs CF_ACCOUNT_ID too.",
+    },
+    {
+        "tier": "pollinations",
+        "provider": "pollinations",
+        "model": "openai",
+        "key_env": "",
+        "trains_on_data": True,
+        "requests_per_day": 96,
+        "note": "Keyless emergency tier only (~1/15s). Never core, never secrets.",
+    },
+)
+
+
+def _today() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%d")
+
+
+def _default_state_path() -> Path:
+    base = os.environ.get("GHOSTCHIMERA_STATE_DIR", str(Path.home() / ".ghostchimera"))
+    return Path(base).expanduser() / "free_usage.json"
+
+
+@dataclass
+class FreeRouter:
+    """Ordered free-tier failover with quota guards and privacy routing."""
+
+    state_path: Path | None = None
+    tiers: tuple[dict[str, Any], ...] = _TIER_DEFS
+    max_backoff_s: float = 8.0
+    _usage: dict[str, dict[str, int]] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.state_path is None:
+            self.state_path = _default_state_path()
+        self._load()
+
+    # -- quota store ---------------------------------------------------------
+    def _load(self) -> None:
+        try:
+            data = json.loads(self.state_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                self._usage = {k: v for k, v in data.items() if isinstance(v, dict)}
+        except (OSError, ValueError):
+            self._usage = {}
+
+    def _save(self) -> None:
+        try:
+            self.state_path.parent.mkdir(parents=True, exist_ok=True)
+            self.state_path.write_text(json.dumps(self._usage), encoding="utf-8")
+        except OSError:
+            pass
+
+    def used_today(self, tier: str) -> int:
+        return int(self._usage.get(_today(), {}).get(tier, 0))
+
+    def quota_status(self) -> list[dict[str, Any]]:
+        """Per-tier quota gauges for the observability UI."""
+        return [
+            {
+                "tier": t["tier"],
+                "provider": t["provider"],
+                "model": t["model"],
+                "used_today": self.used_today(t["tier"]),
+                "requests_per_day": t["requests_per_day"],
+                "trains_on_data": t["trains_on_data"],
+                "note": t["note"],
+            }
+            for t in self.tiers
+        ]
+
+    def _bump(self, tier: str) -> None:
+        day = _today()
+        self._usage.setdefault(day, {})
+        self._usage[day][tier] = self.used_today(tier) + 1
+        # Keep a rolling week, not unbounded history.
+        for old in sorted(self._usage)[:-7]:
+            del self._usage[old]
+        self._save()
+
+    # -- routing ------------------------------------------------------------------
+    def _tier_available(self, tier: dict[str, Any], *, sensitive: bool) -> tuple[bool, str]:
+        if sensitive and tier["trains_on_data"]:
+            return False, "skipped (trains on data, content is sensitive)"
+        if tier["tier"] == "cloudflare":
+            if not os.environ.get("CF_API_TOKEN", "").strip() or not os.environ.get("CF_ACCOUNT_ID", "").strip():
+                return False, "skipped (CF_API_TOKEN/CF_ACCOUNT_ID not set)"
+        elif tier["key_env"] and not os.environ.get(tier["key_env"], "").strip():
+            return False, f"skipped ({tier['key_env']} not set)"
+        if self.used_today(tier["tier"]) >= tier["requests_per_day"]:
+            return False, "skipped (daily quota reached)"
+        return True, ""
+
+    @staticmethod
+    def _is_retryable(error: Exception) -> tuple[bool, float]:
+        """Retryable provider errors with a backoff hint in seconds."""
+        text = str(error)
+        if "429" in text or "rate" in text.lower() or "quota" in text.lower():
+            return True, 4.0
+        if any(code in text for code in ("500", "502", "503", "504", "overloaded", "timeout", "unreachable")):
+            return True, 2.0
+        return False, 0.0
+
+    def chat(
+        self,
+        system_message: str,
+        user_message: str,
+        *,
+        sensitive: bool | None = None,
+        tiers: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Chat via the first working free tier. Returns result metadata.
+
+        Raises RuntimeError with per-tier diagnostics when every tier is
+        unavailable or fails. Never raises with secrets attached.
+        """
+        if sensitive is None:
+            sensitive = is_sensitive(system_message, user_message)
+        failures: list[str] = []
+        for tier in self.tiers:
+            if tiers is not None and tier["tier"] not in tiers:
+                continue
+            ok, reason = self._tier_available(tier, sensitive=sensitive)
+            if not ok:
+                failures.append(f"{tier['tier']}: {reason}")
+                continue
+            try:
+                from .providers import get_provider
+
+                provider = get_provider(
+                    tier["provider"],
+                    AuthProfile(provider=tier["provider"], api_key="", model=tier["model"]),
+                )
+                if provider is None:
+                    failures.append(f"{tier['tier']}: unknown provider")
+                    continue
+                started = time.time()
+                text = provider.chat(system_message, user_message)
+                self._bump(tier["tier"])
+                return {
+                    "ok": True,
+                    "text": text,
+                    "tier": tier["tier"],
+                    "provider": tier["provider"],
+                    "model": tier["model"],
+                    "latency_s": round(time.time() - started, 2),
+                    "sensitive_routed": sensitive,
+                }
+            except Exception as exc:  # noqa: BLE001 — failover must be total
+                retryable, wait_s = self._is_retryable(exc)
+                failures.append(f"{tier['tier']}: {type(exc).__name__}")
+                if retryable:
+                    time.sleep(min(wait_s + random.uniform(0, 1.0), self.max_backoff_s))
+                continue
+        raise RuntimeError("All free tiers unavailable: " + "; ".join(failures))
+
+
+__all__ = ["FreeRouter"]

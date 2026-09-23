@@ -221,6 +221,60 @@ _CATALOG: list[ModelCatalogEntry] = [
         output_cost_usd_per_1k=0.00024,
         supports_streaming=True,
     ),
+    # ── Free tiers ($0 request paths used by FreeRouter) ────────────────────
+    # Costs are 0.0 because these resolve through free quotas, not billing.
+    # Privacy note: tiers marked here may log prompts for training — the
+    # router blocks sensitive content from them (see sensitivity.py).
+    ModelCatalogEntry(
+        provider="gemini-openai",
+        model_id="gemini-2.5-flash-lite",
+        display_name="Gemini 2.5 Flash-Lite (free tier)",
+        context_window_tokens=1_048_576,
+        supports_streaming=True,
+        supports_vision=True,
+    ),
+    ModelCatalogEntry(
+        provider="gemini-openai",
+        model_id="gemini-2.5-flash",
+        display_name="Gemini 2.5 Flash (free tier)",
+        context_window_tokens=1_048_576,
+        supports_streaming=True,
+        supports_vision=True,
+    ),
+    ModelCatalogEntry(
+        provider="groq",
+        model_id="openai/gpt-oss-20b",
+        display_name="GPT-OSS 20B (Groq free tier)",
+        context_window_tokens=131_072,
+        supports_streaming=True,
+    ),
+    ModelCatalogEntry(
+        provider="groq",
+        model_id="qwen/qwen3.6-27b",
+        display_name="Qwen 3.6 27B (Groq free tier)",
+        context_window_tokens=131_072,
+        supports_streaming=True,
+    ),
+    ModelCatalogEntry(
+        provider="openrouter",
+        model_id="openrouter/free",
+        display_name="OpenRouter auto free router",
+        context_window_tokens=128_000,
+        supports_streaming=True,
+    ),
+    ModelCatalogEntry(
+        provider="cloudflare",
+        model_id="@cf/meta/llama-3.1-8b-instruct",
+        display_name="Llama 3.1 8B (Cloudflare free neurons)",
+        context_window_tokens=8_192,
+        supports_streaming=True,
+    ),
+    ModelCatalogEntry(
+        provider="pollinations",
+        model_id="openai",
+        display_name="Pollinations keyless (emergency only)",
+        context_window_tokens=8_192,
+    ),
     # ── xAI (Grok) ───────────────────────────────────────────────────────────
     ModelCatalogEntry(
         provider="xai",
