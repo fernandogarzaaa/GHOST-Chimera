@@ -149,6 +149,28 @@ describe("api_transport", () => {
     assert.equal(calls, 2);
   });
 
+  it("isolates concurrent GETs across token changes", async () => {
+    let calls = 0;
+    let token = "A";
+    const t = loadTransport({
+      getToken: () => token,
+      fetchFn: (_path, opts) => {
+        calls += 1;
+        const seen = opts.headers["X-Gateway-Token"];
+        return new Promise((resolve) =>
+          setTimeout(() => resolve(jsonResponse({ seen })), 20)
+        );
+      },
+    });
+    const pendingA = t.request("/t");
+    token = "B";
+    const pendingB = t.request("/t");
+    const [a, b] = await Promise.all([pendingA, pendingB]);
+    assert.equal(calls, 2);
+    assert.deepEqual(a, { seen: "A" });
+    assert.deepEqual(b, { seen: "B" });
+  });
+
   it("sends the current token per request, not a cached one", async () => {
     let token = "first";
     const seen = [];

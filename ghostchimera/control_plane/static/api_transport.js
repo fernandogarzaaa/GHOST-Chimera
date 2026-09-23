@@ -52,7 +52,10 @@
     function apiFetch(path, opts) {
       var method = (opts.method || "GET").toUpperCase();
       if (!apiIsIdempotent(method)) return apiFetchOnce(path, opts);
-      var key = apiCacheKey(method, path, typeof opts.body === "string" ? opts.body : "");
+      // The auth generation is part of the key: a request issued under
+      // token A must never satisfy (or 401-poison) a caller on token B.
+      var key = apiCacheKey(method, path, typeof opts.body === "string" ? opts.body : "")
+        + "\x00" + getToken();
       var pending = apiInflight[key];
       if (pending) return pending;
       pending = apiFetchOnce(path, opts);
