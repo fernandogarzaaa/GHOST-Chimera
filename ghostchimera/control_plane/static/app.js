@@ -2822,8 +2822,12 @@
   if ($("#mailFetch")) {
     $("#mailFetch").addEventListener("click", fetchMailInbox);
   }
+  if ($("#mailVipSave")) {
+    $("#mailVipSave").addEventListener("click", saveVipList);
+  }
   try { renderProviderLogins(); } catch (_) {}
   try { renderStoredKeys(); } catch (_) {}
+  try { renderVipList(); } catch (_) {}
 
   // ── Trust & approvals ────────────────────────────────────────────────
   async function renderWriteGate() {
@@ -3128,7 +3132,7 @@
     try {
       mailOut("Fetching inbox…");
       var data = await api("/api/auth/mail/fetch",
-        { method: "POST", body: { entity_id: "console-user", label: label, max_messages: maxN, query: query } });
+        { method: "POST", body: { entity_id: "console-user", label: label, max_messages: maxN, query: query, triage: true } });
       if (!data.ok) {
         if (data.type === "consent_required") {
           mailOut("Consent required: enable Personal MiniMind admin controls + email crawl consent first.");
@@ -3138,12 +3142,46 @@
         }
         return;
       }
-      mailOut("Account: " + data.account + "  ·  " + data.messages.length + " messages\n\n" +
-        data.messages.map(function(m) {
-          return "From: " + m.from + "\nSubject: " + m.subject + "\nDate: " + m.date + "\n" + m.snippet;
-        }).join("\n\n---\n\n") || "No matching messages.");
+      var text = "Account: " + data.account + "  ·  " + data.messages.length + " messages\n\n";
+      if (data.triage) {
+        var counts = data.triage.counts || {};
+        text += "TRIAGE — act now: " + (counts.act_now || 0) + " · today: " + (counts.today || 0) +
+          " · FYI: " + (counts.fyi || 0) + "\n\n";
+        ["act_now", "today"].forEach(function(tier) {
+          ((data.triage.buckets || {})[tier] || []).forEach(function(m) {
+            text += "[" + (tier === "act_now" ? "ACT NOW" : "TODAY") + " " + m.score + "] " +
+              m.from + " — " + m.subject + "\n  Why: " + (m.reasons || []).join("; ") + "\n\n";
+          });
+        });
+        text += "— FYI digest —\n" + (data.triage.digest || "") + "\n\n— All messages —\n";
+      }
+      mailOut(text + data.messages.map(function(m) {
+        return "From: " + m.from + "\nSubject: " + m.subject + "\nDate: " + m.date + "\n" + m.snippet;
+      }).join("\n\n---\n\n") || "No matching messages.");
+      renderVipList();
     } catch (e) {
       mailOut("Error: " + e.message);
+      toast(e.message, "error");
+    }
+  }
+
+  async function renderVipList() {
+    try {
+      var data = await api("/api/auth/mail/vip", { method: "POST", body: {} });
+      var box = $("#mailVipList");
+      if (box && data.ok) box.value = (data.vip_senders || []).join("\n");
+    } catch (_) {}
+  }
+
+  async function saveVipList() {
+    var box = $("#mailVipList");
+    var raw = ((box && box.value) || "").split(/\r?\n/);
+    try {
+      var data = await api("/api/auth/mail/vip", { method: "POST", body: { senders: raw } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      toast("VIP list saved (" + data.vip_senders.length + " senders).", "ok");
+      renderVipList();
+    } catch (e) {
       toast(e.message, "error");
     }
   }

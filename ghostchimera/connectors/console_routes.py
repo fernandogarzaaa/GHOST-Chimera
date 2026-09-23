@@ -673,11 +673,14 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
     def auth_mail_fetch(ctx: dict[str, Any]) -> dict[str, Any]:
         """Read-only inbox fetch via a stored app password (consent-gated).
 
-        Body: {key_id?, label?, max_messages?, query?}. Requires Personal
-        MiniMind email-crawl consent, like the OAuth crawl. Returns headers
-        + OTP-scrubbed snippets only — never full bodies, never secrets.
+        Body: {key_id?, label?, max_messages?, query?, triage?, user_email?}.
+        Requires Personal MiniMind email-crawl consent, like the OAuth
+        crawl. Returns headers + OTP-scrubbed snippets only — never full
+        bodies, never secrets. With triage=true, messages are scored into
+        act_now / today / fyi buckets (zero tokens, heuristics only).
         """
         from ..integrations.mail_basic import fetch_inbox, resolve_app_password
+        from ..integrations.triage import load_vip_senders, triage_messages
 
         data = _body(ctx)
         entity_id = str(data.get("entity_id") or "console-user")
@@ -716,10 +719,31 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 return {"ok": False, "error": str(exc)[:200]}
             result["account"] = account["label"]
             logger.info("app-password mail fetch for '%s': %d messages", account["label"], len(result["messages"]))
+            if data.get("triage"):
+                result["triage"] = triage_messages(
+                    result["messages"],
+                    vip_senders=load_vip_senders(base),
+                    user_email=str(data.get("user_email") or account["email"]),
+                )
             return result
         finally:
             with suppress(Exception):
                 engine.close()
+
+    def auth_mail_vip(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Get or replace the explicit VIP sender list (never inferred)."""
+        from ..integrations.triage import load_vip_senders, save_vip_senders
+
+        data = _body(ctx)
+        if "senders" in data:
+            senders = data.get("senders")
+            if not isinstance(senders, list):
+                return {"ok": False, "error": "senders must be a list"}
+            try:
+                return {"ok": True, "vip_senders": save_vip_senders(base, senders)}
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)}
+        return {"ok": True, "vip_senders": load_vip_senders(base)}
 
     def auth_bluesky_post(ctx: dict[str, Any]) -> dict[str, Any]:
         """Publish a Bluesky post using a vault-stored app password.
@@ -1375,6 +1399,14 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         auth=auth,
         token=token,
         description="App-password inbox fetch (consent-gated)",
+    )
+    server.routes.register(
+        "/api/auth/mail/vip",
+        auth_mail_vip,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Get/replace VIP sender list",
     )
     server.routes.register(
         "/api/auth/bluesky/post",

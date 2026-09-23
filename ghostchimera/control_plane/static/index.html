@@ -502,7 +502,7 @@
     <pre class="output compact-output" id="blueskyOutput">Bluesky results appear here.</pre>
 
     <div class="section-hdr">Mail Inbox (App Password)</div>
-    <p class="hint" style="margin-bottom:10px;">Read-only inbox fetch using a Stored Keys app password. Requires Personal MiniMind email-crawl consent. Headers + short snippets only; one-time codes and reset links are filtered.</p>
+    <p class="hint" style="margin-bottom:10px;">Read-only inbox fetch using a Stored Keys app password. Requires Personal MiniMind email-crawl consent. Headers + short snippets only; one-time codes and reset links are filtered. Every fetch is triaged into Act now / Today / FYI (free heuristics, zero tokens).</p>
     <div class="form-group">
       <label>Vault key label (the app-password entry)</label>
       <input id="mailKeyLabel" type="text" autocomplete="off" placeholder="e.g. Gmail">
@@ -511,6 +511,13 @@
       <input id="mailMaxMessages" placeholder="max messages (default 10)" style="max-width:200px;">
       <input id="mailQuery" placeholder="IMAP query (default UNSEEN)" style="flex:1;min-width:160px;">
       <button id="mailFetch" class="primary">Fetch Inbox</button>
+    </div>
+    <div class="form-group">
+      <label>VIP senders (one per line — explicit list, never inferred)</label>
+      <textarea id="mailVipList" rows="3" style="width:100%;" placeholder="boss@company.com"></textarea>
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="mailVipSave">Save VIP List</button>
     </div>
     <pre class="output compact-output" id="mailOutput">Inbox messages appear here.</pre>
 
