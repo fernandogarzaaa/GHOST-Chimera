@@ -1197,6 +1197,92 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         except AutomationError as exc:
             return {"ok": False, "error": str(exc)}
 
+    def auth_usage_summary(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Token meter, daily consumption, cost USD, latency, free quotas.
+
+        Combines the cost ledger (all model traffic recorded through it),
+        today's rollup, and the free-tier quota gauges — the backing data
+        for the Console Usage tab.
+        """
+        from ..model_layer.cost_monitor import get_ledger
+        from ..model_layer.free_router import FreeRouter
+
+        data = _body(ctx)
+        ledger = get_ledger()
+        day = str(data.get("day") or "")
+        providers: dict[str, Any] = {}
+        for provider, spend in ledger.to_dict()["spend_usd"].items():
+            providers[provider] = {
+                "spend_usd": round(spend, 6),
+                "calls": ledger.calls(provider),
+                "tokens": ledger.tokens(provider),
+                "latency_s": ledger.latency_stats(provider),
+            }
+        try:
+            quotas = FreeRouter(state_path=Path(base) / "free_usage.json").quota_status()
+        except Exception:
+            quotas = []
+        return {
+            "ok": True,
+            "day": day,
+            "daily": ledger.daily_summary(day),
+            "total_usd": round(ledger.total_spend(), 6),
+            "providers": providers,
+            "free_quotas": quotas,
+        }
+
+    def auth_evals_run(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Run one eval suite and append the result to history."""
+        import time as _time
+
+        from ..evals.runner import EVAL_SUITES, run_suite
+
+        data = _body(ctx)
+        suite = str(data.get("suite") or "").strip()
+        if suite not in EVAL_SUITES:
+            return {"ok": False, "error": f"unknown suite (try one of: {', '.join(sorted(EVAL_SUITES))})"}
+        try:
+            result = run_suite(suite)
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        entry = {
+            "suite": suite,
+            "ok": bool(result.get("ok")),
+            "passed": result.get("passed", 0),
+            "failed": result.get("failed", 0),
+            "ts": _time.time(),
+        }
+        try:
+            path = Path(base) / "eval_history.jsonl"
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry) + "\n")
+        except OSError:
+            pass
+        return {"ok": True, "run": entry}
+
+    def auth_evals_history(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Eval run history (newest first) for trend display."""
+        data = _body(ctx)
+        try:
+            limit = max(1, min(200, int(data.get("limit") or 50)))
+        except (TypeError, ValueError):
+            limit = 50
+        try:
+            lines = (Path(base) / "eval_history.jsonl").read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return {"ok": True, "runs": []}
+        runs = []
+        for line in reversed(lines[-500:]):
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(entry, dict):
+                runs.append(entry)
+            if len(runs) >= limit:
+                break
+        return {"ok": True, "runs": runs}
+
     def auth_device_start(ctx: dict[str, Any]) -> dict[str, Any]:
         """Begin an RFC 8628 device login (no redirect URI — LAN-friendly).
 
@@ -1566,6 +1652,30 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         auth=auth,
         token=token,
         description="Execute an approved run",
+    )
+    server.routes.register(
+        "/api/auth/usage/summary",
+        auth_usage_summary,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Token meter, daily cost, latency, free quotas",
+    )
+    server.routes.register(
+        "/api/auth/evals/run",
+        auth_evals_run,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Run an eval suite and record history",
+    )
+    server.routes.register(
+        "/api/auth/evals/history",
+        auth_evals_history,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Eval run history",
     )
     server.routes.register(
         "/api/auth/device/start",

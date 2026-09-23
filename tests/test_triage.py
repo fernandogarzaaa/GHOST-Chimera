@@ -34,10 +34,10 @@ def test_plain_mail_lands_today_or_fyi() -> None:
 
 
 def test_direct_address_and_thread_boost() -> None:
-    base = score_message(_msg(sender="a@x.com", subject="slides", snippet="see attached"),
-                         user_email="me@x.com")
-    threaded = score_message(_msg(sender="a@x.com", subject="slides", snippet="see attached"),
-                             user_email="me@x.com", thread_replied=True)
+    base = score_message(_msg(sender="a@x.com", subject="slides", snippet="see attached"), user_email="me@x.com")
+    threaded = score_message(
+        _msg(sender="a@x.com", subject="slides", snippet="see attached"), user_email="me@x.com", thread_replied=True
+    )
     assert threaded["score"] > base["score"]
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from .cost_monitor import BudgetExceeded, CostLedger, get_ledger
 from .providers import BaseProvider, get_provider
@@ -68,9 +69,16 @@ class ModelRouter:
                 continue
             try:
                 with self.ledger.guard(name):
+                    started = time.time()
                     result = provider.chat(system_message, user_message)
                     model = str(getattr(provider, "model", "") or "")
-                    self.ledger.record(name, model, input_text=f"{system_message}\n{user_message}", output_text=result)
+                    self.ledger.record(
+                        name,
+                        model,
+                        input_text=f"{system_message}\n{user_message}",
+                        output_text=result,
+                        latency_s=round(time.time() - started, 3),
+                    )
                 logger.info("Router: selected provider '%s'", name)
                 return result
             except BudgetExceeded as exc:

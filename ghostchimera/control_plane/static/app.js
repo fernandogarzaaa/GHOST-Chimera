@@ -2809,6 +2809,17 @@
   if ($("#autoRunsRefresh")) {
     $("#autoRunsRefresh").addEventListener("click", renderAutomationRuns);
   }
+  if ($("#usageRefresh")) {
+    $("#usageRefresh").addEventListener("click", renderUsage);
+  }
+  if ($("#evalRun")) {
+    $("#evalRun").addEventListener("click", runEvalSuite);
+  }
+  if ($("#evalHistoryRefresh")) {
+    $("#evalHistoryRefresh").addEventListener("click", renderEvalHistory);
+  }
+  try { renderUsage(); } catch (_) {}
+  try { renderEvalHistory(); } catch (_) {}
   try { renderAutomations(); } catch (_) {}
   try { renderAutomationRuns(); } catch (_) {}
   try { renderWriteGate(); } catch (_) {}
@@ -3183,6 +3194,118 @@
       renderVipList();
     } catch (e) {
       toast(e.message, "error");
+    }
+  }
+
+  // ── Usage & evaluation ───────────────────────────────────────────────
+  function fmtUsd(value) {
+    return "$" + Number(value || 0).toFixed(4);
+  }
+
+  async function renderUsage() {
+    var summaryHost = $("#usageSummary");
+    var providersHost = $("#usageProviders");
+    var quotasHost = $("#freeQuotas");
+    if (!summaryHost) return;
+    summaryHost.innerHTML = "";
+    if (providersHost) providersHost.innerHTML = "";
+    if (quotasHost) quotasHost.innerHTML = "";
+    try {
+      var data = await api("/api/auth/usage/summary", { method: "POST", body: {} });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      var daily = data.daily || {};
+      var totals = daily.totals || {};
+      [
+        ["Today spend", fmtUsd(totals.spend)],
+        ["Today calls", String(totals.calls || 0)],
+        ["Today tokens", String((totals.in || 0) + (totals.out || 0))],
+        ["Lifetime spend", fmtUsd(data.total_usd)],
+      ].forEach(function(m) {
+        var card = el("div", { class: "card" });
+        card.appendChild(el("h3", null, m[0]));
+        card.appendChild(el("div", { class: "value" }, m[1]));
+        summaryHost.appendChild(card);
+      });
+      Object.keys(data.providers || {}).sort().forEach(function(name) {
+        var p = data.providers[name];
+        var item = el("div", { class: "list-item" });
+        var main = el("div", { style: "flex:1;min-width:200px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = name;
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        var lat = p.latency_s || {};
+        meta.textContent = fmtUsd(p.spend_usd) + "  ·  " + p.calls + " calls  ·  " +
+          p.tokens.in + " in / " + p.tokens.out + " out tokens  ·  p50 " +
+          (lat.p50_s || 0).toFixed(1) + "s p95 " + (lat.p95_s || 0).toFixed(1) + "s";
+        main.appendChild(meta);
+        item.appendChild(main);
+        providersHost.appendChild(item);
+      });
+      if (!Object.keys(data.providers || {}).length) {
+        providersHost.appendChild(el("div", { class: "empty" }, "No metered model traffic yet."));
+      }
+      (data.free_quotas || []).forEach(function(q) {
+        var item = el("div", { class: "list-item" });
+        var pct = q.requests_per_day ? Math.min(100, Math.round(100 * q.used_today / q.requests_per_day)) : 0;
+        item.appendChild(el("span", { class: "badge " + (pct >= 90 ? "warn" : "ok") }, pct + "%"));
+        var main = el("div", { style: "flex:1;min-width:200px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = q.tier + (q.trains_on_data ? "  ·  may train on prompts" : "  ·  no training");
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        meta.textContent = q.used_today + " / " + q.requests_per_day + " today  ·  " + (q.note || "");
+        main.appendChild(meta);
+        item.appendChild(main);
+        quotasHost.appendChild(item);
+      });
+    } catch (e) {
+      summaryHost.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
+    }
+  }
+
+  async function runEvalSuite() {
+    var select = $("#evalSuiteName");
+    var suite = (select && select.value) || "smoke";
+    try {
+      toast("Running " + suite + " eval…", "");
+      var data = await api("/api/auth/evals/run", { method: "POST", body: { suite: suite } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      toast(suite + ": " + (data.run.passed || 0) + " passed, " + (data.run.failed || 0) + " failed.",
+        data.run.failed ? "warn" : "ok");
+      renderEvalHistory();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  async function renderEvalHistory() {
+    var host = $("#evalRuns");
+    if (!host) return;
+    host.innerHTML = "";
+    try {
+      var data = await api("/api/auth/evals/history", { method: "POST", body: { limit: 20 } });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      if (!data.runs.length) {
+        host.appendChild(el("div", { class: "empty" }, "No eval runs recorded yet."));
+        return;
+      }
+      data.runs.forEach(function(r) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "badge " + (r.failed ? "warn" : "ok") },
+          (r.passed || 0) + "/" + ((r.passed || 0) + (r.failed || 0))));
+        var main = el("div", { style: "flex:1;min-width:180px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = r.suite;
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        meta.textContent = new Date((r.ts || 0) * 1000).toLocaleString();
+        main.appendChild(meta);
+        item.appendChild(main);
+        host.appendChild(item);
+      });
+    } catch (e) {
+      host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
     }
   }
 

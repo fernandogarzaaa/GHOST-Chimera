@@ -23,6 +23,7 @@ import json
 import threading
 import time
 from collections.abc import Iterator
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,12 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def _today() -> str:
+    from datetime import datetime
+
+    return datetime.now(UTC).strftime("%Y-%m-%d")
+
+
 def price_usd_per_1k(provider: str, model: str) -> tuple[float, float]:
     """(input, output) USD price per 1k tokens; (0.0, 0.0) when unknown."""
     try:
@@ -52,7 +59,15 @@ def price_usd_per_1k(provider: str, model: str) -> tuple[float, float]:
 
 
 class CostLedger:
-    """Thread-safe spend ledger with per-provider budgets and persistence."""
+    """Thread-safe spend ledger with per-provider budgets and persistence.
+
+    Beyond spend: per-call token counts (provider-reported when passed,
+    else char/4 estimates), per-provider latency samples (bounded, for
+    p50/p95), and per-day rollups — the backing store for the Console
+    Usage tab (token meter, daily consumption, cost USD).
+    """
+
+    _LATENCY_SAMPLES = 200
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -60,6 +75,10 @@ class CostLedger:
         self._calls: dict[str, int] = {}
         self._budgets: dict[str, float] = {}
         self._by_model: dict[str, float] = {}
+        self._tokens_in: dict[str, int] = {}
+        self._tokens_out: dict[str, int] = {}
+        self._latency_s: dict[str, list[float]] = {}
+        self._daily: dict[str, dict[str, dict[str, float]]] = {}
         self._provider_locks: dict[str, threading.Lock] = {}
 
     def _serial(self, provider: str) -> threading.Lock:
@@ -93,17 +112,61 @@ class CostLedger:
         output_text: str = "",
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        latency_s: float | None = None,
     ) -> float:
         """Record one call; return its estimated USD cost."""
-        in_tokens = input_tokens if input_tokens is not None else estimate_tokens(input_text)
-        out_tokens = output_tokens if output_tokens is not None else estimate_tokens(output_text)
+        in_tokens = max(0, input_tokens if input_tokens is not None else estimate_tokens(input_text))
+        out_tokens = max(0, output_tokens if output_tokens is not None else estimate_tokens(output_text))
         price_in, price_out = price_usd_per_1k(provider, model)
-        cost = (max(0, in_tokens) / 1000.0) * price_in + (max(0, out_tokens) / 1000.0) * price_out
+        cost = (in_tokens / 1000.0) * price_in + (out_tokens / 1000.0) * price_out
+        day = _today()
         with self._lock:
             self._spend[provider] = self._spend.get(provider, 0.0) + cost
             self._calls[provider] = self._calls.get(provider, 0) + 1
             self._by_model[f"{provider}/{model}"] = self._by_model.get(f"{provider}/{model}", 0.0) + cost
+            self._tokens_in[provider] = self._tokens_in.get(provider, 0) + in_tokens
+            self._tokens_out[provider] = self._tokens_out.get(provider, 0) + out_tokens
+            if latency_s is not None and latency_s >= 0:
+                samples = self._latency_s.setdefault(provider, [])
+                samples.append(float(latency_s))
+                del samples[: max(0, len(samples) - self._LATENCY_SAMPLES)]
+            day_entry = self._daily.setdefault(day, {}).setdefault(
+                provider, {"spend": 0.0, "calls": 0, "in": 0, "out": 0}
+            )
+            day_entry["spend"] += cost
+            day_entry["calls"] += 1
+            day_entry["in"] += in_tokens
+            day_entry["out"] += out_tokens
         return cost
+
+    @staticmethod
+    def _percentile(samples: list[float], pct: float) -> float:
+        if not samples:
+            return 0.0
+        ordered = sorted(samples)
+        index = min(len(ordered) - 1, max(0, int(pct / 100.0 * len(ordered))))
+        return ordered[index]
+
+    def latency_stats(self, provider: str) -> dict[str, float]:
+        with self._lock:
+            samples = list(self._latency_s.get(provider, []))
+        return {
+            "calls": float(len(samples)),
+            "p50_s": self._percentile(samples, 50),
+            "p95_s": self._percentile(samples, 95),
+            "max_s": max(samples) if samples else 0.0,
+        }
+
+    def daily_summary(self, day: str = "") -> dict[str, Any]:
+        """Per-provider {spend, calls, tokens} for one UTC day + totals."""
+        day = day or _today()
+        with self._lock:
+            providers = dict(self._daily.get(day, {}))
+        totals = {"spend": 0.0, "calls": 0, "in": 0, "out": 0}
+        for stats in providers.values():
+            for key in totals:
+                totals[key] += stats.get(key, 0)
+        return {"day": day, "providers": providers, "totals": totals}
 
     def spend(self, provider: str) -> float:
         with self._lock:
@@ -133,13 +196,32 @@ class CostLedger:
         if cap is not None and spent > cap:
             raise BudgetExceeded(f"Provider {provider!r} spent ${spent:.4f} past budget ${cap:.4f}")
 
+    def tokens(self, provider: str) -> dict[str, int]:
+        with self._lock:
+            return {
+                "in": self._tokens_in.get(provider, 0),
+                "out": self._tokens_out.get(provider, 0),
+            }
+
     def to_dict(self) -> dict[str, Any]:
         with self._lock:
+            latency = {
+                provider: {
+                    "calls": float(len(samples)),
+                    "p50_s": self._percentile(samples, 50),
+                    "p95_s": self._percentile(samples, 95),
+                    "max_s": max(samples) if samples else 0.0,
+                }
+                for provider, samples in self._latency_s.items()
+            }
             return {
                 "spend_usd": dict(self._spend),
                 "calls": dict(self._calls),
                 "budgets_usd": dict(self._budgets),
                 "by_model_usd": dict(self._by_model),
+                "tokens_in": dict(self._tokens_in),
+                "tokens_out": dict(self._tokens_out),
+                "latency_s": latency,
                 "total_usd": sum(self._spend.values()),
                 "recorded_at": time.time(),
             }
@@ -148,7 +230,10 @@ class CostLedger:
         """Persist the ledger as JSON (state dir friendly)."""
         target = Path(path).expanduser()
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
+        payload = self.to_dict()
+        with self._lock:
+            payload["daily"] = {day: dict(providers) for day, providers in self._daily.items()}
+        target.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
         return target
 
     @classmethod
@@ -175,6 +260,27 @@ class CostLedger:
                 ledger._budgets[str(key)] = value
             for key, value in cls._float_section(data.get("by_model_usd")).items():
                 ledger._by_model[str(key)] = value
+            for section_name, target in (("tokens_in", ledger._tokens_in), ("tokens_out", ledger._tokens_out)):
+                section = data.get(section_name)
+                if isinstance(section, dict):
+                    for key, value in section.items():
+                        try:
+                            target[str(key)] = int(value)
+                        except (TypeError, ValueError):
+                            continue
+            daily = data.get("daily")
+            if isinstance(daily, dict):
+                for day, providers in list(daily.items())[-30:]:
+                    if not isinstance(providers, dict):
+                        continue
+                    cleaned = {}
+                    for provider, stats in providers.items():
+                        if not isinstance(stats, dict):
+                            continue
+                        cleaned[str(provider)] = {
+                            key: float(stats.get(key, 0) or 0) for key in ("spend", "calls", "in", "out")
+                        }
+                    ledger._daily[str(day)] = cleaned
         return ledger
 
     @staticmethod

@@ -84,9 +84,7 @@ def test_first_working_tier_wins(tmp_path, monkeypatch) -> None:
 
 def test_failover_on_429(tmp_path, monkeypatch) -> None:
     _keys(monkeypatch, GOOGLE_API_KEY="g", GROQ_API_KEY="q")
-    router, instances = _router(
-        tmp_path, monkeypatch, {"gemini-openai": "http429", "groq": "ok"}
-    )
+    router, instances = _router(tmp_path, monkeypatch, {"gemini-openai": "http429", "groq": "ok"})
     out = router.chat("sys", "hello", tiers=["gemini-flash-lite", "groq-oss-20b"])
     assert out["tier"] == "groq-oss-20b"
     assert "[groq] reply" in out["text"]

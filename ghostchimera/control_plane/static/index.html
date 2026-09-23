@@ -587,6 +587,30 @@
     </div>
     <div id="automationRuns"></div>
 
+    <div class="section-hdr">Usage &amp; Cost</div>
+    <p class="hint" style="margin-bottom:10px;">Token meter, daily consumption, cost in USD, latency, and free-tier quota gauges. Free tiers price at $0.00 via the catalog; paid traffic accrues here first.</p>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="usageRefresh">Refresh Usage</button>
+    </div>
+    <div class="grid" id="usageSummary"></div>
+    <div id="usageProviders"></div>
+    <div class="section-hdr">Free-Tier Quotas</div>
+    <div id="freeQuotas"></div>
+
+    <div class="section-hdr">Evaluations</div>
+    <p class="hint" style="margin-bottom:10px;">Run a quality suite and watch the trend. Each run is recorded with pass/fail counts; history persists across restarts.</p>
+    <div class="row" style="margin-bottom:12px;">
+      <select id="evalSuiteName" style="max-width:220px;">
+        <option value="smoke">smoke</option>
+        <option value="safety">safety</option>
+        <option value="autonomy">autonomy</option>
+        <option value="user-journey">user-journey</option>
+      </select>
+      <button id="evalRun" class="primary">Run Suite</button>
+      <button id="evalHistoryRefresh">Refresh History</button>
+    </div>
+    <div id="evalRuns"></div>
+
     <div class="section-hdr">Import Browser Passwords</div>
     <p class="hint" style="margin-bottom:10px;">Two paths, same result. CSV: export from Chrome/Brave Settings → Passwords → Export, paste below. Direct: read this machine's Chromium login store (explicit consent, Windows-only, nothing leaves this computer). Map each entry to the vault or skip it.</p>
     <div class="form-group">

@@ -193,11 +193,14 @@ class FreeRouter:
         *,
         sensitive: bool | None = None,
         tiers: list[str] | None = None,
+        ledger: Any = None,
     ) -> dict[str, Any]:
         """Chat via the first working free tier. Returns result metadata.
 
         Raises RuntimeError with per-tier diagnostics when every tier is
-        unavailable or fails. Never raises with secrets attached.
+        unavailable or fails. Never raises with secrets attached. Each
+        successful call is recorded in the cost ledger (estimates +
+        latency; free tiers price at $0 via the catalog).
         """
         if sensitive is None:
             sensitive = is_sensitive(system_message, user_message)
@@ -210,6 +213,7 @@ class FreeRouter:
                 failures.append(f"{tier['tier']}: {reason}")
                 continue
             try:
+                from .cost_monitor import get_ledger
                 from .providers import get_provider
 
                 provider = get_provider(
@@ -221,14 +225,22 @@ class FreeRouter:
                     continue
                 started = time.time()
                 text = provider.chat(system_message, user_message)
+                latency = round(time.time() - started, 2)
                 self._bump(tier["tier"])
+                (ledger or get_ledger()).record(
+                    tier["provider"],
+                    tier["model"],
+                    input_text=f"{system_message}\n{user_message}",
+                    output_text=text,
+                    latency_s=latency,
+                )
                 return {
                     "ok": True,
                     "text": text,
                     "tier": tier["tier"],
                     "provider": tier["provider"],
                     "model": tier["model"],
-                    "latency_s": round(time.time() - started, 2),
+                    "latency_s": latency,
                     "sensitive_routed": sensitive,
                 }
             except Exception as exc:  # noqa: BLE001 — failover must be total

@@ -17,7 +17,6 @@ Lite-class model call elsewhere; this module never calls models itself.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -25,15 +24,40 @@ ACT_NOW_MIN = 70
 TODAY_MIN = 40
 
 _URGENCY = [
-    "urgent", "asap", "immediately", "deadline", "due today", "due tomorrow",
-    "action required", "approval needed", "needs your approval", "blocking",
-    "blocked", "outage", "incident", "security alert", "payment failed",
-    "expires today", "last chance", "time sensitive", "emergency",
+    "urgent",
+    "asap",
+    "immediately",
+    "deadline",
+    "due today",
+    "due tomorrow",
+    "action required",
+    "approval needed",
+    "needs your approval",
+    "blocking",
+    "blocked",
+    "outage",
+    "incident",
+    "security alert",
+    "payment failed",
+    "expires today",
+    "last chance",
+    "time sensitive",
+    "emergency",
 ]
 _NEWSLETTER = [
-    "newsletter", "digest", "weekly roundup", "monthly update", "promo",
-    "sale ends", "discount", "% off", "unsubscribe", "view in browser",
-    "noreply", "no-reply", "donotreply",
+    "newsletter",
+    "digest",
+    "weekly roundup",
+    "monthly update",
+    "promo",
+    "sale ends",
+    "discount",
+    "% off",
+    "unsubscribe",
+    "view in browser",
+    "noreply",
+    "no-reply",
+    "donotreply",
 ]
 
 
@@ -92,7 +116,8 @@ def score_message(
     }
 
 
-def triage_messages(    messages: list[dict[str, Any]],
+def triage_messages(
+    messages: list[dict[str, Any]],
     *,
     vip_senders: list[str] | None = None,
     user_email: str = "",
@@ -102,7 +127,9 @@ def triage_messages(    messages: list[dict[str, Any]],
     replied = set(replied_uids or [])
     scored = [
         score_message(
-            message, vip_senders=vip_senders, user_email=user_email,
+            message,
+            vip_senders=vip_senders,
+            user_email=user_email,
             thread_replied=message.get("uid", "") in replied,
         )
         for message in messages
@@ -111,9 +138,7 @@ def triage_messages(    messages: list[dict[str, Any]],
     buckets = {"act_now": [], "today": [], "fyi": []}
     for item in scored:
         buckets[item["tier"]].append(item)
-    digest_lines = [
-        f"• {item['from']} — {item['subject']} ({item['score']})" for item in buckets["fyi"][:10]
-    ]
+    digest_lines = [f"• {item['from']} — {item['subject']} ({item['score']})" for item in buckets["fyi"][:10]]
     return {
         "buckets": buckets,
         "counts": {tier: len(items) for tier, items in buckets.items()},
