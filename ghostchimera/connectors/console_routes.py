@@ -1308,7 +1308,11 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         if action == "check":
             try:
-                return monitor.check_now()
+                checked = monitor.check_now()
+                proposals = monitor.propose_updates()
+                checked["proposals"] = proposals.get("proposals", [])
+                checked["proposal_count"] = len(checked["proposals"])
+                return checked
             except Exception as exc:
                 return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         if action == "enable":
@@ -1317,6 +1321,69 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             return monitor.set_enabled(False)
         monitor.ensure_running()
         return {"ok": True, **monitor.status()}
+
+    def auth_free_tier_proposals(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Pending 'new models detected' proposals (no network)."""
+        from ..model_layer.free_tier_monitor import FreeTierMonitor
+
+        try:
+            return FreeTierMonitor(base).propose_updates()
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+    def auth_free_tier_accept(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Accept a proposal: rewrite the router chain via user overlay.
+
+        Body: {tier, model}. Writes free_tiers_config.json (code is never
+        touched) and marks the advertised models as known so the proposal
+        clears. The router picks the new model up on its next call.
+        """
+        from ..model_layer.free_router import FreeRouter
+        from ..model_layer.free_tier_monitor import FreeTierMonitor
+
+        data = _body(ctx)
+        tier = str(data.get("tier") or "").strip()
+        model = str(data.get("model") or "").strip()[:160]
+        if not tier or not model:
+            return {"ok": False, "error": "tier and model are required"}
+        try:
+            monitor = FreeTierMonitor(base)
+            current = monitor.propose_updates().get("proposals", [])
+            match = next(
+                (p for p in current if p["tier"] == tier and model in p.get("candidates", [])),
+                None,
+            )
+            if match is None:
+                return {"ok": False, "error": "no such pending proposal (stale? re-check first)"}
+            router = FreeRouter(state_path=Path(base) / "free_usage.json")
+            overlay = {t: dict(cfg) for t, cfg in ((k, v) for k, v in getattr(router, "_overlay", {}).items())}
+            overlay[tier] = {**overlay.get(tier, {}), "model": model}
+            router.save_overlay(overlay)
+            state = monitor._load()
+            known = state.get("known_models", {})
+            if isinstance(known, dict):
+                seen = monitor.status().get("tiers", {}).get(match["provider"], {}).get("models_seen", [])
+                known[match["provider"]] = sorted(set(known.get(match["provider"], [])) | set(seen))[:200]
+                state["known_models"] = known
+                monitor._save(state)
+            logger.info("free-tier rewrite accepted: %s -> %s", tier, model)
+            return {"ok": True, "tier": tier, "model": model}
+        except (ValueError, OSError) as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def auth_free_tier_dismiss(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Snooze one proposal so it stops re-notifying."""
+        from ..model_layer.free_tier_monitor import FreeTierMonitor
+
+        data = _body(ctx)
+        tier = str(data.get("tier") or "").strip()
+        kind = str(data.get("kind") or "new_models").strip()
+        if not tier:
+            return {"ok": False, "error": "tier is required"}
+        try:
+            return FreeTierMonitor(base).dismiss_proposal(tier, kind, str(data.get("current_model") or ""))
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     def auth_device_start(ctx: dict[str, Any]) -> dict[str, Any]:
         """Begin an RFC 8628 device login (no redirect URI — LAN-friendly).
@@ -1719,6 +1786,30 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         auth=auth,
         token=token,
         description="Free-tier re-check status and controls",
+    )
+    server.routes.register(
+        "/api/auth/free-tiers/proposals",
+        auth_free_tier_proposals,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Pending new-model proposals",
+    )
+    server.routes.register(
+        "/api/auth/free-tiers/accept",
+        auth_free_tier_accept,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Accept a model rewrite (writes overlay)",
+    )
+    server.routes.register(
+        "/api/auth/free-tiers/dismiss",
+        auth_free_tier_dismiss,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Snooze a model proposal",
     )
     server.routes.register(
         "/api/auth/device/start",

@@ -128,3 +128,128 @@ def test_free_tiers_routes(tmp_path, monkeypatch) -> None:
         assert _post(base + "/api/auth/free-tiers", {"action": "disable"})["enabled"] is False
     finally:
         server.stop()
+
+
+def _seed_known(tmp_path, provider, models):
+    import json
+
+    path = tmp_path / "free_tiers_status.json"
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        state = {}
+    known = state.get("known_models", {})
+    known[provider] = models
+    state["known_models"] = known
+    path.write_text(json.dumps(state), encoding="utf-8")
+
+
+def test_proposals_first_check_seeds_silently(tmp_path, monkeypatch) -> None:
+    import ghostchimera.model_layer.free_tier_monitor as monitor_mod
+
+    monkeypatch.setattr(
+        monitor_mod,
+        "probe_provider",
+        lambda provider, fetch_fn=None: {"provider": provider, "ok": True, "models_seen": ["m-1"]},
+    )
+    from ghostchimera.model_layer.free_tier_monitor import FreeTierMonitor
+
+    monitor = FreeTierMonitor(tmp_path)
+    try:
+        monitor.check_now()
+        assert monitor.propose_updates()["proposals"] == []
+    finally:
+        monitor.stop()
+
+
+def test_proposals_new_models_and_accept(tmp_path, monkeypatch) -> None:
+    import ghostchimera.model_layer.free_tier_monitor as monitor_mod
+
+    seen = {"models": ["gemini-2.5-flash-lite"]}
+
+    def fake_probe(provider, fetch_fn=None):
+        return {"provider": provider, "ok": True, "models_seen": list(seen["models"])}
+
+    monkeypatch.setattr(monitor_mod, "probe_provider", fake_probe)
+    from ghostchimera.model_layer.free_router import FreeRouter
+    from ghostchimera.model_layer.free_tier_monitor import FreeTierMonitor
+
+    monitor = FreeTierMonitor(tmp_path)
+    try:
+        monitor.check_now()
+        assert monitor.propose_updates()["proposals"] == []
+        seen["models"].append("gemini-2.5-flash-lite-v2")
+        monitor.check_now()
+        proposals = monitor.propose_updates()["proposals"]
+        assert any(p["kind"] == "new_models" for p in proposals)
+        server = _server(tmp_path)
+        try:
+            base = _base(server)
+            listed = _post(base + "/api/auth/free-tiers/proposals", {})
+            assert any(p["kind"] == "new_models" for p in listed["proposals"])
+            target = next(p for p in listed["proposals"] if p["kind"] == "new_models")
+            accepted = _post(
+                base + "/api/auth/free-tiers/accept",
+                {"tier": target["tier"], "model": "gemini-2.5-flash-lite-v2"},
+            )
+            assert accepted == {"ok": True, "tier": target["tier"], "model": "gemini-2.5-flash-lite-v2"}
+            router = FreeRouter(state_path=tmp_path / "free_usage.json")
+            effective = {t["tier"]: t["model"] for t in router.effective_tiers()}
+            assert effective[target["tier"]] == "gemini-2.5-flash-lite-v2"
+            again = _post(base + "/api/auth/free-tiers/proposals", {})
+            assert not any(p["kind"] == "new_models" and p["tier"] == target["tier"] for p in again["proposals"])
+            refused = _post(
+                base + "/api/auth/free-tiers/accept",
+                {"tier": target["tier"], "model": "gemini-2.5-flash-lite-v2"},
+            )
+            assert refused["ok"] is False
+        finally:
+            server.stop()
+    finally:
+        monitor.stop()
+
+
+def test_proposals_dismiss_suppresses(tmp_path, monkeypatch) -> None:
+    import ghostchimera.model_layer.free_tier_monitor as monitor_mod
+
+    monkeypatch.setattr(
+        monitor_mod,
+        "probe_provider",
+        lambda provider, fetch_fn=None: {"provider": provider, "ok": True, "models_seen": ["m-1", "m-2"]},
+    )
+    from ghostchimera.model_layer.free_tier_monitor import FreeTierMonitor
+
+    monitor = FreeTierMonitor(tmp_path)
+    try:
+        monitor.check_now()  # seeds baseline
+        _seed_known(tmp_path, "groq", ["m-1"])
+        monitor.check_now()
+        before = monitor.propose_updates()["proposals"]
+        assert before, "expected a new-model proposal"
+        target = before[0]
+        out = monitor.dismiss_proposal(target["tier"], "new_models")
+        assert out["ok"] is True
+        after = monitor.propose_updates()["proposals"]
+        assert not any(p["tier"] == target["tier"] and p["kind"] == "new_models" for p in after)
+    finally:
+        monitor.stop()
+
+
+def test_pin_stale_proposal(tmp_path, monkeypatch) -> None:
+    import ghostchimera.model_layer.free_tier_monitor as monitor_mod
+
+    monkeypatch.setattr(
+        monitor_mod,
+        "probe_provider",
+        lambda provider, fetch_fn=None: {"provider": provider, "ok": True, "models_seen": ["shiny-new"]},
+    )
+    from ghostchimera.model_layer.free_tier_monitor import FreeTierMonitor
+
+    monitor = FreeTierMonitor(tmp_path)
+    try:
+        monitor.check_now()  # seeds baseline with shiny-new
+        _seed_known(tmp_path, "groq", ["shiny-new"])
+        proposals = monitor.propose_updates()["proposals"]
+        assert any(p["kind"] == "pin_stale" for p in proposals)
+    finally:
+        monitor.stop()

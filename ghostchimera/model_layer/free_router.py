@@ -108,17 +108,69 @@ def _default_state_path() -> Path:
 
 @dataclass
 class FreeRouter:
-    """Ordered free-tier failover with quota guards and privacy routing."""
+    """Ordered free-tier failover with quota guards and privacy routing.
+
+    The baked-in chain below is defaults only. A user overlay file
+    (``free_tiers_config.json`` next to the usage file) overrides per-tier
+    ``model`` and ``enabled`` — written when the operator accepts a
+    "new models detected" proposal. Code is never rewritten at runtime.
+    """
 
     state_path: Path | None = None
     tiers: tuple[dict[str, Any], ...] = _TIER_DEFS
     max_backoff_s: float = 8.0
     _usage: dict[str, dict[str, int]] = field(default_factory=dict, repr=False)
+    _overlay: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         if self.state_path is None:
             self.state_path = _default_state_path()
         self._load()
+        self._load_overlay()
+
+    def _overlay_path(self) -> Path:
+        return self.state_path.parent / "free_tiers_config.json"
+
+    def _load_overlay(self) -> None:
+        try:
+            data = json.loads(self._overlay_path().read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                self._overlay = {
+                    str(tier): {k: v for k, v in cfg.items() if k in ("model", "enabled")}
+                    for tier, cfg in data.get("tiers", {}).items()
+                    if isinstance(cfg, dict)
+                }
+        except (OSError, ValueError):
+            self._overlay = {}
+
+    def save_overlay(self, tiers: dict[str, dict[str, Any]]) -> None:
+        """Persist user overrides ({tier: {model?, enabled?}})."""
+        cleaned = {
+            str(tier): {k: cfg[k] for k in ("model", "enabled") if k in cfg}
+            for tier, cfg in tiers.items()
+            if isinstance(cfg, dict)
+        }
+        path = self._overlay_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"tiers": cleaned}, indent=2), encoding="utf-8")
+        except OSError as exc:
+            raise ValueError(f"cannot save tier config: {exc}") from exc
+        self._overlay = cleaned
+
+    def effective_tiers(self) -> list[dict[str, Any]]:
+        """Baked-in chain with the user overlay applied (disabled dropped)."""
+        out = []
+        for tier in self.tiers:
+            override = self._overlay.get(tier["tier"], {})
+            if override.get("enabled") is False:
+                continue
+            merged = dict(tier)
+            if override.get("model"):
+                merged["model"] = str(override["model"])[:160]
+            merged["customized"] = bool(override)
+            out.append(merged)
+        return out
 
     # -- quota store ---------------------------------------------------------
     def _load(self) -> None:
@@ -149,9 +201,10 @@ class FreeRouter:
                 "used_today": self.used_today(t["tier"]),
                 "requests_per_day": t["requests_per_day"],
                 "trains_on_data": t["trains_on_data"],
+                "customized": t.get("customized", False),
                 "note": t["note"],
             }
-            for t in self.tiers
+            for t in self.effective_tiers()
         ]
 
     def _bump(self, tier: str) -> None:
@@ -205,7 +258,7 @@ class FreeRouter:
         if sensitive is None:
             sensitive = is_sensitive(system_message, user_message)
         failures: list[str] = []
-        for tier in self.tiers:
+        for tier in self.effective_tiers():
             if tiers is not None and tier["tier"] not in tiers:
                 continue
             ok, reason = self._tier_available(tier, sensitive=sensitive)

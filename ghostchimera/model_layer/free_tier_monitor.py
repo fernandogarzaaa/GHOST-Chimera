@@ -194,6 +194,86 @@ class FreeTierMonitor:
         self._save(state)
         return {"ok": True, "tiers": results}
 
+    def propose_updates(self) -> dict[str, Any]:
+        """Diff advertised models against the known baseline.
+
+        First successful check per provider seeds the baseline silently;
+        only later changes propose. Returns {proposals: [...]} where each
+        proposal is {tier, provider, kind, current_model, candidates[],
+        dismissed} with kind in (new_models, pin_stale).
+        """
+        from .free_router import _TIER_DEFS
+
+        state = self._load()
+        tiers = state.get("tiers", {})
+        known = state.get("known_models", {})
+        if not isinstance(known, dict):
+            known = {}
+        dismissed = state.get("dismissed", [])
+        if not isinstance(dismissed, list):
+            dismissed = []
+        proposals = []
+        seeded_this_run: set[str] = set()
+        for tier in _TIER_DEFS:
+            provider = tier["provider"]
+            snap = tiers.get(provider, {})
+            if not snap.get("ok"):
+                continue
+            seen = [m for m in snap.get("models_seen", []) if isinstance(m, str)]
+            if provider not in known:
+                # First sight seeds the baseline silently — neither new-model
+                # nor pin proposals until the next check has something to
+                # compare against (covers multi-tier providers too).
+                known[provider] = sorted(set(seen))[:200]
+                seeded_this_run.add(provider)
+                continue
+            if provider in seeded_this_run:
+                continue
+            fresh = [m for m in seen if m not in set(known[provider])]
+            if fresh:
+                key = f"{tier['tier']}:new"
+                if key not in dismissed:
+                    proposals.append(
+                        {
+                            "tier": tier["tier"],
+                            "provider": provider,
+                            "kind": "new_models",
+                            "current_model": tier["model"],
+                            "candidates": fresh[:12],
+                            "dismissed": False,
+                        }
+                    )
+            current = tier["model"]
+            if seen and current not in seen:
+                key = f"{tier['tier']}:pin:{current}"
+                if key not in dismissed:
+                    proposals.append(
+                        {
+                            "tier": tier["tier"],
+                            "provider": provider,
+                            "kind": "pin_stale",
+                            "current_model": current,
+                            "candidates": seen[:12],
+                            "dismissed": False,
+                        }
+                    )
+        state["known_models"] = known
+        self._save(state)
+        return {"ok": True, "proposals": proposals}
+
+    def dismiss_proposal(self, tier: str, kind: str, current_model: str = "") -> dict[str, Any]:
+        """Snooze one proposal key so it stops re-notifying."""
+        state = self._load()
+        dismissed = state.get("dismissed", [])
+        if not isinstance(dismissed, list):
+            dismissed = []
+        key = f"{tier}:pin:{current_model}" if kind == "pin_stale" else f"{tier}:new"
+        if key not in dismissed:
+            dismissed.append(key)
+        state["dismissed"] = dismissed[-200:]
+        self._save(state)
+        return {"ok": True, "dismissed": key}
+
     # -- daemon ----------------------------------------------------------------------
     def ensure_running(self) -> bool:
         with self._lock:

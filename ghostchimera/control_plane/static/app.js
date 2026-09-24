@@ -2820,6 +2820,7 @@
   }
   try { renderUsage(); } catch (_) {}
   try { renderEvalHistory(); } catch (_) {}
+  try { renderProposals(); } catch (_) {}
   try { renderAutomations(); } catch (_) {}
   try { renderAutomationRuns(); } catch (_) {}
   try { renderWriteGate(); } catch (_) {}
@@ -3281,6 +3282,7 @@
           var downs = Object.keys(res.tiers || {}).filter(function(k) { return !res.tiers[k].ok && !res.tiers[k].skipped; });
           toast(downs.length ? "Re-check done; down: " + downs.join(", ") : "All reachable tiers live.", downs.length ? "warn" : "ok");
           renderUsage();
+          renderProposals();
         } catch (e) { toast(e.message, "error"); }
         refresh.disabled = false;
       });
@@ -3340,6 +3342,78 @@
         main.appendChild(meta);
         item.appendChild(main);
         host.appendChild(item);
+      });
+    } catch (e) {
+      host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
+    }
+  }
+
+  // ── Free-tier model proposals ("new models detected") ────────────────
+  var proposalsToasted = {};
+
+  async function renderProposals() {
+    var host = $("#modelProposals");
+    if (!host) return;
+    host.innerHTML = "";
+    try {
+      var data = await api("/api/auth/free-tiers/proposals", { method: "POST", body: {} });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      if (!data.proposals.length) {
+        host.appendChild(el("div", { class: "empty" }, "Router chain is current — no new models detected."));
+        return;
+      }
+      data.proposals.forEach(function(p) {
+        var card = el("div", { class: "card", style: "margin-bottom:12px;border-color:var(--accent-strong);" });
+        var title = el("h3", null, "New models detected — " + p.tier);
+        card.appendChild(title);
+        var body = el("div", { class: "meta" });
+        body.textContent = (p.kind === "pin_stale"
+          ? "Pinned model " + p.current_model + " no longer advertised. Pick a replacement:"
+          : "New models advertised (pinned: " + p.current_model + "). Pick one to rewrite the chain:");
+        card.appendChild(body);
+        var row = el("div", { class: "row" });
+        var select = document.createElement("select");
+        (p.candidates || []).forEach(function(c) {
+          var opt = document.createElement("option");
+          opt.value = c; opt.textContent = c;
+          select.appendChild(opt);
+        });
+        select.style.flex = "2";
+        row.appendChild(select);
+        var accept = el("button", { class: "primary" });
+        accept.textContent = "Accept Rewrite";
+        accept.addEventListener("click", async function() {
+          accept.disabled = true;
+          try {
+            var res = await api("/api/auth/free-tiers/accept",
+              { method: "POST", body: { tier: p.tier, model: select.value } });
+            if (!res.ok) throw new Error(res.error || "failed");
+            toast(p.tier + " now uses " + select.value + ". Router picks it up immediately.", "ok");
+            renderProposals();
+            renderUsage();
+          } catch (e) {
+            toast(e.message, "error");
+            accept.disabled = false;
+          }
+        });
+        row.appendChild(accept);
+        var dismiss = el("button");
+        dismiss.textContent = "Dismiss";
+        dismiss.addEventListener("click", async function() {
+          try {
+            await api("/api/auth/free-tiers/dismiss",
+              { method: "POST", body: { tier: p.tier, kind: p.kind, current_model: p.current_model } });
+            renderProposals();
+          } catch (e) { toast(e.message, "error"); }
+        });
+        row.appendChild(dismiss);
+        card.appendChild(row);
+        host.appendChild(card);
+        var toastKey = p.tier + "|" + p.kind + "|" + p.current_model;
+        if (!proposalsToasted[toastKey]) {
+          proposalsToasted[toastKey] = true;
+          toast("New models detected for " + p.tier + " — review in Usage.", "warn");
+        }
       });
     } catch (e) {
       host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
