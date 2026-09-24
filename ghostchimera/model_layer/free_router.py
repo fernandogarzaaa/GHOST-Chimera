@@ -144,7 +144,11 @@ class FreeRouter:
             self._overlay = {}
 
     def save_overlay(self, tiers: dict[str, dict[str, Any]]) -> None:
-        """Persist user overrides ({tier: {model?, enabled?}})."""
+        """Persist per-tier ``model`` and ``enabled`` overrides.
+
+        Other override fields are dropped. Raise ``ValueError`` if the
+        configuration file cannot be written.
+        """
         cleaned = {
             str(tier): {k: cfg[k] for k in ("model", "enabled") if k in cfg}
             for tier, cfg in tiers.items()
@@ -189,10 +193,15 @@ class FreeRouter:
             pass
 
     def used_today(self, tier: str) -> int:
+        """Return the recorded request count for a tier on the current UTC day."""
         return int(self._usage.get(_today(), {}).get(tier, 0))
 
     def quota_status(self) -> list[dict[str, Any]]:
-        """Per-tier quota gauges for the observability UI."""
+        """Return quota and privacy gauges for enabled tiers in routing order.
+
+        Each gauge includes today's recorded requests, its daily cap, model,
+        provider, and whether that tier is marked as training on user data.
+        """
         return [
             {
                 "tier": t["tier"],
@@ -248,12 +257,18 @@ class FreeRouter:
         tiers: list[str] | None = None,
         ledger: Any = None,
     ) -> dict[str, Any]:
-        """Chat via the first working free tier. Returns result metadata.
+        """Try eligible free tiers in order and return the first response.
 
-        Raises RuntimeError with per-tier diagnostics when every tier is
-        unavailable or fails. Never raises with secrets attached. Each
-        successful call is recorded in the cost ledger (estimates +
-        latency; free tiers price at $0 via the catalog).
+        ``sensitive=None`` detects sensitive content from both messages;
+        an explicit value overrides detection. ``tiers`` restricts candidates
+        by tier name. Successful responses include text, tier, provider,
+        model, latency in seconds, and the sensitivity flag. A returned
+        response increments the tier's UTC-day count and records estimated
+        usage in ``ledger`` or the process ledger.
+
+        Raise ``RuntimeError`` with per-tier skip or failure diagnostics when
+        no tier returns successfully. Provider and ledger errors cause failover;
+        the request count can increase even if a later recording step fails.
         """
         if sensitive is None:
             sensitive = is_sensitive(system_message, user_message)

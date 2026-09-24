@@ -975,6 +975,12 @@ class PollinationsProvider(BaseProvider):
         return {"name": self.name, "available": self.available, "model": self.model}
 
     def chat(self, system_message: str, user_message: str) -> str:
+        """Fetch a keyless text response, with the prompt limited to 4,000 characters.
+
+        The prompt is sent in a GET URL. HTTP and network errors reach the
+        caller; a returned non-200 response raises ``RuntimeError``. Invalid
+        UTF-8 is replaced.
+        """
         import urllib.parse
 
         prompt = f"{system_message}\n\n{user_message}" if system_message else user_message
