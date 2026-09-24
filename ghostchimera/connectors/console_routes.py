@@ -1206,6 +1206,7 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         """
         from ..model_layer.cost_monitor import get_ledger
         from ..model_layer.free_router import FreeRouter
+        from ..model_layer.free_tier_monitor import FreeTierMonitor
 
         data = _body(ctx)
         ledger = get_ledger()
@@ -1222,6 +1223,12 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             quotas = FreeRouter(state_path=Path(base) / "free_usage.json").quota_status()
         except Exception:
             quotas = []
+        try:
+            monitor = FreeTierMonitor(base)
+            monitor.ensure_running()
+            quota_health = monitor.status()
+        except Exception:
+            quota_health = {"enabled": True, "stale": True, "tiers": {}}
         return {
             "ok": True,
             "day": day,
@@ -1229,6 +1236,7 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             "total_usd": round(ledger.total_spend(), 6),
             "providers": providers,
             "free_quotas": quotas,
+            "free_tiers_live": quota_health,
         }
 
     def auth_evals_run(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -1282,6 +1290,33 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             if len(runs) >= limit:
                 break
         return {"ok": True, "runs": runs}
+
+    def auth_free_tiers(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Daily re-check controls: status, manual check, enable/disable.
+
+        Body: {action?: "check" | "enable" | "disable"}. Defaults to status
+        (never triggers network). The daemon itself starts on first usage
+        call and re-checks every 24h while enabled.
+        """
+        from ..model_layer.free_tier_monitor import FreeTierMonitor
+
+        data = _body(ctx)
+        action = str(data.get("action") or "status").strip()
+        try:
+            monitor = FreeTierMonitor(base)
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        if action == "check":
+            try:
+                return monitor.check_now()
+            except Exception as exc:
+                return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        if action == "enable":
+            return monitor.set_enabled(True)
+        if action == "disable":
+            return monitor.set_enabled(False)
+        monitor.ensure_running()
+        return {"ok": True, **monitor.status()}
 
     def auth_device_start(ctx: dict[str, Any]) -> dict[str, Any]:
         """Begin an RFC 8628 device login (no redirect URI — LAN-friendly).
@@ -1676,6 +1711,14 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         auth=auth,
         token=token,
         description="Eval run history",
+    )
+    server.routes.register(
+        "/api/auth/free-tiers",
+        auth_free_tiers,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Free-tier re-check status and controls",
     )
     server.routes.register(
         "/api/auth/device/start",

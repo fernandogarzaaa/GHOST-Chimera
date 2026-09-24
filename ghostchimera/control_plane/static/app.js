@@ -3254,11 +3254,48 @@
         title.textContent = q.tier + (q.trains_on_data ? "  ·  may train on prompts" : "  ·  no training");
         main.appendChild(title);
         var meta = el("div", { class: "meta" });
-        meta.textContent = q.used_today + " / " + q.requests_per_day + " today  ·  " + (q.note || "");
+        var live = ((data.free_tiers_live || {}).tiers || {})[q.provider];
+        var health = live ? (live.ok ? "live ✓" : "down: " + (live.error || "?")) : "not checked yet";
+        meta.textContent = q.used_today + " / " + q.requests_per_day + " today  ·  " + health +
+          "  ·  " + (q.note || "");
         main.appendChild(meta);
         item.appendChild(main);
         quotasHost.appendChild(item);
       });
+      var live = data.free_tiers_live || {};
+      var foot = el("div", { class: "meta" });
+      var ageText = live.last_check_at
+        ? "last re-check " + new Date(live.last_check_at * 1000).toLocaleString()
+        : "never re-checked yet";
+      foot.textContent = "Auto re-check: " + (live.enabled === false ? "OFF" : "ON (every 24h)") +
+        "  ·  " + ageText + (live.stale ? "  ·  STALE" : "");
+      quotasHost.appendChild(foot);
+      var row = el("div", { class: "row" });
+      var refresh = el("button", { class: "primary" });
+      refresh.textContent = "Re-check Now";
+      refresh.addEventListener("click", async function() {
+        refresh.disabled = true;
+        try {
+          var res = await api("/api/auth/free-tiers", { method: "POST", body: { action: "check" } });
+          if (!res.ok) throw new Error(res.error || "failed");
+          var downs = Object.keys(res.tiers || {}).filter(function(k) { return !res.tiers[k].ok && !res.tiers[k].skipped; });
+          toast(downs.length ? "Re-check done; down: " + downs.join(", ") : "All reachable tiers live.", downs.length ? "warn" : "ok");
+          renderUsage();
+        } catch (e) { toast(e.message, "error"); }
+        refresh.disabled = false;
+      });
+      row.appendChild(refresh);
+      var toggle = el("button");
+      toggle.textContent = (live.enabled === false) ? "Enable Auto Re-check" : "Disable Auto Re-check";
+      toggle.addEventListener("click", async function() {
+        try {
+          await api("/api/auth/free-tiers",
+            { method: "POST", body: { action: (live.enabled === false) ? "enable" : "disable" } });
+          renderUsage();
+        } catch (e) { toast(e.message, "error"); }
+      });
+      row.appendChild(toggle);
+      quotasHost.appendChild(row);
     } catch (e) {
       summaryHost.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
     }

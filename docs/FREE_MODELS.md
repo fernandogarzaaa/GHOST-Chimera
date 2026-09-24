@@ -20,6 +20,19 @@ Model IDs and limits rotate; re-check the linked consoles monthly.
 Totals assume one identity per provider — never farm accounts to dodge
 quotas (ban risk everywhere).
 
+## Automatic daily re-check (on by default)
+
+Ghost re-probes every free tier once per 24h and refreshes the status
+you see in Usage → Free-Tier Quotas: live/down per provider, latency,
+and the model IDs each endpoint currently advertises. Probing uses
+metadata endpoints only — it never spends chat quota.
+
+- Runs automatically (single daemon, jittered start, `free_tiers_status.json`).
+- **Re-check Now** forces a probe; enable/disable toggle in the same section.
+- If a tier goes down, its quota gauge shows the error; the router had
+  already been failing over per-call regardless.
+- Disable: Usage tab toggle or `POST /api/auth/free-tiers {"action":"disable"}`.
+
 ## Setup (pick one)
 
 **Wizard (recommended):** `ghostchimera setup` → choose
