@@ -104,6 +104,8 @@ Full walkthrough with use cases, everyday recipes, and the safety model: **[docs
 
 ## Documentation
 
+> **Note on "MCP":** GHOST's internal `ghostchimera/mcp/` module implements a custom HTTP tool protocol (action/discover/call on 127.0.0.1:3100). It is **not** the standard Model Context Protocol (JSON-RPC over stdio/SSE). The naming is historical. The `ghostchimera mcp` CLI manages trust and approval for external standard-MCP servers; it does not expose a stdio server itself.
+
 - [Usage Guide](docs/USAGE_GUIDE.md) — use cases, everyday recipes, safety model
 - [User Tutorial](docs/USER_TUTORIAL.md) — guided first run
 - [Quick Start](docs/quick-start.md) — fastest install and launch path
