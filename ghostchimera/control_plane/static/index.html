@@ -502,7 +502,7 @@
     <pre class="output compact-output" id="blueskyOutput">Bluesky results appear here.</pre>
 
     <div class="section-hdr">Mail Inbox (App Password)</div>
-    <p class="hint" style="margin-bottom:10px;">Read-only inbox fetch using a Stored Keys app password. Requires Personal MiniMind email-crawl consent. Headers + short snippets only; one-time codes and reset links are filtered.</p>
+    <p class="hint" style="margin-bottom:10px;">Read-only inbox fetch using a Stored Keys app password. Requires Personal MiniMind email-crawl consent. Headers + short snippets only; one-time codes and reset links are filtered. Every fetch is triaged into Act now / Today / FYI (free heuristics, zero tokens).</p>
     <div class="form-group">
       <label>Vault key label (the app-password entry)</label>
       <input id="mailKeyLabel" type="text" autocomplete="off" placeholder="e.g. Gmail">
@@ -511,6 +511,13 @@
       <input id="mailMaxMessages" placeholder="max messages (default 10)" style="max-width:200px;">
       <input id="mailQuery" placeholder="IMAP query (default UNSEEN)" style="flex:1;min-width:160px;">
       <button id="mailFetch" class="primary">Fetch Inbox</button>
+    </div>
+    <div class="form-group">
+      <label>VIP senders (one per line — explicit list, never inferred)</label>
+      <textarea id="mailVipList" rows="3" style="width:100%;" placeholder="boss@company.com"></textarea>
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="mailVipSave">Save VIP List</button>
     </div>
     <pre class="output compact-output" id="mailOutput">Inbox messages appear here.</pre>
 
@@ -579,6 +586,34 @@
       <button id="autoRunsRefresh">Refresh Runs</button>
     </div>
     <div id="automationRuns"></div>
+
+    <div class="section-hdr">Usage &amp; Cost</div>
+    <p class="hint" style="margin-bottom:10px;">Token meter, daily consumption, cost in USD, latency, and free-tier quota gauges. Free tiers price at $0.00 via the catalog; paid traffic accrues here first.</p>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="usageRefresh">Refresh Usage</button>
+    </div>
+    <div class="grid" id="usageSummary"></div>
+    <div id="usageProviders"></div>
+    <div class="section-hdr">Free-Tier Quotas</div>
+    <div id="freeQuotas"></div>
+
+    <div class="section-hdr">Model Updates</div>
+    <p class="hint" style="margin-bottom:10px;">The daily re-check proposes chain rewrites here when providers advertise new models or retire pinned ones. Accepting rewrites a local config overlay — never code — and takes effect immediately.</p>
+    <div id="modelProposals"></div>
+
+    <div class="section-hdr">Evaluations</div>
+    <p class="hint" style="margin-bottom:10px;">Run a quality suite and watch the trend. Each run is recorded with pass/fail counts; history persists across restarts.</p>
+    <div class="row" style="margin-bottom:12px;">
+      <select id="evalSuiteName" style="max-width:220px;">
+        <option value="smoke">smoke</option>
+        <option value="safety">safety</option>
+        <option value="autonomy">autonomy</option>
+        <option value="user-journey">user-journey</option>
+      </select>
+      <button id="evalRun" class="primary">Run Suite</button>
+      <button id="evalHistoryRefresh">Refresh History</button>
+    </div>
+    <div id="evalRuns"></div>
 
     <div class="section-hdr">Import Browser Passwords</div>
     <p class="hint" style="margin-bottom:10px;">Two paths, same result. CSV: export from Chrome/Brave Settings → Passwords → Export, paste below. Direct: read this machine's Chromium login store (explicit consent, Windows-only, nothing leaves this computer). Map each entry to the vault or skip it.</p>

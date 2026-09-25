@@ -673,11 +673,20 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
     def auth_mail_fetch(ctx: dict[str, Any]) -> dict[str, Any]:
         """Read-only inbox fetch via a stored app password (consent-gated).
 
-        Body: {key_id?, label?, max_messages?, query?}. Requires Personal
-        MiniMind email-crawl consent, like the OAuth crawl. Returns headers
-        + OTP-scrubbed snippets only — never full bodies, never secrets.
+        Body: {key_id?, label?, max_messages?, query?, triage?, user_email?}.
+        Requires Personal MiniMind email-crawl consent, like the OAuth
+        crawl. Returns headers and snippets drawn from the first 500 body
+        characters, with best-effort code and reset-link masking but no
+        full-body field. ``max_messages`` defaults to 10 and is limited to
+        1–50; ``query`` defaults to UNSEEN. With ``triage`` enabled, messages
+        are scored into act_now / today / fyi buckets using an explicit VIP
+        list and ``user_email`` (defaulting to the account address).
+
+        Consent failures and expected mail errors return ``ok: False``;
+        other connection failures can propagate.
         """
         from ..integrations.mail_basic import fetch_inbox, resolve_app_password
+        from ..integrations.triage import load_vip_senders, triage_messages
 
         data = _body(ctx)
         entity_id = str(data.get("entity_id") or "console-user")
@@ -716,10 +725,31 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 return {"ok": False, "error": str(exc)[:200]}
             result["account"] = account["label"]
             logger.info("app-password mail fetch for '%s': %d messages", account["label"], len(result["messages"]))
+            if data.get("triage"):
+                result["triage"] = triage_messages(
+                    result["messages"],
+                    vip_senders=load_vip_senders(base),
+                    user_email=str(data.get("user_email") or account["email"]),
+                )
             return result
         finally:
             with suppress(Exception):
                 engine.close()
+
+    def auth_mail_vip(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Get or replace the explicit VIP sender list (never inferred)."""
+        from ..integrations.triage import load_vip_senders, save_vip_senders
+
+        data = _body(ctx)
+        if "senders" in data:
+            senders = data.get("senders")
+            if not isinstance(senders, list):
+                return {"ok": False, "error": "senders must be a list"}
+            try:
+                return {"ok": True, "vip_senders": save_vip_senders(base, senders)}
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)}
+        return {"ok": True, "vip_senders": load_vip_senders(base)}
 
     def auth_bluesky_post(ctx: dict[str, Any]) -> dict[str, Any]:
         """Publish a Bluesky post using a vault-stored app password.
@@ -1173,6 +1203,213 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         except AutomationError as exc:
             return {"ok": False, "error": str(exc)}
 
+    def auth_usage_summary(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Return ledger totals, a UTC-day rollup, and free-tier status.
+
+        Body ``day`` selects the rollup date; an empty value uses today.
+        The response also includes per-provider tokens and latency in seconds.
+        Starts the free-tier monitor if enabled. Quota or monitor failures
+        produce empty or stale status rather than an error response.
+        """
+        from ..model_layer.cost_monitor import get_ledger
+        from ..model_layer.free_router import FreeRouter
+        from ..model_layer.free_tier_monitor import FreeTierMonitor
+
+        data = _body(ctx)
+        ledger = get_ledger()
+        day = str(data.get("day") or "")
+        providers: dict[str, Any] = {}
+        for provider, spend in ledger.to_dict()["spend_usd"].items():
+            providers[provider] = {
+                "spend_usd": round(spend, 6),
+                "calls": ledger.calls(provider),
+                "tokens": ledger.tokens(provider),
+                "latency_s": ledger.latency_stats(provider),
+            }
+        try:
+            quotas = FreeRouter(state_path=Path(base) / "free_usage.json").quota_status()
+        except Exception:
+            quotas = []
+        try:
+            monitor = FreeTierMonitor(base)
+            monitor.ensure_running()
+            quota_health = monitor.status()
+        except Exception:
+            quota_health = {"enabled": True, "stale": True, "tiers": {}}
+        return {
+            "ok": True,
+            "day": day,
+            "daily": ledger.daily_summary(day),
+            "total_usd": round(ledger.total_spend(), 6),
+            "providers": providers,
+            "free_quotas": quotas,
+            "free_tiers_live": quota_health,
+        }
+
+    def auth_evals_run(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Run the named eval suite and return its outcome and timestamp.
+
+        Unknown suites and runner errors return ``ok: False``. History is
+        appended on a best-effort basis; a write failure does not fail the run.
+        """
+        import time as _time
+
+        from ..evals.runner import EVAL_SUITES, run_suite
+
+        data = _body(ctx)
+        suite = str(data.get("suite") or "").strip()
+        if suite not in EVAL_SUITES:
+            return {"ok": False, "error": f"unknown suite (try one of: {', '.join(sorted(EVAL_SUITES))})"}
+        try:
+            result = run_suite(suite)
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        entry = {
+            "suite": suite,
+            "ok": bool(result.get("ok")),
+            "passed": result.get("passed", 0),
+            "failed": result.get("failed", 0),
+            "ts": _time.time(),
+        }
+        try:
+            history_path = Path(base) / "eval_history.jsonl"
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(history_path, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry) + "\n")
+        except OSError as exc:
+            entry["history_saved"] = False
+            entry["history_error"] = f"{type(exc).__name__}: {exc}"
+            return {"ok": True, "run": entry}
+        entry["history_saved"] = True
+        return {"ok": True, "run": entry}
+
+    def auth_evals_history(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Return recent eval runs, newest first, skipping invalid JSON lines.
+
+        Body ``limit`` defaults to 50 when absent or falsy; other values are
+        clamped to 1–200. Only the last 500 stored lines are considered.
+        Missing history returns no runs.
+        """
+        data = _body(ctx)
+        try:
+            limit = max(1, min(200, int(data.get("limit") or 50)))
+        except (TypeError, ValueError):
+            limit = 50
+        try:
+            lines = (Path(base) / "eval_history.jsonl").read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return {"ok": True, "runs": []}
+        runs = []
+        for line in reversed(lines[-500:]):
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(entry, dict):
+                runs.append(entry)
+            if len(runs) >= limit:
+                break
+        return {"ok": True, "runs": runs}
+
+    def auth_free_tiers(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Return free-tier status or check, enable, or disable the monitor.
+
+        Body ``action`` defaults to status. A check probes providers now and
+        includes proposals; status and enable can start a background probe
+        thread. Construction and check failures return ``ok: False``.
+        """
+        from ..model_layer.free_tier_monitor import FreeTierMonitor
+
+        data = _body(ctx)
+        action = str(data.get("action") or "status").strip()
+        try:
+            monitor = FreeTierMonitor(base)
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        if action == "check":
+            try:
+                checked = monitor.check_now()
+                proposals = monitor.propose_updates()
+                checked["proposals"] = proposals.get("proposals", [])
+                checked["proposal_count"] = len(checked["proposals"])
+                return checked
+            except Exception as exc:
+                return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        if action == "enable":
+            return monitor.set_enabled(True)
+        if action == "disable":
+            return monitor.set_enabled(False)
+        monitor.ensure_running()
+        return {"ok": True, **monitor.status()}
+
+    def auth_free_tier_proposals(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Return pending model proposals without a network request.
+
+        The first call with a successful snapshot for a provider seeds a
+        persisted baseline and yields no proposal for that provider.
+        """
+        from ..model_layer.free_tier_monitor import FreeTierMonitor
+
+        try:
+            return FreeTierMonitor(base).propose_updates()
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+    def auth_free_tier_accept(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Accept a pending model candidate by saving a router overlay.
+
+        Body requires ``tier`` and ``model`` from a current proposal. Writes
+        ``free_tiers_config.json`` and marks advertised models as known; the
+        router reads the overlay on its next instance. Invalid or stale
+        proposals and handled write errors return ``ok: False``.
+        """
+        from ..model_layer.free_router import FreeRouter
+        from ..model_layer.free_tier_monitor import FreeTierMonitor
+
+        data = _body(ctx)
+        tier = str(data.get("tier") or "").strip()
+        model = str(data.get("model") or "").strip()[:160]
+        if not tier or not model:
+            return {"ok": False, "error": "tier and model are required"}
+        try:
+            monitor = FreeTierMonitor(base)
+            current = monitor.propose_updates().get("proposals", [])
+            match = next(
+                (p for p in current if p["tier"] == tier and model in p.get("candidates", [])),
+                None,
+            )
+            if match is None:
+                return {"ok": False, "error": "no such pending proposal (stale? re-check first)"}
+            router = FreeRouter(state_path=Path(base) / "free_usage.json")
+            overlay = {t: dict(cfg) for t, cfg in ((k, v) for k, v in getattr(router, "_overlay", {}).items())}
+            overlay[tier] = {**overlay.get(tier, {}), "model": model}
+            router.save_overlay(overlay)
+            state = monitor._load()
+            known = state.get("known_models", {})
+            if isinstance(known, dict):
+                seen = monitor.status().get("tiers", {}).get(match["provider"], {}).get("models_seen", [])
+                known[match["provider"]] = sorted(set(known.get(match["provider"], [])) | set(seen))[:200]
+                state["known_models"] = known
+                monitor._save(state)
+            logger.info("free-tier rewrite accepted: %s -> %s", tier, model)
+            return {"ok": True, "tier": tier, "model": model}
+        except (ValueError, OSError) as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def auth_free_tier_dismiss(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Snooze one proposal so it stops re-notifying."""
+        from ..model_layer.free_tier_monitor import FreeTierMonitor
+
+        data = _body(ctx)
+        tier = str(data.get("tier") or "").strip()
+        kind = str(data.get("kind") or "new_models").strip()
+        if not tier:
+            return {"ok": False, "error": "tier is required"}
+        try:
+            return FreeTierMonitor(base).dismiss_proposal(tier, kind, str(data.get("current_model") or ""))
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
     def auth_device_start(ctx: dict[str, Any]) -> dict[str, Any]:
         """Begin an RFC 8628 device login (no redirect URI — LAN-friendly).
 
@@ -1377,6 +1614,14 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         description="App-password inbox fetch (consent-gated)",
     )
     server.routes.register(
+        "/api/auth/mail/vip",
+        auth_mail_vip,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Get/replace VIP sender list",
+    )
+    server.routes.register(
         "/api/auth/bluesky/post",
         auth_bluesky_post,
         method="POST",
@@ -1534,6 +1779,62 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         auth=auth,
         token=token,
         description="Execute an approved run",
+    )
+    server.routes.register(
+        "/api/auth/usage/summary",
+        auth_usage_summary,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Token meter, daily cost, latency, free quotas",
+    )
+    server.routes.register(
+        "/api/auth/evals/run",
+        auth_evals_run,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Run an eval suite and record history",
+    )
+    server.routes.register(
+        "/api/auth/evals/history",
+        auth_evals_history,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Eval run history",
+    )
+    server.routes.register(
+        "/api/auth/free-tiers",
+        auth_free_tiers,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Free-tier re-check status and controls",
+    )
+    server.routes.register(
+        "/api/auth/free-tiers/proposals",
+        auth_free_tier_proposals,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Pending new-model proposals",
+    )
+    server.routes.register(
+        "/api/auth/free-tiers/accept",
+        auth_free_tier_accept,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Accept a model rewrite (writes overlay)",
+    )
+    server.routes.register(
+        "/api/auth/free-tiers/dismiss",
+        auth_free_tier_dismiss,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Snooze a model proposal",
     )
     server.routes.register(
         "/api/auth/device/start",

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import getpass
+import os
 import sys
 
 from .colors import Colors, color, print_error, print_header, print_info, print_success, print_warning
@@ -145,6 +146,7 @@ def prompt_yes_no(question: str, default: bool = True) -> bool:
 # ──────────────────────────────────────────────────────────────────────
 
 _PROVIDER_CHOICES = [
+    "Free tiers          — $0 auto-router: Gemini, Grok-fast, OpenRouter free (paste free keys)",
     "OpenAI API          — gpt-4o, gpt-3.5-turbo  (https://platform.openai.com/api-keys)",
     "OpenRouter          — 200+ models via unified API  (https://openrouter.ai/keys)",
     "Anthropic           — Claude models  (https://console.anthropic.com/keys)",
@@ -152,6 +154,19 @@ _PROVIDER_CHOICES = [
     "Custom endpoint     — Ollama, LM Studio, vLLM, any OpenAI-compatible server",
     "Local profile       — tiny/balanced/stronger, no API key needed",
     "Skip                — use deterministic backend only (for testing/hackathons)",
+]
+
+_FREE_TIER_KEYS: list[tuple[str, str, str]] = [
+    ("GOOGLE_API_KEY", "Google AI Studio (Gemini free tier)", "https://ai.google.dev/"),
+    ("GROQ_API_KEY", "Groq (fast free models)", "https://console.groq.com/keys"),
+    ("OPENROUTER_API_KEY", "OpenRouter (free models pool)", "https://openrouter.ai/keys"),
+]
+
+_FREE_TIER_MODELS: list[tuple[str, str]] = [
+    ("Auto (router picks: Gemini Lite → Groq → OpenRouter)", "auto"),
+    ("Gemini 2.5 Flash-Lite (biggest free quota)", "gemini-2.5-flash-lite"),
+    ("GPT-OSS 20B via Groq (fastest)", "openai/gpt-oss-20b"),
+    ("OpenRouter free pool", "openrouter/free"),
 ]
 
 _PROVIDER_MODELS: dict[str, list[tuple[str, str]]] = {
@@ -208,13 +223,44 @@ def _setup_provider(config: dict) -> None:
 
     idx = prompt_choice("Select a provider:", _PROVIDER_CHOICES, 0)
 
-    providers = ["openai", "openrouter", "anthropic", "opencode_cli", "custom", "local", "skip"]
+    providers = ["free", "openai", "openrouter", "anthropic", "opencode_cli", "custom", "local", "skip"]
     provider = providers[idx]
     config["model"]["provider"] = provider
 
     if provider == "skip":
         config["model"]["model"] = ""
         print_success("Skipping — will use deterministic backend")
+        return
+
+    if provider == "free":
+        print()
+        print_info("  The free router tries Gemini Flash-Lite, then Groq, then")
+        print_info("  OpenRouter free — all $0 with free signups, no card.")
+        print_info("  Paste the keys you have (Enter skips any of them); the")
+        print_info("  router uses whatever is available and fails over.")
+        print_info("  Privacy: Gemini/OpenRouter free may train on prompts —")
+        print_info("  sensitive content is blocked from those tiers automatically.")
+        print()
+        saved_any = False
+        for env_var, display, url in _FREE_TIER_KEYS:
+            existing = os.environ.get(env_var, "").strip()
+            if existing:
+                print_info(f"  {display}: already set in environment, kept.")
+                saved_any = True
+                continue
+            print_info(f"  {display}: {url}")
+            key = getpass.getpass(color(f"  {env_var} (Enter to skip): ", Colors.YELLOW)).strip()
+            if key:
+                os.environ[env_var] = key
+                saved_any = True
+                print_success(f"  {env_var} set for this session (add it to your shell to keep it)")
+        if not saved_any:
+            print_warning("  No free keys yet — the router will use keyless fallbacks only.")
+            print_info("  You can paste keys later in Console → Stored Keys.")
+        model_idx = prompt_choice("Select a free model:", [m[0] for m in _FREE_TIER_MODELS], 0)
+        config["model"]["model"] = _FREE_TIER_MODELS[model_idx][1]
+        config["model"]["free_router"] = True
+        print_success("Free-tier routing configured ($0)")
         return
 
     if provider == "custom":
