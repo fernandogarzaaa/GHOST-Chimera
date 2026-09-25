@@ -86,7 +86,13 @@ def score_message(
     user_email: str = "",
     thread_replied: bool = False,
 ) -> dict[str, Any]:
-    """Score one normalized mail dict (from/subject/snippet keys)."""
+    """Score a mail message using its sender, subject, and snippet.
+
+    VIP entries match case-insensitive substrings of ``from``; ``user_email``
+    is sought in the subject and snippet, and ``thread_replied`` adds a thread
+    boost. Return the UID, sender, subject, score clamped to 0–100, bucket
+    (``act_now`` at 70+, ``today`` at 40–69, otherwise ``fyi``), and reasons.
+    """
     sender = str(message.get("from", "") or "")
     subject = str(message.get("subject", "") or "")
     snippet = str(message.get("snippet", "") or "")
@@ -135,7 +141,12 @@ def triage_messages(
     user_email: str = "",
     replied_uids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Bucket scored messages; FYI collapses into a digest summary."""
+    """Bucket messages by score, highest first within each bucket.
+
+    ``replied_uids`` marks messages that belong to a replied-to thread.
+    Return scored ``buckets``, per-bucket ``counts``, and a digest of the
+    first ten FYI messages, or a fallback sentence when there are none.
+    """
     replied = set(replied_uids or [])
     scored = [
         score_message(
@@ -166,7 +177,7 @@ def _vip_path(state_dir: str | Path) -> Path:
 
 
 def load_vip_senders(state_dir: str | Path) -> list[str]:
-    """Explicit VIP list. Empty by default — never inferred silently."""
+    """Load up to 100 explicit VIP senders; return [] if state is unreadable."""
     try:
         data = json.loads(_vip_path(state_dir).read_text(encoding="utf-8"))
         senders = data.get("vip_senders", []) if isinstance(data, dict) else []
@@ -176,7 +187,11 @@ def load_vip_senders(state_dir: str | Path) -> list[str]:
 
 
 def save_vip_senders(state_dir: str | Path, senders: list[str]) -> list[str]:
-    """Replace the VIP list. Returns the stored list."""
+    """Persist and return up to 100 unique, nonempty VIP sender entries.
+
+    Entries are stripped and limited to 160 characters. Raise ``ValueError``
+    if the state file cannot be written.
+    """
     cleaned = []
     for sender in senders:
         text = str(sender or "").strip()[:160]

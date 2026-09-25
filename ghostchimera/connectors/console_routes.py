@@ -675,9 +675,15 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
 
         Body: {key_id?, label?, max_messages?, query?, triage?, user_email?}.
         Requires Personal MiniMind email-crawl consent, like the OAuth
-        crawl. Returns headers + OTP-scrubbed snippets only — never full
-        bodies, never secrets. With triage=true, messages are scored into
-        act_now / today / fyi buckets (zero tokens, heuristics only).
+        crawl. Returns headers and snippets drawn from the first 500 body
+        characters, with best-effort code and reset-link masking but no
+        full-body field. ``max_messages`` defaults to 10 and is limited to
+        1–50; ``query`` defaults to UNSEEN. With ``triage`` enabled, messages
+        are scored into act_now / today / fyi buckets using an explicit VIP
+        list and ``user_email`` (defaulting to the account address).
+
+        Consent failures and expected mail errors return ``ok: False``;
+        other connection failures can propagate.
         """
         from ..integrations.mail_basic import fetch_inbox, resolve_app_password
         from ..integrations.triage import load_vip_senders, triage_messages
@@ -1198,11 +1204,12 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             return {"ok": False, "error": str(exc)}
 
     def auth_usage_summary(ctx: dict[str, Any]) -> dict[str, Any]:
-        """Token meter, daily consumption, cost USD, latency, free quotas.
+        """Return ledger totals, a UTC-day rollup, and free-tier status.
 
-        Combines the cost ledger (all model traffic recorded through it),
-        today's rollup, and the free-tier quota gauges — the backing data
-        for the Console Usage tab.
+        Body ``day`` selects the rollup date; an empty value uses today.
+        The response also includes per-provider tokens and latency in seconds.
+        Starts the free-tier monitor if enabled. Quota or monitor failures
+        produce empty or stale status rather than an error response.
         """
         from ..model_layer.cost_monitor import get_ledger
         from ..model_layer.free_router import FreeRouter
@@ -1240,7 +1247,11 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         }
 
     def auth_evals_run(ctx: dict[str, Any]) -> dict[str, Any]:
-        """Run one eval suite and append the result to history."""
+        """Run the named eval suite and return its outcome and timestamp.
+
+        Unknown suites and runner errors return ``ok: False``. History is
+        appended on a best-effort basis; a write failure does not fail the run.
+        """
         import time as _time
 
         from ..evals.runner import EVAL_SUITES, run_suite
@@ -1273,7 +1284,12 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         return {"ok": True, "run": entry}
 
     def auth_evals_history(ctx: dict[str, Any]) -> dict[str, Any]:
-        """Eval run history (newest first) for trend display."""
+        """Return recent eval runs, newest first, skipping invalid JSON lines.
+
+        Body ``limit`` defaults to 50 when absent or falsy; other values are
+        clamped to 1–200. Only the last 500 stored lines are considered.
+        Missing history returns no runs.
+        """
         data = _body(ctx)
         try:
             limit = max(1, min(200, int(data.get("limit") or 50)))
@@ -1296,11 +1312,11 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         return {"ok": True, "runs": runs}
 
     def auth_free_tiers(ctx: dict[str, Any]) -> dict[str, Any]:
-        """Daily re-check controls: status, manual check, enable/disable.
+        """Return free-tier status or check, enable, or disable the monitor.
 
-        Body: {action?: "check" | "enable" | "disable"}. Defaults to status
-        (never triggers network). The daemon itself starts on first usage
-        call and re-checks every 24h while enabled.
+        Body ``action`` defaults to status. A check probes providers now and
+        includes proposals; status and enable can start a background probe
+        thread. Construction and check failures return ``ok: False``.
         """
         from ..model_layer.free_tier_monitor import FreeTierMonitor
 
@@ -1327,7 +1343,11 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         return {"ok": True, **monitor.status()}
 
     def auth_free_tier_proposals(ctx: dict[str, Any]) -> dict[str, Any]:
-        """Pending 'new models detected' proposals (no network)."""
+        """Return pending model proposals without a network request.
+
+        The first call with a successful snapshot for a provider seeds a
+        persisted baseline and yields no proposal for that provider.
+        """
         from ..model_layer.free_tier_monitor import FreeTierMonitor
 
         try:
@@ -1336,11 +1356,12 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     def auth_free_tier_accept(ctx: dict[str, Any]) -> dict[str, Any]:
-        """Accept a proposal: rewrite the router chain via user overlay.
+        """Accept a pending model candidate by saving a router overlay.
 
-        Body: {tier, model}. Writes free_tiers_config.json (code is never
-        touched) and marks the advertised models as known so the proposal
-        clears. The router picks the new model up on its next call.
+        Body requires ``tier`` and ``model`` from a current proposal. Writes
+        ``free_tiers_config.json`` and marks advertised models as known; the
+        router reads the overlay on its next instance. Invalid or stale
+        proposals and handled write errors return ``ok: False``.
         """
         from ..model_layer.free_router import FreeRouter
         from ..model_layer.free_tier_monitor import FreeTierMonitor

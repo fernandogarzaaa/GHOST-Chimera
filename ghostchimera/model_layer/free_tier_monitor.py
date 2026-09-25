@@ -95,7 +95,13 @@ def _extract_ids(payload: Any, path: tuple[str, str]) -> list[str]:
 
 
 def probe_provider(provider: str, *, fetch_fn=None) -> dict[str, Any]:
-    """Probe one provider's metadata endpoint. No chat quota spent."""
+    """Read a provider's model list without making a chat request.
+
+    ``fetch_fn`` can replace the metadata fetcher. Unknown providers,
+    missing credentials, and fetch failures return ``ok: False`` with an
+    error; a missing credential also sets ``skipped``. Successful results
+    include model IDs, elapsed seconds, and a check timestamp.
+    """
     spec = next((s for s in _PROVIDER_PROBES if s["provider"] == provider), None)
     if spec is None:
         return {"provider": provider, "ok": False, "error": "no probe defined"}
@@ -160,6 +166,7 @@ class FreeTierMonitor:
         return bool(self._load().get("enabled", True))
 
     def set_enabled(self, enabled: bool) -> dict[str, Any]:
+        """Persist the enabled flag and start or stop this monitor's thread."""
         state = self._load()
         state["enabled"] = bool(enabled)
         self._save(state)
@@ -184,7 +191,11 @@ class FreeTierMonitor:
 
     # -- probing -------------------------------------------------------------------
     def check_now(self) -> dict[str, Any]:
-        """Probe all providers once and persist the snapshot."""
+        """Probe each provider once and persist the resulting snapshot.
+
+        Return ``ok: True`` with per-provider results, including failures
+        reported by individual probes.
+        """
         results: dict[str, Any] = {}
         for spec in _PROVIDER_PROBES:
             results[spec["provider"]] = probe_provider(spec["provider"])
@@ -197,10 +208,12 @@ class FreeTierMonitor:
     def propose_updates(self) -> dict[str, Any]:
         """Diff advertised models against the known baseline.
 
-        First successful check per provider seeds the baseline silently;
-        only later changes propose. Returns {proposals: [...]} where each
-        proposal is {tier, provider, kind, current_model, candidates[],
-        dismissed} with kind in (new_models, pin_stale).
+        The first call with a successful snapshot per provider seeds the
+        baseline silently. Later calls can propose newly advertised models
+        or a pinned model absent from the snapshot. Returns {proposals: [...]}
+        where each proposal is {tier, provider, kind, current_model,
+        candidates[], dismissed} with kind in (new_models, pin_stale). This
+        call persists newly seeded baselines; it does not fetch model lists.
         """
         from .free_router import _TIER_DEFS
 
@@ -262,7 +275,11 @@ class FreeTierMonitor:
         return {"ok": True, "proposals": proposals}
 
     def dismiss_proposal(self, tier: str, kind: str, current_model: str = "") -> dict[str, Any]:
-        """Snooze one proposal key so it stops re-notifying."""
+        """Persist a dismissal for a tier's new-model or stale-pin proposal.
+
+        ``current_model`` distinguishes stale-pin dismissals. The returned
+        ``dismissed`` value is the stored proposal key.
+        """
         state = self._load()
         dismissed = state.get("dismissed", [])
         if not isinstance(dismissed, list):
@@ -276,6 +293,7 @@ class FreeTierMonitor:
 
     # -- daemon ----------------------------------------------------------------------
     def ensure_running(self) -> bool:
+        """Start a daemon thread if enabled; return whether one is alive or started."""
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
                 return True

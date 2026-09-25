@@ -47,7 +47,10 @@ def is_sensitive(*texts: str) -> bool:
 
 
 def scrub_preview(text: str, *, keep: int = 120) -> str:
-    """Short redacted preview for logs and UI (never the raw content)."""
+    """Truncate text after ``keep`` characters, appending an ellipsis.
+
+    Shorter text is returned unchanged. This does not redact sensitive content.
+    """
     text = str(text or "")
     if len(text) <= keep:
         return text

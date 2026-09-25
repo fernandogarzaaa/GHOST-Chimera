@@ -113,7 +113,12 @@ class CostLedger:
         output_tokens: int | None = None,
         latency_s: float | None = None,
     ) -> float:
-        """Record one call; return its estimated USD cost."""
+        """Record a call and return its catalog-priced cost in USD.
+
+        Explicit token counts take precedence over text estimates and are
+        clamped to zero. Nonnegative ``latency_s`` values contribute to the
+        provider's most recent 200 latency samples; daily totals use UTC.
+        """
         in_tokens = max(0, input_tokens if input_tokens is not None else estimate_tokens(input_text))
         out_tokens = max(0, output_tokens if output_tokens is not None else estimate_tokens(output_text))
         price_in, price_out = price_usd_per_1k(provider, model)
@@ -147,6 +152,11 @@ class CostLedger:
         return ordered[index]
 
     def latency_stats(self, provider: str) -> dict[str, float]:
+        """Return sample count, p50, p95, and maximum latency in seconds.
+
+        Only the most recent 200 nonnegative samples count. With no samples,
+        all values are zero.
+        """
         with self._lock:
             samples = list(self._latency_s.get(provider, []))
         return {
@@ -157,7 +167,11 @@ class CostLedger:
         }
 
     def daily_summary(self, day: str = "") -> dict[str, Any]:
-        """Per-provider {spend, calls, tokens} for one UTC day + totals."""
+        """Return provider and overall spend, call, and token totals for a UTC day.
+
+        An empty ``day`` selects today. Token totals use ``in`` and ``out``
+        keys; an unrecorded day returns zero totals and no providers.
+        """
         day = day or _today()
         with self._lock:
             providers = dict(self._daily.get(day, {}))
@@ -196,6 +210,7 @@ class CostLedger:
             raise BudgetExceeded(f"Provider {provider!r} spent ${spent:.4f} past budget ${cap:.4f}")
 
     def tokens(self, provider: str) -> dict[str, int]:
+        """Return cumulative input and output token counts for a provider."""
         with self._lock:
             return {
                 "in": self._tokens_in.get(provider, 0),
@@ -227,9 +242,13 @@ class CostLedger:
         }
 
     def to_dict(self) -> dict[str, Any]:
-        # Single lock acquisition: save() persists this exact snapshot, so
-        # a concurrent record() can never leave daily totals disagreeing
-        # with spend/calls/token counters.
+        """Snapshot cumulative spend, calls, budgets, tokens, and latency stats.
+
+        Single lock acquisition: save() persists this exact snapshot, so
+        a concurrent record() can never leave daily totals disagreeing
+        with spend/calls/token counters. The mapping omits daily rollups
+        and raw latency samples (save() adds those).
+        """
         with self._lock:
             return self.to_dict_locked()
 
@@ -245,7 +264,11 @@ class CostLedger:
 
     @classmethod
     def load(cls, path: str | Path) -> CostLedger:
-        """Load a persisted ledger; missing/corrupt files yield an empty one."""
+        """Load a ledger, or return an empty one for a missing or invalid JSON file.
+
+        Older files without token and daily sections remain readable. Latency
+        samples are not restored from the saved summary statistics.
+        """
         ledger = cls()
         try:
             data = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
