@@ -23,6 +23,24 @@ def test_vip_urgent_scores_act_now() -> None:
     assert any("VIP" in reason for reason in out["reasons"])
 
 
+def test_vip_display_name_spoof_gets_no_boost() -> None:
+    """Attacker-controlled display names must not confer VIP status."""
+    out = score_message(
+        _msg(sender='"boss@x.com" <attacker@evil.com>', subject="hello", snippet="see attached"),
+        vip_senders=["boss@x.com"],
+    )
+    assert out["score"] == 20
+    assert not any("VIP" in reason for reason in out["reasons"])
+
+
+def test_vip_requires_valid_address() -> None:
+    out = score_message(
+        _msg(sender="Just A Name", subject="hello", snippet="see attached"),
+        vip_senders=["boss@x.com"],
+    )
+    assert not any("VIP" in reason for reason in out["reasons"])
+
+
 def test_newsletter_demoted_to_fyi() -> None:
     out = score_message(_msg())
     assert out["tier"] == "fyi" and out["score"] < 40

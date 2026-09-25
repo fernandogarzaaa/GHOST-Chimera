@@ -1261,11 +1261,15 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             "ts": _time.time(),
         }
         try:
-            path = Path(base) / "eval_history.jsonl"
-            with open(path, "a", encoding="utf-8") as handle:
+            history_path = Path(base) / "eval_history.jsonl"
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(history_path, "a", encoding="utf-8") as handle:
                 handle.write(json.dumps(entry) + "\n")
-        except OSError:
-            pass
+        except OSError as exc:
+            entry["history_saved"] = False
+            entry["history_error"] = f"{type(exc).__name__}: {exc}"
+            return {"ok": True, "run": entry}
+        entry["history_saved"] = True
         return {"ok": True, "run": entry}
 
     def auth_evals_history(ctx: dict[str, Any]) -> dict[str, Any]:

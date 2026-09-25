@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -28,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from .auth_profiles import AuthProfile
+from .base_provider import BaseProvider
 from .sensitivity import is_sensitive
 
 _TIER_DEFS: tuple[dict[str, Any], ...] = (
@@ -121,12 +123,40 @@ class FreeRouter:
     max_backoff_s: float = 8.0
     _usage: dict[str, dict[str, int]] = field(default_factory=dict, repr=False)
     _overlay: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _pending: dict[str, int] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         if self.state_path is None:
             self.state_path = _default_state_path()
         self._load()
         self._load_overlay()
+
+    def _reserve(self, tier: str) -> bool:
+        """Atomically reserve one quota unit (in-process).
+
+        The check and the reservation happen under one lock, so
+        concurrent callers cannot jointly overshoot the daily cap —
+        each sees the others' reservations. Cross-process overshoot
+        remains best-effort (documented limitation, not silent cheating:
+        every instance reports honestly and backs off on 429s).
+        """
+        with self._lock:
+            for tier_def in self.tiers:
+                if tier_def["tier"] == tier:
+                    cap = tier_def["requests_per_day"]
+                    break
+            else:
+                return False
+            if self.used_today(tier) + self._pending.get(tier, 0) >= cap:
+                return False
+            self._pending[tier] = self._pending.get(tier, 0) + 1
+            return True
+
+    def _release(self, tier: str) -> None:
+        with self._lock:
+            if self._pending.get(tier, 0) > 0:
+                self._pending[tier] -= 1
 
     def _overlay_path(self) -> Path:
         return self.state_path.parent / "free_tiers_config.json"
@@ -225,7 +255,9 @@ class FreeRouter:
                 return False, "skipped (CF_API_TOKEN/CF_ACCOUNT_ID not set)"
         elif tier["key_env"] and not os.environ.get(tier["key_env"], "").strip():
             return False, f"skipped ({tier['key_env']} not set)"
-        if self.used_today(tier["tier"]) >= tier["requests_per_day"]:
+        with self._lock:
+            used = self.used_today(tier["tier"]) + self._pending.get(tier["tier"], 0)
+        if used >= tier["requests_per_day"]:
             return False, "skipped (daily quota reached)"
         return True, ""
 
@@ -265,6 +297,9 @@ class FreeRouter:
             if not ok:
                 failures.append(f"{tier['tier']}: {reason}")
                 continue
+            if not self._reserve(tier["tier"]):
+                failures.append(f"{tier['tier']}: quota filled while waiting")
+                continue
             try:
                 from .cost_monitor import get_ledger
                 from .providers import get_provider
@@ -302,7 +337,62 @@ class FreeRouter:
                 if retryable:
                     time.sleep(min(wait_s + random.uniform(0, 1.0), self.max_backoff_s))
                 continue
+            finally:
+                self._release(tier["tier"])
         raise RuntimeError("All free tiers unavailable: " + "; ".join(failures))
 
 
-__all__ = ["FreeRouter"]
+__all__ = ["FreeProvider", "FreeRouter"]
+
+
+class FreeProvider(BaseProvider):
+    """Registry entry named ``"free"`` so wizard/LLM configs resolve.
+
+    Delegates every chat to a FreeRouter: model ``"auto"`` (or empty)
+    runs the full chain; a concrete model ID restricts routing to tiers
+    serving exactly that model. Available when at least one tier has
+    credentials (or the keyless fallback exists).
+    """
+
+    name = "free"
+
+    def __init__(self, profile: AuthProfile | None = None) -> None:
+        from .cost_monitor import get_ledger
+
+        self.model = ""
+        self._ledger = get_ledger()
+        if profile is not None:
+            self.model = str(profile.model or "").strip()
+        self._router: FreeRouter | None = None
+        # Keyless Pollinations fallback means the chain is never
+        # credential-empty; per-tier availability is checked per call.
+        self.available = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "available": self.available, "model": self.model or "auto"}
+
+    def _router_instance(self) -> FreeRouter:
+        if self._router is None:
+            self._router = FreeRouter()
+        return self._router
+
+    def _tier_filter(self) -> list[str] | None:
+        """Tier names serving the configured model; None = full chain.
+
+        Returns an empty list (not None) when a concrete model matches
+        nothing, so validate_config() can flag it before chat time.
+        """
+        if not self.model or self.model == "auto":
+            return None
+        router = self._router_instance()
+        return [t["tier"] for t in router.effective_tiers() if t["model"] == self.model]
+
+    def validate_config(self) -> list[str]:
+        if self.model and self.model != "auto" and not self._tier_filter():
+            return [f"FreeRouter has no tier serving model {self.model!r}"]
+        return []
+
+    def chat(self, system_message: str, user_message: str) -> str:
+        router = self._router_instance()
+        result = router.chat(system_message, user_message, tiers=self._tier_filter(), ledger=self._ledger)
+        return result["text"]

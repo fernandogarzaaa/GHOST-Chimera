@@ -67,6 +67,8 @@ def test_save_load_round_trip_with_new_sections(tmp_path) -> None:
     assert loaded.tokens("groq") == {"in": 1000, "out": 500}
     assert loaded.daily_summary()["totals"]["calls"] == 1
     assert loaded.spend("groq") == ledger.spend("groq")
+    stats = loaded.latency_stats("groq")
+    assert stats["calls"] == 1 and stats["max_s"] == 0.4
 
 
 def test_load_legacy_file_without_new_sections(tmp_path) -> None:
@@ -76,6 +78,31 @@ def test_load_legacy_file_without_new_sections(tmp_path) -> None:
     assert loaded.spend("a") == 1.0 and loaded.calls("a") == 2
     assert loaded.tokens("a") == {"in": 0, "out": 0}
     assert loaded.daily_summary()["totals"] == {"spend": 0.0, "calls": 0, "in": 0, "out": 0}
+
+
+def test_load_rejects_nan_inf_and_junk_daily(tmp_path) -> None:
+    path = tmp_path / "dirty.json"
+    path.write_text(
+        json.dumps(
+            {
+                "spend_usd": {"a": 1.0},
+                "calls": {"a": 1},
+                "daily": {
+                    "2026-01-01": {
+                        "a": {"spend": 1.0, "calls": 1, "in": 10, "out": 5},
+                        "b": {"spend": "junk", "calls": 1, "in": 1, "out": 1},
+                        "c": "not-a-dict",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    loaded = CostLedger.load(path)
+    day = loaded.daily_summary("2026-01-01")
+    assert set(day["providers"]) == {"a"}
+    raw = loaded.save(tmp_path / "clean.json").read_text(encoding="utf-8")
+    assert "NaN" not in raw and "Infinity" not in raw
 
 
 # -- routes -----------------------------------------------------------------------------------
@@ -120,6 +147,7 @@ def test_evals_run_recorded_with_mock(tmp_path, monkeypatch) -> None:
         done = _post(base + "/api/auth/evals/run", {"suite": "smoke"})
         assert done["ok"] is True
         assert done["run"]["passed"] == 2 and done["run"]["failed"] == 1
+        assert done["run"]["history_saved"] is True
         history = _post(base + "/api/auth/evals/history", {})
         assert len(history["runs"]) == 1
         assert history["runs"][0]["suite"] == "smoke"

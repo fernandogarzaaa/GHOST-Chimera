@@ -16,6 +16,7 @@ Lite-class model call elsewhere; this module never calls models itself.
 
 from __future__ import annotations
 
+import email.utils
 import json
 from pathlib import Path
 from typing import Any
@@ -69,6 +70,15 @@ def _contains_any(haystack: str, needles: list[str]) -> str | None:
     return None
 
 
+def _sender_address(sender: str) -> str:
+    """Parsed mailbox, lowercased. Display-name tricks can't spoof VIP status:
+    only the actual address compares, with exact equality."""
+    try:
+        return email.utils.parseaddr(sender)[1].strip().lower()
+    except Exception:
+        return ""
+
+
 def score_message(
     message: dict[str, Any],
     *,
@@ -85,7 +95,9 @@ def score_message(
     reasons: list[str] = []
 
     sender_low = sender.lower()
-    is_vip = any(vip.lower() in sender_low for vip in (vip_senders or []) if vip)
+    sender_addr = _sender_address(sender)
+    vip_set = {v.strip().lower() for v in (vip_senders or []) if v and "@" in v}
+    is_vip = bool(sender_addr) and sender_addr in vip_set
     if is_vip:
         score += 40
         reasons.append("VIP sender (+40)")

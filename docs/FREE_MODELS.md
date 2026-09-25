@@ -48,10 +48,14 @@ the last resort. Expect slowness and small models.
 
 ## Privacy rule (enforced, not advised)
 
-Tiers marked **trains on data** never receive content the sensitivity
-guard flags (passwords, keys, IDs, codes, reset links). Such calls skip
-to a non-logging tier or fail with a clear error instead of leaking.
-This is automatic in `FreeRouter.chat()` — see `quota_status()` for
+Tiers marked **trains on data** are skipped for content the sensitivity
+guard flags (passwords, keys, IDs, codes, reset links) — such calls fall
+through to other tiers or fail with a clear error instead. Note the
+boundary honestly: Ghost cannot verify providers' logging claims;
+"not marked as training" means just that, not audited proof. Assume
+anything sent to any hosted tier could be retained, and keep true
+secrets in the local vault only.
+This is automatic in `FreeRouter.chat()` - see `quota_status()` for
 per-tier privacy flags shown in the Console Usage tab.
 
 ## What stays free, what doesn't

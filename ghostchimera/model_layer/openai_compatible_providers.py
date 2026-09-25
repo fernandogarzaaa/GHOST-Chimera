@@ -78,6 +78,9 @@ class OpenAICompatibleProvider(BaseProvider):
     _DEFAULT_MODEL: str = ""
     _KEY_ENV_VAR: str = ""
     _MODEL_ENV_VAR: str = ""
+    # Bounded network wait so one stalled provider cannot wedge failover
+    # chains (e.g. FreeRouter); override per class or via env.
+    _REQUEST_TIMEOUT_S: float = 90.0
 
     def __init__(self, profile: AuthProfile | None = None) -> None:
         if profile is not None:
@@ -128,13 +131,17 @@ class OpenAICompatibleProvider(BaseProvider):
         }
         data = json.dumps(body).encode("utf-8")
         context = ssl.create_default_context()
+        try:
+            timeout = float(os.environ.get("GHOSTCHIMERA_PROVIDER_TIMEOUT", "") or self._REQUEST_TIMEOUT_S)
+        except (TypeError, ValueError):
+            timeout = self._REQUEST_TIMEOUT_S
         req = urllib_request.Request(
             self._base_url,
             data=data,
             headers=self._build_headers(),
             method="POST",
         )
-        with urllib_request.urlopen(req, context=context) as resp:
+        with urllib_request.urlopen(req, context=context, timeout=timeout) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"{self.name} API returned HTTP {resp.status}")
             response_json = json.loads(resp.read().decode("utf-8"))
@@ -960,6 +967,7 @@ class PollinationsProvider(BaseProvider):
 
     name = "pollinations"
     _TEXT_URL = "https://text.pollinations.ai/"
+    _REQUEST_TIMEOUT_S = 60.0
 
     def __init__(self, profile: AuthProfile | None = None) -> None:
         self.model = "openai"
@@ -977,13 +985,21 @@ class PollinationsProvider(BaseProvider):
     def chat(self, system_message: str, user_message: str) -> str:
         import urllib.parse
 
+        from .sensitivity import is_sensitive
+
+        # Defense in depth: the FreeRouter skips this tier for sensitive
+        # content, but direct get_provider("pollinations").chat() paths
+        # bypass the router — so the guard lives here too. Keyless GET
+        # URLs are logged by intermediaries by construction.
+        if is_sensitive(system_message, user_message):
+            raise RuntimeError(f"{self.name} refuses sensitive content on the keyless tier")
         prompt = f"{system_message}\n\n{user_message}" if system_message else user_message
         url = self._TEXT_URL + urllib.parse.quote(prompt[:4000], safe="")
         if self.model and self.model != "openai":
             url += "?model=" + urllib.parse.quote(self.model, safe="")
         req = urllib_request.Request(url, method="GET")
         context = ssl.create_default_context()
-        with urllib_request.urlopen(req, context=context) as resp:
+        with urllib_request.urlopen(req, context=context, timeout=self._REQUEST_TIMEOUT_S) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"{self.name} API returned HTTP {resp.status}")
             return resp.read().decode("utf-8", "replace").strip()

@@ -28,6 +28,7 @@ from ..logging_config import get_logger
 from .base_provider import BaseProvider
 from .claude_agent_provider import ClaudeAgentProvider
 from .codex_cli_provider import CodexCliProvider
+from .free_router import FreeProvider
 from .gemini_provider import GeminiProvider
 from .llamacpp_runtime import LlamaCppRuntime
 from .local_profiles import get_local_model_profile
@@ -325,6 +326,7 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
     DeepInfraProvider.name: DeepInfraProvider,
     DeepSeekProvider.name: DeepSeekProvider,
     FireworksProvider.name: FireworksProvider,
+    FreeProvider.name: FreeProvider,
     GeminiOpenAIProvider.name: GeminiOpenAIProvider,
     GeminiProvider.name: GeminiProvider,
     GlmProvider.name: GlmProvider,
@@ -363,6 +365,7 @@ TEXT_PROVIDERS: dict[str, type[BaseProvider]] = {
     DeepInfraProvider.name: DeepInfraProvider,
     DeepSeekProvider.name: DeepSeekProvider,
     FireworksProvider.name: FireworksProvider,
+    FreeProvider.name: FreeProvider,
     GeminiOpenAIProvider.name: GeminiOpenAIProvider,
     GeminiProvider.name: GeminiProvider,
     GlmProvider.name: GlmProvider,

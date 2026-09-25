@@ -20,10 +20,11 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import threading
 import time
 from collections.abc import Iterator
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -42,8 +43,6 @@ def estimate_tokens(text: str) -> int:
 
 
 def _today() -> str:
-    from datetime import datetime
-
     return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
@@ -203,35 +202,43 @@ class CostLedger:
                 "out": self._tokens_out.get(provider, 0),
             }
 
+    def to_dict_locked(self) -> dict[str, Any]:
+        """Snapshot body; caller must hold the lock (see to_dict/save)."""
+        latency = {
+            provider: {
+                "calls": float(len(samples)),
+                "p50_s": self._percentile(samples, 50),
+                "p95_s": self._percentile(samples, 95),
+                "max_s": max(samples) if samples else 0.0,
+            }
+            for provider, samples in self._latency_s.items()
+        }
+        return {
+            "spend_usd": dict(self._spend),
+            "calls": dict(self._calls),
+            "budgets_usd": dict(self._budgets),
+            "by_model_usd": dict(self._by_model),
+            "tokens_in": dict(self._tokens_in),
+            "tokens_out": dict(self._tokens_out),
+            "latency_s": latency,
+            "latency_samples_s": {provider: list(samples) for provider, samples in self._latency_s.items()},
+            "total_usd": sum(self._spend.values()),
+            "recorded_at": time.time(),
+        }
+
     def to_dict(self) -> dict[str, Any]:
+        # Single lock acquisition: save() persists this exact snapshot, so
+        # a concurrent record() can never leave daily totals disagreeing
+        # with spend/calls/token counters.
         with self._lock:
-            latency = {
-                provider: {
-                    "calls": float(len(samples)),
-                    "p50_s": self._percentile(samples, 50),
-                    "p95_s": self._percentile(samples, 95),
-                    "max_s": max(samples) if samples else 0.0,
-                }
-                for provider, samples in self._latency_s.items()
-            }
-            return {
-                "spend_usd": dict(self._spend),
-                "calls": dict(self._calls),
-                "budgets_usd": dict(self._budgets),
-                "by_model_usd": dict(self._by_model),
-                "tokens_in": dict(self._tokens_in),
-                "tokens_out": dict(self._tokens_out),
-                "latency_s": latency,
-                "total_usd": sum(self._spend.values()),
-                "recorded_at": time.time(),
-            }
+            return self.to_dict_locked()
 
     def save(self, path: str | Path) -> Path:
-        """Persist the ledger as JSON (state dir friendly)."""
+        """Persist one atomic snapshot (single lock: daily never disagrees)."""
         target = Path(path).expanduser()
         target.parent.mkdir(parents=True, exist_ok=True)
-        payload = self.to_dict()
         with self._lock:
+            payload = self.to_dict_locked()
             payload["daily"] = {day: dict(providers) for day, providers in self._daily.items()}
         target.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
         return target
@@ -265,22 +272,51 @@ class CostLedger:
                 if isinstance(section, dict):
                     for key, value in section.items():
                         try:
-                            target[str(key)] = int(value)
+                            number = int(value)
                         except (TypeError, ValueError):
                             continue
+                        if number >= 0:
+                            target[str(key)] = number
+            samples = data.get("latency_samples_s")
+            if isinstance(samples, dict):
+                for provider, values in samples.items():
+                    if not isinstance(values, list):
+                        continue
+                    cleaned_samples = []
+                    for value in values[: CostLedger._LATENCY_SAMPLES]:
+                        try:
+                            number = float(value)
+                        except (TypeError, ValueError):
+                            continue
+                        if math.isfinite(number) and number >= 0:
+                            cleaned_samples.append(number)
+                    if cleaned_samples:
+                        ledger._latency_s[str(provider)] = cleaned_samples
             daily = data.get("daily")
             if isinstance(daily, dict):
                 for day, providers in list(daily.items())[-30:]:
                     if not isinstance(providers, dict):
                         continue
-                    cleaned = {}
+                    cleaned_day: dict[str, dict[str, float]] = {}
                     for provider, stats in providers.items():
                         if not isinstance(stats, dict):
                             continue
-                        cleaned[str(provider)] = {
-                            key: float(stats.get(key, 0) or 0) for key in ("spend", "calls", "in", "out")
-                        }
-                    ledger._daily[str(day)] = cleaned
+                        values: dict[str, float] = {}
+                        valid = True
+                        for key in ("spend", "calls", "in", "out"):
+                            try:
+                                number = float(stats.get(key, 0) or 0)
+                            except (TypeError, ValueError):
+                                valid = False
+                                break
+                            if not math.isfinite(number):
+                                valid = False
+                                break
+                            values[key] = number
+                        if valid:
+                            cleaned_day[str(provider)] = values
+                    if cleaned_day:
+                        ledger._daily[str(day)] = cleaned_day
         return ledger
 
     @staticmethod

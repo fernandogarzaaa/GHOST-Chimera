@@ -20,6 +20,12 @@ _PATTERNS = [
     r"\b\d{3}-\d{2}-\d{4}\b",  # SSN-like
     r"(?i)(social security|passport (no|number)|driver'?s license)\s*[:#]?\s*\S+",
     r"\b\d{13,19}\b",  # card-like runs
+    # Contact data worth protecting.
+    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+    r"\+?\d[\d\s().-]{7,}\d",  # phone-like runs
+    # Health and other confidential markers.
+    r"(?i)\b(diagnos(is|ed)|prescription|dosage|mg twice|medical record|patient|symptom|treatment plan)\b",
+    r"(?i)\b(confidential|privileged|attorney-client|do not (share|forward|distribute))\b",
     # One-time codes / reset links (mirror of the mail filter).
     r"(?i)\b(code|otp|token|pin)\s*(?:is|:)?\s*(\b\d{4,8}\b)",
     r"https?://\S*(?:reset|recover|verify-email|magic-link|one-time)[^\s]*",

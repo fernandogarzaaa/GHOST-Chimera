@@ -59,6 +59,10 @@ def _keys(monkeypatch, **env):
         ("ssn 123-45-6789 here", True),
         ("your code is 482916", True),
         ("reset here: https://x.com/reset?token=abc", True),
+        ("reach me at jane.doe@example.com tomorrow", True),
+        ("call +1 (555) 123-4567 after noon", True),
+        ("my diagnosis was updated yesterday", True),
+        ("confidential: do not forward this memo", True),
         ("summarize yesterday's standup notes", False),
         ("write a haiku about submarines", False),
         ("", False),
@@ -170,3 +174,72 @@ def test_new_providers_registered() -> None:
 
     for name in ("gemini-openai", "pollinations", "cloudflare"):
         assert get_provider(name) is not None
+
+
+def test_free_provider_resolves_and_maps_models() -> None:
+    from ghostchimera.model_layer.free_router import FreeProvider
+
+    auto = FreeProvider()
+    assert auto._tier_filter() is None
+    assert auto.validate_config() == []
+    lite = FreeProvider()
+    lite.model = "gemini-2.5-flash-lite"
+    assert lite._tier_filter() == ["gemini-flash-lite"]
+    bogus = FreeProvider()
+    bogus.model = "does-not-exist-xyz"
+    assert bogus._tier_filter() == []
+    assert bogus.validate_config() != []
+
+
+def test_free_provider_chats_through_router(tmp_path, monkeypatch) -> None:
+    _keys(monkeypatch, GROQ_API_KEY="q")
+    from ghostchimera.model_layer.free_router import FreeProvider
+
+    router, _ = _router(tmp_path, monkeypatch, {"groq": "ok"})
+    provider = FreeProvider()
+    provider._router = router
+    provider.model = "openai/gpt-oss-20b"
+    assert "reply" in provider.chat("sys", "hi")
+
+
+def test_pollinations_refuses_sensitive_directly() -> None:
+    from ghostchimera.model_layer.openai_compatible_providers import PollinationsProvider
+
+    provider = PollinationsProvider()
+    with pytest.raises(RuntimeError, match="refuses sensitive"):
+        provider.chat("sys", "my password: hunter2")
+
+
+def test_quota_reservations_hold_under_threads(tmp_path, monkeypatch) -> None:
+    import threading
+
+    _keys(monkeypatch, GROQ_API_KEY="q")
+    router, _ = _router(tmp_path, monkeypatch, {"groq": "ok"})
+    # Shrink the pool so contention is guaranteed: 3 slots, 10 racers.
+    router.tiers = (
+        {
+            "tier": "tiny",
+            "provider": "groq",
+            "model": "m",
+            "key_env": "GROQ_API_KEY",
+            "trains_on_data": False,
+            "requests_per_day": 3,
+            "note": "",
+        },
+    )
+    results: list = []
+
+    def attempt():
+        try:
+            router.chat("sys", "hi", tiers=["tiny"])
+            results.append("ok")
+        except RuntimeError:
+            results.append("denied")
+
+    threads = [threading.Thread(target=attempt) for _ in range(10)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert results.count("ok") == 3
+    assert router.used_today("tiny") == 3
