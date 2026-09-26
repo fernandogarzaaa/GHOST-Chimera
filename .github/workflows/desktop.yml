@@ -38,7 +38,7 @@ jobs:
           options: /DAppVersion=${{ inputs.release-tag || github.ref_name }}
       - name: Attach installer to release
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.release-tag || github.ref_name }}
           files: dist-desktop/installer/GhostChimeraSetup-*.exe
@@ -56,7 +56,7 @@ jobs:
         run: bash packaging/macos/build-macos-app.sh
       - name: Attach DMG to release
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.release-tag || github.ref_name }}
           files: dist-desktop/GhostChimera-*-macOS.dmg
