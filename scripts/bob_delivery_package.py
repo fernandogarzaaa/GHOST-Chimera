@@ -464,7 +464,7 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("### Check Documentation")
     lines.append("```bash")
     lines.append("# View Bob workflow")
-    lines.append("cat docs/IBM_BOB_WORKFLOW.md")
+    lines.append("cat docs/archive/hackathons/IBM_BOB_WORKFLOW.md")
     lines.append("")
     lines.append("# View ADRs")
     lines.append("ls docs/adr/")
@@ -504,7 +504,7 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("### What Judges Should Look At")
     lines.append("")
     lines.append("1. **Run the tools** - See Bob's analysis in action")
-    lines.append("2. **Review `docs/IBM_BOB_WORKFLOW.md`** - Complete workflow guide")
+    lines.append("2. **Review `docs/archive/hackathons/IBM_BOB_WORKFLOW.md`** - Complete workflow guide")
     lines.append("3. **Check `docs/adr/001-chimera-pilot-scheduling.md`** - Example ADR")
     lines.append("4. **Run tests** - All Bob tests passing")
     lines.append("5. **Review this delivery package** - Comprehensive summary")
@@ -553,7 +553,7 @@ def generate_delivery_package(format_type: str = "markdown") -> str | dict:
     lines.append("**IBM Bob** - Codebase-Aware Development Partner")
     lines.append("")
     lines.append("*This delivery package was generated automatically by optional Bob developer tools.*")
-    lines.append("*For more information, see `docs/IBM_BOB_WORKFLOW.md`*")
+    lines.append("*For more information, see `docs/archive/hackathons/IBM_BOB_WORKFLOW.md`*")
 
     return "\n".join(lines)
 

@@ -248,7 +248,7 @@ python -m pytest tests/ -q
 ### Check Documentation
 ```bash
 # View Bob workflow
-cat docs/IBM_BOB_WORKFLOW.md
+cat docs/archive/hackathons/IBM_BOB_WORKFLOW.md
 
 # View ADRs
 ls docs/adr/
@@ -286,7 +286,7 @@ cat docs/adr/001-chimera-pilot-scheduling.md
 ### What Judges Should Look At
 
 1. **Run the tools** - See Bob's analysis in action
-2. **Review `docs/IBM_BOB_WORKFLOW.md`** - Complete workflow guide
+2. **Review `docs/archive/hackathons/IBM_BOB_WORKFLOW.md`** - Complete workflow guide
 3. **Check `docs/adr/001-chimera-pilot-scheduling.md`** - Example ADR
 4. **Run tests** - All Bob tests passing
 5. **Review this delivery package** - Comprehensive summary
@@ -331,4 +331,4 @@ cat docs/adr/001-chimera-pilot-scheduling.md
 **IBM Bob** - Codebase-Aware Development Partner
 
 *This delivery package was generated automatically by optional Bob developer tools.*
-*For more information, see `docs/IBM_BOB_WORKFLOW.md`*
+*For more information, see `docs/archive/hackathons/IBM_BOB_WORKFLOW.md`*

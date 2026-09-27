@@ -65,8 +65,8 @@ def test_generic_production_env_and_compose_require_guardrails():
 
 
 def test_vultr_hackathon_docs_frame_track_and_demo_acceptance():
-    deployment = (ROOT / "docs" / "VULTR_HACKATHON_DEPLOYMENT.md").read_text(encoding="utf-8")
-    submission = (ROOT / "docs" / "HACKATHON_SUBMISSION_GUIDE.md").read_text(encoding="utf-8")
+    deployment = (ROOT / "docs" / "archive" / "hackathons" / "VULTR_HACKATHON_DEPLOYMENT.md").read_text(encoding="utf-8")
+    submission = (ROOT / "docs" / "archive" / "hackathons" / "HACKATHON_SUBMISSION_GUIDE.md").read_text(encoding="utf-8")
     production = (ROOT / "docs" / "PRODUCTION_DEPLOYMENT.md").read_text(encoding="utf-8")
 
     assert "Agentic Workflows" in submission
@@ -125,7 +125,7 @@ def test_streamlit_demo_uses_honest_derived_metrics():
 
 
 def test_ibm_bob_hackathon_workflow_doc_uses_bob_evidence():
-    doc = (ROOT / "docs" / "IBM_BOB_HACKATHON_WORKFLOW.md").read_text(encoding="utf-8")
+    doc = (ROOT / "docs" / "archive" / "hackathons" / "IBM_BOB_HACKATHON_WORKFLOW.md").read_text(encoding="utf-8")
 
     assert "IBM Bob" in doc
     assert "Completed comprehensive analysis" in doc

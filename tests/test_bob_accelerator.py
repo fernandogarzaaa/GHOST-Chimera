@@ -138,7 +138,7 @@ class TestBobDocumentation(unittest.TestCase):
 
     def test_bob_workflow_doc_exists(self):
         """Test that Bob workflow documentation exists."""
-        doc = ROOT / "docs" / "IBM_BOB_WORKFLOW.md"
+        doc = ROOT / "docs" / "archive" / "hackathons" / "IBM_BOB_WORKFLOW.md"
         self.assertTrue(doc.exists())
         content = doc.read_text(encoding="utf-8")
         self.assertIn("IBM Bob", content)

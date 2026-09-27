@@ -201,5 +201,4 @@ python scripts/smoke_installed_wheel.py --extras gateway
 - `CHIMERA_PILOT.md` - focused Chimera Pilot usage and backend notes
 - `docs/ARCHITECTURE.md` - layered architecture and runtime convergence
 - `docs/RELEASE_CHECKLIST.md` - release checks
-- `docs/MISSING_IMPLEMENTATIONS.md` - beta wiring audit
 - `SECURITY.md` - supported status and hardening guidance
