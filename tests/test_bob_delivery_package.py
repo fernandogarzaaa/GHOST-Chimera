@@ -168,7 +168,7 @@ class TestDeliveryPackageGenerator(unittest.TestCase):
 
     def test_submission_doc_is_judge_ready(self):
         """Test that the judge-facing submission doc has concrete repo links and no placeholders."""
-        doc = ROOT / "docs" / "IBM_BOB_SUBMISSION.md"
+        doc = ROOT / "docs" / "archive" / "hackathons" / "IBM_BOB_SUBMISSION.md"
         self.assertTrue(doc.exists())
         content = doc.read_text(encoding="utf-8")
 

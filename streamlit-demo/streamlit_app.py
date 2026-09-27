@@ -98,7 +98,7 @@ BOB_BUILT_TOOLS = {
     "scripts/coverage_report.py": "Maps source modules to direct test signals and recommends next targets.",
     "scripts/bob_delivery_package.py": "Creates a PR-ready delivery package for judges with Bob findings.",
     "docs/adr/": "Captures architectural decisions so new developers can understand rationale faster.",
-    "docs/IBM_BOB_WORKFLOW.md": "Preserves Bob's analysis, completed sprint work, and scaffolded roadmap.",
+    "docs/archive/hackathons/IBM_BOB_WORKFLOW.md": "Preserves Bob's analysis, completed sprint work, and scaffolded roadmap.",
 }
 
 
