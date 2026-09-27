@@ -14,9 +14,15 @@ This is beta-stage software for real, user-supervised work in local-first enviro
 ## Install
 
 ```bash
-pip install "ghostchimera[all]"   # Python: everything included
+pip install ghostchimera            # Python: headless core, installs in seconds
+pip install "ghostchimera[all]"     # Python: every backend (slow, see note below)
 brew tap fernandogarzaaa/ghostchimera && brew install --HEAD ghostchimera
 ```
+
+> **Install time:** the `[all]` extra pulls every backend (desktop, local models, MCP, voice, quantum),
+> including large ML and native packages (torch, transformers, llama-cpp-python, the voice stack).
+> It can take well over 10 minutes on a typical connection. New users should start with the base
+> package and add only the extras they need, for example `pip install "ghostchimera[mcp,gateway]"`.
 
 Full matrix (extras, publishing): [docs/INSTALL.md](docs/INSTALL.md)
 
