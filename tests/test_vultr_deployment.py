@@ -65,8 +65,12 @@ def test_generic_production_env_and_compose_require_guardrails():
 
 
 def test_vultr_hackathon_docs_frame_track_and_demo_acceptance():
-    deployment = (ROOT / "docs" / "archive" / "hackathons" / "VULTR_HACKATHON_DEPLOYMENT.md").read_text(encoding="utf-8")
-    submission = (ROOT / "docs" / "archive" / "hackathons" / "HACKATHON_SUBMISSION_GUIDE.md").read_text(encoding="utf-8")
+    deployment = (ROOT / "docs" / "archive" / "hackathons" / "VULTR_HACKATHON_DEPLOYMENT.md").read_text(
+        encoding="utf-8"
+    )
+    submission = (ROOT / "docs" / "archive" / "hackathons" / "HACKATHON_SUBMISSION_GUIDE.md").read_text(
+        encoding="utf-8"
+    )
     production = (ROOT / "docs" / "PRODUCTION_DEPLOYMENT.md").read_text(encoding="utf-8")
 
     assert "Agentic Workflows" in submission
