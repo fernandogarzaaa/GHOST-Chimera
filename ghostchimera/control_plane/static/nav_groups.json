@@ -27,6 +27,7 @@
       "label": "Operate",
       "tabs": [
         "run",
+        "tools",
         "jobs",
         "workspace",
         "memory",
