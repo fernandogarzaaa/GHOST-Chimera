@@ -2197,11 +2197,201 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         )
         return result.to_dict() if hasattr(result, "to_dict") else result
 
+    def _tool_workspace_clear(_args: dict[str, Any], base: Path) -> Any:
+        from ..cognition_layer.workspace_state import OperatorWorkspaceStore
+
+        store = OperatorWorkspaceStore(state_dir=base)
+        return store.clear()
+
+    def _tool_minimind_architectures(_args: dict[str, Any], _base: Path) -> Any:
+        from ..model_layer.minimind_runtime import list_minimind_architectures, minimind_source_metadata
+
+        return {
+            "architectures": [spec.to_dict() for spec in list_minimind_architectures()],
+            "sources": minimind_source_metadata(),
+        }
+
+    def _tool_minimind_log_failure(args: dict[str, Any], base: Path) -> Any:
+        from ..model_layer.minimind_lifecycle import MiniMindLifecycle
+
+        prompt = str(args.get("prompt") or "").strip()
+        response = str(args.get("response") or "").strip()
+        if not prompt or not response:
+            raise ValueError("Provide both prompt and response.")
+        try:
+            confidence = float(args.get("confidence") if args.get("confidence") not in (None, "") else 0.0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        raw_threshold = str(args.get("threshold") or "").strip()
+        try:
+            threshold = float(raw_threshold) if raw_threshold else 0.5
+        except (TypeError, ValueError):
+            threshold = 0.5
+        lifecycle = MiniMindLifecycle(state_dir=base)
+        logged = lifecycle.log_low_confidence(
+            prompt=prompt,
+            response=response,
+            confidence=confidence,
+            threshold=threshold,
+        )
+        return {"ok": True, "logged": logged, "confidence": confidence, "threshold": threshold}
+
+    def _tool_minimind_beta_vision(args: dict[str, Any], base: Path) -> Any:
+        from ..model_layer.minimind_beta_orchestrator import BetaVisionConfig, run_beta_vision
+
+        profile = str(args.get("profile") or "").strip() or None
+        memory_db = str(args.get("memory_db") or "").strip() or ".ghostchimera-memory.sqlite3"
+        run_jobs = str(args.get("run_autonomy_jobs") or "false").strip().lower() in {"1", "true", "yes"}
+        config = BetaVisionConfig(
+            memory_db=memory_db,
+            file_paths=[],
+            email_paths=[],
+            run_autonomy_jobs=run_jobs,
+            autonomy_profile="supervised",
+            autonomy_jobs=["self-audit", "memory-refresh"],
+        )
+        return run_beta_vision(config=config, state_dir=base, profile_name=profile)
+
+    def _tool_local_model_profiles(_args: dict[str, Any], _base: Path) -> Any:
+        from ..control_plane.local_model_cli import local_model_profiles_payload
+
+        return local_model_profiles_payload()
+
+    def _tool_local_model_check(args: dict[str, Any], _base: Path) -> Any:
+        from ..control_plane.local_model_cli import local_model_check_payload
+
+        return local_model_check_payload(str(args.get("profile") or ""))
+
+    def _tool_local_model_guide(args: dict[str, Any], _base: Path) -> Any:
+        from ..control_plane.local_model_cli import local_model_guide_payload
+
+        return local_model_guide_payload(str(args.get("profile") or ""))
+
+    def _tool_cognition_handoff_verify(args: dict[str, Any], _base: Path) -> Any:
+        from ..cognition_layer.trust import GhostHandoff, verify_handoff
+
+        handoff_json = str(args.get("handoff_json") or "").strip()
+        if not handoff_json:
+            raise ValueError("Provide handoff JSON to verify.")
+        result = verify_handoff(GhostHandoff.from_json(handoff_json))
+        return {"ok": result.accepted, "result": result.to_dict()}
+
+    def _tool_doctor(args: dict[str, Any], _base: Path) -> Any:
+        from ..control_plane.doctor import doctor_checks
+
+        production = str(args.get("production") or "false").strip().lower() in {"1", "true", "yes"}
+        return doctor_checks(production=production)
+
+    def _tool_eve_scan(args: dict[str, Any], _base: Path) -> Any:
+        from ..stealth.project_scan import scan_project
+
+        root = str(args.get("root") or "").strip() or str(Path(__file__).resolve().parents[2])
+        strict = str(args.get("strict") or "true").strip().lower() not in {"0", "false", "no"}
+        report = scan_project(root, strict=strict)
+        return report.to_dict()
+
+    def _tool_pilot_compile(args: dict[str, Any], _base: Path) -> Any:
+        from ..chimera_pilot.kernel import ChimeraPilotKernel
+
+        objective = str(args.get("objective") or "").strip()
+        if not objective:
+            raise ValueError("Provide an objective to compile.")
+        kernel = ChimeraPilotKernel.default(include_deterministic_backend=True)
+        return [
+            {
+                "id": task.id,
+                "kind": task.kind.value,
+                "objective": task.objective,
+                "inputs": task.inputs,
+                "constraints": task.constraints,
+                "privacy_level": task.privacy_level,
+                "requires_network": task.requires_network,
+            }
+            for task in kernel.compile(objective)
+        ]
+
+    def _tool_pilot_runtime_specialization(args: dict[str, Any], _base: Path) -> Any:
+        from ..model_layer.local_profiles import get_local_model_profile
+        from ..model_layer.runtime_specialization import (
+            detect_runtime_environment,
+            plan_runtime_specialization,
+            workload_from_messages,
+        )
+
+        prompt = str(args.get("prompt") or "").strip()
+        if not prompt:
+            raise ValueError("Provide a prompt to plan runtime specialization for.")
+        profile_name = str(args.get("profile") or "tiny").strip() or "tiny"
+        profile = get_local_model_profile(profile_name)
+        try:
+            estimated_output_tokens = int(args.get("estimated_output_tokens") or 128)
+        except (TypeError, ValueError):
+            estimated_output_tokens = 128
+        try:
+            batch_size = int(args.get("batch_size") or 1)
+        except (TypeError, ValueError):
+            batch_size = 1
+        workload = workload_from_messages(
+            user_message=prompt,
+            estimated_output_tokens=estimated_output_tokens,
+            batch_size=batch_size,
+            dtype=str(args.get("dtype") or "") or profile.quantization,
+        )
+        environment = detect_runtime_environment()
+        plan = plan_runtime_specialization(profile=profile, workload=workload, environment=environment)
+        return plan.to_dict()
+
+    def _tool_parallel_run(args: dict[str, Any], base: Path) -> Any:
+        from ..chimera_pilot.agent_pool import BatchAgent
+
+        objectives = [line.strip() for line in str(args.get("objectives") or "").splitlines() if line.strip()]
+        if not objectives:
+            raise ValueError("Provide one objective per line.")
+        try:
+            workers = int(args.get("workers") or 1)
+        except (TypeError, ValueError):
+            workers = 1
+        workers = max(1, min(16, workers))
+        output_dir = str(args.get("output_dir") or "").strip() or str(base / "parallel_output")
+        runner = BatchAgent(objectives=objectives, workers=workers, output_dir=output_dir)
+        return runner.run().to_dict()
+
+    def _tool_parallel_batch(args: dict[str, Any], base: Path) -> Any:
+        from ..chimera_pilot.agent_pool import ParallelAgent
+
+        jsonl_text = str(args.get("jsonl") or "").strip()
+        if not jsonl_text:
+            raise ValueError("Paste JSONL with one objective/prompt per line.")
+        dataset_file = base / "parallel_batch_input.jsonl"
+        dataset_file.write_text(jsonl_text, encoding="utf-8")
+        try:
+            workers = int(args.get("workers") or 4)
+        except (TypeError, ValueError):
+            workers = 4
+        workers = max(1, min(16, workers))
+        output_dir = str(args.get("output_dir") or "").strip() or str(base / "batch_output")
+        runner = ParallelAgent(jsonl_file=str(dataset_file), workers=workers, output_dir=output_dir)
+        return runner.run().to_dict()
+
     _TOOL_HANDLERS: dict[str, Any] = {
         "pilot-status": _tool_pilot_status,
         "pilot-calibrate": _tool_pilot_calibrate,
+        "pilot-compile": _tool_pilot_compile,
+        "pilot-runtime-specialization": _tool_pilot_runtime_specialization,
+        "parallel-run": _tool_parallel_run,
+        "parallel-batch": _tool_parallel_batch,
         "autonomy-profiles": _tool_autonomy_profiles,
         "model-profiles": _tool_model_profiles,
+        "local-model-profiles": _tool_local_model_profiles,
+        "local-model-check": _tool_local_model_check,
+        "local-model-guide": _tool_local_model_guide,
+        "minimind-architectures": _tool_minimind_architectures,
+        "minimind-log-failure": _tool_minimind_log_failure,
+        "minimind-beta-vision": _tool_minimind_beta_vision,
+        "cognition-handoff-verify": _tool_cognition_handoff_verify,
+        "doctor": _tool_doctor,
+        "eve-scan": _tool_eve_scan,
+        "workspace-clear": _tool_workspace_clear,
         "runtime-warmup": _tool_runtime_warmup,
         "desktop-stop": _tool_desktop_stop,
         "ux-audit": _tool_ux_audit,
@@ -2301,6 +2491,178 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                     {"name": "focus", "label": "Focus query (optional)", "placeholder": ""},
                     {"name": "budget_tokens", "label": "Token budget", "placeholder": "800"},
                 ],
+            },
+            {
+                "id": "pilot-compile",
+                "title": "Compile objective (dry run)",
+                "description": "Compile one objective into planned tasks without executing them. Same as the pilot compile command.",
+                "inputs": [
+                    {
+                        "name": "objective",
+                        "label": "Objective",
+                        "type": "textarea",
+                        "placeholder": "Objective to compile",
+                    },
+                ],
+            },
+            {
+                "id": "pilot-runtime-specialization",
+                "title": "Plan runtime specialization",
+                "description": "Plan local runtime specialization for a prompt. Same as the pilot runtime-specialization command.",
+                "inputs": [
+                    {
+                        "name": "prompt",
+                        "label": "Prompt",
+                        "type": "textarea",
+                        "placeholder": "Prompt used to estimate workload shape",
+                    },
+                    {"name": "profile", "label": "Local model profile", "placeholder": "tiny"},
+                    {"name": "estimated_output_tokens", "label": "Estimated output tokens", "placeholder": "128"},
+                    {"name": "batch_size", "label": "Batch size", "placeholder": "1"},
+                    {"name": "dtype", "label": "Dtype hint (optional)", "placeholder": ""},
+                ],
+            },
+            {
+                "id": "parallel-run",
+                "title": "Run objectives in parallel",
+                "description": "Run several objectives with a worker pool. Same as ghostchimera-parallel run. Executes work; can take a while.",
+                "confirm": "Run these objectives in parallel? This executes real work.",
+                "inputs": [
+                    {
+                        "name": "objectives",
+                        "label": "Objectives (one per line)",
+                        "type": "textarea",
+                        "placeholder": "One objective per line",
+                    },
+                    {"name": "workers", "label": "Parallel workers", "placeholder": "1"},
+                    {"name": "output_dir", "label": "Output dir (optional)", "placeholder": ""},
+                ],
+            },
+            {
+                "id": "parallel-batch",
+                "title": "Batch run from JSONL",
+                "description": "Run objectives from pasted JSONL lines in parallel. Same as ghostchimera-parallel batch. Executes work; can take a while.",
+                "confirm": "Run this JSONL batch in parallel? This executes real work.",
+                "inputs": [
+                    {
+                        "name": "jsonl",
+                        "label": "JSONL (one objective/prompt per line)",
+                        "type": "textarea",
+                        "placeholder": '{"objective": "..."}',
+                    },
+                    {"name": "workers", "label": "Workers", "placeholder": "4"},
+                    {"name": "output_dir", "label": "Output dir (optional)", "placeholder": ""},
+                ],
+            },
+            {
+                "id": "local-model-profiles",
+                "title": "Local model profiles",
+                "description": "List local model profiles with this machine's resource fit. Same as ghost local-model profiles.",
+                "inputs": [],
+            },
+            {
+                "id": "local-model-check",
+                "title": "Check local model profile",
+                "description": "Check whether a local model profile fits this machine. Same as ghost local-model check.",
+                "inputs": [
+                    {"name": "profile", "label": "Profile", "placeholder": "balanced"},
+                ],
+            },
+            {
+                "id": "local-model-guide",
+                "title": "Local model install guide",
+                "description": "Show install steps for a local model profile. Same as ghost local-model guide.",
+                "inputs": [
+                    {"name": "profile", "label": "Profile", "placeholder": "balanced"},
+                ],
+            },
+            {
+                "id": "minimind-architectures",
+                "title": "MiniMind architectures",
+                "description": "List the supported MiniMind model architectures. Same as ghost minimind architectures.",
+                "inputs": [],
+            },
+            {
+                "id": "minimind-log-failure",
+                "title": "Log MiniMind low-confidence failure",
+                "description": "Append a low-confidence record to the MiniMind failure log. Same as ghost minimind log-failure.",
+                "inputs": [
+                    {"name": "prompt", "label": "Prompt", "type": "textarea", "placeholder": "Prompt that failed"},
+                    {
+                        "name": "response",
+                        "label": "Response",
+                        "type": "textarea",
+                        "placeholder": "Low-confidence response",
+                    },
+                    {"name": "confidence", "label": "Confidence (0-1)", "placeholder": "0.3"},
+                    {"name": "threshold", "label": "Threshold (optional)", "placeholder": "0.5"},
+                ],
+            },
+            {
+                "id": "minimind-beta-vision",
+                "title": "Run MiniMind beta vision",
+                "description": "Bootstrap the personal MiniMind dataset and surface task hints. Same as ghost minimind beta-vision. Can take a while.",
+                "inputs": [
+                    {"name": "profile", "label": "Profile (optional)", "placeholder": ""},
+                    {
+                        "name": "memory_db",
+                        "label": "Memory DB (optional)",
+                        "placeholder": ".ghostchimera-memory.sqlite3",
+                    },
+                    {
+                        "name": "run_autonomy_jobs",
+                        "label": "Enqueue autonomy jobs",
+                        "type": "select",
+                        "options": ["false", "true"],
+                    },
+                ],
+            },
+            {
+                "id": "cognition-handoff-verify",
+                "title": "Verify cognition handoff",
+                "description": "Verify a GhostHandoff payload's trust envelope. Same as ghost cognition handoff verify.",
+                "inputs": [
+                    {
+                        "name": "handoff_json",
+                        "label": "Handoff JSON",
+                        "type": "textarea",
+                        "placeholder": '{"handoff_id": "..."}',
+                    },
+                ],
+            },
+            {
+                "id": "doctor",
+                "title": "Doctor health checks",
+                "description": "Run the Ghost Chimera health checks (Python, config, provider, safety, MiniMind, skills). Same as ghostchimera doctor.",
+                "inputs": [
+                    {
+                        "name": "production",
+                        "label": "Production mode",
+                        "type": "select",
+                        "options": ["false", "true"],
+                    },
+                ],
+            },
+            {
+                "id": "eve-scan",
+                "title": "EVE project scan",
+                "description": "Run the strict EVE project scan for secrets and policy issues. Same as ghost-eve-scan.",
+                "inputs": [
+                    {"name": "root", "label": "Repo root (optional)", "placeholder": "defaults to this repo"},
+                    {
+                        "name": "strict",
+                        "label": "Strict policy",
+                        "type": "select",
+                        "options": ["true", "false"],
+                    },
+                ],
+            },
+            {
+                "id": "workspace-clear",
+                "title": "Clear operator workspace",
+                "description": "Clear the operator workspace state. Same as ghost workspace clear. Destructive and irreversible.",
+                "confirm": "Clear the operator workspace? This permanently deletes workspace state.",
+                "inputs": [],
             },
         ]
 
