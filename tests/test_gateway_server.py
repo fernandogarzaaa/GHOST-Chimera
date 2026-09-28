@@ -387,5 +387,56 @@ class GatewayCoordinatedBindTests(unittest.TestCase):
             self.assertIsNone(server._http_server)
 
 
+class GatewayReleaseHttpTests(unittest.TestCase):
+    """_release_http() must never hang, even when serve_forever() never ran.
+
+    Regression: shutdown() on a bound-but-never-served HTTPServer blocks
+    forever waiting for the serve loop's shutdown event. The fix only
+    shuts down when the serve thread is actually alive and always closes
+    the socket.
+    """
+
+    def _release_in_thread(self, server: GatewayServer, timeout: float = 5.0) -> None:
+        """Run _release_http() off-thread; fail loud if it does not return."""
+        releaser = threading.Thread(target=server._release_http, daemon=True)
+        releaser.start()
+        releaser.join(timeout=timeout)
+        self.assertFalse(
+            releaser.is_alive(),
+            "_release_http() hung: shutdown() on a bound-but-never-served HTTPServer blocks forever",
+        )
+
+    def _assert_port_rebindable(self, port: int) -> None:
+        """Fail loud unless the released socket's port can be bound again."""
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.addCleanup(probe.close)
+        probe.bind(("127.0.0.1", port))
+
+    def test_release_http_never_served_does_not_hang_and_frees_port(self) -> None:
+        server = GatewayServer(host="127.0.0.1", port=0, http_port=0)
+        server._bind_http()
+        bound_port = server._http_server.server_address[1]
+        self.assertGreater(bound_port, 0)
+
+        self._release_in_thread(server)
+
+        self.assertIsNone(server._http_server)
+        self.assertIsNone(server._http_thread)
+        self._assert_port_rebindable(bound_port)
+
+    def test_release_http_after_serve_shuts_down_cleanly(self) -> None:
+        server = GatewayServer(host="127.0.0.1", port=0, http_port=0)
+        server._bind_http()
+        bound_port = server._http_server.server_address[1]
+        server._serve_http()
+        self.addCleanup(server._release_http)
+
+        self._release_in_thread(server)
+
+        self.assertIsNone(server._http_server)
+        self.assertIsNone(server._http_thread)
+        self._assert_port_rebindable(bound_port)
+
+
 if __name__ == "__main__":
     unittest.main()

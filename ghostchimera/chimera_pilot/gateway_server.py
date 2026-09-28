@@ -353,6 +353,10 @@ class GatewayServer(BackgroundService):
         self._http_server: HTTPServer | None = None
         self._http_thread: threading.Thread | None = None
         self._thread: threading.Thread | None = None
+        # Last exception raised by the WS listener thread (None when it is
+        # healthy or never died). Read after _await_ws_ready() fails so the
+        # final OSError names the real cause instead of blaming the port.
+        self._ws_thread_error: BaseException | None = None
         self._running = False
         self._credentials = get_pool()
         self._toolset_manager = ToolsetManager()
@@ -585,9 +589,16 @@ class GatewayServer(BackgroundService):
             if self._await_ws_ready(timeout=5.0):
                 self._serve_http()
                 break
-            # WS lost the race: release HTTP and try a fresh pair.
-            last_error = OSError(f"WebSocket bind failed on port {self.port}")
-            logger.info("WebSocket port %d busy during bind; retrying pair", self.port)
+            # WS lost the race: release HTTP and try a fresh pair. When the
+            # thread itself died (e.g. `import websockets` failed), say so
+            # instead of blaming the port.
+            ws_error = self._ws_thread_error
+            if ws_error is not None:
+                last_error = OSError(f"WebSocket thread failed on port {self.port}: {ws_error!r}")
+                logger.warning("WebSocket thread failed on port %d: %r", self.port, ws_error)
+            else:
+                last_error = OSError(f"WebSocket bind failed on port {self.port}")
+                logger.info("WebSocket port %d busy during bind; retrying pair", self.port)
             self._release_http()
             self._bump_ports()
         else:
@@ -646,17 +657,37 @@ class GatewayServer(BackgroundService):
                     await asyncio.sleep(1)
 
         def _run():
-            asyncio.run(_start_async())
+            # Reset per attempt so a stale failure cannot leak into the next
+            # attempt's diagnostics.
+            self._ws_thread_error = None
+            try:
+                asyncio.run(_start_async())
+            except BaseException as exc:
+                # Capture for start()'s diagnostics, then let the thread die
+                # as before (threading.excepthook still reports it).
+                self._ws_thread_error = exc
+                raise
 
         self._thread = threading.Thread(target=_run, daemon=True)
         self._thread.start()
 
     def _release_http(self) -> None:
-        """Shut down a bound-but-unpaired HTTP listener (lost race cleanup)."""
+        """Release a bound-but-unpaired HTTP listener (lost race cleanup).
+
+        ``shutdown()`` is only valid once the serve loop is running:
+        ``BaseServer.shutdown()`` blocks until the serve loop signals its
+        shutdown event, which never fires for a bound-but-never-served
+        socket — hanging the caller forever. So ``shutdown()`` runs only
+        when the serve thread actually started and is alive; the socket is
+        always closed so the port is re-bindable for the next attempt.
+        """
         server, self._http_server = self._http_server, None
+        thread, self._http_thread = self._http_thread, None
         if server is not None:
+            if thread is not None and thread.is_alive():
+                with contextlib.suppress(Exception):
+                    server.shutdown()
             with contextlib.suppress(Exception):
-                server.shutdown()
                 server.server_close()
 
     def _start_http_server(self) -> None:
