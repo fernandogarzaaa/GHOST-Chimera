@@ -422,7 +422,7 @@ def test_tools_run_desktop_stop(tmp_path: Path) -> None:
     assert code == 200
     assert body["ok"] is True
     assert body["result"]["path"] == str(target)
-    payload = json.loads(target.read_text())
+    payload = json.loads(target.read_text(encoding="utf-8"))
     assert payload["reason"] == "console_tool_test"
 
 
@@ -455,8 +455,8 @@ def test_tools_run_autonomy_and_model_profiles(tmp_path: Path) -> None:
 
 def test_frontend_cloud_and_tools_ids_exist() -> None:
     root = Path(__file__).resolve().parents[1]
-    html = (root / "ghostchimera" / "control_plane" / "static" / "index.html").read_text()
-    js = (root / "ghostchimera" / "control_plane" / "static" / "app.js").read_text()
+    html = (root / "ghostchimera" / "control_plane" / "static" / "index.html").read_text(encoding="utf-8")
+    js = (root / "ghostchimera" / "control_plane" / "static" / "app.js").read_text(encoding="utf-8")
     for tab in ('data-tab="cloud"', 'data-tab="tools"'):
         assert tab in html, f"missing tab button: {tab}"
     for element_id in (
