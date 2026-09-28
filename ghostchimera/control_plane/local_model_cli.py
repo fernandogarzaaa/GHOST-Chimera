@@ -122,61 +122,69 @@ def _profile_fit(profile_name: str, resources: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def local_model_profiles_payload() -> dict[str, Any]:
+    """Payload for ``ghostchimera local-model profiles`` (no printing)."""
+    resources = _detect_resources()
+    results = [_profile_fit(p.name, resources) for p in list_local_model_profiles()]
+    return {"ok": True, "profiles": results, "resources": resources}
+
+
+def local_model_check_payload(profile: str = "") -> dict[str, Any]:
+    """Payload for ``ghostchimera local-model check`` (no printing)."""
+    resources = _detect_resources()
+    profile_name = profile.strip() or "balanced"
+    fit = _profile_fit(profile_name, resources)
+    model_path = os.environ.get("MINIMIND_MODEL_PATH", "")
+    model_found = bool(model_path) and __import__("pathlib").Path(model_path).expanduser().exists()
+
+    status: dict[str, Any] = {
+        "ok": True,
+        "profile": fit,
+        "resources": resources,
+        "model_path_env": model_path or None,
+        "model_file_found": model_found,
+        "llama_cpp_installed": resources["llama_cpp_available"],
+        "recommendations": [],
+    }
+    recs: list[str] = []
+    if not resources["llama_cpp_available"]:
+        recs.append("Install llama-cpp-python: pip install 'ghostchimera[local]'")
+    if not model_path:
+        recs.append(f"Set MINIMIND_MODEL_PATH to a .gguf file for the '{profile_name}' profile")
+    elif not model_found:
+        recs.append(f"Model file not found at MINIMIND_MODEL_PATH={model_path!r}; download it first")
+    if fit["fits_resources"] is False:
+        recs.append(f"Resource constraint: {fit['fit_detail']} — consider the 'tiny' profile")
+    if not recs:
+        recs.append("System looks ready for local inference.")
+    status["recommendations"] = recs
+    return status
+
+
+def local_model_guide_payload(profile: str = "") -> dict[str, Any]:
+    """Payload for ``ghostchimera local-model guide`` (no printing)."""
+    profile_name = profile.strip() or "balanced"
+    guidance = _INSTALL_GUIDANCE.get(profile_name)
+    if guidance is None:
+        available = ", ".join(sorted(_INSTALL_GUIDANCE))
+        return {"ok": False, "error": f"No guide for profile '{profile_name}'. Available: {available}"}
+    return {"ok": True, "profile": profile_name, "steps": guidance}
+
+
 def run_local_model_cli(action: str, profile: str = "", source: str = "") -> int:
     """Dispatch ``ghostchimera local-model <action>``."""
-    resources = _detect_resources()
-
     if action == "profiles":
-        profiles = list_local_model_profiles()
-        results = []
-        for p in profiles:
-            results.append(_profile_fit(p.name, resources))
-        print(json.dumps({"ok": True, "profiles": results, "resources": resources}, indent=2, sort_keys=True))
+        print(json.dumps(local_model_profiles_payload(), indent=2, sort_keys=True))
         return 0
 
     if action == "check":
-        profile_name = profile.strip() or "balanced"
-        fit = _profile_fit(profile_name, resources)
-        model_path = os.environ.get("MINIMIND_MODEL_PATH", "")
-        model_found = bool(model_path) and __import__("pathlib").Path(model_path).expanduser().exists()
-
-        status: dict[str, Any] = {
-            "ok": True,
-            "profile": fit,
-            "resources": resources,
-            "model_path_env": model_path or None,
-            "model_file_found": model_found,
-            "llama_cpp_installed": resources["llama_cpp_available"],
-            "recommendations": [],
-        }
-        recs: list[str] = []
-        if not resources["llama_cpp_available"]:
-            recs.append("Install llama-cpp-python: pip install 'ghostchimera[local]'")
-        if not model_path:
-            recs.append(f"Set MINIMIND_MODEL_PATH to a .gguf file for the '{profile_name}' profile")
-        elif not model_found:
-            recs.append(f"Model file not found at MINIMIND_MODEL_PATH={model_path!r}; download it first")
-        if fit["fits_resources"] is False:
-            recs.append(f"Resource constraint: {fit['fit_detail']} — consider the 'tiny' profile")
-        if not recs:
-            recs.append("System looks ready for local inference.")
-        status["recommendations"] = recs
-        print(json.dumps(status, indent=2, sort_keys=True))
+        print(json.dumps(local_model_check_payload(profile), indent=2, sort_keys=True))
         return 0
 
     if action == "guide":
-        profile_name = profile.strip() or "balanced"
-        guidance = _INSTALL_GUIDANCE.get(profile_name)
-        if guidance is None:
-            available = ", ".join(sorted(_INSTALL_GUIDANCE))
-            print(
-                json.dumps(
-                    {"ok": False, "error": f"No guide for profile '{profile_name}'. Available: {available}"}, indent=2
-                )
-            )
-            return 1
-        print(json.dumps({"ok": True, "profile": profile_name, "steps": guidance}, indent=2, sort_keys=True))
-        return 0
+        payload = local_model_guide_payload(profile)
+        print(json.dumps(payload, indent=2))
+        return 0 if payload.get("ok") else 1
 
     if action == "inventory":
         from ..model_layer.local_model_inventory import discover_local_model_inventory
