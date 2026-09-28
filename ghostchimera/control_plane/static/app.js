@@ -226,9 +226,9 @@
   var TAB_GROUPS = [
     ["setup", "Setup", ["status", "config", "path", "local-models", "readiness"]],
     ["connect", "Connect", ["connections", "integrations", "github", "mcp", "remote"]],
-    ["operate", "Operate", ["run", "jobs", "workspace", "memory", "minimind", "rag-builder",
-      "skills", "browser", "activity", "thinking", "live-presence", "latency", "stealth",
-      "conversation"]],
+    ["operate", "Operate", ["run", "tools", "jobs", "workspace", "memory", "minimind",
+      "rag-builder", "skills", "browser", "activity", "thinking", "live-presence", "latency",
+      "stealth", "conversation"]],
     ["advanced", "Advanced", ["trust", "evolution", "cognition", "capability-pack", "sandbox",
       "security", "schedules", "review", "capabilities"]],
   ];
@@ -5826,6 +5826,7 @@
   $("#integrationsRefresh").addEventListener("click", refreshIntegrations);
   $("#stealthRefresh").addEventListener("click", refreshStealth);
   $("#steCheck").addEventListener("click", steCheckNow);
+  $("#toolsRefresh").addEventListener("click", refreshTools);
   $("#refreshActivity").addEventListener("click", refreshTimeline);
   $("#refreshLatency").addEventListener("click", refreshLatency);
   $("#operatorReadiness").addEventListener("click", async function() {
@@ -6169,6 +6170,111 @@
     if (active && active.id === "tab-stealth") refreshStealth();
   }
 
+  // ── Tools tab: CLI parity ──────────────────────────────────────────────
+  function toolInputField(spec) {
+    var label = el("label", {}, spec.label || spec.name);
+    var name = spec.name;
+    if (spec.type === "select") {
+      var sel = document.createElement("select");
+      sel.setAttribute("data-tool-arg", name);
+      (spec.options || []).forEach(function(opt) {
+        var o = document.createElement("option");
+        o.value = opt;
+        o.textContent = opt;
+        sel.appendChild(o);
+      });
+      label.appendChild(sel);
+    } else if (spec.type === "textarea") {
+      var ta = document.createElement("textarea");
+      ta.setAttribute("data-tool-arg", name);
+      ta.rows = 3;
+      if (spec.placeholder) ta.setAttribute("placeholder", spec.placeholder);
+      label.appendChild(ta);
+    } else {
+      var inp = document.createElement("input");
+      inp.setAttribute("data-tool-arg", name);
+      if (spec.placeholder) inp.setAttribute("placeholder", spec.placeholder);
+      label.appendChild(inp);
+    }
+    return label;
+  }
+
+  async function runTool(spec, card) {
+    var out = card.querySelector(".tool-output");
+    var btn = card.querySelector(".tool-run");
+    var args = {};
+    Array.prototype.forEach.call(card.querySelectorAll("[data-tool-arg]"), function(node) {
+      args[node.getAttribute("data-tool-arg")] = node.value;
+    });
+    if (spec.confirm && !window.confirm(spec.confirm)) return;
+    if (btn) btn.disabled = true;
+    if (out) {
+      out.innerHTML = "";
+      out.appendChild(el("div", { class: "empty" }, "Running…"));
+    }
+    try {
+      var data = await api("/api/tools/run", { method: "POST", body: { tool: spec.id, args: args } });
+      if (out) {
+        out.innerHTML = "";
+        if (data.ok) {
+          out.textContent = JSON.stringify(data.result, null, 2);
+        } else {
+          out.appendChild(el("div", { class: "empty" }, "Failed: " + (data.error || "unknown error")));
+        }
+      }
+      if (data.ok) toast(spec.title + " finished.", "ok");
+      else toast(spec.title + " failed.", "error");
+    } catch (e) {
+      if (out) {
+        out.innerHTML = "";
+        out.appendChild(el("div", { class: "empty" }, "Failed: " + e.message));
+      }
+      toast(spec.title + " failed: " + e.message, "error");
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function refreshTools() {
+    var grid = $("#toolsGrid");
+    var state = $("#toolsState");
+    if (state) badge(state, "loading…", "warn");
+    try {
+      var data = await api("/api/tools/catalog");
+      if (state) badge(state, "updated", "ok");
+      if (!grid) return;
+      grid.innerHTML = "";
+      var tools = (data && data.tools) || [];
+      if (!tools.length) {
+        grid.appendChild(el("div", { class: "empty" }, "No tools registered."));
+        return;
+      }
+      tools.forEach(function(spec) {
+        var card = el("div", { class: "cloud-card tool-card" });
+        card.appendChild(el("h3", {}, spec.title || spec.id));
+        card.appendChild(el("div", { class: "tool-desc" }, spec.description || ""));
+        var inputs = el("div", { class: "tool-inputs" });
+        (spec.inputs || []).forEach(function(inp) { inputs.appendChild(toolInputField(inp)); });
+        card.appendChild(inputs);
+        var row = el("div", { class: "tool-run-row" });
+        var btn = el("button", { class: "primary tool-run", type: "button" }, "Run");
+        btn.addEventListener("click", function() { runTool(spec, card); });
+        row.appendChild(btn);
+        card.appendChild(row);
+        var pre = el("pre", { class: "output compact-output tool-output" });
+        pre.textContent = "Output appears here.";
+        card.appendChild(pre);
+        grid.appendChild(card);
+      });
+    } catch (e) {
+      if (state) badge(state, "error", "warn");
+      if (grid) {
+        grid.innerHTML = "";
+        grid.appendChild(el("div", { class: "empty" }, "Tools unavailable: " + e.message));
+      }
+    }
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────────────
   applyConversationMinimized();
   initTabQuickJump();
@@ -6211,6 +6317,7 @@
     refreshIntegrations();
     refreshFirstRun();
     refreshStealth();
+    refreshTools();
   });
   setInterval(refreshStatus, 30000);
   setInterval(maybePollStealth, STEALTH_POLL_MS);

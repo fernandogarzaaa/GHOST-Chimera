@@ -23,7 +23,9 @@ def _server(tmp_path: Path) -> GatewayServer:
     server = GatewayServer(host="127.0.0.1", port=ws_port, http_port=http_port, config=config)
     register_connector_routes(server, tmp_path)
     server.start()
-    server._test_http_port = http_port  # type: ignore[attr-defined]
+    # The gateway auto-moves to the next free port when the preferred one is
+    # taken (or in TIME_WAIT); always use the port it actually bound.
+    server._test_http_port = server.http_port  # type: ignore[attr-defined]
     return server
 
 

@@ -441,3 +441,39 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow
   .qa-grid { gap: 6px; }
   .fact-row .fact-conf { margin-left: 0; }
 }
+
+/* ── Operator tools tab ────────────────────────────────────────────────── */
+.cloud-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.cloud-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cloud-card h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.cloud-card .big { font-size: 15px; font-weight: 650; }
+.cloud-card .sub { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.cloud-card .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; word-break: break-all; }
+.cloud-card .foot { margin-top: auto; padding-top: 6px; }
+.tool-card .tool-desc { font-size: 12.5px; color: var(--muted); line-height: 1.5; flex: 1; }
+.tool-card .tool-inputs { display: flex; flex-direction: column; gap: 8px; margin: 6px 0; }
+.tool-card .tool-inputs label { font-size: 11.5px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.tool-card pre.output { margin-top: 8px; }
+.tool-card .tool-run-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+@media (max-width: 700px) {
+  .cloud-grid { grid-template-columns: 1fr; }
+}

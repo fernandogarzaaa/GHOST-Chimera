@@ -1798,6 +1798,607 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         description="Ghost-writer completions",
     )
 
+    # -- Operator tools: CLI parity for the web console ----------------------
+    # Thin dispatch over the same library functions the terminal CLIs call,
+    # so CLI-only capabilities are also clickable in the console. Imports stay
+    # lazy (inside each handler) so a heavy/optional dependency can never
+    # break console startup. Handlers receive (args, base) and must return
+    # JSON-serializable data or raise.
+
+    def _tool_pilot_status(_args: dict[str, Any], _base: Path) -> Any:
+        from ..chimera_pilot.kernel import ChimeraPilotKernel
+
+        return ChimeraPilotKernel.default().status()
+
+    def _tool_pilot_calibrate(_args: dict[str, Any], _base: Path) -> Any:
+        from ..chimera_pilot.kernel import ChimeraPilotKernel
+
+        return ChimeraPilotKernel.default().calibrate()
+
+    def _tool_autonomy_profiles(_args: dict[str, Any], _base: Path) -> Any:
+        from ..chimera_pilot.autonomy import list_autonomy_profiles
+
+        return {"profiles": [profile.to_dict() for profile in list_autonomy_profiles()]}
+
+    def _tool_model_profiles(_args: dict[str, Any], _base: Path) -> Any:
+        from ..model_layer.local_profiles import list_local_model_profiles
+
+        return {"profiles": [profile.to_dict() for profile in list_local_model_profiles()]}
+
+    def _tool_runtime_warmup(args: dict[str, Any], base_dir: Path) -> Any:
+        from ..model_layer.runtime_specialization import (
+            detect_runtime_environment,
+            warm_runtime_specialization_cache,
+        )
+
+        cache_dir = str(args.get("cache_dir") or "").strip() or str(base_dir / "runtime-specialization")
+        environment = detect_runtime_environment()
+        return warm_runtime_specialization_cache(
+            cache_dir=cache_dir,
+            profile_names="tiny",
+            environment=environment,
+        )
+
+    def _tool_desktop_stop(args: dict[str, Any], _base: Path) -> Any:
+        from ..chimera_pilot.desktop_policy import write_desktop_stop_file
+
+        path = str(args.get("path") or "").strip() or None
+        reason = str(args.get("reason") or "operator_stop").strip()[:120] or "operator_stop"
+        target = write_desktop_stop_file(path, reason=reason)
+        return {"ok": True, "path": str(target), "reason": reason}
+
+    def _tool_ux_audit(_args: dict[str, Any], _base: Path) -> Any:
+        from ..control_plane.cli import _ux_audit_payload
+
+        return _ux_audit_payload()
+
+    def _tool_saas_status(_args: dict[str, Any], _base: Path) -> Any:
+        from ..saas.cli import saas_status_from_env
+
+        return saas_status_from_env()
+
+    def _tool_worker_status(_args: dict[str, Any], _base: Path) -> Any:
+        from ..saas.store import InMemorySaasStore
+        from ..saas.worker import WorkerQueue
+
+        return WorkerQueue(InMemorySaasStore()).status()
+
+    def _tool_evals_run(args: dict[str, Any], _base: Path) -> Any:
+        from ..evals.runner import EVAL_SUITES, run_suite
+
+        suite = str(args.get("suite") or "smoke").strip()
+        if suite not in EVAL_SUITES:
+            raise ValueError(f"Unknown eval suite: {suite!r}")
+        return run_suite(suite)
+
+    def _tool_production_gaps(_args: dict[str, Any], _base: Path) -> Any:
+        from ..production_gaps import scan_production_gaps
+
+        return scan_production_gaps(Path(__file__).resolve().parents[2])
+
+    def _tool_context_compress(args: dict[str, Any], _base: Path) -> Any:
+        from ..chimera_pilot.context_compressor import compress_text_query_aware
+
+        text = str(args.get("text") or "").strip()
+        if not text:
+            raise ValueError("Provide text to compress.")
+        try:
+            budget = int(args.get("budget_tokens") or 800)
+        except (TypeError, ValueError):
+            budget = 800
+        budget = max(64, min(4000, budget))
+        result = compress_text_query_aware(
+            text,
+            focus=str(args.get("focus") or ""),
+            budget_tokens=budget,
+        )
+        return result.to_dict() if hasattr(result, "to_dict") else result
+
+    def _tool_workspace_clear(_args: dict[str, Any], base: Path) -> Any:
+        from ..cognition_layer.workspace_state import OperatorWorkspaceStore
+
+        store = OperatorWorkspaceStore(state_dir=base)
+        return store.clear()
+
+    def _tool_minimind_architectures(_args: dict[str, Any], _base: Path) -> Any:
+        from ..model_layer.minimind_runtime import list_minimind_architectures, minimind_source_metadata
+
+        return {
+            "architectures": [spec.to_dict() for spec in list_minimind_architectures()],
+            "sources": minimind_source_metadata(),
+        }
+
+    def _tool_minimind_log_failure(args: dict[str, Any], base: Path) -> Any:
+        from ..model_layer.minimind_lifecycle import MiniMindLifecycle
+
+        prompt = str(args.get("prompt") or "").strip()
+        response = str(args.get("response") or "").strip()
+        if not prompt or not response:
+            raise ValueError("Provide both prompt and response.")
+        try:
+            confidence = float(args.get("confidence") if args.get("confidence") not in (None, "") else 0.0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        raw_threshold = str(args.get("threshold") or "").strip()
+        try:
+            threshold = float(raw_threshold) if raw_threshold else 0.5
+        except (TypeError, ValueError):
+            threshold = 0.5
+        lifecycle = MiniMindLifecycle(state_dir=base)
+        logged = lifecycle.log_low_confidence(
+            prompt=prompt,
+            response=response,
+            confidence=confidence,
+            threshold=threshold,
+        )
+        return {"ok": True, "logged": logged, "confidence": confidence, "threshold": threshold}
+
+    def _tool_minimind_beta_vision(args: dict[str, Any], base: Path) -> Any:
+        from ..model_layer.minimind_beta_orchestrator import BetaVisionConfig, run_beta_vision
+
+        profile = str(args.get("profile") or "").strip() or None
+        memory_db = str(args.get("memory_db") or "").strip() or ".ghostchimera-memory.sqlite3"
+        run_jobs = str(args.get("run_autonomy_jobs") or "false").strip().lower() in {"1", "true", "yes"}
+        config = BetaVisionConfig(
+            memory_db=memory_db,
+            file_paths=[],
+            email_paths=[],
+            run_autonomy_jobs=run_jobs,
+            autonomy_profile="supervised",
+            autonomy_jobs=["self-audit", "memory-refresh"],
+        )
+        return run_beta_vision(config=config, state_dir=base, profile_name=profile)
+
+    def _tool_local_model_profiles(_args: dict[str, Any], _base: Path) -> Any:
+        from ..control_plane.local_model_cli import local_model_profiles_payload
+
+        return local_model_profiles_payload()
+
+    def _tool_local_model_check(args: dict[str, Any], _base: Path) -> Any:
+        from ..control_plane.local_model_cli import local_model_check_payload
+
+        return local_model_check_payload(str(args.get("profile") or ""))
+
+    def _tool_local_model_guide(args: dict[str, Any], _base: Path) -> Any:
+        from ..control_plane.local_model_cli import local_model_guide_payload
+
+        return local_model_guide_payload(str(args.get("profile") or ""))
+
+    def _tool_cognition_handoff_verify(args: dict[str, Any], _base: Path) -> Any:
+        from ..cognition_layer.trust import GhostHandoff, verify_handoff
+
+        handoff_json = str(args.get("handoff_json") or "").strip()
+        if not handoff_json:
+            raise ValueError("Provide handoff JSON to verify.")
+        result = verify_handoff(GhostHandoff.from_json(handoff_json))
+        return {"ok": result.accepted, "result": result.to_dict()}
+
+    def _tool_doctor(args: dict[str, Any], _base: Path) -> Any:
+        from ..control_plane.doctor import doctor_checks
+
+        production = str(args.get("production") or "false").strip().lower() in {"1", "true", "yes"}
+        return doctor_checks(production=production)
+
+    def _tool_eve_scan(args: dict[str, Any], _base: Path) -> Any:
+        from ..stealth.project_scan import scan_project
+
+        root = str(args.get("root") or "").strip() or str(Path(__file__).resolve().parents[2])
+        strict = str(args.get("strict") or "true").strip().lower() not in {"0", "false", "no"}
+        report = scan_project(root, strict=strict)
+        return report.to_dict()
+
+    def _tool_pilot_compile(args: dict[str, Any], _base: Path) -> Any:
+        from ..chimera_pilot.kernel import ChimeraPilotKernel
+
+        objective = str(args.get("objective") or "").strip()
+        if not objective:
+            raise ValueError("Provide an objective to compile.")
+        kernel = ChimeraPilotKernel.default(include_deterministic_backend=True)
+        return [
+            {
+                "id": task.id,
+                "kind": task.kind.value,
+                "objective": task.objective,
+                "inputs": task.inputs,
+                "constraints": task.constraints,
+                "privacy_level": task.privacy_level,
+                "requires_network": task.requires_network,
+            }
+            for task in kernel.compile(objective)
+        ]
+
+    def _tool_pilot_runtime_specialization(args: dict[str, Any], _base: Path) -> Any:
+        from ..model_layer.local_profiles import get_local_model_profile
+        from ..model_layer.runtime_specialization import (
+            detect_runtime_environment,
+            plan_runtime_specialization,
+            workload_from_messages,
+        )
+
+        prompt = str(args.get("prompt") or "").strip()
+        if not prompt:
+            raise ValueError("Provide a prompt to plan runtime specialization for.")
+        profile_name = str(args.get("profile") or "tiny").strip() or "tiny"
+        profile = get_local_model_profile(profile_name)
+        try:
+            estimated_output_tokens = int(args.get("estimated_output_tokens") or 128)
+        except (TypeError, ValueError):
+            estimated_output_tokens = 128
+        try:
+            batch_size = int(args.get("batch_size") or 1)
+        except (TypeError, ValueError):
+            batch_size = 1
+        workload = workload_from_messages(
+            user_message=prompt,
+            estimated_output_tokens=estimated_output_tokens,
+            batch_size=batch_size,
+            dtype=str(args.get("dtype") or "") or profile.quantization,
+        )
+        environment = detect_runtime_environment()
+        plan = plan_runtime_specialization(profile=profile, workload=workload, environment=environment)
+        return plan.to_dict()
+
+    def _tool_parallel_run(args: dict[str, Any], base: Path) -> Any:
+        from ..chimera_pilot.agent_pool import BatchAgent
+
+        objectives = [line.strip() for line in str(args.get("objectives") or "").splitlines() if line.strip()]
+        if not objectives:
+            raise ValueError("Provide one objective per line.")
+        try:
+            workers = int(args.get("workers") or 1)
+        except (TypeError, ValueError):
+            workers = 1
+        workers = max(1, min(16, workers))
+        output_dir = str(args.get("output_dir") or "").strip() or str(base / "parallel_output")
+        runner = BatchAgent(objectives=objectives, workers=workers, output_dir=output_dir)
+        return runner.run().to_dict()
+
+    def _tool_parallel_batch(args: dict[str, Any], base: Path) -> Any:
+        from ..chimera_pilot.agent_pool import ParallelAgent
+
+        jsonl_text = str(args.get("jsonl") or "").strip()
+        if not jsonl_text:
+            raise ValueError("Paste JSONL with one objective/prompt per line.")
+        dataset_file = base / "parallel_batch_input.jsonl"
+        dataset_file.write_text(jsonl_text, encoding="utf-8")
+        try:
+            workers = int(args.get("workers") or 4)
+        except (TypeError, ValueError):
+            workers = 4
+        workers = max(1, min(16, workers))
+        output_dir = str(args.get("output_dir") or "").strip() or str(base / "batch_output")
+        runner = ParallelAgent(jsonl_file=str(dataset_file), workers=workers, output_dir=output_dir)
+        return runner.run().to_dict()
+
+    _TOOL_HANDLERS: dict[str, Any] = {
+        "pilot-status": _tool_pilot_status,
+        "pilot-calibrate": _tool_pilot_calibrate,
+        "pilot-compile": _tool_pilot_compile,
+        "pilot-runtime-specialization": _tool_pilot_runtime_specialization,
+        "parallel-run": _tool_parallel_run,
+        "parallel-batch": _tool_parallel_batch,
+        "autonomy-profiles": _tool_autonomy_profiles,
+        "model-profiles": _tool_model_profiles,
+        "local-model-profiles": _tool_local_model_profiles,
+        "local-model-check": _tool_local_model_check,
+        "local-model-guide": _tool_local_model_guide,
+        "minimind-architectures": _tool_minimind_architectures,
+        "minimind-log-failure": _tool_minimind_log_failure,
+        "minimind-beta-vision": _tool_minimind_beta_vision,
+        "cognition-handoff-verify": _tool_cognition_handoff_verify,
+        "doctor": _tool_doctor,
+        "eve-scan": _tool_eve_scan,
+        "workspace-clear": _tool_workspace_clear,
+        "runtime-warmup": _tool_runtime_warmup,
+        "desktop-stop": _tool_desktop_stop,
+        "ux-audit": _tool_ux_audit,
+        "saas-status": _tool_saas_status,
+        "worker-status": _tool_worker_status,
+        "evals-run": _tool_evals_run,
+        "production-gaps": _tool_production_gaps,
+        "context-compress": _tool_context_compress,
+    }
+
+    def _tools_catalog() -> list[dict[str, Any]]:
+        try:
+            from ..evals.runner import EVAL_SUITES
+
+            suites = sorted(EVAL_SUITES)
+        except Exception:
+            suites = ["smoke"]
+        return [
+            {
+                "id": "pilot-status",
+                "title": "Pilot backend status",
+                "description": "Health and telemetry of the Chimera Pilot kernel. Same as the pilot status command.",
+                "inputs": [],
+            },
+            {
+                "id": "pilot-calibrate",
+                "title": "Calibrate backends",
+                "description": "Probe every registered pilot backend once. Same as the pilot calibrate command. Can take a minute.",
+                "inputs": [],
+            },
+            {
+                "id": "autonomy-profiles",
+                "title": "Autonomy profiles",
+                "description": "List the built-in autonomy profiles. Same as the pilot autonomy-profiles command.",
+                "inputs": [],
+            },
+            {
+                "id": "model-profiles",
+                "title": "Local model profiles",
+                "description": "List the built-in local model profiles. Same as the pilot model-profiles command.",
+                "inputs": [],
+            },
+            {
+                "id": "runtime-warmup",
+                "title": "Runtime warmup",
+                "description": "Precompute local runtime specialization manifests into the console state dir. Same as the pilot runtime-warmup command. Can take a while.",
+                "inputs": [],
+            },
+            {
+                "id": "desktop-stop",
+                "title": "Desktop kill-switch",
+                "description": "Create the desktop kill-switch file immediately. Same as the pilot desktop-stop command.",
+                "confirm": "Create the desktop kill-switch file now?",
+                "inputs": [
+                    {"name": "path", "label": "Kill-switch path (optional)", "placeholder": "default location"},
+                    {"name": "reason", "label": "Reason", "placeholder": "operator_stop"},
+                ],
+            },
+            {
+                "id": "ux-audit",
+                "title": "UX audit",
+                "description": "UX strengths, gaps, and upgrade scorecard. Same as ghost ux-audit.",
+                "inputs": [],
+            },
+            {
+                "id": "saas-status",
+                "title": "SaaS status",
+                "description": "Enterprise SaaS launch-mode readiness. Same as ghost saas status.",
+                "inputs": [],
+            },
+            {
+                "id": "worker-status",
+                "title": "Worker queue status",
+                "description": "Inspect the SaaS worker queue. Same as ghost worker status.",
+                "inputs": [],
+            },
+            {
+                "id": "evals-run",
+                "title": "Run eval suite",
+                "description": "Run a Ghost Chimera evaluation suite. Same as evals run --suite. Can take a while.",
+                "inputs": [
+                    {"name": "suite", "label": "Suite", "type": "select", "options": suites},
+                ],
+            },
+            {
+                "id": "production-gaps",
+                "title": "Production gaps",
+                "description": "Scan the repo for production-readiness gaps. Same as ghost production-gaps.",
+                "inputs": [],
+            },
+            {
+                "id": "context-compress",
+                "title": "Compress context",
+                "description": "Query-aware deterministic compression preview. Same as ghost context.",
+                "inputs": [
+                    {"name": "text", "label": "Text", "type": "textarea", "placeholder": "Paste text to compress"},
+                    {"name": "focus", "label": "Focus query (optional)", "placeholder": ""},
+                    {"name": "budget_tokens", "label": "Token budget", "placeholder": "800"},
+                ],
+            },
+            {
+                "id": "pilot-compile",
+                "title": "Compile objective (dry run)",
+                "description": "Compile one objective into planned tasks without executing them. Same as the pilot compile command.",
+                "inputs": [
+                    {
+                        "name": "objective",
+                        "label": "Objective",
+                        "type": "textarea",
+                        "placeholder": "Objective to compile",
+                    },
+                ],
+            },
+            {
+                "id": "pilot-runtime-specialization",
+                "title": "Plan runtime specialization",
+                "description": "Plan local runtime specialization for a prompt. Same as the pilot runtime-specialization command.",
+                "inputs": [
+                    {
+                        "name": "prompt",
+                        "label": "Prompt",
+                        "type": "textarea",
+                        "placeholder": "Prompt used to estimate workload shape",
+                    },
+                    {"name": "profile", "label": "Local model profile", "placeholder": "tiny"},
+                    {"name": "estimated_output_tokens", "label": "Estimated output tokens", "placeholder": "128"},
+                    {"name": "batch_size", "label": "Batch size", "placeholder": "1"},
+                    {"name": "dtype", "label": "Dtype hint (optional)", "placeholder": ""},
+                ],
+            },
+            {
+                "id": "parallel-run",
+                "title": "Run objectives in parallel",
+                "description": "Run several objectives with a worker pool. Same as ghostchimera-parallel run. Executes work; can take a while.",
+                "confirm": "Run these objectives in parallel? This executes real work.",
+                "inputs": [
+                    {
+                        "name": "objectives",
+                        "label": "Objectives (one per line)",
+                        "type": "textarea",
+                        "placeholder": "One objective per line",
+                    },
+                    {"name": "workers", "label": "Parallel workers", "placeholder": "1"},
+                    {"name": "output_dir", "label": "Output dir (optional)", "placeholder": ""},
+                ],
+            },
+            {
+                "id": "parallel-batch",
+                "title": "Batch run from JSONL",
+                "description": "Run objectives from pasted JSONL lines in parallel. Same as ghostchimera-parallel batch. Executes work; can take a while.",
+                "confirm": "Run this JSONL batch in parallel? This executes real work.",
+                "inputs": [
+                    {
+                        "name": "jsonl",
+                        "label": "JSONL (one objective/prompt per line)",
+                        "type": "textarea",
+                        "placeholder": '{"objective": "..."}',
+                    },
+                    {"name": "workers", "label": "Workers", "placeholder": "4"},
+                    {"name": "output_dir", "label": "Output dir (optional)", "placeholder": ""},
+                ],
+            },
+            {
+                "id": "local-model-profiles",
+                "title": "Local model profiles",
+                "description": "List local model profiles with this machine's resource fit. Same as ghost local-model profiles.",
+                "inputs": [],
+            },
+            {
+                "id": "local-model-check",
+                "title": "Check local model profile",
+                "description": "Check whether a local model profile fits this machine. Same as ghost local-model check.",
+                "inputs": [
+                    {"name": "profile", "label": "Profile", "placeholder": "balanced"},
+                ],
+            },
+            {
+                "id": "local-model-guide",
+                "title": "Local model install guide",
+                "description": "Show install steps for a local model profile. Same as ghost local-model guide.",
+                "inputs": [
+                    {"name": "profile", "label": "Profile", "placeholder": "balanced"},
+                ],
+            },
+            {
+                "id": "minimind-architectures",
+                "title": "MiniMind architectures",
+                "description": "List the supported MiniMind model architectures. Same as ghost minimind architectures.",
+                "inputs": [],
+            },
+            {
+                "id": "minimind-log-failure",
+                "title": "Log MiniMind low-confidence failure",
+                "description": "Append a low-confidence record to the MiniMind failure log. Same as ghost minimind log-failure.",
+                "inputs": [
+                    {"name": "prompt", "label": "Prompt", "type": "textarea", "placeholder": "Prompt that failed"},
+                    {
+                        "name": "response",
+                        "label": "Response",
+                        "type": "textarea",
+                        "placeholder": "Low-confidence response",
+                    },
+                    {"name": "confidence", "label": "Confidence (0-1)", "placeholder": "0.3"},
+                    {"name": "threshold", "label": "Threshold (optional)", "placeholder": "0.5"},
+                ],
+            },
+            {
+                "id": "minimind-beta-vision",
+                "title": "Run MiniMind beta vision",
+                "description": "Bootstrap the personal MiniMind dataset and surface task hints. Same as ghost minimind beta-vision. Can take a while.",
+                "inputs": [
+                    {"name": "profile", "label": "Profile (optional)", "placeholder": ""},
+                    {
+                        "name": "memory_db",
+                        "label": "Memory DB (optional)",
+                        "placeholder": ".ghostchimera-memory.sqlite3",
+                    },
+                    {
+                        "name": "run_autonomy_jobs",
+                        "label": "Enqueue autonomy jobs",
+                        "type": "select",
+                        "options": ["false", "true"],
+                    },
+                ],
+            },
+            {
+                "id": "cognition-handoff-verify",
+                "title": "Verify cognition handoff",
+                "description": "Verify a GhostHandoff payload's trust envelope. Same as ghost cognition handoff verify.",
+                "inputs": [
+                    {
+                        "name": "handoff_json",
+                        "label": "Handoff JSON",
+                        "type": "textarea",
+                        "placeholder": '{"handoff_id": "..."}',
+                    },
+                ],
+            },
+            {
+                "id": "doctor",
+                "title": "Doctor health checks",
+                "description": "Run the Ghost Chimera health checks (Python, config, provider, safety, MiniMind, skills). Same as ghostchimera doctor.",
+                "inputs": [
+                    {
+                        "name": "production",
+                        "label": "Production mode",
+                        "type": "select",
+                        "options": ["false", "true"],
+                    },
+                ],
+            },
+            {
+                "id": "eve-scan",
+                "title": "EVE project scan",
+                "description": "Run the strict EVE project scan for secrets and policy issues. Same as ghost-eve-scan.",
+                "inputs": [
+                    {"name": "root", "label": "Repo root (optional)", "placeholder": "defaults to this repo"},
+                    {
+                        "name": "strict",
+                        "label": "Strict policy",
+                        "type": "select",
+                        "options": ["true", "false"],
+                    },
+                ],
+            },
+            {
+                "id": "workspace-clear",
+                "title": "Clear operator workspace",
+                "description": "Clear the operator workspace state. Same as ghost workspace clear. Destructive and irreversible.",
+                "confirm": "Clear the operator workspace? This permanently deletes workspace state.",
+                "inputs": [],
+            },
+        ]
+
+    def tools_catalog(_ctx: dict[str, Any]) -> dict[str, Any]:
+        """GET /api/tools/catalog — operator tools available in this console."""
+        return {"ok": True, "tools": _tools_catalog()}
+
+    def tools_run(ctx: dict[str, Any]) -> dict[str, Any]:
+        """POST /api/tools/run {tool, args?} — run one operator tool."""
+        data = _body(ctx)
+        name = str(data.get("tool") or "").strip()
+        args = data.get("args")
+        args = args if isinstance(args, dict) else {}
+        handler = _TOOL_HANDLERS.get(name)
+        if handler is None:
+            return {"ok": False, "error": f"Unknown tool: {name or '(empty)'}. See GET /api/tools/catalog."}
+        try:
+            result = handler(args, base)
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        return {"ok": True, "tool": name, "result": result}
+
+    server.routes.register(
+        "/api/tools/catalog",
+        tools_catalog,
+        method="GET",
+        auth=auth,
+        token=token,
+        description="Operator tools catalog (CLI parity)",
+    )
+    server.routes.register(
+        "/api/tools/run",
+        tools_run,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Run one operator tool",
+    )
+
     def inbound_webhook(ctx: dict[str, Any]) -> dict[str, Any]:
         import time as _time
         import uuid as _uuid
