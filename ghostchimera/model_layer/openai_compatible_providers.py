@@ -642,16 +642,17 @@ class NebiusProvider(OpenAICompatibleProvider):
     -> API keys; free credits via the Nebius Builder Program) and optionally
     ``NEBIUS_MODEL``.
 
-    Supported models (examples)::
+    Supported models (verified live 2026-09-28)::
 
-        nvidia/nemotron-3-nano-30b-a3b               # default — fast, cheap, tool-calling + JSON
+        nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B         # default — fast, cheap, tool-calling + JSON
         nvidia/nemotron-3-super-120b-a12b            # agentic reasoning, coding, planning
-        nvidia/nemotron-3-nano-omni-30b-a3b-reasoning  # adds image input
+        nvidia/Nemotron-3-Ultra-550b-a55b             # largest Nemotron 3
+        nvidia/Nemotron-3_5-Lightning                # Nemotron 3.5
     """
 
     name = "nebius"
     _DEFAULT_BASE_URL = "https://api.tokenfactory.nebius.com/v1/chat/completions"
-    _DEFAULT_MODEL = "nvidia/nemotron-3-nano-30b-a3b"
+    _DEFAULT_MODEL = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
     _KEY_ENV_VAR = "NEBIUS_API_KEY"
     _MODEL_ENV_VAR = "NEBIUS_MODEL"
 

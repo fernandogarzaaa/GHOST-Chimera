@@ -99,7 +99,7 @@ deterministic engines provide.
 `NemotronReasoner` (`ghostchimera/stealth/nemotron_reasoning.py`) plugs into
 the Stealth Loop's UNDERSTAND and PREDICT phases:
 
-- **UNDERSTAND** — Nemotron 3 Nano (`nvidia/nemotron-3-nano-30b-a3b`) interprets
+- **UNDERSTAND** — Nemotron 3 Nano (`nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`) interprets
   an observation and returns a structured read (intent, confidence, suggested
   workflow, risk flags). Fast and cheap, so it can run per high-value event.
 - **PREDICT** — Nemotron 3 Super (`nvidia/nemotron-3-super-120b-a12b`) sharpens
@@ -113,7 +113,7 @@ keys; free credits via the Nebius Builder Program), then:
 
 ```bash
 export NEBIUS_API_KEY="..."
-export NEBIUS_MODEL="nvidia/nemotron-3-nano-30b-a3b"   # optional override
+export NEBIUS_MODEL="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"   # optional override
 ```
 
 Or pick **Nebius Token Factory** in the setup wizard / model picker

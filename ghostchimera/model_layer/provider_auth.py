@@ -451,7 +451,7 @@ _add_openai_compatible(
     "nebius",
     name="Nebius Token Factory",
     description="NVIDIA Nemotron open models via Nebius Token Factory inference.",
-    models=["nvidia/nemotron-3-nano-30b-a3b", "nvidia/nemotron-3-super-120b-a12b"],
+    models=["nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B", "nvidia/nemotron-3-super-120b-a12b"],
     api_key_env="NEBIUS_API_KEY",
     model_env="NEBIUS_MODEL",
     default_base_url="https://api.tokenfactory.nebius.com/v1",

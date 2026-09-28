@@ -38,7 +38,7 @@ class TestNebiusProviderInit(unittest.TestCase):
             os.environ.pop("NEBIUS_MODEL", None)
             p = ocp.NebiusProvider()
         self.assertEqual(p.name, "nebius")
-        self.assertEqual(p.model, "nvidia/nemotron-3-nano-30b-a3b")
+        self.assertEqual(p.model, "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B")
         self.assertEqual(p._base_url, "https://api.tokenfactory.nebius.com/v1/chat/completions")
 
     def test_model_override(self):
@@ -125,13 +125,13 @@ class TestNebiusRegistration(unittest.TestCase):
         self.assertIsNotNone(spec)
         self.assertEqual(spec.api_key_env, "NEBIUS_API_KEY")
         self.assertEqual(spec.model_env, "NEBIUS_MODEL")
-        self.assertIn("nvidia/nemotron-3-nano-30b-a3b", spec.models)
+        self.assertIn("nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B", spec.models)
         self.assertEqual(provider_auth_setup_url("nebius"), "https://console.nebius.com")
 
     def test_catalog_entries(self):
         from ghostchimera.model_layer.model_catalog import get_catalog_entry
 
-        nano = get_catalog_entry("nebius", "nvidia/nemotron-3-nano-30b-a3b")
+        nano = get_catalog_entry("nebius", "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B")
         sup = get_catalog_entry("nebius", "nvidia/nemotron-3-super-120b-a12b")
         self.assertIsNotNone(nano)
         self.assertIsNotNone(sup)

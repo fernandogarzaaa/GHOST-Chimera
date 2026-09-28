@@ -174,7 +174,7 @@ _PROVIDER_MODELS: dict[str, list[tuple[str, str]]] = {
         ("claude-haiku-3-5", "claude-haiku-3-5"),
     ],
     "nebius": [
-        ("Nemotron 3 Nano 30B (fast, cheap)", "nvidia/nemotron-3-nano-30b-a3b"),
+        ("Nemotron 3 Nano 30B (fast, cheap)", "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"),
         ("Nemotron 3 Super 120B (agentic reasoning)", "nvidia/nemotron-3-super-120b-a12b"),
         ("Use a different model", ""),
     ],

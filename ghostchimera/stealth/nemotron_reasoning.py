@@ -23,7 +23,7 @@ from .tavily_grounding import TavilyGrounding
 logger = get_logger("nemotron_reasoning")
 
 NEBIUS_PROVIDER_ID = "nebius"
-NANO_MODEL = "nvidia/nemotron-3-nano-30b-a3b"
+NANO_MODEL = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
 SUPER_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 
 _UNDERSTAND_SYSTEM = (
@@ -219,8 +219,8 @@ class NemotronReasoner:
             snippets.append(f"- {hit.get('title', '')} ({hit.get('url', '')}): {hit.get('snippet', '')[:300]}")
         if not snippets:
             return ""
-        transport = grounded.get("transport", "?")
         joined = "\n".join(snippets)
+        transport = grounded.get("transport", "?")
         return f"\n\nFresh web context (via Tavily, transport={transport}):\n{joined}"
 
 

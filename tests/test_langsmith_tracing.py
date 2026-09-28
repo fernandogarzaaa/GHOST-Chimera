@@ -198,7 +198,7 @@ class TestNebiusTracingHook(unittest.TestCase):
         self.assertTrue(post_url.endswith("/api/v1/runs"))
         body = json.loads(post_data.decode("utf-8"))
         self.assertEqual(body["name"], "nebius.chat_completion")
-        self.assertEqual(body["inputs"]["model"], "nvidia/nemotron-3-nano-30b-a3b")
+        self.assertEqual(body["inputs"]["model"], "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B")
         self.assertEqual(body["inputs"]["user"], "hello")
         patch_url, patch_data, _, patch_method = http.requests[1]
         self.assertTrue(patch_url.endswith(f"/api/v1/runs/{body['id']}"))

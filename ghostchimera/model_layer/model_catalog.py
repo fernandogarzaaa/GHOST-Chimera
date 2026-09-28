@@ -501,7 +501,7 @@ _CATALOG: list[ModelCatalogEntry] = [
     # ── Nebius Token Factory ────────────────────────────────────────────────
     ModelCatalogEntry(
         provider="nebius",
-        model_id="nvidia/nemotron-3-nano-30b-a3b",
+        model_id="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
         display_name="Nemotron 3 Nano 30B (Nebius Token Factory)",
         context_window_tokens=256_000,
         input_cost_usd_per_1k=0.00006,
