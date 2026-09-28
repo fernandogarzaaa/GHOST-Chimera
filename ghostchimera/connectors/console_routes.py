@@ -1894,6 +1894,81 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         )
         return result.to_dict() if hasattr(result, "to_dict") else result
 
+    def _tool_harness_run(args: dict[str, Any], base: Path) -> Any:
+        import json as _json
+
+        from ..harness.case import HarnessCase
+        from ..harness.runner import HarnessRunner
+
+        raw = str(args.get("cases_json") or "").strip()
+        if not raw:
+            raise ValueError("Paste harness cases as JSON (array or single object) or JSONL.")
+        cases: list[HarnessCase] = []
+        try:
+            payload = _json.loads(raw)
+        except _json.JSONDecodeError:
+            payload = None
+        if payload is None:
+            for line in raw.splitlines():
+                line = line.strip()
+                if line:
+                    cases.append(HarnessCase.from_dict(_json.loads(line)))
+        elif isinstance(payload, list):
+            cases = [HarnessCase.from_dict(item) for item in payload]
+        else:
+            cases = [HarnessCase.from_dict(payload)]
+        if not cases:
+            raise ValueError("No harness cases found in the provided input.")
+        if len(cases) > 25:
+            raise ValueError(f"Too many cases ({len(cases)}); the console tool caps at 25.")
+        output_dir = str(args.get("output_dir") or "").strip() or str(base / "harness_runs")
+        runner = HarnessRunner(output_dir=output_dir)
+        results = runner.run(cases)
+        return {
+            "total": len(results),
+            "passed": sum(1 for r in results if r.ok),
+            "failed": sum(1 for r in results if not r.ok),
+            "output_dir": str(runner.artifacts.output_dir),
+            "results": [r.to_dict() for r in results],
+        }
+
+    def _tool_policy_list(_args: dict[str, Any], _base: Path) -> Any:
+        from ..safety_layer.material_policy import MaterialRegistry
+
+        registry = MaterialRegistry()
+        return {
+            "policies": [
+                {
+                    "id": p.get("id"),
+                    "description": p.get("description"),
+                    "min_confidence": (p.get("constraints") or {}).get("min_confidence", 0.0),
+                }
+                for p in registry.patterns
+            ]
+        }
+
+    def _tool_policy_scan(args: dict[str, Any], _base: Path) -> Any:
+        from ..safety_layer.material_policy import MaterialRegistry
+
+        text = str(args.get("text") or "").strip()
+        if not text:
+            raise ValueError("Provide text to scan.")
+        policy = str(args.get("policy") or "strict_factual").strip() or "strict_factual"
+        return MaterialRegistry().check_security(text, policy)
+
+    def _tool_policy_set(args: dict[str, Any], _base: Path) -> Any:
+        task_type = str(args.get("task_type") or "general").strip() or "general"
+        recommendations = {
+            "coding": "code_review",
+            "research": "research_factcheck",
+            "medical": "medical_cautious",
+            "security": "mcp_security",
+            "creative": "brainstorm",
+            "general": "strict_factual",
+        }
+        policy = recommendations.get(task_type, "strict_factual")
+        return {"task_type": task_type, "recommended_policy": policy}
+
     def _tool_workspace_clear(_args: dict[str, Any], base: Path) -> Any:
         from ..cognition_layer.workspace_state import OperatorWorkspaceStore
 
@@ -2097,6 +2172,10 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         "evals-run": _tool_evals_run,
         "production-gaps": _tool_production_gaps,
         "context-compress": _tool_context_compress,
+        "harness-run": _tool_harness_run,
+        "policy-list": _tool_policy_list,
+        "policy-scan": _tool_policy_scan,
+        "policy-set": _tool_policy_set,
     }
 
     def _tools_catalog() -> list[dict[str, Any]]:
@@ -2360,6 +2439,61 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 "description": "Clear the operator workspace state. Same as ghost workspace clear. Destructive and irreversible.",
                 "confirm": "Clear the operator workspace? This permanently deletes workspace state.",
                 "inputs": [],
+            },
+            {
+                "id": "harness-run",
+                "title": "Run harness cases",
+                "description": "Run deterministic harness regression cases through Chimera Pilot and record artifacts. Same as harness run --cases. Capped at 25 cases; can take a while.",
+                "inputs": [
+                    {
+                        "name": "cases_json",
+                        "label": "Cases (JSON array/object or JSONL)",
+                        "type": "textarea",
+                        "placeholder": '[{"id": "smoke-1", "objective": "summarize: hello"}]',
+                    },
+                    {
+                        "name": "output_dir",
+                        "label": "Output dir (optional)",
+                        "placeholder": "defaults to <state>/harness_runs",
+                    },
+                ],
+            },
+            {
+                "id": "policy-list",
+                "title": "List security policies",
+                "description": "List all safety-layer policy patterns with their confidence constraints. Same as ghost policy list.",
+                "inputs": [],
+            },
+            {
+                "id": "policy-scan",
+                "title": "Scan text against a policy",
+                "description": "Scan text against a safety policy and report the risk assessment. Same as ghost policy scan.",
+                "inputs": [
+                    {
+                        "name": "text",
+                        "label": "Text to scan",
+                        "type": "textarea",
+                        "placeholder": "Text to check against the policy",
+                    },
+                    {
+                        "name": "policy",
+                        "label": "Policy (optional)",
+                        "placeholder": "strict_factual",
+                    },
+                ],
+            },
+            {
+                "id": "policy-set",
+                "title": "Recommend policy for task type",
+                "description": "Show the recommended safety policy for a task type. Same as ghost policy set.",
+                "inputs": [
+                    {
+                        "name": "task_type",
+                        "label": "Task type",
+                        "type": "select",
+                        "options": ["coding", "research", "medical", "security", "creative", "general"],
+                    },
+                ],
             },
         ]
 
