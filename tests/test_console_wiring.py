@@ -69,6 +69,14 @@ POST_ROUTES = [
     ("/api/auth/browser/preview", {}),
     ("/api/auth/browser/import", {}),
     ("/api/auth/mail/fetch", {}),
+    ("/api/auth/mail/vip", {}),
+    ("/api/auth/usage/summary", {}),
+    ("/api/auth/evals/run", {}),
+    ("/api/auth/evals/history", {}),
+    ("/api/auth/free-tiers", {}),
+    ("/api/auth/free-tiers/proposals", {}),
+    ("/api/auth/free-tiers/accept", {}),
+    ("/api/auth/free-tiers/dismiss", {}),
     ("/api/auth/bluesky/post", {}),
     ("/api/auth/bluesky/timeline", {}),
     ("/api/auth/openrouter/start", {}),
@@ -140,6 +148,10 @@ def test_console_sections_have_backend_ids() -> None:
         "automationRuns",
         "blueskyOutput",
         "mailOutput",
+        "modelProposals",
+        "usageSummary",
+        "freeQuotas",
+        "evalRuns",
     ):
         assert f'id="{section_id}"' in html, f"missing section: {section_id}"
 

@@ -28,6 +28,7 @@ from ..logging_config import get_logger
 from .base_provider import BaseProvider
 from .claude_agent_provider import ClaudeAgentProvider
 from .codex_cli_provider import CodexCliProvider
+from .free_router import FreeProvider
 from .gemini_provider import GeminiProvider
 from .llamacpp_runtime import LlamaCppRuntime
 from .local_profiles import get_local_model_profile
@@ -35,10 +36,12 @@ from .minimind_runtime import load_minimind_chat_runtime
 from .openai_compatible_providers import (
     AI21Provider,
     CerebrasProvider,
+    CloudflareProvider,
     CohereProvider,
     DeepInfraProvider,
     DeepSeekProvider,
     FireworksProvider,
+    GeminiOpenAIProvider,
     GlmProvider,
     GroqProvider,
     HuggingFaceProvider,
@@ -49,6 +52,7 @@ from .openai_compatible_providers import (
     OllamaProvider,
     OpenRouterProvider,
     PerplexityProvider,
+    PollinationsProvider,
     QwenProvider,
     StepFunProvider,
     TogetherProvider,
@@ -316,11 +320,14 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
     AnthropicProvider.name: AnthropicProvider,
     CerebrasProvider.name: CerebrasProvider,
     ClaudeAgentProvider.name: ClaudeAgentProvider,
+    CloudflareProvider.name: CloudflareProvider,
     CodexCliProvider.name: CodexCliProvider,
     CohereProvider.name: CohereProvider,
     DeepInfraProvider.name: DeepInfraProvider,
     DeepSeekProvider.name: DeepSeekProvider,
     FireworksProvider.name: FireworksProvider,
+    FreeProvider.name: FreeProvider,
+    GeminiOpenAIProvider.name: GeminiOpenAIProvider,
     GeminiProvider.name: GeminiProvider,
     GlmProvider.name: GlmProvider,
     GroqProvider.name: GroqProvider,
@@ -336,6 +343,7 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
     OpenCodeCliProvider.name: OpenCodeCliProvider,
     OpenRouterProvider.name: OpenRouterProvider,
     PerplexityProvider.name: PerplexityProvider,
+    PollinationsProvider.name: PollinationsProvider,
     QwenProvider.name: QwenProvider,
     StepFunProvider.name: StepFunProvider,
     TogetherProvider.name: TogetherProvider,
@@ -351,11 +359,14 @@ TEXT_PROVIDERS: dict[str, type[BaseProvider]] = {
     AnthropicProvider.name: AnthropicProvider,
     CerebrasProvider.name: CerebrasProvider,
     ClaudeAgentProvider.name: ClaudeAgentProvider,
+    CloudflareProvider.name: CloudflareProvider,
     CodexCliProvider.name: CodexCliProvider,
     CohereProvider.name: CohereProvider,
     DeepInfraProvider.name: DeepInfraProvider,
     DeepSeekProvider.name: DeepSeekProvider,
     FireworksProvider.name: FireworksProvider,
+    FreeProvider.name: FreeProvider,
+    GeminiOpenAIProvider.name: GeminiOpenAIProvider,
     GeminiProvider.name: GeminiProvider,
     GlmProvider.name: GlmProvider,
     GroqProvider.name: GroqProvider,
@@ -371,6 +382,7 @@ TEXT_PROVIDERS: dict[str, type[BaseProvider]] = {
     OpenCodeCliProvider.name: OpenCodeCliProvider,
     OpenRouterProvider.name: OpenRouterProvider,
     PerplexityProvider.name: PerplexityProvider,
+    PollinationsProvider.name: PollinationsProvider,
     QwenProvider.name: QwenProvider,
     StepFunProvider.name: StepFunProvider,
     TogetherProvider.name: TogetherProvider,

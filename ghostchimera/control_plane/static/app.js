@@ -2809,6 +2809,18 @@
   if ($("#autoRunsRefresh")) {
     $("#autoRunsRefresh").addEventListener("click", renderAutomationRuns);
   }
+  if ($("#usageRefresh")) {
+    $("#usageRefresh").addEventListener("click", renderUsage);
+  }
+  if ($("#evalRun")) {
+    $("#evalRun").addEventListener("click", runEvalSuite);
+  }
+  if ($("#evalHistoryRefresh")) {
+    $("#evalHistoryRefresh").addEventListener("click", renderEvalHistory);
+  }
+  try { renderUsage(); } catch (_) {}
+  try { renderEvalHistory(); } catch (_) {}
+  try { renderProposals(); } catch (_) {}
   try { renderAutomations(); } catch (_) {}
   try { renderAutomationRuns(); } catch (_) {}
   try { renderWriteGate(); } catch (_) {}
@@ -2822,8 +2834,12 @@
   if ($("#mailFetch")) {
     $("#mailFetch").addEventListener("click", fetchMailInbox);
   }
+  if ($("#mailVipSave")) {
+    $("#mailVipSave").addEventListener("click", saveVipList);
+  }
   try { renderProviderLogins(); } catch (_) {}
   try { renderStoredKeys(); } catch (_) {}
+  try { renderVipList(); } catch (_) {}
 
   // ── Trust & approvals ────────────────────────────────────────────────
   async function renderWriteGate() {
@@ -3128,7 +3144,7 @@
     try {
       mailOut("Fetching inbox…");
       var data = await api("/api/auth/mail/fetch",
-        { method: "POST", body: { entity_id: "console-user", label: label, max_messages: maxN, query: query } });
+        { method: "POST", body: { entity_id: "console-user", label: label, max_messages: maxN, query: query, triage: true } });
       if (!data.ok) {
         if (data.type === "consent_required") {
           mailOut("Consent required: enable Personal MiniMind admin controls + email crawl consent first.");
@@ -3138,13 +3154,269 @@
         }
         return;
       }
-      mailOut("Account: " + data.account + "  ·  " + data.messages.length + " messages\n\n" +
-        data.messages.map(function(m) {
-          return "From: " + m.from + "\nSubject: " + m.subject + "\nDate: " + m.date + "\n" + m.snippet;
-        }).join("\n\n---\n\n") || "No matching messages.");
+      var text = "Account: " + data.account + "  ·  " + data.messages.length + " messages\n\n";
+      if (data.triage) {
+        var counts = data.triage.counts || {};
+        text += "TRIAGE — act now: " + (counts.act_now || 0) + " · today: " + (counts.today || 0) +
+          " · FYI: " + (counts.fyi || 0) + "\n\n";
+        ["act_now", "today"].forEach(function(tier) {
+          ((data.triage.buckets || {})[tier] || []).forEach(function(m) {
+            text += "[" + (tier === "act_now" ? "ACT NOW" : "TODAY") + " " + m.score + "] " +
+              m.from + " — " + m.subject + "\n  Why: " + (m.reasons || []).join("; ") + "\n\n";
+          });
+        });
+        text += "— FYI digest —\n" + (data.triage.digest || "") + "\n\n— All messages —\n";
+      }
+      mailOut(text + data.messages.map(function(m) {
+        return "From: " + m.from + "\nSubject: " + m.subject + "\nDate: " + m.date + "\n" + m.snippet;
+      }).join("\n\n---\n\n") || "No matching messages.");
+      renderVipList();
     } catch (e) {
       mailOut("Error: " + e.message);
       toast(e.message, "error");
+    }
+  }
+
+  async function renderVipList() {
+    try {
+      var data = await api("/api/auth/mail/vip", { method: "POST", body: {} });
+      var box = $("#mailVipList");
+      if (box && data.ok) box.value = (data.vip_senders || []).join("\n");
+    } catch (_) {}
+  }
+
+  async function saveVipList() {
+    var box = $("#mailVipList");
+    var raw = ((box && box.value) || "").split(/\r?\n/);
+    try {
+      var data = await api("/api/auth/mail/vip", { method: "POST", body: { senders: raw } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      toast("VIP list saved (" + data.vip_senders.length + " senders).", "ok");
+      renderVipList();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  // ── Usage & evaluation ───────────────────────────────────────────────
+  function fmtUsd(value) {
+    return "$" + Number(value || 0).toFixed(4);
+  }
+
+  async function renderUsage() {
+    var summaryHost = $("#usageSummary");
+    var providersHost = $("#usageProviders");
+    var quotasHost = $("#freeQuotas");
+    if (!summaryHost) return;
+    summaryHost.innerHTML = "";
+    if (providersHost) providersHost.innerHTML = "";
+    if (quotasHost) quotasHost.innerHTML = "";
+    try {
+      var data = await api("/api/auth/usage/summary", { method: "POST", body: {} });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      var daily = data.daily || {};
+      var totals = daily.totals || {};
+      [
+        ["Today spend", fmtUsd(totals.spend)],
+        ["Today calls", String(totals.calls || 0)],
+        ["Today tokens", String((totals.in || 0) + (totals.out || 0))],
+        ["Lifetime spend", fmtUsd(data.total_usd)],
+      ].forEach(function(m) {
+        var card = el("div", { class: "card" });
+        card.appendChild(el("h3", null, m[0]));
+        card.appendChild(el("div", { class: "value" }, m[1]));
+        summaryHost.appendChild(card);
+      });
+      Object.keys(data.providers || {}).sort().forEach(function(name) {
+        var p = data.providers[name];
+        var item = el("div", { class: "list-item" });
+        var main = el("div", { style: "flex:1;min-width:200px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = name;
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        var lat = p.latency_s || {};
+        meta.textContent = fmtUsd(p.spend_usd) + "  ·  " + p.calls + " calls  ·  " +
+          p.tokens.in + " in / " + p.tokens.out + " out tokens  ·  p50 " +
+          (lat.p50_s || 0).toFixed(1) + "s p95 " + (lat.p95_s || 0).toFixed(1) + "s";
+        main.appendChild(meta);
+        item.appendChild(main);
+        providersHost.appendChild(item);
+      });
+      if (!Object.keys(data.providers || {}).length) {
+        providersHost.appendChild(el("div", { class: "empty" }, "No metered model traffic yet."));
+      }
+      (data.free_quotas || []).forEach(function(q) {
+        var item = el("div", { class: "list-item" });
+        var pct = q.requests_per_day ? Math.min(100, Math.round(100 * q.used_today / q.requests_per_day)) : 0;
+        item.appendChild(el("span", { class: "badge " + (pct >= 90 ? "warn" : "ok") }, pct + "%"));
+        var main = el("div", { style: "flex:1;min-width:200px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = q.tier + (q.trains_on_data ? "  ·  may train on prompts" : "  ·  no training");
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        var live = ((data.free_tiers_live || {}).tiers || {})[q.provider];
+        var health = live ? (live.ok ? "live ✓" : "down: " + (live.error || "?")) : "not checked yet";
+        meta.textContent = q.used_today + " / " + q.requests_per_day + " today  ·  " + health +
+          "  ·  " + (q.note || "");
+        main.appendChild(meta);
+        item.appendChild(main);
+        quotasHost.appendChild(item);
+      });
+      var live = data.free_tiers_live || {};
+      var foot = el("div", { class: "meta" });
+      var ageText = live.last_check_at
+        ? "last re-check " + new Date(live.last_check_at * 1000).toLocaleString()
+        : "never re-checked yet";
+      foot.textContent = "Auto re-check: " + (live.enabled === false ? "OFF" : "ON (every 24h)") +
+        "  ·  " + ageText + (live.stale ? "  ·  STALE" : "");
+      quotasHost.appendChild(foot);
+      var row = el("div", { class: "row" });
+      var refresh = el("button", { class: "primary" });
+      refresh.textContent = "Re-check Now";
+      refresh.addEventListener("click", async function() {
+        refresh.disabled = true;
+        try {
+          var res = await api("/api/auth/free-tiers", { method: "POST", body: { action: "check" } });
+          if (!res.ok) throw new Error(res.error || "failed");
+          var downs = Object.keys(res.tiers || {}).filter(function(k) { return !res.tiers[k].ok && !res.tiers[k].skipped; });
+          toast(downs.length ? "Re-check done; down: " + downs.join(", ") : "All reachable tiers live.", downs.length ? "warn" : "ok");
+          renderUsage();
+          renderProposals();
+        } catch (e) { toast(e.message, "error"); }
+        refresh.disabled = false;
+      });
+      row.appendChild(refresh);
+      var toggle = el("button");
+      toggle.textContent = (live.enabled === false) ? "Enable Auto Re-check" : "Disable Auto Re-check";
+      toggle.addEventListener("click", async function() {
+        try {
+          await api("/api/auth/free-tiers",
+            { method: "POST", body: { action: (live.enabled === false) ? "enable" : "disable" } });
+          renderUsage();
+        } catch (e) { toast(e.message, "error"); }
+      });
+      row.appendChild(toggle);
+      quotasHost.appendChild(row);
+    } catch (e) {
+      summaryHost.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
+    }
+  }
+
+  async function runEvalSuite() {
+    var select = $("#evalSuiteName");
+    var suite = (select && select.value) || "smoke";
+    try {
+      toast("Running " + suite + " eval…", "");
+      var data = await api("/api/auth/evals/run", { method: "POST", body: { suite: suite } });
+      if (!data.ok) throw new Error(data.error || "failed");
+      toast(suite + ": " + (data.run.passed || 0) + " passed, " + (data.run.failed || 0) + " failed.",
+        data.run.failed ? "warn" : "ok");
+      renderEvalHistory();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  async function renderEvalHistory() {
+    var host = $("#evalRuns");
+    if (!host) return;
+    host.innerHTML = "";
+    try {
+      var data = await api("/api/auth/evals/history", { method: "POST", body: { limit: 20 } });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      if (!data.runs.length) {
+        host.appendChild(el("div", { class: "empty" }, "No eval runs recorded yet."));
+        return;
+      }
+      data.runs.forEach(function(r) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "badge " + (r.failed ? "warn" : "ok") },
+          (r.passed || 0) + "/" + ((r.passed || 0) + (r.failed || 0))));
+        var main = el("div", { style: "flex:1;min-width:180px;" });
+        var title = el("div", { class: "name" });
+        title.textContent = r.suite;
+        main.appendChild(title);
+        var meta = el("div", { class: "meta" });
+        meta.textContent = new Date((r.ts || 0) * 1000).toLocaleString();
+        main.appendChild(meta);
+        item.appendChild(main);
+        host.appendChild(item);
+      });
+    } catch (e) {
+      host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
+    }
+  }
+
+  // ── Free-tier model proposals ("new models detected") ────────────────
+  var proposalsToasted = {};
+
+  async function renderProposals() {
+    var host = $("#modelProposals");
+    if (!host) return;
+    host.innerHTML = "";
+    try {
+      var data = await api("/api/auth/free-tiers/proposals", { method: "POST", body: {} });
+      if (!data.ok) throw new Error(data.error || "unavailable");
+      if (!data.proposals.length) {
+        host.appendChild(el("div", { class: "empty" }, "Router chain is current — no new models detected."));
+        return;
+      }
+      data.proposals.forEach(function(p) {
+        var card = el("div", { class: "card", style: "margin-bottom:12px;border-color:var(--accent-strong);" });
+        var title = el("h3", null, "New models detected — " + p.tier);
+        card.appendChild(title);
+        var body = el("div", { class: "meta" });
+        body.textContent = (p.kind === "pin_stale"
+          ? "Pinned model " + p.current_model + " no longer advertised. Pick a replacement:"
+          : "New models advertised (pinned: " + p.current_model + "). Pick one to rewrite the chain:");
+        card.appendChild(body);
+        var row = el("div", { class: "row" });
+        var select = document.createElement("select");
+        (p.candidates || []).forEach(function(c) {
+          var opt = document.createElement("option");
+          opt.value = c; opt.textContent = c;
+          select.appendChild(opt);
+        });
+        select.style.flex = "2";
+        row.appendChild(select);
+        var accept = el("button", { class: "primary" });
+        accept.textContent = "Accept Rewrite";
+        accept.addEventListener("click", async function() {
+          accept.disabled = true;
+          try {
+            var res = await api("/api/auth/free-tiers/accept",
+              { method: "POST", body: { tier: p.tier, model: select.value } });
+            if (!res.ok) throw new Error(res.error || "failed");
+            toast(p.tier + " now uses " + select.value + ". Router picks it up immediately.", "ok");
+            renderProposals();
+            renderUsage();
+          } catch (e) {
+            toast(e.message, "error");
+            accept.disabled = false;
+          }
+        });
+        row.appendChild(accept);
+        var dismiss = el("button");
+        dismiss.textContent = "Dismiss";
+        dismiss.addEventListener("click", async function() {
+          try {
+            await api("/api/auth/free-tiers/dismiss",
+              { method: "POST", body: { tier: p.tier, kind: p.kind, current_model: p.current_model } });
+            renderProposals();
+          } catch (e) { toast(e.message, "error"); }
+        });
+        row.appendChild(dismiss);
+        card.appendChild(row);
+        host.appendChild(card);
+        var toastKey = p.tier + "|" + p.kind + "|" + p.current_model;
+        if (!proposalsToasted[toastKey]) {
+          proposalsToasted[toastKey] = true;
+          toast("New models detected for " + p.tier + " — review in Usage.", "warn");
+        }
+      });
+    } catch (e) {
+      host.appendChild(el("div", { class: "empty" }, "Error: " + e.message));
     }
   }
 
