@@ -68,6 +68,8 @@
     <button class="tab" data-tab="capabilities">Capabilities</button>
     <button class="tab" data-tab="readiness">Readiness</button>
     <button class="tab" data-tab="stealth">Stealth</button>
+    <button class="tab" data-tab="cloud">Cloud AI</button>
+    <button class="tab" data-tab="tools">Tools</button>
     <button class="tab" data-tab="conversation">Conversation</button>
   </nav>
 
@@ -1550,6 +1552,83 @@
       <button id="steCheck" class="primary">Simplify</button>
     </div>
     <pre class="output compact-output" id="steOutput">Simplified text and applied rules appear here.</pre>
+  </div>
+
+  <!-- ── CLOUD AI ──────────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-cloud">
+    <div class="section-hdr" style="margin-top:0;">Cloud AI · Nebius × NVIDIA</div>
+    <p class="hint" style="margin-bottom:12px;">
+      The Stealth loop's cloud brain: NVIDIA Nemotron reasoning on Nebius Token Factory,
+      live web grounding via Tavily, and LangSmith tracing. Every panel works with zero
+      keys configured — it just tells you what's missing and how to enable it.
+    </p>
+    <div class="section-hdr">Integration status</div>
+    <div class="row" style="margin-bottom:10px;">
+      <button id="cloudRefresh" class="primary">Refresh status</button>
+      <span id="cloudStatusState" class="badge">not loaded</span>
+    </div>
+    <div class="cloud-grid" id="cloudStatusCards" aria-live="polite"></div>
+
+    <div class="section-hdr" style="margin-top:20px;">Try the reasoning brain</div>
+    <p class="hint" style="margin-bottom:12px;">
+      Describe something that happened and Nemotron 3 Nano interprets it — the same
+      UNDERSTAND call the Stealth loop makes.
+    </p>
+    <div class="row" style="margin-bottom:10px;">
+      <textarea id="cloudReasonInput" rows="3" style="flex:1;" aria-label="Event to interpret"
+        placeholder="e.g. The user opened three pricing pages and a comparison doc in the last ten minutes"></textarea>
+    </div>
+    <div class="row" style="margin-bottom:10px;">
+      <button id="cloudReasonBtn" class="primary">Interpret with Nemotron</button>
+      <span id="cloudReasonState" class="badge">idle</span>
+    </div>
+    <div id="cloudReasonOut" aria-live="polite">
+      <div class="empty">No interpretation yet. Describe an event above and run it.</div>
+    </div>
+
+    <div class="section-hdr" style="margin-top:20px;">Web grounding (Tavily)</div>
+    <p class="hint" style="margin-bottom:12px;">
+      Fresh web context for the agent — MCP-first with REST fallback, the same call the
+      Stealth loop makes before reasoning.
+    </p>
+    <div class="row" style="margin-bottom:10px;">
+      <input id="cloudGroundInput" placeholder="Search the live web" style="flex:3;" aria-label="Web search query">
+      <button id="cloudGroundBtn" class="primary">Search</button>
+      <span id="cloudGroundState" class="badge">idle</span>
+    </div>
+    <div id="cloudGroundOut" aria-live="polite">
+      <div class="empty">No search yet. Type a query above.</div>
+    </div>
+
+    <div class="section-hdr" style="margin-top:20px;">Traces (LangSmith)</div>
+    <div id="cloudTraceOut" aria-live="polite"></div>
+
+    <div class="section-hdr" style="margin-top:20px;">Recent reasoning traces</div>
+    <p class="hint" style="margin-bottom:12px;">
+      What the Stealth loop actually reasoned, with the Nemotron insight and Tavily
+      grounding that were attached to each decision.
+    </p>
+    <div class="row" style="margin-bottom:10px;">
+      <button id="cloudTracesBtn" class="primary">Refresh traces</button>
+      <span id="cloudTracesState" class="badge">not loaded</span>
+    </div>
+    <div id="cloudTracesOut" aria-live="polite">
+      <div class="empty">No traces loaded yet.</div>
+    </div>
+  </div>
+
+  <!-- ── TOOLS ─────────────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-tools">
+    <div class="section-hdr" style="margin-top:0;">Operator tools</div>
+    <p class="hint" style="margin-bottom:12px;">
+      Everything the terminal CLI can do, as buttons — same functions, same results, no
+      terminal required. Tools that can take a while say so up front.
+    </p>
+    <div class="row" style="margin-bottom:10px;">
+      <button id="toolsRefresh" class="primary">Reload tools</button>
+      <span id="toolsState" class="badge">not loaded</span>
+    </div>
+    <div class="cloud-grid" id="toolsGrid" aria-live="polite"></div>
   </div>
 
   <!-- ── CONVERSATION ──────────────────────────────────────────────────── -->

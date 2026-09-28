@@ -270,6 +270,64 @@ def _decide_stealth_approval(base: Path, engine: Any, approval_id: str, data: di
     return {"ok": True, "id": approval_id, "state": state, "source": "stealth"}
 
 
+def _hackathon_reasoner(base: Path) -> Any | None:
+    """Best available Nemotron reasoner: the console Stealth loop's own, else a fresh one.
+
+    Returns None when Nebius is not configured — never raises.
+    """
+    try:
+        loop = _stealth_loop_with_authority(base)
+    except Exception:
+        loop = None
+    if loop is not None:
+        reasoner = getattr(loop, "_reasoner", None)
+        if reasoner is not None and getattr(reasoner, "available", False):
+            return reasoner
+    try:
+        from ..stealth.nemotron_reasoning import NemotronReasoner
+
+        candidate = NemotronReasoner()
+        return candidate if getattr(candidate, "available", False) else None
+    except Exception:
+        return None
+
+
+def _hackathon_grounding(base: Path) -> Any | None:
+    """Best available Tavily grounding: the console Stealth loop's own, else a fresh one.
+
+    Returns None when Tavily is not configured — never raises.
+    """
+    try:
+        loop = _stealth_loop_with_authority(base)
+    except Exception:
+        loop = None
+    if loop is not None:
+        grounding = getattr(loop, "_grounding", None)
+        if grounding is not None and getattr(grounding, "available", False):
+            return grounding
+    try:
+        from ..stealth.tavily_grounding import TavilyGrounding
+
+        candidate = TavilyGrounding()
+        return candidate if getattr(candidate, "available", False) else None
+    except Exception:
+        return None
+
+
+def _hackathon_loop_enrichment(base: Path) -> dict[str, bool]:
+    """Whether the console Stealth loop itself has cloud enrichment attached."""
+    try:
+        loop = _stealth_loop_with_authority(base)
+    except Exception:
+        return {"cloud_reasoning": False, "web_grounding": False}
+    reasoner = getattr(loop, "_reasoner", None)
+    grounding = getattr(loop, "_grounding", None)
+    return {
+        "cloud_reasoning": bool(reasoner is not None and getattr(reasoner, "available", False)),
+        "web_grounding": bool(grounding is not None and getattr(grounding, "available", False)),
+    }
+
+
 def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str = "open", token: str = "") -> None:
     """Register /api/connectors/* and /api/auth/* routes on a GatewayServer."""
     from .auth_engine import PROVIDERS, AuthEngineError, CustomAuthEngine
@@ -1796,6 +1854,490 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         auth=auth,
         token=token,
         description="Ghost-writer completions",
+    )
+
+    # -- Nebius x NVIDIA cloud intelligence (hackathon) -------------------
+    # Read-only status plus interactive demo endpoints for the Nebius Token
+    # Factory provider, the Nemotron reasoning layer, Tavily web grounding,
+    # and LangSmith tracing. Handlers return redacted JSON — raw keys never
+    # leave these routes. Everything degrades gracefully with zero keys.
+
+    def hackathon_status(_ctx: dict[str, Any]) -> dict[str, Any]:
+        """GET /api/hackathon/status — integration health, no secrets."""
+        from ..observability.langsmith_tracing import LangSmithConfig
+        from ..stealth.nemotron_reasoning import NANO_MODEL, NEBIUS_PROVIDER_ID, SUPER_MODEL
+
+        nebius_key = bool(os.environ.get("NEBIUS_API_KEY", "").strip())
+        provider_available = False
+        provider_model = ""
+        if nebius_key:
+            try:
+                from ..model_layer.providers import get_provider
+
+                provider = get_provider(NEBIUS_PROVIDER_ID)
+                provider_available = bool(provider is not None and getattr(provider, "available", False))
+                if provider is not None:
+                    provider_model = str(provider.to_dict().get("model", ""))
+            except Exception:
+                provider_available = False
+
+        tavily_key = bool(os.environ.get("TAVILY_API_KEY", "").strip())
+        tavily_mode = (os.environ.get("TAVILY_MCP_MODE", "auto") or "auto").strip().lower()
+        if tavily_mode not in ("auto", "remote", "local", "rest"):
+            tavily_mode = "auto"
+
+        ls_config = LangSmithConfig.from_env()
+        langsmith_configured = ls_config is not None and ls_config.enabled
+
+        enrichment = _hackathon_loop_enrichment(base)
+        return {
+            "ok": True,
+            "nebius": {
+                "configured": nebius_key,
+                "provider_available": provider_available,
+                "model": provider_model,
+                "endpoint": "https://api.tokenfactory.nebius.com",
+                "setup_hint": "" if nebius_key else "Set NEBIUS_API_KEY in the console environment, then refresh.",
+            },
+            "nemotron": {
+                "understand_model": NANO_MODEL,
+                "reasoning_model": SUPER_MODEL,
+                "attached": enrichment["cloud_reasoning"],
+            },
+            "tavily": {
+                "configured": tavily_key,
+                "mode": tavily_mode,
+                "grounding_attached": enrichment["web_grounding"],
+                "setup_hint": "" if tavily_key else "Set TAVILY_API_KEY in the console environment, then refresh.",
+            },
+            "langsmith": {
+                "configured": langsmith_configured,
+                "project": ls_config.project if ls_config is not None else "",
+                "dashboard_url": "https://smith.langchain.com/",
+                "setup_hint": (
+                    ""
+                    if langsmith_configured
+                    else "Set LANGSMITH_API_KEY (and optionally LANGSMITH_PROJECT) to trace cloud calls."
+                ),
+            },
+            "stealth_loop": enrichment,
+        }
+
+    def hackathon_reason(ctx: dict[str, Any]) -> dict[str, Any]:
+        """POST /api/hackathon/reason {event_type?, summary} — Nemotron UNDERSTAND demo."""
+        from types import SimpleNamespace
+
+        data = _body(ctx)
+        summary = str(data.get("summary") or "").strip()[:2000]
+        event_type = str(data.get("event_type") or "note").strip()[:64] or "note"
+        if len(summary) < 3:
+            return {"ok": False, "error": "Describe the event in a few words first."}
+        reasoner = _hackathon_reasoner(base)
+        if reasoner is None:
+            return {
+                "ok": False,
+                "error": "Nebius cloud reasoning is not configured. Set NEBIUS_API_KEY and try again.",
+            }
+        event = SimpleNamespace(
+            event_type=event_type,
+            source="console-demo",
+            privacy_classification="internal",
+            payload={"summary": summary},
+        )
+        try:
+            insight = reasoner.understand(event)
+        except Exception as exc:
+            return {"ok": False, "error": f"Reasoning call failed: {type(exc).__name__}"}
+        if not insight:
+            return {"ok": False, "error": "The model returned no usable insight; try again."}
+        return {
+            "ok": True,
+            "insight": {
+                key: insight.get(key)
+                for key in (
+                    "intent",
+                    "confidence",
+                    "suggested_workflow",
+                    "risk_flags",
+                    "rationale",
+                    "model",
+                    "provider",
+                    "grounded_with_web",
+                )
+            },
+        }
+
+    def hackathon_ground(ctx: dict[str, Any]) -> dict[str, Any]:
+        """POST /api/hackathon/ground {query, max_results?} — Tavily web search demo."""
+        data = _body(ctx)
+        query = str(data.get("query") or "").strip()[:300]
+        if len(query) < 2:
+            return {"ok": False, "error": "Type a search query first."}
+        try:
+            max_results = max(1, min(10, int(data.get("max_results") or 5)))
+        except (TypeError, ValueError):
+            max_results = 5
+        grounding = _hackathon_grounding(base)
+        if grounding is None:
+            return {
+                "ok": False,
+                "error": "Tavily web grounding is not configured. Set TAVILY_API_KEY and try again.",
+            }
+        try:
+            results = grounding.search(query, max_results)
+        except Exception as exc:
+            return {"ok": False, "error": f"Web search failed: {type(exc).__name__}"}
+        clean = [
+            {
+                "title": str(item.get("title", "")),
+                "url": str(item.get("url", "")),
+                "snippet": str(item.get("snippet", "")),
+                "score": item.get("score"),
+            }
+            for item in results
+            if isinstance(item, dict)
+        ]
+        return {
+            "ok": True,
+            "results": clean,
+            "transport": str(getattr(grounding, "_last_transport", "")),
+            "count": len(clean),
+        }
+
+    def hackathon_traces(_ctx: dict[str, Any]) -> dict[str, Any]:
+        """GET /api/hackathon/traces — recent Stealth traces with cloud enrichment."""
+        try:
+            loop = _stealth_loop_with_authority(base)
+        except Exception as exc:
+            return {"ok": False, "error": f"Stealth loop unavailable: {type(exc).__name__}"}
+        items = list(getattr(loop, "interventions", {}).values())[-12:]
+        out = []
+        for item in items:
+            provenance = getattr(item, "provenance", None) or {}
+            trace = provenance.get("trace") if isinstance(provenance, dict) else None
+            trace = trace if isinstance(trace, dict) else {}
+            nem = trace.get("nemotron") if isinstance(trace.get("nemotron"), dict) else None
+            web = trace.get("web_grounding") if isinstance(trace.get("web_grounding"), dict) else None
+            nemotron = (
+                {
+                    key: nem.get(key)
+                    for key in (
+                        "intent",
+                        "confidence",
+                        "suggested_workflow",
+                        "risk_flags",
+                        "rationale",
+                        "model",
+                        "provider",
+                        "grounded_with_web",
+                    )
+                }
+                if nem
+                else None
+            )
+            web_grounding = None
+            if web:
+                web_grounding = {
+                    "query": str(web.get("query", "")),
+                    "transport": str(web.get("transport", "")),
+                    "tool": str(web.get("tool", "")),
+                    "results": [
+                        {
+                            "title": str(hit.get("title", "")),
+                            "url": str(hit.get("url", "")),
+                            "snippet": str(hit.get("snippet", ""))[:300],
+                        }
+                        for hit in (web.get("results") or [])[:3]
+                        if isinstance(hit, dict)
+                    ],
+                }
+            predictions = provenance.get("predictions") if isinstance(provenance, dict) else None
+            out.append(
+                {
+                    "id": str(getattr(item, "id", "")),
+                    "workflow": str(getattr(item, "workflow", "")),
+                    "state": str(getattr(item, "state", "")),
+                    "confidence": float(getattr(item, "confidence", 0.0) or 0.0),
+                    "reason": str(getattr(item, "reason", ""))[:300],
+                    "created_at": float(getattr(item, "created_at", 0.0) or 0.0),
+                    "nemotron": nemotron,
+                    "web_grounding": web_grounding,
+                    "local_predictions": [str(pred) for pred in (predictions or [])][:3],
+                }
+            )
+        out.reverse()
+        return {"ok": True, "traces": out, "count": len(out)}
+
+    server.routes.register(
+        "/api/hackathon/status",
+        hackathon_status,
+        method="GET",
+        auth=auth,
+        token=token,
+        description="Nebius/Nemotron/Tavily/LangSmith status (no secrets)",
+    )
+    server.routes.register(
+        "/api/hackathon/reason",
+        hackathon_reason,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Nemotron UNDERSTAND demo",
+    )
+    server.routes.register(
+        "/api/hackathon/ground",
+        hackathon_ground,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Tavily web search demo",
+    )
+    server.routes.register(
+        "/api/hackathon/traces",
+        hackathon_traces,
+        method="GET",
+        auth=auth,
+        token=token,
+        description="Recent Stealth traces with cloud enrichment",
+    )
+
+    # -- Operator tools: CLI parity for the web console ----------------------
+    # Thin dispatch over the same library functions the terminal CLIs call,
+    # so CLI-only capabilities are also clickable in the console. Imports stay
+    # lazy (inside each handler) so a heavy/optional dependency can never
+    # break console startup. Handlers receive (args, base) and must return
+    # JSON-serializable data or raise.
+
+    def _tool_pilot_status(_args: dict[str, Any], _base: Path) -> Any:
+        from ..chimera_pilot.kernel import ChimeraPilotKernel
+
+        return ChimeraPilotKernel.default().status()
+
+    def _tool_pilot_calibrate(_args: dict[str, Any], _base: Path) -> Any:
+        from ..chimera_pilot.kernel import ChimeraPilotKernel
+
+        return ChimeraPilotKernel.default().calibrate()
+
+    def _tool_autonomy_profiles(_args: dict[str, Any], _base: Path) -> Any:
+        from ..chimera_pilot.autonomy import list_autonomy_profiles
+
+        return {"profiles": [profile.to_dict() for profile in list_autonomy_profiles()]}
+
+    def _tool_model_profiles(_args: dict[str, Any], _base: Path) -> Any:
+        from ..model_layer.local_profiles import list_local_model_profiles
+
+        return {"profiles": [profile.to_dict() for profile in list_local_model_profiles()]}
+
+    def _tool_runtime_warmup(args: dict[str, Any], base_dir: Path) -> Any:
+        from ..model_layer.runtime_specialization import (
+            detect_runtime_environment,
+            warm_runtime_specialization_cache,
+        )
+
+        cache_dir = str(args.get("cache_dir") or "").strip() or str(base_dir / "runtime-specialization")
+        environment = detect_runtime_environment()
+        return warm_runtime_specialization_cache(
+            cache_dir=cache_dir,
+            profile_names="tiny",
+            environment=environment,
+        )
+
+    def _tool_desktop_stop(args: dict[str, Any], _base: Path) -> Any:
+        from ..chimera_pilot.desktop_policy import write_desktop_stop_file
+
+        path = str(args.get("path") or "").strip() or None
+        reason = str(args.get("reason") or "operator_stop").strip()[:120] or "operator_stop"
+        target = write_desktop_stop_file(path, reason=reason)
+        return {"ok": True, "path": str(target), "reason": reason}
+
+    def _tool_ux_audit(_args: dict[str, Any], _base: Path) -> Any:
+        from ..control_plane.cli import _ux_audit_payload
+
+        return _ux_audit_payload()
+
+    def _tool_saas_status(_args: dict[str, Any], _base: Path) -> Any:
+        from ..saas.cli import saas_status_from_env
+
+        return saas_status_from_env()
+
+    def _tool_worker_status(_args: dict[str, Any], _base: Path) -> Any:
+        from ..saas.store import InMemorySaasStore
+        from ..saas.worker import WorkerQueue
+
+        return WorkerQueue(InMemorySaasStore()).status()
+
+    def _tool_evals_run(args: dict[str, Any], _base: Path) -> Any:
+        from ..evals.runner import EVAL_SUITES, run_suite
+
+        suite = str(args.get("suite") or "smoke").strip()
+        if suite not in EVAL_SUITES:
+            raise ValueError(f"Unknown eval suite: {suite!r}")
+        return run_suite(suite)
+
+    def _tool_production_gaps(_args: dict[str, Any], _base: Path) -> Any:
+        from ..production_gaps import scan_production_gaps
+
+        return scan_production_gaps(Path(__file__).resolve().parents[2])
+
+    def _tool_context_compress(args: dict[str, Any], _base: Path) -> Any:
+        from ..chimera_pilot.context_compressor import compress_text_query_aware
+
+        text = str(args.get("text") or "").strip()
+        if not text:
+            raise ValueError("Provide text to compress.")
+        try:
+            budget = int(args.get("budget_tokens") or 800)
+        except (TypeError, ValueError):
+            budget = 800
+        budget = max(64, min(4000, budget))
+        result = compress_text_query_aware(
+            text,
+            focus=str(args.get("focus") or ""),
+            budget_tokens=budget,
+        )
+        return result.to_dict() if hasattr(result, "to_dict") else result
+
+    _TOOL_HANDLERS: dict[str, Any] = {
+        "pilot-status": _tool_pilot_status,
+        "pilot-calibrate": _tool_pilot_calibrate,
+        "autonomy-profiles": _tool_autonomy_profiles,
+        "model-profiles": _tool_model_profiles,
+        "runtime-warmup": _tool_runtime_warmup,
+        "desktop-stop": _tool_desktop_stop,
+        "ux-audit": _tool_ux_audit,
+        "saas-status": _tool_saas_status,
+        "worker-status": _tool_worker_status,
+        "evals-run": _tool_evals_run,
+        "production-gaps": _tool_production_gaps,
+        "context-compress": _tool_context_compress,
+    }
+
+    def _tools_catalog() -> list[dict[str, Any]]:
+        try:
+            from ..evals.runner import EVAL_SUITES
+
+            suites = sorted(EVAL_SUITES)
+        except Exception:
+            suites = ["smoke"]
+        return [
+            {
+                "id": "pilot-status",
+                "title": "Pilot backend status",
+                "description": "Health and telemetry of the Chimera Pilot kernel. Same as the pilot status command.",
+                "inputs": [],
+            },
+            {
+                "id": "pilot-calibrate",
+                "title": "Calibrate backends",
+                "description": "Probe every registered pilot backend once. Same as the pilot calibrate command. Can take a minute.",
+                "inputs": [],
+            },
+            {
+                "id": "autonomy-profiles",
+                "title": "Autonomy profiles",
+                "description": "List the built-in autonomy profiles. Same as the pilot autonomy-profiles command.",
+                "inputs": [],
+            },
+            {
+                "id": "model-profiles",
+                "title": "Local model profiles",
+                "description": "List the built-in local model profiles. Same as the pilot model-profiles command.",
+                "inputs": [],
+            },
+            {
+                "id": "runtime-warmup",
+                "title": "Runtime warmup",
+                "description": "Precompute local runtime specialization manifests into the console state dir. Same as the pilot runtime-warmup command. Can take a while.",
+                "inputs": [],
+            },
+            {
+                "id": "desktop-stop",
+                "title": "Desktop kill-switch",
+                "description": "Create the desktop kill-switch file immediately. Same as the pilot desktop-stop command.",
+                "confirm": "Create the desktop kill-switch file now?",
+                "inputs": [
+                    {"name": "path", "label": "Kill-switch path (optional)", "placeholder": "default location"},
+                    {"name": "reason", "label": "Reason", "placeholder": "operator_stop"},
+                ],
+            },
+            {
+                "id": "ux-audit",
+                "title": "UX audit",
+                "description": "UX strengths, gaps, and upgrade scorecard. Same as ghost ux-audit.",
+                "inputs": [],
+            },
+            {
+                "id": "saas-status",
+                "title": "SaaS status",
+                "description": "Enterprise SaaS launch-mode readiness. Same as ghost saas status.",
+                "inputs": [],
+            },
+            {
+                "id": "worker-status",
+                "title": "Worker queue status",
+                "description": "Inspect the SaaS worker queue. Same as ghost worker status.",
+                "inputs": [],
+            },
+            {
+                "id": "evals-run",
+                "title": "Run eval suite",
+                "description": "Run a Ghost Chimera evaluation suite. Same as evals run --suite. Can take a while.",
+                "inputs": [
+                    {"name": "suite", "label": "Suite", "type": "select", "options": suites},
+                ],
+            },
+            {
+                "id": "production-gaps",
+                "title": "Production gaps",
+                "description": "Scan the repo for production-readiness gaps. Same as ghost production-gaps.",
+                "inputs": [],
+            },
+            {
+                "id": "context-compress",
+                "title": "Compress context",
+                "description": "Query-aware deterministic compression preview. Same as ghost context.",
+                "inputs": [
+                    {"name": "text", "label": "Text", "type": "textarea", "placeholder": "Paste text to compress"},
+                    {"name": "focus", "label": "Focus query (optional)", "placeholder": ""},
+                    {"name": "budget_tokens", "label": "Token budget", "placeholder": "800"},
+                ],
+            },
+        ]
+
+    def tools_catalog(_ctx: dict[str, Any]) -> dict[str, Any]:
+        """GET /api/tools/catalog — operator tools available in this console."""
+        return {"ok": True, "tools": _tools_catalog()}
+
+    def tools_run(ctx: dict[str, Any]) -> dict[str, Any]:
+        """POST /api/tools/run {tool, args?} — run one operator tool."""
+        data = _body(ctx)
+        name = str(data.get("tool") or "").strip()
+        args = data.get("args")
+        args = args if isinstance(args, dict) else {}
+        handler = _TOOL_HANDLERS.get(name)
+        if handler is None:
+            return {"ok": False, "error": f"Unknown tool: {name or '(empty)'}. See GET /api/tools/catalog."}
+        try:
+            result = handler(args, base)
+        except Exception as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        return {"ok": True, "tool": name, "result": result}
+
+    server.routes.register(
+        "/api/tools/catalog",
+        tools_catalog,
+        method="GET",
+        auth=auth,
+        token=token,
+        description="Operator tools catalog (CLI parity)",
+    )
+    server.routes.register(
+        "/api/tools/run",
+        tools_run,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Run one operator tool",
     )
 
     def inbound_webhook(ctx: dict[str, Any]) -> dict[str, Any]:

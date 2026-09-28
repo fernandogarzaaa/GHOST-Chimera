@@ -226,9 +226,9 @@
   var TAB_GROUPS = [
     ["setup", "Setup", ["status", "config", "path", "local-models", "readiness"]],
     ["connect", "Connect", ["connections", "integrations", "github", "mcp", "remote"]],
-    ["operate", "Operate", ["run", "jobs", "workspace", "memory", "minimind", "rag-builder",
-      "skills", "browser", "activity", "thinking", "live-presence", "latency", "stealth",
-      "conversation"]],
+    ["operate", "Operate", ["run", "tools", "jobs", "workspace", "memory", "minimind",
+      "rag-builder", "skills", "browser", "activity", "thinking", "live-presence", "latency",
+      "stealth", "cloud", "conversation"]],
     ["advanced", "Advanced", ["trust", "evolution", "cognition", "capability-pack", "sandbox",
       "security", "schedules", "review", "capabilities"]],
   ];
@@ -5826,6 +5826,11 @@
   $("#integrationsRefresh").addEventListener("click", refreshIntegrations);
   $("#stealthRefresh").addEventListener("click", refreshStealth);
   $("#steCheck").addEventListener("click", steCheckNow);
+  $("#cloudRefresh").addEventListener("click", refreshCloudStatus);
+  $("#cloudReasonBtn").addEventListener("click", cloudReasonNow);
+  $("#cloudGroundBtn").addEventListener("click", cloudGroundNow);
+  $("#cloudTracesBtn").addEventListener("click", refreshCloudTraces);
+  $("#toolsRefresh").addEventListener("click", refreshTools);
   $("#refreshActivity").addEventListener("click", refreshTimeline);
   $("#refreshLatency").addEventListener("click", refreshLatency);
   $("#operatorReadiness").addEventListener("click", async function() {
@@ -6169,6 +6174,409 @@
     if (active && active.id === "tab-stealth") refreshStealth();
   }
 
+  // ── Cloud AI tab: Nebius x NVIDIA integrations ─────────────────────────
+  function cloudCard(title) {
+    var card = el("div", { class: "cloud-card" });
+    card.appendChild(el("h3", {}, title));
+    return card;
+  }
+
+  function addKv(card, label, value) {
+    if (value === undefined || value === null || value === "") return;
+    var row = el("div", { class: "kv" });
+    row.appendChild(el("span", { class: "k" }, label));
+    row.appendChild(el("span", { class: "v" }, String(value)));
+    card.appendChild(row);
+  }
+
+  function confPct(v) {
+    var n = Number(v);
+    if (!isFinite(n)) return null;
+    return Math.max(0, Math.min(100, Math.round(n * 100)));
+  }
+
+  async function refreshCloudStatus() {
+    var grid = $("#cloudStatusCards");
+    var state = $("#cloudStatusState");
+    if (state) badge(state, "loading…", "warn");
+    try {
+      var data = await api("/api/hackathon/status");
+      if (state) badge(state, "updated", "ok");
+      if (!grid) return;
+      grid.innerHTML = "";
+
+      var n = data.nebius || {};
+      var c1 = cloudCard("Nebius Token Factory");
+      var neb = el("div", { class: "big" });
+      neb.appendChild(el("span", { class: "badge " + (n.configured ? "ok" : "warn") },
+        n.configured ? (n.provider_available ? "connected" : "key set · provider unavailable") : "not configured"));
+      c1.appendChild(neb);
+      if (n.model) addKv(c1, "Active model", n.model);
+      addKv(c1, "Endpoint", n.endpoint || "https://api.tokenfactory.nebius.com");
+      if (n.setup_hint) c1.appendChild(el("div", { class: "sub" }, n.setup_hint));
+      grid.appendChild(c1);
+
+      var m = data.nemotron || {};
+      var c2 = cloudCard("Nemotron reasoning");
+      var nem = el("div", { class: "big" });
+      nem.appendChild(el("span", { class: "badge " + (m.attached ? "ok" : "warn") },
+        m.attached ? "attached to Stealth loop" : "local only"));
+      c2.appendChild(nem);
+      c2.appendChild(el("div", { class: "sub" }, "UNDERSTAND · Nano 30B"));
+      if (m.understand_model) c2.appendChild(el("div", { class: "sub mono" }, m.understand_model));
+      c2.appendChild(el("div", { class: "sub" }, "PREDICT · Super 120B"));
+      if (m.reasoning_model) c2.appendChild(el("div", { class: "sub mono" }, m.reasoning_model));
+      grid.appendChild(c2);
+
+      var t = data.tavily || {};
+      var c3 = cloudCard("Tavily web grounding");
+      var tv = el("div", { class: "big" });
+      tv.appendChild(el("span", { class: "badge " + (t.configured ? "ok" : "warn") },
+        t.configured ? "configured" : "not configured"));
+      c3.appendChild(tv);
+      addKv(c3, "Transport", (t.mode || "auto") + " · MCP-first, REST fallback");
+      addKv(c3, "Stealth loop", t.grounding_attached ? "attached to UNDERSTAND phase" : "not attached");
+      if (t.setup_hint) c3.appendChild(el("div", { class: "sub" }, t.setup_hint));
+      grid.appendChild(c3);
+
+      var l = data.langsmith || {};
+      var c4 = cloudCard("LangSmith tracing");
+      var ls = el("div", { class: "big" });
+      ls.appendChild(el("span", { class: "badge " + (l.configured ? "ok" : "warn") },
+        l.configured ? "tracing" : "off"));
+      c4.appendChild(ls);
+      if (l.configured) {
+        addKv(c4, "Project", l.project || "");
+        var foot = el("div", { class: "foot" });
+        foot.appendChild(el("a", { href: l.dashboard_url || "https://smith.langchain.com/", target: "_blank", rel: "noopener" },
+          "Open LangSmith dashboard"));
+        c4.appendChild(foot);
+      } else if (l.setup_hint) {
+        c4.appendChild(el("div", { class: "sub" }, l.setup_hint));
+      }
+      grid.appendChild(c4);
+    } catch (e) {
+      if (state) badge(state, "error", "warn");
+      if (grid) {
+        grid.innerHTML = "";
+        grid.appendChild(el("div", { class: "empty" }, "Status unavailable: " + e.message));
+      }
+    }
+  }
+
+  function renderInsight(out, insight) {
+    out.innerHTML = "";
+    var card = cloudCard("Nemotron interpretation");
+    card.appendChild(el("div", { class: "big" }, String(insight.intent || "unknown")));
+    var pct = confPct(insight.confidence);
+    if (pct !== null) {
+      var meter = el("div", { class: "meter", role: "img" });
+      meter.setAttribute("aria-label", "confidence " + pct + " percent");
+      var fill = el("span", {});
+      fill.style.width = pct + "%";
+      meter.appendChild(fill);
+      card.appendChild(meter);
+      card.appendChild(el("div", { class: "sub" }, "confidence: " + pct + "%"));
+    }
+    addKv(card, "Suggested workflow", insight.suggested_workflow);
+    addKv(card, "Model", insight.model);
+    if (insight.grounded_with_web) {
+      var gw = el("div", { style: "margin-top:4px;" });
+      gw.appendChild(el("span", { class: "badge ok" }, "grounded with fresh web context"));
+      card.appendChild(gw);
+    }
+    if (insight.rationale) {
+      card.appendChild(el("div", { class: "sub", style: "margin-top:6px;" }, String(insight.rationale)));
+    }
+    var risks = insight.risk_flags || [];
+    if (risks.length) {
+      var rw = el("div", { style: "margin-top:6px;" });
+      risks.forEach(function(r) { rw.appendChild(el("span", { class: "risk-flag" }, String(r))); });
+      card.appendChild(rw);
+    }
+    out.appendChild(card);
+  }
+
+  async function cloudReasonNow() {
+    var out = $("#cloudReasonOut");
+    var btn = $("#cloudReasonBtn");
+    var state = $("#cloudReasonState");
+    var input = $("#cloudReasonInput");
+    if (state) badge(state, "thinking…", "warn");
+    if (btn) btn.disabled = true;
+    try {
+      var data = await api("/api/hackathon/reason",
+        { method: "POST", body: { summary: input ? input.value : "" } });
+      if (state) badge(state, data.ok ? "done" : "needs setup", data.ok ? "ok" : "warn");
+      if (!out) return;
+      if (data.ok && data.insight) {
+        renderInsight(out, data.insight);
+      } else {
+        out.innerHTML = "";
+        out.appendChild(el("div", { class: "empty" }, data.error || "No insight returned."));
+      }
+    } catch (e) {
+      if (state) badge(state, "error", "warn");
+      if (out) {
+        out.innerHTML = "";
+        out.appendChild(el("div", { class: "empty" }, "Reasoning failed: " + e.message));
+      }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function cloudGroundNow() {
+    var out = $("#cloudGroundOut");
+    var btn = $("#cloudGroundBtn");
+    var state = $("#cloudGroundState");
+    var input = $("#cloudGroundInput");
+    if (state) badge(state, "searching…", "warn");
+    if (btn) btn.disabled = true;
+    try {
+      var data = await api("/api/hackathon/ground",
+        { method: "POST", body: { query: input ? input.value : "", max_results: 5 } });
+      if (state) badge(state, data.ok ? "done" : "needs setup", data.ok ? "ok" : "warn");
+      if (!out) return;
+      out.innerHTML = "";
+      if (!(data.ok && data.results)) {
+        out.appendChild(el("div", { class: "empty" }, (data && data.error) || "No results."));
+        return;
+      }
+      if (!data.results.length) {
+        out.appendChild(el("div", { class: "empty" }, "No results for that query."));
+        return;
+      }
+      var meta = el("div", { class: "sub", style: "margin-bottom:8px;" });
+      meta.appendChild(el("span", { class: "badge" }, "via " + (data.transport || "tavily")));
+      out.appendChild(meta);
+      data.results.forEach(function(r) {
+        var item = el("div", { class: "ground-item" });
+        var title = el("div", { class: "g-title" });
+        if (r.url) {
+          var a = el("a", { href: r.url, target: "_blank", rel: "noopener" }, r.title || r.url);
+          title.appendChild(a);
+        } else {
+          title.textContent = r.title || "(untitled)";
+        }
+        item.appendChild(title);
+        if (r.url) item.appendChild(el("div", { class: "g-url" }, r.url));
+        if (r.snippet) item.appendChild(el("div", { class: "g-snippet" }, r.snippet));
+        out.appendChild(item);
+      });
+    } catch (e) {
+      if (state) badge(state, "error", "warn");
+      if (out) {
+        out.innerHTML = "";
+        out.appendChild(el("div", { class: "empty" }, "Search failed: " + e.message));
+      }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function refreshCloudTracePanel() {
+    var out = $("#cloudTraceOut");
+    if (!out) return;
+    try {
+      var data = await api("/api/hackathon/status");
+      var l = (data && data.langsmith) || {};
+      out.innerHTML = "";
+      var card = cloudCard("LangSmith");
+      if (l.configured) {
+        var ok = el("div", { class: "big" });
+        ok.appendChild(el("span", { class: "badge ok" }, "tracing active"));
+        card.appendChild(ok);
+        addKv(card, "Project", l.project || "");
+        var foot = el("div", { class: "foot" });
+        foot.appendChild(el("a", { href: l.dashboard_url || "https://smith.langchain.com/", target: "_blank", rel: "noopener" },
+          "Open LangSmith dashboard"));
+        card.appendChild(foot);
+        card.appendChild(el("div", { class: "sub" },
+          "Nebius chat calls and Tavily searches are traced as runs under this project."));
+      } else {
+        var off = el("div", { class: "big" });
+        off.appendChild(el("span", { class: "badge warn" }, "tracing off"));
+        card.appendChild(off);
+        card.appendChild(el("div", { class: "sub" }, l.setup_hint || "Set LANGSMITH_API_KEY to trace cloud calls."));
+      }
+      out.appendChild(card);
+    } catch (e) {
+      out.innerHTML = "";
+      out.appendChild(el("div", { class: "empty" }, "Trace status unavailable: " + e.message));
+    }
+  }
+
+  function renderTraceCard(tr) {
+    var item = el("div", { class: "trace-item" });
+    var head = el("div", { class: "big", style: "font-size:13.5px;" }, tr.workflow || "unknown");
+    item.appendChild(head);
+    var badges = el("div", { style: "margin:4px 0;" });
+    badges.appendChild(el("span", { class: "badge" }, tr.state || ""));
+    if (tr.nemotron) badges.appendChild(el("span", { class: "badge ok" }, "nemotron"));
+    if (tr.web_grounding) badges.appendChild(el("span", { class: "badge ok" }, "web-grounded"));
+    if (!tr.nemotron && !tr.web_grounding) {
+      var lb = el("span", { class: "badge" }, "local only");
+      badges.appendChild(lb);
+    }
+    item.appendChild(badges);
+    if (tr.reason) item.appendChild(el("div", { class: "sub" }, tr.reason));
+    if (tr.nemotron) {
+      var pct = confPct(tr.nemotron.confidence);
+      var line = "Nemotron: " + (tr.nemotron.intent || "unknown") +
+        (pct !== null ? " (" + pct + "%)" : "") +
+        (tr.nemotron.rationale ? " — " + tr.nemotron.rationale : "");
+      item.appendChild(el("div", { class: "t-rationale" }, line));
+    }
+    if (tr.web_grounding) {
+      var wg = tr.web_grounding;
+      var wline = "Web: " + (wg.query || "") + " · " + (wg.results || []).length +
+        " result(s) via " + (wg.transport || "tavily");
+      item.appendChild(el("div", { class: "t-rationale" }, wline));
+    }
+    var preds = tr.local_predictions || [];
+    if (preds.length) item.appendChild(el("div", { class: "sub" }, "local predictions: " + preds.join(", ")));
+    return item;
+  }
+
+  async function refreshCloudTraces() {
+    var out = $("#cloudTracesOut");
+    var state = $("#cloudTracesState");
+    if (state) badge(state, "loading…", "warn");
+    try {
+      var data = await api("/api/hackathon/traces");
+      if (state) badge(state, "updated", "ok");
+      if (!out) return;
+      out.innerHTML = "";
+      var traces = (data && data.traces) || [];
+      if (!traces.length) {
+        out.appendChild(el("div", { class: "empty" },
+          "No Stealth interventions yet. Emit events via POST /api/stealth/emit or let the loop observe activity."));
+        return;
+      }
+      traces.forEach(function(tr) { out.appendChild(renderTraceCard(tr)); });
+    } catch (e) {
+      if (state) badge(state, "error", "warn");
+      if (out) {
+        out.innerHTML = "";
+        out.appendChild(el("div", { class: "empty" }, "Traces unavailable: " + e.message));
+      }
+    }
+  }
+
+  // ── Tools tab: CLI parity ──────────────────────────────────────────────
+  function toolInputField(spec) {
+    var label = el("label", {}, spec.label || spec.name);
+    var name = spec.name;
+    if (spec.type === "select") {
+      var sel = document.createElement("select");
+      sel.setAttribute("data-tool-arg", name);
+      (spec.options || []).forEach(function(opt) {
+        var o = document.createElement("option");
+        o.value = opt;
+        o.textContent = opt;
+        sel.appendChild(o);
+      });
+      label.appendChild(sel);
+    } else if (spec.type === "textarea") {
+      var ta = document.createElement("textarea");
+      ta.setAttribute("data-tool-arg", name);
+      ta.rows = 3;
+      if (spec.placeholder) ta.setAttribute("placeholder", spec.placeholder);
+      label.appendChild(ta);
+    } else {
+      var inp = document.createElement("input");
+      inp.setAttribute("data-tool-arg", name);
+      if (spec.placeholder) inp.setAttribute("placeholder", spec.placeholder);
+      label.appendChild(inp);
+    }
+    return label;
+  }
+
+  async function runTool(spec, card) {
+    var out = card.querySelector(".tool-output");
+    var btn = card.querySelector(".tool-run");
+    var args = {};
+    Array.prototype.forEach.call(card.querySelectorAll("[data-tool-arg]"), function(node) {
+      args[node.getAttribute("data-tool-arg")] = node.value;
+    });
+    if (spec.confirm && !window.confirm(spec.confirm)) return;
+    if (btn) btn.disabled = true;
+    if (out) {
+      out.innerHTML = "";
+      out.appendChild(el("div", { class: "empty" }, "Running…"));
+    }
+    try {
+      var data = await api("/api/tools/run", { method: "POST", body: { tool: spec.id, args: args } });
+      if (out) {
+        out.innerHTML = "";
+        if (data.ok) {
+          out.textContent = JSON.stringify(data.result, null, 2);
+        } else {
+          out.appendChild(el("div", { class: "empty" }, "Failed: " + (data.error || "unknown error")));
+        }
+      }
+      if (data.ok) toast(spec.title + " finished.", "ok");
+      else toast(spec.title + " failed.", "error");
+    } catch (e) {
+      if (out) {
+        out.innerHTML = "";
+        out.appendChild(el("div", { class: "empty" }, "Failed: " + e.message));
+      }
+      toast(spec.title + " failed: " + e.message, "error");
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function refreshTools() {
+    var grid = $("#toolsGrid");
+    var state = $("#toolsState");
+    if (state) badge(state, "loading…", "warn");
+    try {
+      var data = await api("/api/tools/catalog");
+      if (state) badge(state, "updated", "ok");
+      if (!grid) return;
+      grid.innerHTML = "";
+      var tools = (data && data.tools) || [];
+      if (!tools.length) {
+        grid.appendChild(el("div", { class: "empty" }, "No tools registered."));
+        return;
+      }
+      tools.forEach(function(spec) {
+        var card = el("div", { class: "cloud-card tool-card" });
+        card.appendChild(el("h3", {}, spec.title || spec.id));
+        card.appendChild(el("div", { class: "tool-desc" }, spec.description || ""));
+        var inputs = el("div", { class: "tool-inputs" });
+        (spec.inputs || []).forEach(function(inp) { inputs.appendChild(toolInputField(inp)); });
+        card.appendChild(inputs);
+        var row = el("div", { class: "tool-run-row" });
+        var btn = el("button", { class: "primary tool-run", type: "button" }, "Run");
+        btn.addEventListener("click", function() { runTool(spec, card); });
+        row.appendChild(btn);
+        card.appendChild(row);
+        var pre = el("pre", { class: "output compact-output tool-output" });
+        pre.textContent = "Output appears here.";
+        card.appendChild(pre);
+        grid.appendChild(card);
+      });
+    } catch (e) {
+      if (state) badge(state, "error", "warn");
+      if (grid) {
+        grid.innerHTML = "";
+        grid.appendChild(el("div", { class: "empty" }, "Tools unavailable: " + e.message));
+      }
+    }
+  }
+
+  function maybePollCloud() {
+    var active = document.querySelector(".tab-content.active");
+    if (active && active.id === "tab-cloud") {
+      refreshCloudStatus();
+      refreshCloudTraces();
+    }
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────────────
   applyConversationMinimized();
   initTabQuickJump();
@@ -6211,7 +6619,12 @@
     refreshIntegrations();
     refreshFirstRun();
     refreshStealth();
+    refreshCloudStatus();
+    refreshCloudTracePanel();
+    refreshCloudTraces();
+    refreshTools();
   });
   setInterval(refreshStatus, 30000);
   setInterval(maybePollStealth, STEALTH_POLL_MS);
+  setInterval(maybePollCloud, STEALTH_POLL_MS);
 })();

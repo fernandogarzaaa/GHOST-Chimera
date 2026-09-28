@@ -27,6 +27,7 @@
       "label": "Operate",
       "tabs": [
         "run",
+        "tools",
         "jobs",
         "workspace",
         "memory",
@@ -39,6 +40,7 @@
         "live-presence",
         "latency",
         "stealth",
+        "cloud",
         "conversation"
       ]
     },
