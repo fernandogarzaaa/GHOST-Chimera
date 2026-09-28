@@ -148,6 +148,7 @@ _PROVIDER_CHOICES = [
     "OpenAI API          — gpt-4o, gpt-3.5-turbo  (https://platform.openai.com/api-keys)",
     "OpenRouter          — 200+ models via unified API  (https://openrouter.ai/keys)",
     "Anthropic           — Claude models  (https://console.anthropic.com/keys)",
+    "Nebius Token Factory — NVIDIA Nemotron models  (https://console.nebius.com)",
     "OpenCode CLI        — free opencode/* models via your login (no API key)",
     "Custom endpoint     — Ollama, LM Studio, vLLM, any OpenAI-compatible server",
     "Local profile       — tiny/balanced/stronger, no API key needed",
@@ -172,6 +173,11 @@ _PROVIDER_MODELS: dict[str, list[tuple[str, str]]] = {
         ("claude-opus-4-6", "claude-opus-4-6"),
         ("claude-haiku-3-5", "claude-haiku-3-5"),
     ],
+    "nebius": [
+        ("Nemotron 3 Nano 30B (fast, cheap)", "nvidia/nemotron-3-nano-30b-a3b"),
+        ("Nemotron 3 Super 120B (agentic reasoning)", "nvidia/nemotron-3-super-120b-a12b"),
+        ("Use a different model", ""),
+    ],
     "opencode_cli": [
         ("opencode/mimo-v2.5-free (free)", "opencode/mimo-v2.5-free"),
         ("opencode/ling-3.0-flash-fin-free (free)", "opencode/ling-3.0-flash-fin-free"),
@@ -190,12 +196,14 @@ _PROVIDER_KEYS: dict[str, str] = {
     "openai": "OPENAI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
+    "nebius": "NEBIUS_API_KEY",
 }
 
 _PROVIDER_URLS: dict[str, str] = {
     "openai": "https://platform.openai.com/api-keys",
     "openrouter": "https://openrouter.ai/keys",
     "anthropic": "https://console.anthropic.com/keys",
+    "nebius": "https://console.nebius.com",
 }
 
 
@@ -208,7 +216,7 @@ def _setup_provider(config: dict) -> None:
 
     idx = prompt_choice("Select a provider:", _PROVIDER_CHOICES, 0)
 
-    providers = ["openai", "openrouter", "anthropic", "opencode_cli", "custom", "local", "skip"]
+    providers = ["openai", "openrouter", "anthropic", "nebius", "opencode_cli", "custom", "local", "skip"]
     provider = providers[idx]
     config["model"]["provider"] = provider
 

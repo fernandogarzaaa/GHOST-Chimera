@@ -26,6 +26,11 @@ _MODEL_LISTS: dict[str, list[tuple[str, str]]] = {
         ("claude-opus-4-6", "claude-opus-4-6"),
         ("claude-haiku-3-5", "claude-haiku-3-5"),
     ],
+    "nebius": [
+        ("Nemotron 3 Nano 30B (fast, cheap)", "nvidia/nemotron-3-nano-30b-a3b"),
+        ("Nemotron 3 Super 120B (agentic reasoning)", "nvidia/nemotron-3-super-120b-a12b"),
+        ("Use a different model", ""),
+    ],
     "local": [
         ("tiny (Qwen2.5 0.5B, 2GB RAM)", "tiny"),
         ("balanced (SmolLM2 1.7B, 4GB RAM)", "balanced"),
@@ -44,6 +49,7 @@ _PROVIDER_DISPLAY = {
     "openai": "OpenAI",
     "openrouter": "OpenRouter",
     "anthropic": "Anthropic",
+    "nebius": "Nebius Token Factory",
     "custom": "Custom",
     "local": "Local",
     "opencode_cli": "OpenCode CLI",
@@ -70,7 +76,7 @@ def run_model_picker() -> None:
         print()
 
     # Provider list
-    providers = ["openai", "openrouter", "anthropic", "custom", "local", "opencode_cli", "skip"]
+    providers = ["openai", "openrouter", "anthropic", "nebius", "custom", "local", "opencode_cli", "skip"]
     provider_labels = [f"{_PROVIDER_DISPLAY.get(p, p).title()}" for p in providers]
 
     print("Available providers:")

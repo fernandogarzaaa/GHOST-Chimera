@@ -114,6 +114,13 @@ from .hosts import (
 from .intent import FrictionDetector, IntentEngine
 from .intervention import Intervention, InterventionOutcome, InterventionState
 from .loop import LoopResult, StealthLoop
+from .nemotron_reasoning import (
+    NANO_MODEL,
+    NEBIUS_PROVIDER_ID,
+    SUPER_MODEL,
+    NemotronReasoner,
+    build_cloud_enhancements,
+)
 from .perception import (
     AccessibilityPerceptionProvider,
     BackendFn,
@@ -141,6 +148,7 @@ from .temporal import (
     is_quiet_hours,
     item_from_event,
 )
+from .tavily_grounding import EXTRACT_TOOL, SEARCH_TOOL, TavilyError, TavilyGrounding
 from .triggers import Trigger, TriggerCondition, TriggerEngine, TriggerHit, define_trigger
 from .untrusted import FENCE_CLOSE, FENCE_OPEN, fence_content, fence_mapping, is_fenced
 from .user_model import TraitEvidence, UserModel, UserTrait
@@ -207,6 +215,9 @@ __all__ = [
     "InterventionOutcome",
     "InterventionState",
     "LoopResult",
+    "NANO_MODEL",
+    "NEBIUS_PROVIDER_ID",
+    "NemotronReasoner",
     "MaturityThresholds",
     "OpenCodeVisionExecutor",
     "OpenClawAdapter",
@@ -238,7 +249,11 @@ __all__ = [
     "StealthHookRegistry",
     "StealthLoop",
     "StealthStore",
+    "SUPER_MODEL",
     "TemporalContext",
+    "TavilyError",
+    "TavilyGrounding",
+    "build_cloud_enhancements",
     "CalendarItem",
     "TrajectoryState",
     "TraitEvidence",
