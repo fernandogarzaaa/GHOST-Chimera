@@ -988,8 +988,9 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
     return 0 if all(item["ok"] for item in payload) else 1
 
 
-def _run_ux_audit_cli(args: argparse.Namespace) -> int:
-    payload = {
+def _ux_audit_payload() -> dict[str, object]:
+    """Static UX audit payload (shared by the CLI and the console tools route)."""
+    return {
         "ok": True,
         "title": "Ghost Chimera UX Audit",
         "scorecard": {
@@ -1021,6 +1022,10 @@ def _run_ux_audit_cli(args: argparse.Namespace) -> int:
             },
         ],
     }
+
+
+def _run_ux_audit_cli(args: argparse.Namespace) -> int:
+    payload = _ux_audit_payload()
     if args.format == "markdown":
         print("# Ghost Chimera UX Audit")
         print()

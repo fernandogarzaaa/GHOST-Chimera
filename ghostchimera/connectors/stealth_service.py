@@ -77,6 +77,21 @@ def get_authority_store(state_dir: str | Path) -> Any:
         return store
 
 
+def _attach_cloud_enhancements() -> tuple[Any | None, Any | None]:
+    """Build Nebius/Nemotron + Tavily cloud enhancements from the environment.
+
+    Returns ``(None, None)`` when no keys are configured — the loop then runs
+    fully local, exactly as before. Never raises: a broken import or build
+    must not stop the console's Stealth service from starting.
+    """
+    try:
+        from ..stealth.nemotron_reasoning import build_cloud_enhancements
+
+        return build_cloud_enhancements()
+    except Exception:
+        return None, None
+
+
 def get_service_loop(state_dir: str | Path) -> Any:
     """Process-local StealthLoop with durable journal (singleton per dir)."""
     from ..stealth.context import ContextFabric, InMemoryRetriever
@@ -87,9 +102,12 @@ def get_service_loop(state_dir: str | Path) -> Any:
     with _lock:
         loop = _loops.get(key)
         if loop is None:
+            reasoner, grounding = _attach_cloud_enhancements()
             loop = StealthLoop(
                 fabric=ContextFabric(retrievers=[InMemoryRetriever()]),
                 store=StealthStore(Path(key) / "ghost-stealth.sqlite3"),
+                reasoner=reasoner,
+                grounding=grounding,
             )
             _loops[key] = loop
         queue = getattr(loop, "approvals", None)
