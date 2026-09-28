@@ -83,9 +83,7 @@ class StreamableHttpTransport:
         with no body). Raises :class:`McpError` on transport/HTTP failures.
         """
         body = json.dumps(message).encode("utf-8")
-        req = urllib_request.Request(
-            self.url, data=body, headers=self._request_headers(), method="POST"
-        )
+        req = urllib_request.Request(self.url, data=body, headers=self._request_headers(), method="POST")
         context = ssl.create_default_context()
         try:
             with urllib_request.urlopen(req, context=context, timeout=self.timeout) as resp:
@@ -97,10 +95,8 @@ class StreamableHttpTransport:
                 raw = resp.read()
         except HTTPError as exc:
             detail = ""
-            try:
+            with suppress(Exception):
                 detail = exc.read().decode("utf-8", "replace")[:500]
-            except Exception:
-                pass
             raise McpError(f"MCP HTTP {exc.code} from {self.url}: {detail}") from exc
         except URLError as exc:
             raise McpError(f"MCP request to {self.url} failed: {exc.reason}") from exc
@@ -148,14 +144,12 @@ class StreamableHttpTransport:
 # ---------------------------------------------------------------------------
 
 
-def _drain_stderr(proc: subprocess.Popen, sink: "queue.Queue[str]") -> None:
+def _drain_stderr(proc: subprocess.Popen, sink: queue.Queue[str]) -> None:
     try:
         assert proc.stderr is not None
         for line in proc.stderr:
-            try:
+            with suppress(queue.Full):
                 sink.put_nowait(line)
-            except queue.Full:
-                pass
     except Exception:
         pass
 
@@ -176,8 +170,8 @@ class StdioTransport:
         self.env = env
         self.timeout = timeout
         self._proc: subprocess.Popen | None = None
-        self._inbox: "queue.Queue[str]" = queue.Queue()
-        self._stderr_sink: "queue.Queue[str]" = queue.Queue(maxsize=100)
+        self._inbox: queue.Queue[str] = queue.Queue()
+        self._stderr_sink: queue.Queue[str] = queue.Queue(maxsize=100)
         self._reader: threading.Thread | None = None
 
     @property
@@ -205,9 +199,7 @@ class StdioTransport:
             raise McpError(f"Could not start MCP server {self.command!r}: {exc}") from exc
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
-        stderr_thread = threading.Thread(
-            target=_drain_stderr, args=(self._proc, self._stderr_sink), daemon=True
-        )
+        stderr_thread = threading.Thread(target=_drain_stderr, args=(self._proc, self._stderr_sink), daemon=True)
         stderr_thread.start()
         logger.debug("Started MCP stdio server: %s", " ".join(self.command))
 
@@ -231,9 +223,7 @@ class StdioTransport:
             stderr_tail = ""
             while not self._stderr_sink.empty():
                 stderr_tail = self._stderr_sink.get_nowait()
-            raise McpError(
-                f"MCP stdio server exited (code {self._proc.returncode}): {stderr_tail[-300:]}"
-            )
+            raise McpError(f"MCP stdio server exited (code {self._proc.returncode}): {stderr_tail[-300:]}")
         self._proc.stdin.write(json.dumps(message) + "\n")
         self._proc.stdin.flush()
         msg_id = message.get("id")
@@ -247,7 +237,7 @@ class StdioTransport:
             try:
                 line = self._inbox.get(timeout=remaining)
             except queue.Empty:
-                raise McpError(f"MCP stdio request timed out after {self.timeout}s: {message.get('method')}")
+                raise McpError(f"MCP stdio request timed out after {self.timeout}s: {message.get('method')}") from None
             try:
                 obj = json.loads(line)
             except ValueError:

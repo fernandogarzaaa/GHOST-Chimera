@@ -178,9 +178,7 @@ class TestLoopIntegration(unittest.TestCase):
 
     def test_grounding_lands_in_trace(self):
         loop, new_event = self._loop()
-        grounding = FakeGrounding(
-            {"query": "q", "results": [], "transport": "rest", "tool": "tavily-search"}
-        )
+        grounding = FakeGrounding({"query": "q", "results": [], "transport": "rest", "tool": "tavily-search"})
         loop._grounding = grounding
         loop.emit(
             new_event(

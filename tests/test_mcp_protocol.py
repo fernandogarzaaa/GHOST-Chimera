@@ -37,14 +37,13 @@ class TestStreamableHttpTransport(unittest.TestCase):
     def test_json_response(self):
         t = self._transport()
         payload = {"jsonrpc": "2.0", "id": 1, "result": {"tools": []}}
-        with patch.object(mcp_protocol, "urllib_request") as fake_urllib, patch(
-            "ssl.create_default_context"
-        ):
-            fake_urllib.urlopen = MagicMock(
-                return_value=_http_response(json.dumps(payload).encode())
-            )
-            fake_urllib.Request.side_effect = (
-                lambda url, data=None, headers=None, method=None: (url, data, headers, method)
+        with patch.object(mcp_protocol, "urllib_request") as fake_urllib, patch("ssl.create_default_context"):
+            fake_urllib.urlopen = MagicMock(return_value=_http_response(json.dumps(payload).encode()))
+            fake_urllib.Request.side_effect = lambda url, data=None, headers=None, method=None: (
+                url,
+                data,
+                headers,
+                method,
             )
             out = t.request({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         self.assertEqual(out, payload)
@@ -55,18 +54,14 @@ class TestStreamableHttpTransport(unittest.TestCase):
 
     def test_sse_response_parsed(self):
         t = self._transport()
-        sse = (
-            b"event: message\n"
-            b'data: {"jsonrpc":"2.0","id":3,"result":{"tools":[{"name":"tavily-search"}]}}\n\n'
-        )
-        with patch.object(mcp_protocol, "urllib_request") as fake_urllib, patch(
-            "ssl.create_default_context"
-        ):
-            fake_urllib.urlopen = MagicMock(
-                return_value=_http_response(sse, content_type="text/event-stream")
-            )
-            fake_urllib.Request.side_effect = (
-                lambda url, data=None, headers=None, method=None: (url, data, headers, method)
+        sse = b'event: message\ndata: {"jsonrpc":"2.0","id":3,"result":{"tools":[{"name":"tavily-search"}]}}\n\n'
+        with patch.object(mcp_protocol, "urllib_request") as fake_urllib, patch("ssl.create_default_context"):
+            fake_urllib.urlopen = MagicMock(return_value=_http_response(sse, content_type="text/event-stream"))
+            fake_urllib.Request.side_effect = lambda url, data=None, headers=None, method=None: (
+                url,
+                data,
+                headers,
+                method,
             )
             out = t.request({"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
         self.assertEqual(out["result"]["tools"][0]["name"], "tavily-search")
@@ -75,12 +70,13 @@ class TestStreamableHttpTransport(unittest.TestCase):
         t = self._transport()
         resp = _http_response(b'{"jsonrpc":"2.0","id":1,"result":{}}')
         resp.headers = {"Content-Type": "application/json", "mcp-session-id": "sess-123"}
-        with patch.object(mcp_protocol, "urllib_request") as fake_urllib, patch(
-            "ssl.create_default_context"
-        ):
+        with patch.object(mcp_protocol, "urllib_request") as fake_urllib, patch("ssl.create_default_context"):
             fake_urllib.urlopen = MagicMock(return_value=resp)
-            fake_urllib.Request.side_effect = (
-                lambda url, data=None, headers=None, method=None: (url, data, headers, method)
+            fake_urllib.Request.side_effect = lambda url, data=None, headers=None, method=None: (
+                url,
+                data,
+                headers,
+                method,
             )
             t.request({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
             t.request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
@@ -93,9 +89,7 @@ class TestStreamableHttpTransport(unittest.TestCase):
 
         t = self._transport()
         err = HTTPError("https://mcp.tavily.com/mcp", 401, "Unauthorized", {}, io.BytesIO(b"bad key"))
-        with patch.object(mcp_protocol, "urllib_request") as fake_urllib, patch(
-            "ssl.create_default_context"
-        ):
+        with patch.object(mcp_protocol, "urllib_request") as fake_urllib, patch("ssl.create_default_context"):
             fake_urllib.urlopen = MagicMock(side_effect=err)
             with self.assertRaises(McpError) as ctx:
                 t.request({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
@@ -183,9 +177,8 @@ class TestStdioTransport(unittest.TestCase):
             raise FileNotFoundError("npx")
 
         t = StdioTransport(["npx", "-y", "tavily-mcp"])
-        with patch.object(mcp_protocol.subprocess, "Popen", boom):
-            with self.assertRaises(McpError):
-                t.start()
+        with patch.object(mcp_protocol.subprocess, "Popen", boom), self.assertRaises(McpError):
+            t.start()
 
 
 class _FakeTransport:
@@ -242,9 +235,7 @@ class TestMcpClient(unittest.TestCase):
             c.initialize()
 
     def test_tool_is_error_raises(self):
-        c = self._client(
-            {"tools/call": {"content": [{"type": "text", "text": "nope"}], "isError": True}}
-        )
+        c = self._client({"tools/call": {"content": [{"type": "text", "text": "nope"}], "isError": True}})
         with self.assertRaises(McpError):
             c.call_tool("tavily-search", {"query": "x"})
 

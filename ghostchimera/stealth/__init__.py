@@ -138,6 +138,7 @@ from .standing_context import TRUNCATION_MARKER, StandingContext, StandingSectio
 from .ste import SimplifyResult, simplify, simplify_sentence
 from .stealth_policy import AutonomyLevel, Decision, GhostPolicy, StealthEvaluator
 from .store import StealthStore
+from .tavily_grounding import EXTRACT_TOOL, SEARCH_TOOL, TavilyError, TavilyGrounding
 from .temporal import (
     CALENDAR_TYPES,
     DEFAULT_DURATION_S,
@@ -148,7 +149,6 @@ from .temporal import (
     is_quiet_hours,
     item_from_event,
 )
-from .tavily_grounding import EXTRACT_TOOL, SEARCH_TOOL, TavilyError, TavilyGrounding
 from .triggers import Trigger, TriggerCondition, TriggerEngine, TriggerHit, define_trigger
 from .untrusted import FENCE_CLOSE, FENCE_OPEN, fence_content, fence_mapping, is_fenced
 from .user_model import TraitEvidence, UserModel, UserTrait
@@ -253,6 +253,8 @@ __all__ = [
     "TemporalContext",
     "TavilyError",
     "TavilyGrounding",
+    "EXTRACT_TOOL",
+    "SEARCH_TOOL",
     "build_cloud_enhancements",
     "CalendarItem",
     "TrajectoryState",

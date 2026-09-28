@@ -51,11 +51,7 @@ class FakeMcpClient:
         if name == "tavily-search":
             return _mcp_search_result(self.search_hits)
         if name == "tavily-extract":
-            return {
-                "content": [
-                    {"type": "text", "text": json.dumps({"results": self.extract_items})}
-                ]
-            }
+            return {"content": [{"type": "text", "text": json.dumps({"results": self.extract_items})}]}
         raise AssertionError(f"unexpected tool {name}")
 
     def close(self):
@@ -64,7 +60,9 @@ class FakeMcpClient:
 
 def _event(payload=None, event_type="user.message"):
     return SimpleNamespace(
-        event_type=event_type, source="test", payload=dict(payload or {}),
+        event_type=event_type,
+        source="test",
+        payload=dict(payload or {}),
         privacy_classification="internal",
     )
 
@@ -87,15 +85,14 @@ class TestAvailability(unittest.TestCase):
 class TestRestFallback(unittest.TestCase):
     def test_rest_search_posts_correctly(self):
         g = TavilyGrounding(api_key="tvly-test", mode="rest")
-        payload = {
-            "results": [
-                {"title": "T", "url": "https://example.com", "content": "snippet here", "score": 0.9}
-            ]
-        }
+        payload = {"results": [{"title": "T", "url": "https://example.com", "content": "snippet here", "score": 0.9}]}
         with patch.object(tg, "urllib_request") as fake_urllib, patch("ssl.create_default_context"):
             fake_urllib.urlopen = MagicMock(return_value=_rest_response(payload))
-            fake_urllib.Request.side_effect = (
-                lambda url, data=None, headers=None, method=None: (url, data, headers, method)
+            fake_urllib.Request.side_effect = lambda url, data=None, headers=None, method=None: (
+                url,
+                data,
+                headers,
+                method,
             )
             out = g.search("nemotron 3 release", max_results=3)
         self.assertEqual(len(out), 1)
@@ -136,9 +133,7 @@ class TestRestFallback(unittest.TestCase):
 class TestMcpPath(unittest.TestCase):
     def test_remote_mcp_search(self):
         g = TavilyGrounding(api_key="tvly-test", mode="remote")
-        fake = FakeMcpClient(
-            search_hits=[{"title": "Hit", "url": "https://t.co", "content": "body", "score": 0.8}]
-        )
+        fake = FakeMcpClient(search_hits=[{"title": "Hit", "url": "https://t.co", "content": "body", "score": 0.8}])
         g._remote = fake
         out = g.search("query here")
         self.assertEqual(out[0]["title"], "Hit")
@@ -151,9 +146,7 @@ class TestMcpPath(unittest.TestCase):
 
     def test_mcp_extract(self):
         g = TavilyGrounding(api_key="tvly-test", mode="remote")
-        fake = FakeMcpClient(
-            extract_items=[{"url": "https://t.co", "raw_content": "full page"}]
-        )
+        fake = FakeMcpClient(extract_items=[{"url": "https://t.co", "raw_content": "full page"}])
         g._remote = fake
         out = g.extract(["https://t.co"])
         self.assertEqual(out[0]["content"], "full page")
@@ -164,12 +157,11 @@ class TestMcpPath(unittest.TestCase):
         from ghostchimera.mcp.mcp_protocol import McpError
 
         g = TavilyGrounding(api_key="tvly-test", mode="auto")
-        with patch.object(
-            TavilyGrounding, "_remote_client", side_effect=McpError("remote down")
-        ), patch.object(
-            TavilyGrounding, "_local_client", side_effect=McpError("no npx")
-        ), patch.object(tg, "urllib_request") as fake_urllib, patch(
-            "ssl.create_default_context"
+        with (
+            patch.object(TavilyGrounding, "_remote_client", side_effect=McpError("remote down")),
+            patch.object(TavilyGrounding, "_local_client", side_effect=McpError("no npx")),
+            patch.object(tg, "urllib_request") as fake_urllib,
+            patch("ssl.create_default_context"),
         ):
             fake_urllib.urlopen = MagicMock(
                 return_value=_rest_response({"results": [{"title": "R", "url": "u", "content": "c"}]})
@@ -191,9 +183,7 @@ class TestGroundEvent(unittest.TestCase):
             fake_urllib.urlopen = MagicMock(
                 return_value=_rest_response({"results": [{"title": "R", "url": "u", "content": "c"}]})
             )
-            out = g.ground_event(
-                _event({"ground_with_web": True, "web_query": "nemotron 3 benchmarks"})
-            )
+            out = g.ground_event(_event({"ground_with_web": True, "web_query": "nemotron 3 benchmarks"}))
         self.assertIsNotNone(out)
         self.assertEqual(out["query"], "nemotron 3 benchmarks")
         self.assertEqual(out["tool"], "tavily-search")

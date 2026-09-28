@@ -219,10 +219,9 @@ class NemotronReasoner:
             snippets.append(f"- {hit.get('title', '')} ({hit.get('url', '')}): {hit.get('snippet', '')[:300]}")
         if not snippets:
             return ""
-        return "\n\nFresh web context (via Tavily, transport=%s):\n%s" % (
-            grounded.get("transport", "?"),
-            "\n".join(snippets),
-        )
+        transport = grounded.get("transport", "?")
+        joined = "\n".join(snippets)
+        return f"\n\nFresh web context (via Tavily, transport={transport}):\n{joined}"
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..logging_config import get_logger
 from .approvals import ApprovalQueue, ApprovalRequest
 from .attention import AttentionEngine, AttentionSignal
 from .budgets import ATTENTION_BUDGET, PROPOSAL_BUDGET, BudgetTracker
@@ -58,7 +59,6 @@ from .triggers import TriggerEngine, TriggerHit
 from .user_model import UserModel
 from .workflow_learner import WorkflowLearner
 from .world_state import WorldState
-from ..logging_config import get_logger
 
 logger = get_logger("stealth_loop")
 
@@ -339,9 +339,7 @@ class StealthLoop:
             friction=friction.to_dict(),
         )
 
-    def _consult_nemotron_reasoner(
-        self, event: Event, hypothesis: Any, preds: Any
-    ) -> dict[str, Any] | None:
+    def _consult_nemotron_reasoner(self, event: Event, hypothesis: Any, preds: Any) -> dict[str, Any] | None:
         """UNDERSTAND via Nemotron 3 on Nebius Token Factory (best-effort)."""
         reasoner = self._reasoner
         if reasoner is None or not getattr(reasoner, "available", False):

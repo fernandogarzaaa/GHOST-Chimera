@@ -35,6 +35,7 @@ import json
 import os
 import shlex
 import ssl
+from contextlib import suppress
 from typing import Any
 from urllib import request as urllib_request
 from urllib.error import HTTPError, URLError
@@ -218,10 +219,8 @@ class TavilyGrounding:
     def close(self) -> None:
         for client in (self._remote, self._local):
             if client is not None:
-                try:
+                with suppress(Exception):
                     client.close()
-                except Exception:
-                    pass
         self._remote = None
         self._local = None
 
@@ -283,9 +282,7 @@ class TavilyGrounding:
     def _tool_text(result: dict[str, Any]) -> str:
         content = result.get("content") or []
         texts = [
-            str(block.get("text", ""))
-            for block in content
-            if isinstance(block, dict) and block.get("type") == "text"
+            str(block.get("text", "")) for block in content if isinstance(block, dict) and block.get("type") == "text"
         ]
         return "\n".join(texts)
 
@@ -299,9 +296,7 @@ class TavilyGrounding:
         self._last_transport = label
         return [self._normalize_search_hit(hit) for hit in results if isinstance(hit, dict)]
 
-    def _mcp_extract(
-        self, client: McpClient, urls: list[str], query: str, label: str
-    ) -> list[dict[str, Any]]:
+    def _mcp_extract(self, client: McpClient, urls: list[str], query: str, label: str) -> list[dict[str, Any]]:
         args: dict[str, Any] = {"urls": urls, "extract_depth": "basic"}
         if query:
             args["query"] = query

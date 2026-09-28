@@ -14,9 +14,7 @@ def _fake_chat_response(text: str = "hello from nemotron"):
     resp = MagicMock()
     resp.status = 200
     resp.headers = {}
-    resp.read.return_value = json.dumps(
-        {"choices": [{"message": {"content": text}}]}
-    ).encode("utf-8")
+    resp.read.return_value = json.dumps({"choices": [{"message": {"content": text}}]}).encode("utf-8")
     resp.__enter__.return_value = resp
     resp.__exit__.return_value = False
     return resp
@@ -55,9 +53,7 @@ class TestNebiusProviderInit(unittest.TestCase):
         from ghostchimera.model_layer.auth_profiles import AuthProfile
         from ghostchimera.model_layer.openai_compatible_providers import NebiusProvider
 
-        profile = AuthProfile(
-            provider="nebius", api_key="injected", model="nvidia/nemotron-3-super-120b-a12b"
-        )
+        profile = AuthProfile(provider="nebius", api_key="injected", model="nvidia/nemotron-3-super-120b-a12b")
         p = NebiusProvider(profile=profile)
         self.assertEqual(p.api_key, "injected")
         self.assertEqual(p.model, "nvidia/nemotron-3-super-120b-a12b")
@@ -80,12 +76,13 @@ class TestNebiusProviderChat(unittest.TestCase):
         ):
             p = ocp.NebiusProvider()
         fake_urlopen = MagicMock(return_value=_fake_chat_response("understood"))
-        with patch.object(ocp, "urllib_request") as fake_urllib, patch(
-            "ssl.create_default_context"
-        ):
+        with patch.object(ocp, "urllib_request") as fake_urllib, patch("ssl.create_default_context"):
             fake_urllib.urlopen = fake_urlopen
-            fake_urllib.Request.side_effect = (
-                lambda url, data=None, headers=None, method=None: (url, data, headers, method)
+            fake_urllib.Request.side_effect = lambda url, data=None, headers=None, method=None: (
+                url,
+                data,
+                headers,
+                method,
             )
             result = p.chat("sys", "hello")
         self.assertEqual(result, "understood")
