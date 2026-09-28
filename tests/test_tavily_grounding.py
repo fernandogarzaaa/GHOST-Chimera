@@ -106,7 +106,7 @@ class TestRestFallback(unittest.TestCase):
         self.assertEqual(kwargs["method"], "POST")
         self.assertEqual(kwargs["headers"]["Authorization"], "Bearer tvly-test")
         body = json.loads(kwargs["data"].decode("utf-8"))
-        self.assertEqual(body["api_key"], "tvly-test")
+        self.assertNotIn("api_key", body)
         self.assertEqual(body["query"], "nemotron 3 release")
         self.assertEqual(body["max_results"], 3)
 
@@ -128,6 +128,55 @@ class TestRestFallback(unittest.TestCase):
             fake_urllib.urlopen = MagicMock(side_effect=err)
             with self.assertRaises(TavilyError):
                 g.search("x")
+
+    def test_rest_extract_body_has_no_api_key(self):
+        g = TavilyGrounding(api_key="tvly-test", mode="rest")
+        payload = {"results": [{"url": "https://example.com", "raw_content": "page text"}]}
+        with patch.object(tg, "urllib_request") as fake_urllib, patch("ssl.create_default_context"):
+            fake_urllib.urlopen = MagicMock(return_value=_rest_response(payload))
+            fake_urllib.Request.side_effect = lambda url, data=None, headers=None, method=None: (
+                url,
+                data,
+                headers,
+                method,
+            )
+            g.extract(["https://example.com"], query="q")
+        (url,), kwargs = fake_urllib.Request.call_args
+        self.assertEqual(url, "https://api.tavily.com/extract")
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer tvly-test")
+        body = json.loads(kwargs["data"].decode("utf-8"))
+        self.assertNotIn("api_key", body)
+        self.assertEqual(body["urls"], ["https://example.com"])
+
+    def test_surrogate_key_header_only(self):
+        # A dynamic-credential surrogate must travel ONLY in the Bearer
+        # header (authd swaps it at egress); the body must not contain
+        # api_key because Tavily validates it before the header.
+        g = TavilyGrounding(api_key="hsurr:test-surrogate-value", mode="rest")
+        payload = {"results": [{"title": "T", "url": "https://example.com", "content": "s"}]}
+        with patch.object(tg, "urllib_request") as fake_urllib, patch("ssl.create_default_context"):
+            fake_urllib.urlopen = MagicMock(return_value=_rest_response(payload))
+            fake_urllib.Request.side_effect = lambda url, data=None, headers=None, method=None: (
+                url,
+                data,
+                headers,
+                method,
+            )
+            g.search("surrogate query")
+        (url,), kwargs = fake_urllib.Request.call_args
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer hsurr:test-surrogate-value")
+        body = json.loads(kwargs["data"].decode("utf-8"))
+        self.assertNotIn("api_key", body)
+        self.assertNotIn("hsurr:test-surrogate-value", json.dumps(body))
+
+    def test_last_transport_property(self):
+        g = TavilyGrounding(api_key="tvly-test", mode="rest")
+        self.assertEqual(g.last_transport, "")
+        payload = {"results": [{"title": "T", "url": "https://example.com", "content": "s"}]}
+        with patch.object(tg, "urllib_request") as fake_urllib, patch("ssl.create_default_context"):
+            fake_urllib.urlopen = MagicMock(return_value=_rest_response(payload))
+            g.search("x")
+        self.assertEqual(g.last_transport, "rest")
 
 
 class TestMcpPath(unittest.TestCase):
@@ -169,6 +218,19 @@ class TestMcpPath(unittest.TestCase):
             out = g.search("fallback query")
         self.assertEqual(out[0]["title"], "R")
         self.assertEqual(g._last_transport, "rest")
+        self.assertEqual(g.last_transport, "rest")
+
+    def test_strict_remote_mode_raises_without_fallback(self):
+        from ghostchimera.mcp.mcp_protocol import McpError
+
+        g = TavilyGrounding(api_key="tvly-test", mode="remote")
+        with (
+            patch.object(TavilyGrounding, "_remote_client", side_effect=McpError("401 invalid_token")),
+            self.assertRaises(McpError),
+        ):
+            g.search("strict query")
+        # Strict mode must not silently fall back: no transport recorded.
+        self.assertEqual(g.last_transport, "")
 
     def test_empty_query_rejected(self):
         g = TavilyGrounding(api_key="tvly-test", mode="rest")
