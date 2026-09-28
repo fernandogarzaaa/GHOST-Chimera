@@ -12,9 +12,20 @@ Transport priority (first available wins in ``auto`` mode):
 2. **Local Tavily MCP server** over stdio (``npx -y tavily-mcp`` with
    ``TAVILY_API_KEY`` in its environment).
 3. **Direct Tavily REST API** (``POST https://api.tavily.com/search`` with
-   ``Authorization: Bearer TAVILY_API_KEY``) — the final fallback, which
-   always works and unambiguously satisfies a "functional, runtime call to
-   the Tavily API" requirement.
+   ``Authorization: Bearer`` header-only auth) — the final fallback.
+
+Credential reality (2026-09-28): the MCP transports need a Tavily key that
+Tavily itself accepts. The connected ``custom.tavily`` dynamic credential
+is authorized for ``api.tavily.com`` with ``bearer_header`` placement, so
+the REST path works with the surrogate (swapped at egress). It is NOT
+authorized for ``mcp.tavily.com``: sending the surrogate there returns
+``401 invalid_token`` because no swap happens. In ``auto`` mode the loop
+therefore degrades remote MCP -> local MCP -> REST, and the transport that
+actually served the request is exposed via ``last_transport`` (and in the
+``ground_event`` payload) so callers never mistake a REST result for MCP.
+REST uses header-only auth: ``api_key`` is never sent in the JSON body
+because Tavily validates ``body.api_key`` before the Authorization header,
+which 401s on an unswapped surrogate.
 
 Configuration (environment):
 
@@ -86,6 +97,16 @@ class TavilyGrounding:
     def available(self) -> bool:
         """True when a Tavily API key is configured."""
         return bool(self._api_key)
+
+    @property
+    def last_transport(self) -> str:
+        """Transport used by the most recent search/extract call.
+
+        One of ``mcp-remote``, ``mcp-local``, ``rest``, or ``""`` when no
+        call has been made yet. Lets callers see exactly which transport
+        served the request instead of assuming MCP-first.
+        """
+        return self._last_transport
 
     def _require_key(self) -> str:
         if not self._api_key:
@@ -351,10 +372,14 @@ class TavilyGrounding:
             raise TavilyError(f"Tavily REST request failed: {exc.reason}") from exc
 
     def _rest_search(self, query: str, max_results: int) -> list[dict[str, Any]]:
+        # Header-only auth: Tavily validates body.api_key BEFORE the
+        # Authorization header, so including api_key in the body 401s when
+        # the key is a dynamic-credential surrogate (hsurr:*). The Bearer
+        # header alone is the sanctioned shape (authd swaps the surrogate
+        # at egress for api.tavily.com).
         payload = self._rest_post(
             TAVILY_SEARCH_URL,
             {
-                "api_key": self._require_key(),
                 "query": query,
                 "max_results": max_results,
                 "search_depth": "basic",
@@ -365,7 +390,8 @@ class TavilyGrounding:
         return [self._normalize_search_hit(hit) for hit in results if isinstance(hit, dict)]
 
     def _rest_extract(self, urls: list[str], query: str) -> list[dict[str, Any]]:
-        body: dict[str, Any] = {"api_key": self._require_key(), "urls": urls}
+        # Header-only auth (see _rest_search): never send api_key in the body.
+        body: dict[str, Any] = {"urls": urls}
         if query:
             body["query"] = query
         payload = self._rest_post(TAVILY_EXTRACT_URL, body)
