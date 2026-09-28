@@ -498,6 +498,25 @@ _CATALOG: list[ModelCatalogEntry] = [
         output_cost_usd_per_1k=0.00040,
         supports_streaming=True,
     ),
+    # ── Nebius Token Factory ────────────────────────────────────────────────
+    ModelCatalogEntry(
+        provider="nebius",
+        model_id="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+        display_name="Nemotron 3 Nano 30B (Nebius Token Factory)",
+        context_window_tokens=256_000,
+        input_cost_usd_per_1k=0.00006,
+        output_cost_usd_per_1k=0.00024,
+        supports_streaming=True,
+    ),
+    ModelCatalogEntry(
+        provider="nebius",
+        model_id="nvidia/nemotron-3-super-120b-a12b",
+        display_name="Nemotron 3 Super 120B (Nebius Token Factory)",
+        context_window_tokens=256_000,
+        input_cost_usd_per_1k=0.00030,
+        output_cost_usd_per_1k=0.00090,
+        supports_streaming=True,
+    ),
     # ── Moonshot / Kimi ───────────────────────────────────────────────────────
     ModelCatalogEntry(
         provider="moonshot",

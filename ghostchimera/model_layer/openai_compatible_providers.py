@@ -28,6 +28,7 @@ OpenAI-compatible (same HTTP request shape as OpenAI, different base URL + key):
     AI21Provider       — https://api.ai21.com/studio/v1/chat/completions
     HuggingFaceProvider — https://api-inference.huggingface.co/v1/chat/completions
     NvidiaProvider     — https://integrate.api.nvidia.com/v1/chat/completions (NIM)
+    NebiusProvider     — https://api.tokenfactory.nebius.com/v1/chat/completions (Nemotron)
     MoonshotProvider   — https://api.moonshot.cn/v1/chat/completions (Kimi)
     DeepInfraProvider  — https://api.deepinfra.com/v1/openai/chat/completions
     QwenProvider       — https://dashscope-intl.aliyuncs.com/... (Alibaba DashScope)
@@ -630,6 +631,54 @@ class NvidiaProvider(OpenAICompatibleProvider):
     _DEFAULT_MODEL = "meta/llama-3.1-70b-instruct"
     _KEY_ENV_VAR = "NVIDIA_API_KEY"
     _MODEL_ENV_VAR = "NVIDIA_MODEL"
+
+
+class NebiusProvider(OpenAICompatibleProvider):
+    """Provider for Nebius Token Factory — NVIDIA Nemotron inference.
+
+    Nebius Token Factory exposes an OpenAI-compatible chat-completions
+    endpoint serving NVIDIA open-weight models, including the Nemotron 3
+    family.  Set ``NEBIUS_API_KEY`` (from the Nebius console, Token Factory
+    -> API keys; free credits via the Nebius Builder Program) and optionally
+    ``NEBIUS_MODEL``.
+
+    Supported models (verified live 2026-09-28)::
+
+        nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B         # default — fast, cheap, tool-calling + JSON
+        nvidia/nemotron-3-super-120b-a12b            # agentic reasoning, coding, planning
+        nvidia/Nemotron-3-Ultra-550b-a55b             # largest Nemotron 3
+        nvidia/Nemotron-3_5-Lightning                # Nemotron 3.5
+    """
+
+    name = "nebius"
+    _DEFAULT_BASE_URL = "https://api.tokenfactory.nebius.com/v1/chat/completions"
+    _DEFAULT_MODEL = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    _KEY_ENV_VAR = "NEBIUS_API_KEY"
+    _MODEL_ENV_VAR = "NEBIUS_MODEL"
+
+    def chat(self, system_message: str, user_message: str) -> str:
+        """Chat via Token Factory, with optional LangSmith tracing.
+
+        Tracing is a no-op unless LANGSMITH_API_KEY is set; it never
+        changes the request, response, or error behavior.
+        """
+        from ghostchimera.observability import get_default_tracer
+
+        tracer = get_default_tracer()
+        run = tracer.start_run(
+            "nebius.chat_completion",
+            run_type="llm",
+            inputs={"model": self.model, "system": system_message, "user": user_message},
+            metadata={"provider": "nebius", "endpoint": self._base_url},
+            tags=["ghost-chimera", "nebius", "nemotron"],
+        )
+        try:
+            result = super().chat(system_message, user_message)
+        except Exception as exc:  # pragma: no cover - base chat swallows errors
+            tracer.end_run(run, error=f"{type(exc).__name__}: {exc}")
+            raise
+        tracer.end_run(run, outputs={"response": result, "model": self.model})
+        return result
 
 
 class MoonshotProvider(OpenAICompatibleProvider):
