@@ -142,6 +142,12 @@ def test_console_sections_have_backend_ids() -> None:
         "automationRuns",
         "blueskyOutput",
         "mailOutput",
+        "aoAgentList",
+        "aoApprovalList",
+        "aoScheduleList",
+        "aoWebhookList",
+        "aoWakeObjective",
+        "aoWake",
     ):
         assert f'id="{section_id}"' in html, f"missing section: {section_id}"
 

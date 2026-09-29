@@ -226,7 +226,7 @@
   var TAB_GROUPS = [
     ["setup", "Setup", ["status", "config", "path", "local-models", "readiness"]],
     ["connect", "Connect", ["connections", "integrations", "github", "mcp", "remote"]],
-    ["operate", "Operate", ["run", "tools", "jobs", "workspace", "memory", "minimind",
+    ["operate", "Operate", ["alwayson", "run", "tools", "jobs", "workspace", "memory", "minimind",
       "rag-builder", "skills", "browser", "activity", "thinking", "live-presence", "latency",
       "stealth", "conversation"]],
     ["advanced", "Advanced", ["trust", "evolution", "cognition", "capability-pack", "sandbox",
@@ -4071,6 +4071,7 @@
       await Promise.allSettled([
         refreshJobs(),
         refreshSchedules(),
+        refreshAlwaysOn(),
         refreshWorkspace(),
         refreshMemory(),
         refreshPersonalMiniMind(),
@@ -5340,6 +5341,197 @@
       sel.appendChild(opt);
     });
   })();
+
+  // ── Always-On agents ────────────────────────────────────────────────────
+  var AO_STATE_CLS = { awake: "ok", sleeping: "", queued: "warn", completed: "info" };
+  function aoStateBadge(state) {
+    return el("span", { class: "badge " + (AO_STATE_CLS[state] || "") }, state || "unknown");
+  }
+  async function refreshAlwaysOn() {
+    await Promise.allSettled([refreshAlwaysOnAgents(), refreshAlwaysOnApprovals(), refreshAlwaysOnSchedules(), refreshAlwaysOnWebhooks()]);
+  }
+  async function refreshAlwaysOnAgents() {
+    var list = $("#aoAgentList");
+    try {
+      var data = await api("/api/console/always-on/agents");
+      var agents = data.agents || [];
+      if (!agents.length) { empty("#aoAgentList", "No always-on agents yet. Wake one to create its identity."); return; }
+      list.innerHTML = "";
+      agents.forEach(function(a) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(aoStateBadge(a.lifecycle_state));
+        item.appendChild(el("span", { class: "name" }, a.name || a.agent_id));
+        item.appendChild(el("span", { class: "meta" }, "session msgs: " + (a.session_messages || 0)));
+        item.appendChild(el("span", { class: "meta" }, "compactions: " + (a.compaction_count || 0)));
+        item.appendChild(el("span", { class: "meta" }, "queued: " + (a.queued_wakes || 0)));
+        var hist = (a.wake_history || []).slice(-3).reverse();
+        if (hist.length) {
+          var hw = el("span", { class: "meta" });
+          hw.textContent = "last: " + hist.map(function(w) { return w.status + " (" + (w.source || "?") + ")"; }).join(", ");
+          item.appendChild(hw);
+        }
+        list.appendChild(item);
+      });
+    } catch (_) { empty("#aoAgentList", "Always-on agents unavailable."); }
+  }
+  async function refreshAlwaysOnApprovals() {
+    var list = $("#aoApprovalList");
+    try {
+      var data = await api("/api/console/always-on/approvals");
+      var pending = data.pending || [];
+      if (!pending.length) { empty("#aoApprovalList", "No pending approvals."); return; }
+      list.innerHTML = "";
+      pending.forEach(function(t) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "badge warn" }, "pending"));
+        item.appendChild(el("span", { class: "name" }, t.tool_name || t.ticket_id));
+        item.appendChild(el("span", { class: "meta" }, JSON.stringify(t.arguments || {}).slice(0, 120)));
+        var actions = el("span", { class: "actions" });
+        var okBtn = el("button", { class: "success" });
+        okBtn.textContent = "Approve";
+        okBtn.addEventListener("click", function() { aoApprovalAction(t.ticket_id, "approve"); });
+        actions.appendChild(okBtn);
+        var noBtn = el("button", { class: "danger" });
+        noBtn.textContent = "Deny";
+        noBtn.addEventListener("click", function() { aoApprovalAction(t.ticket_id, "deny"); });
+        actions.appendChild(noBtn);
+        item.appendChild(actions);
+        list.appendChild(item);
+      });
+    } catch (_) { empty("#aoApprovalList", "Approvals unavailable."); }
+  }
+  async function aoApprovalAction(ticketId, action) {
+    try {
+      await api("/api/console/always-on/approvals/" + ticketId + "/" + action, { method: "POST", body: {} });
+      toast("Approval " + action + "d.", "ok");
+    } catch (e) { toast(e.message, "error"); }
+    await refreshAlwaysOnApprovals();
+    await refreshAlwaysOnAgents();
+  }
+  async function refreshAlwaysOnSchedules() {
+    var list = $("#aoScheduleList");
+    try {
+      var data = await api("/api/console/always-on/schedules");
+      var schedules = data.schedules || [];
+      if (!schedules.length) { empty("#aoScheduleList", "No wake schedules yet."); return; }
+      list.innerHTML = "";
+      schedules.forEach(function(s) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "name" }, s.name));
+        item.appendChild(el("span", { class: "badge " + (s.enabled ? "ok" : "warn") }, s.enabled ? "enabled" : "disabled"));
+        item.appendChild(el("span", { class: "meta" }, s.cron_expression));
+        item.appendChild(el("span", { class: "meta" }, (s.objective || "").slice(0, 80)));
+        var actions = el("span", { class: "actions" });
+        var actBtn = el("button", { class: s.enabled ? "danger" : "success" });
+        actBtn.textContent = s.enabled ? "Disable" : "Enable";
+        actBtn.addEventListener("click", function() { aoSchedAction(s.id, s.enabled ? "disable" : "enable"); });
+        actions.appendChild(actBtn);
+        var runBtn = el("button");
+        runBtn.textContent = "Run Now";
+        runBtn.addEventListener("click", function() { aoSchedAction(s.id, "run-now"); });
+        actions.appendChild(runBtn);
+        var delBtn = el("button", { class: "danger" });
+        delBtn.textContent = "Delete";
+        delBtn.addEventListener("click", function() { aoSchedAction(s.id, "delete"); });
+        actions.appendChild(delBtn);
+        item.appendChild(actions);
+        list.appendChild(item);
+      });
+    } catch (_) { empty("#aoScheduleList", "Schedules unavailable."); }
+  }
+  async function aoSchedAction(id, action) {
+    try {
+      await api("/api/console/always-on/schedules/" + id + "/" + action, { method: "POST" });
+      toast("Schedule " + action + " done.", "ok");
+    } catch (e) { toast(e.message, "error"); }
+    await refreshAlwaysOnSchedules();
+  }
+  async function refreshAlwaysOnWebhooks() {
+    var list = $("#aoWebhookList");
+    try {
+      var data = await api("/api/console/always-on/webhooks");
+      var hooks = data.webhooks || [];
+      if (!hooks.length) { empty("#aoWebhookList", "No webhooks registered."); return; }
+      list.innerHTML = "";
+      hooks.forEach(function(h) {
+        var item = el("div", { class: "list-item" });
+        item.appendChild(el("span", { class: "name" }, h.name));
+        item.appendChild(el("span", { class: "badge " + (h.has_handler ? "ok" : "warn") }, h.has_handler ? "live" : "needs re-register"));
+        item.appendChild(el("span", { class: "meta" }, h.objective_template || ""));
+        item.appendChild(el("span", { class: "meta" }, h.description || ""));
+        var actions = el("span", { class: "actions" });
+        var trigBtn = el("button");
+        trigBtn.textContent = "Trigger";
+        trigBtn.addEventListener("click", function() { aoWebhookTrigger(h.name); });
+        actions.appendChild(trigBtn);
+        var delBtn = el("button", { class: "danger" });
+        delBtn.textContent = "Delete";
+        delBtn.addEventListener("click", async function() {
+          try {
+            await api("/api/console/always-on/webhooks/" + h.name + "/delete", { method: "POST" });
+            toast("Webhook deleted.", "ok");
+          } catch (e) { toast(e.message, "error"); }
+          await refreshAlwaysOnWebhooks();
+        });
+        actions.appendChild(delBtn);
+        item.appendChild(actions);
+        list.appendChild(item);
+      });
+    } catch (_) { empty("#aoWebhookList", "Webhooks unavailable."); }
+  }
+  async function aoWebhookTrigger(name) {
+    try {
+      var res = await api("/api/console/always-on/webhooks/" + name + "/trigger", { method: "POST", body: { payload: {} } });
+      toast("Webhook triggered: " + (res.wake ? res.wake.request_id : "ok"), "ok");
+    } catch (e) { toast(e.message, "error"); }
+    await refreshAlwaysOnAgents();
+  }
+  $("#aoWake").addEventListener("click", async function() {
+    var objective = $("#aoWakeObjective").value.trim();
+    if (!objective) { toast("Enter a wake objective.", "error"); return; }
+    try {
+      await api("/api/console/always-on/wake", { method: "POST", body: { objective: objective } });
+      $("#aoWakeObjective").value = "";
+      toast("Agent woken.", "ok");
+    } catch (e) { toast(e.message, "error"); }
+    await refreshAlwaysOnAgents();
+  });
+  $("#aoRefresh").addEventListener("click", refreshAlwaysOn);
+  $("#aoSchedCreate").addEventListener("click", async function() {
+    try {
+      await api("/api/console/always-on/schedules", {
+        method: "POST",
+        body: {
+          name: $("#aoSchedName").value,
+          cron_expression: $("#aoSchedCron").value,
+          objective: $("#aoSchedObjective").value,
+          enabled: true,
+        },
+      });
+      $("#aoSchedName").value = "";
+      $("#aoSchedCron").value = "";
+      $("#aoSchedObjective").value = "";
+      toast("Wake schedule created.", "ok");
+    } catch (e) { toast(e.message, "error"); }
+    await refreshAlwaysOnSchedules();
+  });
+  $("#aoHookCreate").addEventListener("click", async function() {
+    try {
+      await api("/api/console/always-on/webhooks", {
+        method: "POST",
+        body: {
+          name: $("#aoHookName").value,
+          objective_template: $("#aoHookTemplate").value,
+          description: $("#aoHookDesc").value,
+        },
+      });
+      $("#aoHookName").value = "";
+      $("#aoHookTemplate").value = "";
+      $("#aoHookDesc").value = "";
+      toast("Webhook registered.", "ok");
+    } catch (e) { toast(e.message, "error"); }
+    await refreshAlwaysOnWebhooks();
+  });
 
   // ── Readiness ─────────────────────────────────────────────────────────────
   async function refreshCapabilities() {

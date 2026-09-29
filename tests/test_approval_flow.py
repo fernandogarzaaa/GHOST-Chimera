@@ -241,6 +241,32 @@ class DefaultPolicyAndHandlerTests(unittest.TestCase):
         self.assertIsInstance(get_default_handler(), AutoApproveHandler)
         set_default_handler(original)  # restore
 
+    def test_get_default_handler_cold_init_does_not_deadlock(self):
+        # Regression: get_default_handler() used to deadlock on a fresh process
+        # because it acquired the singleton lock and then called
+        # get_default_policy(), which wanted the same non-reentrant lock.
+        import threading
+
+        import ghostchimera.safety_layer.approval as approval_mod
+
+        old_policy, old_handler = approval_mod._default_policy, approval_mod._default_handler
+        approval_mod._default_policy = None
+        approval_mod._default_handler = None
+        outcome: dict = {}
+        try:
+            worker = threading.Thread(
+                target=lambda: outcome.update(handler=approval_mod.get_default_handler()),
+                daemon=True,
+            )
+            worker.start()
+            worker.join(timeout=10)
+            self.assertFalse(worker.is_alive(), "get_default_handler() deadlocked on cold init")
+            self.assertIsInstance(outcome["handler"], ApprovalHandler)
+            self.assertIs(approval_mod.get_default_handler(), outcome["handler"])
+        finally:
+            approval_mod._default_policy = old_policy
+            approval_mod._default_handler = old_handler
+
 
 class ApproveFunctionTests(unittest.TestCase):
     def setUp(self):

@@ -315,7 +315,8 @@ class CallbackApprovalHandler(ApprovalHandler):
 
 _default_policy: ApprovalPolicy | None = None
 _default_handler: ApprovalHandler | None = None
-_singleton_lock = threading.Lock()
+# RLock: get_default_handler() initializes the policy while holding this lock.
+_singleton_lock = threading.RLock()
 
 
 def get_default_policy() -> ApprovalPolicy:

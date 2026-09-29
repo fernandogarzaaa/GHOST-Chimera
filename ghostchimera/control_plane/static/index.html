@@ -64,6 +64,7 @@
     <button class="tab" data-tab="browser">Browser</button>
     <button class="tab" data-tab="security">Security</button>
     <button class="tab" data-tab="schedules">Schedules</button>
+    <button class="tab" data-tab="alwayson">Always-On</button>
     <button class="tab" data-tab="review">Review</button>
     <button class="tab" data-tab="capabilities">Capabilities</button>
     <button class="tab" data-tab="readiness">Readiness</button>
@@ -1495,6 +1496,43 @@
     <p class="hint" style="margin-bottom:14px;">New schedules start disabled — enable them after reviewing the cron expression.</p>
     <div class="section-hdr">Existing Schedules</div>
     <div id="scheduleList"></div>
+  </div>
+
+  <div class="tab-content" id="tab-alwayson">
+    <div class="section-hdr" style="margin-top:0;">Always-On Agents</div>
+    <p class="hint" style="margin-bottom:12px;">
+      Persistent agents with an explicit lifecycle: sleeping, queued, awake, completed.
+      Wake one on demand, on a schedule, or from an external webhook. High-stakes tool
+      calls pause for approval here.
+    </p>
+    <div class="row" style="margin-bottom:6px;">
+      <input id="aoWakeObjective" placeholder="wake objective (e.g. check the inbox and summarize)" style="flex:3;">
+      <button id="aoWake" class="primary">Wake Agent</button>
+      <button id="aoRefresh">Refresh</button>
+    </div>
+    <div id="aoAgentList"></div>
+
+    <div class="section-hdr" style="margin-top:20px;">Pending Approvals</div>
+    <div id="aoApprovalList"></div>
+
+    <div class="section-hdr" style="margin-top:20px;">Wake Schedules</div>
+    <div class="row" style="margin-bottom:6px;">
+      <input id="aoSchedName" placeholder="name" style="flex:1;">
+      <input id="aoSchedCron" placeholder="cron expression (e.g. 0 9 * * *)" style="flex:1;">
+      <input id="aoSchedObjective" placeholder="wake objective" style="flex:2;">
+      <button id="aoSchedCreate" class="primary">Create Schedule</button>
+    </div>
+    <div id="aoScheduleList"></div>
+
+    <div class="section-hdr" style="margin-top:20px;">Webhooks</div>
+    <div class="row" style="margin-bottom:6px;">
+      <input id="aoHookName" placeholder="name" style="flex:1;">
+      <input id="aoHookTemplate" placeholder="objective template, e.g. verify build {build}" style="flex:2;">
+      <input id="aoHookDesc" placeholder="description" style="flex:1;">
+      <button id="aoHookCreate" class="primary">Register Webhook</button>
+    </div>
+    <p class="hint" style="margin-bottom:14px;">Use {placeholders} in the template; they are filled from the trigger payload.</p>
+    <div id="aoWebhookList"></div>
   </div>
 
   <div class="tab-content" id="tab-capabilities">
