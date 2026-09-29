@@ -39,7 +39,8 @@ class IdentityStoreTests(unittest.TestCase):
             store.create("alpha")
             store.create("beta")
             names = [i.name for i in store.list()]
-            self.assertEqual(names, ["alpha", "beta"])
+            # Order between same-tick creations is by agent id; the set is what matters.
+            self.assertEqual(sorted(names), ["alpha", "beta"])
 
     def test_touch_updates_last_seen_and_state(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-identity-") as tmp:

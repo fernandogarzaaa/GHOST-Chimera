@@ -124,7 +124,9 @@ class IdentityStore:
                         identities[identity.agent_id] = identity
             for agent_id, identity in self._cache.items():
                 identities.setdefault(agent_id, identity)
-            return sorted(identities.values(), key=lambda item: item.created_at)
+            # Total order: timestamps can tie on coarse clocks (Windows), so the
+            # unique id breaks ties deterministically.
+            return sorted(identities.values(), key=lambda item: (item.created_at, item.agent_id))
 
     def touch(self, agent_id: str, *, lifecycle_state: str | None = None) -> AgentIdentity | None:
         """Refresh last_seen (and optionally the lifecycle state)."""

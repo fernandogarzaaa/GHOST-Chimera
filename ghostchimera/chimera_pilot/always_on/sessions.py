@@ -141,7 +141,9 @@ class SessionStore:
                     session = self._read(path.stem)
                     if session is not None:
                         sessions.append(session)
-            return sorted(sessions, key=lambda s: s.created_at)
+            # Total order: timestamps can tie on coarse clocks (Windows), so the
+            # unique id breaks ties deterministically.
+            return sorted(sessions, key=lambda s: (s.created_at, s.session_id))
 
     def save(self, session: DurableSession) -> DurableSession:
         """Persist a full session snapshot (marks updated_at)."""

@@ -132,7 +132,9 @@ class ApprovalStore:
     def list_recent(self, limit: int = 50) -> list[ApprovalTicket]:
         """All tickets, newest first, capped at *limit*."""
         with self._lock:
-            tickets = sorted(self._list_all(), key=lambda t: t.created_at, reverse=True)
+            # Total order: timestamps can tie on coarse clocks (Windows), so the
+            # unique id breaks ties deterministically.
+            tickets = sorted(self._list_all(), key=lambda t: (t.created_at, t.ticket_id), reverse=True)
             return tickets[: max(1, limit)]
 
     def decide(self, ticket_id: str, approved: bool, decided_by: str = "") -> ApprovalTicket:
