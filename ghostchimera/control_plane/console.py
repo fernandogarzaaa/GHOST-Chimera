@@ -426,6 +426,7 @@ def _safe_config_payload(config: dict[str, Any], config_file: Path) -> dict[str,
             {"id": "minimind", "label": "MiniMind", "tab": "minimind", "enabled": True},
             {"id": "jobs", "label": "Autonomy Jobs", "tab": "jobs", "enabled": True},
             {"id": "schedules", "label": "Schedules", "tab": "schedules", "enabled": True},
+            {"id": "always-on", "label": "Always-On", "tab": "alwayson", "enabled": True},
             {"id": "security", "label": "Security", "tab": "security", "enabled": True},
             {"id": "browser", "label": "Browser", "tab": "browser", "enabled": True},
         ],
@@ -4816,6 +4817,182 @@ def register_console_routes(
             }
         return {"ok": False, "error": f"Unknown schedule action '{action}'"}
 
+    # ------------------------------------------------------------------
+    # Always-on agents: lifecycle, wake, webhooks, schedules, approvals.
+    # ------------------------------------------------------------------
+
+    def _always_on_daemon() -> Any:
+        from ..chimera_pilot.always_on.daemon import AlwaysOnDaemon
+
+        return AlwaysOnDaemon(state_dir=console_state_dir)
+
+    def _always_on_schedule_dict(daemon: Any, schedule_id: str) -> dict[str, Any] | None:
+        for job in daemon.list_schedules():
+            if job.id == schedule_id:
+                return job.to_dict()
+        return None
+
+    def always_on_agents(ctx: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return {"ok": True, "agents": _always_on_daemon().agents_status()}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "agents": []}
+
+    def always_on_wake(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        objective = str(body.get("objective") or "").strip()
+        if not objective:
+            return {"ok": False, "error": "Missing objective"}
+        try:
+            request = _always_on_daemon().wake(
+                objective,
+                source=str(body.get("source") or "console"),
+                agent_id=str(body.get("agent_id") or "") or None,
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "type": "runtime"}
+        return {"ok": True, "wake": request.to_dict()}
+
+    def always_on_webhooks_list(ctx: dict[str, Any]) -> dict[str, Any]:
+        try:
+            daemon = _always_on_daemon()
+            return {
+                "ok": True,
+                "webhooks": [
+                    {**d.to_dict(), "has_handler": daemon.webhooks.has_handler(d.name)} for d in daemon.webhooks.list()
+                ],
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "webhooks": []}
+
+    def always_on_webhooks_register(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        name = str(body.get("name") or "").strip()
+        template = str(body.get("objective_template") or body.get("template") or "").strip()
+        description = str(body.get("description") or "")
+        if not name:
+            return {"ok": False, "error": "Missing webhook name"}
+        if not template:
+            return {"ok": False, "error": "Missing objective_template"}
+        try:
+            definition = _always_on_daemon().register_webhook(
+                name, objective_template=template, description=description
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "type": "runtime"}
+        return {"ok": True, "webhook": definition.to_dict()}
+
+    def always_on_webhook_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        prefix = "/api/console/always-on/webhooks/"
+        parts = [part for part in _suffix(ctx, prefix).split("/") if part]
+        if len(parts) != 2:
+            return {"ok": False, "error": "Expected /api/console/always-on/webhooks/{name}/{trigger|delete}"}
+        name, action = parts
+        daemon = _always_on_daemon()
+        if action == "delete":
+            return {"ok": daemon.webhooks.unregister(name)}
+        if action == "trigger":
+            body = _json_body(ctx)
+            payload = body.get("payload") if isinstance(body.get("payload"), dict) else body
+            try:
+                request = daemon.handle_webhook(name, dict(payload or {}))
+            except (KeyError, ValueError) as exc:
+                return {"ok": False, "error": str(exc)}
+            except Exception as exc:
+                return {"ok": False, "error": str(exc), "type": "runtime"}
+            return {"ok": True, "wake": request.to_dict()}
+        return {"ok": False, "error": f"Unknown webhook action '{action}'"}
+
+    def always_on_schedules_list(ctx: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return {"ok": True, "schedules": [j.to_dict() for j in _always_on_daemon().list_schedules()]}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "schedules": []}
+
+    def always_on_schedule_create(ctx: dict[str, Any]) -> dict[str, Any]:
+        body = _json_body(ctx)
+        name = str(body.get("name") or "").strip()
+        cron_expression = str(body.get("cron_expression") or body.get("cron") or "").strip()
+        objective = str(body.get("objective") or "").strip()
+        enabled = _as_bool(body.get("enabled"), default=True)
+        if not name:
+            return {"ok": False, "error": "Missing schedule name"}
+        if not cron_expression:
+            return {"ok": False, "error": "Missing cron_expression"}
+        if not objective:
+            return {"ok": False, "error": "Missing objective"}
+        try:
+            from croniter import croniter
+
+            croniter(cron_expression, time.time()).get_next()
+        except Exception as exc:
+            return {"ok": False, "error": f"Invalid cron expression: {exc}"}
+        try:
+            schedule = _always_on_daemon().add_schedule(name, cron_expression, objective, enabled=enabled)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "type": "runtime"}
+        return {"ok": True, "schedule": schedule.to_dict()}
+
+    def always_on_schedule_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        prefix = "/api/console/always-on/schedules/"
+        parts = [part for part in _suffix(ctx, prefix).split("/") if part]
+        if len(parts) != 2:
+            return {"ok": False, "error": "Expected /api/console/always-on/schedules/{id}/{action}"}
+        schedule_id, action = parts
+        daemon = _always_on_daemon()
+        jobs = {job.id: job for job in daemon.list_schedules()}
+        if schedule_id not in jobs:
+            return {"ok": False, "error": f"Unknown schedule '{schedule_id}'"}
+        if action == "enable":
+            ok = daemon.enable_schedule(schedule_id)
+            return {"ok": ok, "schedule": _always_on_schedule_dict(daemon, schedule_id)}
+        if action == "disable":
+            ok = daemon.disable_schedule(schedule_id)
+            return {"ok": ok, "schedule": _always_on_schedule_dict(daemon, schedule_id)}
+        if action == "delete":
+            return {"ok": daemon.remove_schedule(schedule_id)}
+        if action == "run-now":
+            schedule = jobs[schedule_id]
+            try:
+                request = daemon.wake(schedule.objective, source=f"schedule:{schedule.name}")
+            except Exception as exc:
+                return {"ok": False, "error": str(exc), "type": "runtime"}
+            return {"ok": True, "wake": request.to_dict()}
+        return {"ok": False, "error": f"Unknown schedule action '{action}'"}
+
+    def always_on_approvals_list(ctx: dict[str, Any]) -> dict[str, Any]:
+        try:
+            store = _always_on_daemon().approval_store
+            return {
+                "ok": True,
+                "pending": [t.to_dict() for t in store.list_pending()],
+                "recent": [t.to_dict() for t in store.list_recent(limit=20)],
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "pending": [], "recent": []}
+
+    def always_on_approval_action(ctx: dict[str, Any]) -> dict[str, Any]:
+        prefix = "/api/console/always-on/approvals/"
+        parts = [part for part in _suffix(ctx, prefix).split("/") if part]
+        if len(parts) != 2:
+            return {"ok": False, "error": "Expected /api/console/always-on/approvals/{id}/{approve|deny}"}
+        ticket_id, action = parts
+        if action not in {"approve", "deny"}:
+            return {"ok": False, "error": f"Unknown approval action '{action}'"}
+        body = _json_body(ctx)
+        decided_by = str(body.get("decided_by") or "console")
+        try:
+            ticket = _always_on_daemon().approval_store.decide(ticket_id, action == "approve", decided_by=decided_by)
+        except (KeyError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "type": "runtime"}
+        return {"ok": True, "ticket": ticket.to_dict()}
+
     server.routes.register("/", console_page, method="GET", auth="open", description="Ghost Console browser UI")
     server.routes.register("/console", console_page, method="GET", auth="open", description="Ghost Console browser UI")
     # Token-metadata endpoint is always open — it only reports whether auth is enabled, never the token itself.
@@ -5636,6 +5813,64 @@ def register_console_routes(
         method="POST",
         prefix=True,
         description="Update, run, or delete autonomy schedule",
+    )
+    _api_register(
+        "/api/console/always-on/agents",
+        always_on_agents,
+        method="GET",
+        description="List always-on agents and lifecycle states",
+    )
+    _api_register("/api/console/always-on/wake", always_on_wake, method="POST", description="Wake the always-on agent")
+    _api_register(
+        "/api/console/always-on/webhooks",
+        always_on_webhooks_list,
+        method="GET",
+        description="List always-on webhooks",
+    )
+    _api_register(
+        "/api/console/always-on/webhooks",
+        always_on_webhooks_register,
+        method="POST",
+        description="Register an always-on webhook",
+    )
+    _api_register(
+        "/api/console/always-on/webhooks/",
+        always_on_webhook_action,
+        method="POST",
+        prefix=True,
+        description="Trigger or delete an always-on webhook",
+    )
+    _api_register(
+        "/api/console/always-on/schedules",
+        always_on_schedules_list,
+        method="GET",
+        description="List always-on schedules",
+    )
+    _api_register(
+        "/api/console/always-on/schedules",
+        always_on_schedule_create,
+        method="POST",
+        description="Create an always-on schedule",
+    )
+    _api_register(
+        "/api/console/always-on/schedules/",
+        always_on_schedule_action,
+        method="POST",
+        prefix=True,
+        description="Update, run, or delete an always-on schedule",
+    )
+    _api_register(
+        "/api/console/always-on/approvals",
+        always_on_approvals_list,
+        method="GET",
+        description="List always-on approval tickets",
+    )
+    _api_register(
+        "/api/console/always-on/approvals/",
+        always_on_approval_action,
+        method="POST",
+        prefix=True,
+        description="Approve or deny an always-on approval ticket",
     )
     _api_register("/api/console/run", run, method="POST", description="Run a Ghost objective")
     _api_register(

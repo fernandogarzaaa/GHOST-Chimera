@@ -316,6 +316,37 @@ class CronScheduler(BackgroundService):
                 error=str(exc),
             )
 
+    def reload(self) -> None:
+        """Pick up jobs added or removed by other processes.
+
+        Only adds jobs that are not already known and drops jobs that
+        disappeared from the state file. In-memory runtime state of known
+        jobs (next_run, run_count) is never touched, so a reload cannot
+        postpone or duplicate a scheduled firing.
+        """
+        if not self._state_file.exists():
+            return
+        try:
+            with open(self._state_file) as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Failed to reload cron jobs: %s", exc)
+            return
+        try:
+            on_disk = {jid: CronJob.from_dict(jdata) for jid, jdata in data.get("jobs", {}).items()}
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.warning("Ignoring malformed cron jobs on reload: %s", exc)
+            return
+        with self._lock:
+            for jid in list(self.jobs):
+                if jid not in on_disk:
+                    del self.jobs[jid]
+            for jid, job in on_disk.items():
+                if jid not in self.jobs:
+                    # Fix up next_run in case time passed while we were away.
+                    job.update_next_run()
+                    self.jobs[jid] = job
+
     def _load_jobs(self) -> None:
         """Load jobs from state file."""
         if self._state_file.exists():

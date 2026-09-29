@@ -238,6 +238,26 @@ def main(argv: list[str] | None = None) -> int:
     memory_search_parser.add_argument("--limit", type=int, default=5, help="Maximum result count.")
     memory_search_parser.add_argument("query", help="Search query.")
 
+    always_on_parser = subparsers.add_parser("always-on", help="Always-on agent runtime (daemon, wake, status).")
+    always_on_sub = always_on_parser.add_subparsers(dest="always_on_command", required=True)
+    daemon_parser = always_on_sub.add_parser("daemon", help="Run the always-on daemon in the foreground.")
+    daemon_parser.add_argument("--state-dir", default="", help="State directory (default: ~/.ghostchimera).")
+    daemon_parser.add_argument("--profile", default="supervised", help="Autonomy profile for the daemon.")
+    daemon_parser.add_argument(
+        "--approval-wait-seconds",
+        type=float,
+        default=300.0,
+        help="How long a high-stakes action waits for approval before the ticket expires (deny).",
+    )
+    wake_parser = always_on_sub.add_parser("wake", help="Enqueue a wake request for the always-on agent.")
+    wake_parser.add_argument("objective", help="What the agent should do when it wakes.")
+    wake_parser.add_argument("--state-dir", default="", help="State directory (default: ~/.ghostchimera).")
+    wake_parser.add_argument("--source", default="cli", help="Wake source label.")
+    status_parser_ao = always_on_sub.add_parser("status", help="Show always-on agents and their lifecycle states.")
+    status_parser_ao.add_argument("--state-dir", default="", help="State directory (default: ~/.ghostchimera).")
+    webhooks_parser = always_on_sub.add_parser("webhooks", help="List registered always-on webhooks.")
+    webhooks_parser.add_argument("--state-dir", default="", help="State directory (default: ~/.ghostchimera).")
+
     args = parser.parse_args(argv)
 
     if args.command == "compile":
@@ -378,6 +398,35 @@ def main(argv: list[str] | None = None) -> int:
         payload = [execution.to_dict() for execution in executions]
         _print_json(payload)
         return 0 if all(item["ok"] for item in payload) else 1
+
+    if args.command == "always-on":
+        from .always_on import AlwaysOnDaemon, WebhookRegistry
+
+        state_dir = getattr(args, "state_dir", "") or None
+        sub = args.always_on_command
+        if sub == "daemon":
+            daemon = AlwaysOnDaemon(
+                state_dir=state_dir,
+                profile=getattr(args, "profile", "supervised"),
+                approval_wait_timeout_seconds=getattr(args, "approval_wait_seconds", 300.0),
+            )
+            daemon.run_forever()
+            return 0
+        if sub == "wake":
+            daemon = AlwaysOnDaemon(state_dir=state_dir)
+            request = daemon.wake(args.objective, source=getattr(args, "source", "cli"))
+            _print_json({"ok": True, "wake": request.to_dict()})
+            return 0
+        if sub == "status":
+            daemon = AlwaysOnDaemon(state_dir=state_dir)
+            _print_json({"ok": True, "agents": daemon.agents_status()})
+            return 0
+        if sub == "webhooks":
+            registry = WebhookRegistry(state_dir)
+            _print_json({"ok": True, "webhooks": [d.to_dict() for d in registry.list()]})
+            return 0
+        parser.error(f"Unknown always-on command: {sub}")
+        return 2
 
     parser.error(f"Unknown command: {args.command}")
     return 2

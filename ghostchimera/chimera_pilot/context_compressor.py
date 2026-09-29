@@ -355,6 +355,27 @@ class ContextCompressor(ContextEngine):
         self.last_completion_tokens = usage.get("completion_tokens", 0)
         self.last_total_tokens = usage.get("total_tokens", 0)
 
+    def get_compaction_state(self) -> dict[str, Any]:
+        """Export the continuity record so it can survive restarts.
+
+        The iterative summary is what keeps a compacted session coherent
+        across compactions; persisting it lets a durable session resume
+        without losing what earlier windows established.
+        """
+        return {
+            "iterative_summary": self._iterative_summary,
+            "compression_count": self.compression_count,
+        }
+
+    def set_compaction_state(self, state: dict[str, Any] | None) -> None:
+        """Restore a previously exported continuity record."""
+        state = state or {}
+        self._iterative_summary = str(state.get("iterative_summary") or "")
+        try:
+            self.compression_count = int(state.get("compression_count") or 0)
+        except (TypeError, ValueError):
+            self.compression_count = 0
+
     def should_compress(self, prompt_tokens: int = None) -> bool:
         threshold = prompt_tokens * self.threshold_percent if prompt_tokens is not None else self.threshold_tokens
         return threshold > 0 and (prompt_tokens or self.last_prompt_tokens) > threshold
