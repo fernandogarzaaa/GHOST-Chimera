@@ -54,7 +54,12 @@ class SSRFPolicy:
     Glob patterns are supported via :func:`fnmatch.fnmatch`.
 
     Private / loopback addresses are blocked by default when
-    ``block_private_ranges`` is True (default).
+    ``block_private_ranges`` is True (default). The private-range check runs
+    *before* the allowlist is consulted: a hostname that resolves to a
+    private/loopback/link-local address is denied even when it matches an
+    allow pattern. This is deliberate DNS-rebinding protection — an
+    allowlisted hostname that suddenly resolves to non-public space must
+    not be trusted.
     """
 
     allow_all: bool = False

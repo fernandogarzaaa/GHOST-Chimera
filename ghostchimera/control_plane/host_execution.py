@@ -197,6 +197,22 @@ class HostExecutionStore:
                 "duration_ms": int((_now() - started) * 1000),
                 "audit_dir": str(audit),
             }
+        except OSError as exc:
+            # Missing binary, permission denied, etc. must surface as a
+            # structured error, never as an unhandled exception escaping the
+            # host-execution boundary.
+            payload = {
+                "ok": False,
+                "run_id": run_id,
+                "purpose": purpose,
+                "command": command,
+                "cwd": str(workdir),
+                "error": f"Failed to start command: {exc}",
+                "stdout": "",
+                "stderr": "",
+                "duration_ms": int((_now() - started) * 1000),
+                "audit_dir": str(audit),
+            }
         (audit / "result.json").write_text(
             json.dumps(_redact_value(payload), indent=2, sort_keys=True), encoding="utf-8"
         )
