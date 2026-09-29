@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,7 +16,7 @@ class HostExecutionStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ghost-host-exec-") as tmp:
             store = HostExecutionStore(tmp)
 
-            blocked = store.run_command(["python", "--version"], purpose="smoke")
+            blocked = store.run_command([sys.executable, "--version"], purpose="smoke")
             armed = store.update_settings(
                 {
                     "unrestricted_host_mode": True,
@@ -24,7 +25,7 @@ class HostExecutionStoreTests(unittest.TestCase):
                     "audit_dir": str(Path(tmp) / "audit"),
                 }
             )
-            executed = store.run_command(["python", "--version"], purpose="smoke")
+            executed = store.run_command([sys.executable, "--version"], purpose="smoke")
 
             self.assertFalse(blocked["ok"])
             self.assertIn("not armed", blocked["error"])

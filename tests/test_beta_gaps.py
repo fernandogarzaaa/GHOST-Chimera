@@ -687,6 +687,19 @@ class ExternalAuthProviderTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+def _fake_public_getaddrinfo(host, port, *args, **kwargs):
+    """Stand-in for socket.getaddrinfo resolving to a public IP.
+
+    The sandbox DNS resolver sinkholes external hostnames to 198.18.0.0/15
+    (benchmarking space, classified private), which the SSRF policy
+    correctly blocks even for allowlisted hosts. These tests verify
+    allowlist/glob semantics, not live DNS, so resolve to a public address.
+    """
+    import socket
+
+    return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 0))]
+
+
 class SSRFPolicyTests(unittest.TestCase):
     def test_block_private_loopback(self) -> None:
         from ghostchimera.safety_layer.ssrf import SSRFPolicy
@@ -701,7 +714,8 @@ class SSRFPolicyTests(unittest.TestCase):
 
         policy = SSRFPolicy()
         policy.allow_host("api.openai.com")
-        permitted, reason = policy.is_permitted("https://api.openai.com/v1/models")
+        with patch("socket.getaddrinfo", side_effect=_fake_public_getaddrinfo):
+            permitted, reason = policy.is_permitted("https://api.openai.com/v1/models")
         self.assertTrue(permitted)
 
     def test_denied_host(self) -> None:
@@ -731,9 +745,10 @@ class SSRFPolicyTests(unittest.TestCase):
 
         policy = SSRFPolicy()
         policy.allow_host("*.openai.com")
-        permitted, _ = policy.is_permitted("https://api.openai.com/v1")
+        with patch("socket.getaddrinfo", side_effect=_fake_public_getaddrinfo):
+            permitted, _ = policy.is_permitted("https://api.openai.com/v1")
+            permitted2, _ = policy.is_permitted("https://evil.com/v1")
         self.assertTrue(permitted)
-        permitted2, _ = policy.is_permitted("https://evil.com/v1")
         self.assertFalse(permitted2)
 
     def test_ssrf_violation_raised(self) -> None:
@@ -756,7 +771,9 @@ class SSRFPolicyTests(unittest.TestCase):
             inputs={"url": "https://api.openai.com/v1/models"},
             requires_network=True,
         )
-        policy.validate(task)  # should not raise
+        # Non-blocked URL from allowed host — should pass (DNS stubbed: sandbox resolver sinkholes)
+        with patch("socket.getaddrinfo", side_effect=_fake_public_getaddrinfo):
+            policy.validate(task)  # should not raise
 
     def test_pilot_policy_blocks_disallowed_host(self) -> None:
         from ghostchimera.chimera_pilot.policy import PilotPolicy
