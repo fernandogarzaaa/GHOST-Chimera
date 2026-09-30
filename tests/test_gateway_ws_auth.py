@@ -113,16 +113,20 @@ class GatewayWebSocketTests(unittest.TestCase):
         with self.assertRaises(websockets.exceptions.ConnectionClosedError):
             _run(_ping_once(self._auth_port, additional_headers={"X-Gateway-Token": "wrong"}))
 
-    def test_token_query_param_accepted(self) -> None:
+    def test_token_query_param_rejected(self) -> None:
+        # Query-string tokens are no longer honored: secrets in URLs land in
+        # access logs, browser history, and referrer headers. Headers only.
         from urllib.parse import urlencode
+
+        import websockets
 
         async def _with_query() -> dict:
             async with _connect(self._auth_port, f"/?{urlencode({'token': 'secret-123'})}") as ws:
                 await ws.send(json.dumps({"type": "ping", "session_id": "t", "timestamp": 0}))
                 return json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
 
-        reply = _run(_with_query())
-        self.assertEqual(reply.get("type"), "pong")
+        with self.assertRaises(websockets.exceptions.ConnectionClosedError):
+            _run(_with_query())
 
     def test_bearer_header_accepted(self) -> None:
         async def _with_bearer() -> dict:

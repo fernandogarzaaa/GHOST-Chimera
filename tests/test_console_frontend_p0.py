@@ -58,7 +58,9 @@ def test_static_responses_carry_csp(tmp_path) -> None:
     try:
         http_port = server._http_server.server_address[1] if server._http_server else server.http_port
         for path, content_type in (
-            ("/", "text/html"),
+            # "/" is served by console_page (the single "/" handler), not by
+            # _register_static_routes; the static shell asset keeps its CSP here.
+            ("/static/index.html", "text/html"),
             ("/static/app.js", "application/javascript"),
             ("/static/styles.css", "text/css"),
         ):

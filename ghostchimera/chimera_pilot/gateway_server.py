@@ -783,13 +783,13 @@ class GatewayServer(BackgroundService):
         logger.info("HTTP route server listening on http://%s:%d", self.host, self.http_port)
 
     def _ws_handshake_token(self, websocket: Any, path: str) -> str:
-        """Extract a presented console token from a WS handshake (any source)."""
-        import urllib.parse
+        """Extract a presented console token from WS handshake headers.
 
-        query = urllib.parse.urlparse(path).query
-        params = urllib.parse.parse_qs(query)
-        if params.get("token", [""])[0].strip():
-            return params["token"][0].strip()
+        Tokens are accepted ONLY via headers (``Authorization: Bearer`` or
+        ``X-Gateway-Token``). The ``?token=`` query string is deliberately not
+        honored: query strings land in access logs, browser history, and
+        referrer headers, while headers do not.
+        """
         headers = {}
         try:
             raw_headers = getattr(getattr(websocket, "request", None), "headers", None)

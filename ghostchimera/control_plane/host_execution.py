@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..redaction import BASE_MARKERS
+from ..redaction import BASE_MARKERS, scrubbed_environ
 
 CONFIRMATION_PHRASE = "I ACCEPT HOST EXECUTION RISK"
 SECRET_MARKERS = tuple(marker for marker in BASE_MARKERS if marker != "bearer") + ("confirmation",)
@@ -171,6 +171,7 @@ class HostExecutionStore:
                 capture_output=True,
                 timeout=int(settings.get("max_command_seconds") or 120),
                 check=False,
+                env=scrubbed_environ(),
             )
             payload = {
                 "ok": completed.returncode == 0,

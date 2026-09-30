@@ -100,12 +100,37 @@ def redact_value(
     return value
 
 
+def is_secret_env_key(key: str, *, markers: tuple[str, ...] = SECRET_MARKERS) -> bool:
+    """True when an environment variable name looks like it holds a secret."""
+    lowered = str(key).lower()
+    return any(marker in lowered for marker in markers)
+
+
+def scrubbed_environ(
+    *,
+    markers: tuple[str, ...] = SECRET_MARKERS,
+    keep: frozenset[str] | set[str] = frozenset(),
+) -> dict[str, str]:
+    """Copy of ``os.environ`` with secret-marked variables removed.
+
+    Use as the ``env=`` argument for any child process. Provider API keys and
+    OAuth tokens applied via ``os.environ`` must never be inherited by
+    spawned subprocesses; the console process itself keeps using the real
+    environment. Names in ``keep`` are preserved verbatim.
+    """
+    import os
+
+    return {k: v for k, v in os.environ.items() if k in keep or not is_secret_env_key(k, markers=markers)}
+
+
 __all__ = [
     "BASE_MARKERS",
     "POISON_PATTERNS",
     "RISK_ORDER",
     "SECRET_MARKERS",
     "SECRET_PATTERNS",
+    "is_secret_env_key",
     "redact_text",
     "redact_value",
+    "scrubbed_environ",
 ]
