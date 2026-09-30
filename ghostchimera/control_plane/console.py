@@ -78,7 +78,7 @@ from ..sandbox.journey import run_sandbox_journey
 from ..superiority import build_local_operator_summary, build_superiority_scorecard
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
-from ..trust_runtime import TrustRuntimeStore
+from ..trust_runtime import TrustRuntimeStore, trust_run_scope
 from .browser_debug import ChromeDebugManager
 from .config import CONFIG_FILE, config_to_env_vars, get_autonomy_config, get_default_config, load_config, save_config
 from .conversation import ConversationalLoopController, ConversationStore, summarize_run_result
@@ -97,6 +97,7 @@ from .host_execution import CONFIRMATION_PHRASE, HostExecutionStore
 from .latency import latency_summary, record_latency_event
 from .live_presence import LivePresenceStore
 from .local_voice import LocalVoiceTranscriber
+from .run_jobs import ConsoleRunManager
 from .standing_orders import StandingOrderStore
 
 RunObjective = Callable[[str], dict[str, Any]]
@@ -571,6 +572,11 @@ def _json_body(ctx: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def _json_response(payload: dict[str, Any], *, status: int = 200) -> HttpResponse:
+    """Build a JSON HttpResponse with an explicit HTTP status code."""
+    return HttpResponse(body=json.dumps(payload), status=status, content_type="application/json")
+
+
 def _as_bool(value: Any, *, default: bool = False) -> bool:
     if value is None:
         return default
@@ -891,6 +897,7 @@ def register_console_routes(
     remote_store = RemoteControlStore(console_state_dir)
     standing_order_store = StandingOrderStore(console_state_dir)
     trust_store = TrustRuntimeStore(console_state_dir)
+    run_manager = ConsoleRunManager(max_concurrent=4)
     admission_store = CapabilityAdmissionStore(console_state_dir)
     conversation_store = ConversationStore(console_state_dir)
     live_presence_store = LivePresenceStore(console_state_dir, trust_store=trust_store)
@@ -1851,67 +1858,97 @@ def register_console_routes(
         save_config(config)
         return {"ok": True, "autonomy": _status_payload(server)["autonomy"]}
 
-    def run(ctx: dict[str, Any]) -> dict[str, Any]:
+    def run(ctx: dict[str, Any]) -> HttpResponse:
+        """Start a Ghost objective as a background job (HTTP 202 + run_id).
+
+        Objectives can run for minutes; the HTTP worker thread must not block
+        on them now that the server is threaded. Poll GET /api/console/runs
+        (or /api/console/runs/<run_id>) for status, or cancel via
+        POST /api/console/runs/<run_id>/cancel.
+        """
         body = _json_body(ctx)
         objective = str(body.get("objective") or "").strip()
         if not objective:
-            return {"ok": False, "error": "Missing objective"}
+            return _json_response({"ok": False, "error": "Missing objective"}, status=400)
         trust_run = trust_store.create_run(
             agent_name="ghost_console",
             objective=objective,
             source="console",
             metadata={"route": "/api/console/run"},
         )
-        previous_trust_run_id = os.environ.get("GHOSTCHIMERA_TRUST_RUN_ID")
-        os.environ["GHOSTCHIMERA_TRUST_RUN_ID"] = trust_run["run_id"]
-        try:
+        run_id = trust_run["run_id"]
+        with trust_run_scope(run_id):
             trust_store.record_step(
-                trust_run["run_id"],
+                run_id,
                 step_type="goal_intake",
                 status="completed",
                 inputs={"objective": objective},
-                idempotency_key=f"{trust_run['run_id']}:goal-intake",
+                idempotency_key=f"{run_id}:goal-intake",
             )
-            result = objective_runner(objective)
-            ok = not (isinstance(result, dict) and result.get("ok") is False)
-            trust_store.record_step(
-                trust_run["run_id"],
-                step_type="execution_result",
-                status="completed" if ok else "failed",
-                outputs=result if isinstance(result, dict) else {"result": result},
-                idempotency_key=f"{trust_run['run_id']}:execution-result",
-            )
-            if isinstance(result, dict):
-                result.setdefault("trust_run", trust_store.get_run(trust_run["run_id"]))
-                result.setdefault("operator_report", summarize_run_result(result, ok=ok, objective=objective))
-                return result
-            payload = {"ok": True, "result": result, "trust_run": trust_store.get_run(trust_run["run_id"])}
-            payload["operator_report"] = summarize_run_result(payload, ok=True, objective=objective)
-            return payload
-        except PermissionError as exc:
-            trust_store.record_step(
-                trust_run["run_id"],
-                step_type="policy_check",
-                status="blocked",
-                outputs={"error": str(exc), "type": "permission"},
-                policy_decision={"decision": "blocked", "reason": str(exc)},
-                idempotency_key=f"{trust_run['run_id']}:permission-error",
-            )
-            return {"ok": False, "error": str(exc), "type": "permission"}
-        except Exception as exc:
-            trust_store.record_step(
-                trust_run["run_id"],
-                step_type="execution_result",
-                status="failed",
-                outputs={"error": str(exc), "type": "runtime"},
-                idempotency_key=f"{trust_run['run_id']}:runtime-error",
-            )
-            return {"ok": False, "error": str(exc), "type": "runtime"}
-        finally:
-            if previous_trust_run_id is None:
-                os.environ.pop("GHOSTCHIMERA_TRUST_RUN_ID", None)
-            else:
-                os.environ["GHOSTCHIMERA_TRUST_RUN_ID"] = previous_trust_run_id
+
+        def _execute() -> dict[str, Any]:
+            with trust_run_scope(run_id):
+                try:
+                    result = objective_runner(objective)
+                    ok = not (isinstance(result, dict) and result.get("ok") is False)
+                    trust_store.record_step(
+                        run_id,
+                        step_type="execution_result",
+                        status="completed" if ok else "failed",
+                        outputs=result if isinstance(result, dict) else {"result": result},
+                        idempotency_key=f"{run_id}:execution-result",
+                    )
+                    if isinstance(result, dict):
+                        result.setdefault("trust_run", trust_store.get_run(run_id))
+                        result.setdefault("operator_report", summarize_run_result(result, ok=ok, objective=objective))
+                        return result
+                    payload = {"ok": True, "result": result, "trust_run": trust_store.get_run(run_id)}
+                    payload["operator_report"] = summarize_run_result(payload, ok=True, objective=objective)
+                    return payload
+                except PermissionError as exc:
+                    trust_store.record_step(
+                        run_id,
+                        step_type="policy_check",
+                        status="blocked",
+                        outputs={"error": str(exc), "type": "permission"},
+                        policy_decision={"decision": "blocked", "reason": str(exc)},
+                        idempotency_key=f"{run_id}:permission-error",
+                    )
+                    return {"ok": False, "error": str(exc), "type": "permission"}
+                except Exception as exc:
+                    trust_store.record_step(
+                        run_id,
+                        step_type="execution_result",
+                        status="failed",
+                        outputs={"error": str(exc), "type": "runtime"},
+                        idempotency_key=f"{run_id}:runtime-error",
+                    )
+                    return {"ok": False, "error": str(exc), "type": "runtime"}
+
+        record = run_manager.submit(objective, _execute)
+        return _json_response(
+            {"ok": True, "run_id": record.run_id, "trust_run_id": run_id, "status": record.status},
+            status=202,
+        )
+
+    def console_runs(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Run history, newest first."""
+        return {"ok": True, "runs": run_manager.list()}
+
+    def console_run_action(ctx: dict[str, Any]) -> dict[str, Any] | HttpResponse:
+        """GET /api/console/runs/<run_id> -> status; POST .../cancel -> cancel."""
+        path = str(ctx.get("path") or "")
+        rest = path.split("/api/console/runs/", 1)[1] if "/api/console/runs/" in path else ""
+        run_id = rest.split("/", 1)[0].strip()
+        action = rest.split("/", 1)[1].strip().rstrip("/") if "/" in rest else ""
+        if not run_id:
+            return _json_response({"ok": False, "error": "Missing run_id"}, status=400)
+        if ctx.get("method") == "POST" and action == "cancel":
+            return run_manager.cancel(run_id)
+        record = run_manager.get(run_id)
+        if record is None:
+            return _json_response({"ok": False, "error": "Unknown run_id"}, status=404)
+        return {"ok": True, "run": record.to_dict()}
 
     def conversation_sessions(ctx: dict[str, Any]) -> dict[str, Any]:
         if ctx.get("method") == "GET":
@@ -5675,7 +5712,24 @@ def register_console_routes(
         prefix=True,
         description="Update, run, or delete autonomy schedule",
     )
-    _api_register("/api/console/run", run, method="POST", description="Run a Ghost objective")
+    _api_register(
+        "/api/console/run", run, method="POST", description="Run a Ghost objective (background job, 202 + run_id)"
+    )
+    _api_register("/api/console/runs", console_runs, method="GET", description="Console run history (background jobs)")
+    _api_register(
+        "/api/console/runs/",
+        console_run_action,
+        method="GET",
+        prefix=True,
+        description="Console run status by run_id",
+    )
+    _api_register(
+        "/api/console/runs/",
+        console_run_action,
+        method="POST",
+        prefix=True,
+        description="Cancel a console run (/api/console/runs/<run_id>/cancel)",
+    )
     _api_register(
         "/api/console/browser/fetch",
         browser_fetch,

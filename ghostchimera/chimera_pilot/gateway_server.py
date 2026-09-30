@@ -17,7 +17,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from ..chimera_pilot.agent_loop import AIAgent, SessionState
@@ -350,7 +350,7 @@ class GatewayServer(BackgroundService):
         self._sessions: dict[str, GatewaySession] = {}
         self._lock = threading.RLock()
         self._websocket_server = None
-        self._http_server: HTTPServer | None = None
+        self._http_server: ThreadingHTTPServer | None = None
         self._http_thread: threading.Thread | None = None
         self._thread: threading.Thread | None = None
         # Last exception raised by the WS listener thread (None when it is
@@ -772,7 +772,10 @@ class GatewayServer(BackgroundService):
             def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A002
                 logger.debug("HTTP %s", fmt % args)
 
-        self._http_server = HTTPServer((self.host, self.http_port), _Handler)
+        self._http_server = ThreadingHTTPServer((self.host, self.http_port), _Handler)
+        # A hung handler must never wedge the whole console (or the WS
+        # heartbeat path): serve each connection on its own thread.
+        self._http_server.daemon_threads = True
 
     def _serve_http(self) -> None:
         """Serve the bound HTTP listener on its background thread."""

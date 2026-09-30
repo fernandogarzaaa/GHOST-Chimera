@@ -8,7 +8,6 @@ so the agent can call MCP tools as part of its tool-calling loop.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import threading
 import time
@@ -19,7 +18,12 @@ from typing import Any
 
 from ..config import GhostChimeraConfig
 from ..logging_config import get_logger
-from ..trust_runtime import TrustRuntimeStore, build_tool_trust_envelope, classify_tool_risk
+from ..trust_runtime import (
+    TrustRuntimeStore,
+    build_tool_trust_envelope,
+    classify_tool_risk,
+    current_trust_run_id,
+)
 
 logger = get_logger("mcp_wrapper")
 
@@ -187,7 +191,7 @@ class MCPClient:
                     name, arguments=arguments, source=f"mcp:{self.name}", output=payload
                 )
                 payload["trust_envelope"] = envelope.to_dict()
-                run_id = os.environ.get("GHOSTCHIMERA_TRUST_RUN_ID", "").strip()
+                run_id = current_trust_run_id()
                 if run_id:
                     trust_store.record_tool_call(
                         run_id,
