@@ -361,7 +361,13 @@ class GatewayCoordinatedBindTests(unittest.TestCase):
             server = GatewayServer(host="127.0.0.1", port=49452)
         self.assertEqual(server.http_port, 49451)
         self.assertTrue(server._http_port_explicit)
-        server._resolve_ports()
+        # Resolve deterministically: never depend on a hardcoded port being
+        # free on the machine running the suite (shared CI runners collide).
+        with mock.patch(
+            "ghostchimera.chimera_pilot.gateway_server.find_free_port",
+            side_effect=lambda host, preferred, **kwargs: preferred,
+        ):
+            server._resolve_ports()
         self.assertEqual(server.http_port, 49451)
 
     def test_ephemeral_ws_keeps_ephemeral_http(self) -> None:
@@ -375,13 +381,17 @@ class GatewayCoordinatedBindTests(unittest.TestCase):
         import socket
         from unittest import mock
 
+        # Occupy an OS-assigned ephemeral port instead of a hardcoded one:
+        # a fixed port may already be in use on shared CI runners, which
+        # makes holder.bind() itself raise and fails the test spuriously.
         holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        holder.bind(("127.0.0.1", 49461))
+        holder.bind(("127.0.0.1", 0))
         holder.listen(1)
         self.addCleanup(holder.close)
+        occupied = holder.getsockname()[1]
         # Force every resolution onto the occupied port: binds must fail.
-        with mock.patch("ghostchimera.chimera_pilot.gateway_server.find_free_port", return_value=49461):
-            server = GatewayServer(host="127.0.0.1", port=49461, http_port=49462)
+        with mock.patch("ghostchimera.chimera_pilot.gateway_server.find_free_port", return_value=occupied):
+            server = GatewayServer(host="127.0.0.1", port=occupied, http_port=occupied)
             with self.assertRaises(OSError):
                 server.start()
             self.assertIsNone(server._http_server)
