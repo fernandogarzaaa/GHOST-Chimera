@@ -366,8 +366,13 @@ class MemoryStore:
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.db_path)
+        # Threaded server: many threads share this DB file. WAL lets readers
+        # proceed during writes; busy_timeout turns "database is locked"
+        # crashes into bounded waits instead.
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
         try:
             yield conn
             conn.commit()

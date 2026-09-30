@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -154,6 +158,36 @@ class TrustEvalCase:
 
 def _now() -> float:
     return time.time()
+
+
+# Run-scoped attribution for trust events. The environment variable was the
+# old propagation channel; it is process-global and leaks across threads.
+# The contextvar is set per run (see trust_run_scope) and copied into worker
+# threads by ConsoleRunManager, so concurrent runs never cross-attribute.
+_trust_run_id_var: ContextVar[str] = ContextVar("ghostchimera_trust_run_id", default="")
+
+
+def current_trust_run_id() -> str:
+    """Return the active trust run id for this context.
+
+    The run-scoped contextvar wins; GHOSTCHIMERA_TRUST_RUN_ID is kept as a
+    fallback so externally injected runs (scripts, tests, operators) still
+    attribute correctly.
+    """
+    run_id = _trust_run_id_var.get("")
+    if run_id:
+        return run_id
+    return os.environ.get("GHOSTCHIMERA_TRUST_RUN_ID", "").strip()
+
+
+@contextmanager
+def trust_run_scope(run_id: str) -> Iterator[str]:
+    """Bind run_id as the active trust run for the enclosed block."""
+    token = _trust_run_id_var.set(run_id)
+    try:
+        yield run_id
+    finally:
+        _trust_run_id_var.reset(token)
 
 
 def _stable_id(*parts: object, length: int = 16) -> str:

@@ -18,6 +18,22 @@ def _ctx(method: str, path: str, body: dict[str, object] | None = None) -> dict[
     }
 
 
+def _wait_for_console_run(server: GatewayServer, run_id: str, timeout: float = 15.0) -> dict[str, object]:
+    """Poll GET /api/console/runs until the background run reaches a terminal state."""
+    import time
+
+    history_route = server.routes.find("GET", "/api/console/runs")
+    deadline = time.time() + timeout
+    match = None
+    while time.time() < deadline:
+        history = history_route.handler(_ctx("GET", "/api/console/runs"))
+        match = next((r for r in history["runs"] if r["run_id"] == run_id), None)
+        if match is not None and match["status"] in ("completed", "failed", "cancelled"):
+            return match
+        time.sleep(0.1)
+    raise AssertionError(f"console run {run_id} did not finish within {timeout}s")
+
+
 class TrustConsoleRouteTests(unittest.TestCase):
     def test_trust_routes_register_and_summary_is_secret_safe(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghost-console-trust-") as tmp:
@@ -59,9 +75,15 @@ class TrustConsoleRouteTests(unittest.TestCase):
             )
 
             run_route = server.routes.find("POST", "/api/console/run")
-            result = run_route.handler(_ctx("POST", "/api/console/run", {"objective": "summarize status"}))
-            self.assertTrue(result["ok"])
-            self.assertIn("trust_run", result)
+            accepted = run_route.handler(_ctx("POST", "/api/console/run", {"objective": "summarize status"}))
+            # Background job: 202 + run_id. The trust run record exists
+            # synchronously; the objective finishes on a worker thread.
+            self.assertEqual(accepted.status, 202)
+            accepted_payload = json.loads(accepted.body_bytes())
+            self.assertTrue(accepted_payload["ok"])
+            console_run = _wait_for_console_run(server, accepted_payload["run_id"])
+            self.assertEqual(console_run["status"], "completed")
+            self.assertIn("trust_run", console_run["result"])
 
             runs = server.routes.find("GET", "/api/console/trust/runs").handler(_ctx("GET", "/api/console/trust/runs"))
             self.assertEqual(len(runs["runs"]), 1)
@@ -180,7 +202,8 @@ class TrustConsoleRouteTests(unittest.TestCase):
             server = GatewayServer()
             register_console_routes(server, state_dir=tmp, run_objective=lambda objective: {"ok": True})
             run_route = server.routes.find("POST", "/api/console/run")
-            run_route.handler(_ctx("POST", "/api/console/run", {"objective": "build eval case"}))
+            accepted = run_route.handler(_ctx("POST", "/api/console/run", {"objective": "build eval case"}))
+            _wait_for_console_run(server, json.loads(accepted.body_bytes())["run_id"])
             runs = server.routes.find("GET", "/api/console/trust/runs").handler(_ctx("GET", "/api/console/trust/runs"))
             run_id = runs["runs"][0]["run_id"]
 
@@ -204,7 +227,8 @@ class TrustConsoleRouteTests(unittest.TestCase):
             server = GatewayServer()
             register_console_routes(server, state_dir=tmp, run_objective=lambda objective: {"ok": True})
             run_route = server.routes.find("POST", "/api/console/run")
-            run_route.handler(_ctx("POST", "/api/console/run", {"objective": "preview replay"}))
+            accepted = run_route.handler(_ctx("POST", "/api/console/run", {"objective": "preview replay"}))
+            _wait_for_console_run(server, json.loads(accepted.body_bytes())["run_id"])
             runs = server.routes.find("GET", "/api/console/trust/runs").handler(_ctx("GET", "/api/console/trust/runs"))
             run_id = runs["runs"][0]["run_id"]
 
