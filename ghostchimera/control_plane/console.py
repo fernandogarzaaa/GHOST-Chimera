@@ -5909,12 +5909,12 @@ def _register_static_routes(server: GatewayServer) -> None:
     """
     Register HTTP routes that serve packaged static console assets.
 
-    If a "static" directory exists next to this module, this function registers GET routes for any of the files index.html, app.js, and styles.css that are present. index.html is exposed at "/" and "/console"; each asset is exposed at "/static/<filename>" with an appropriate Content-Type header. If the static directory is missing, the function is a no-op.
+    If a "static" directory exists next to this module, this function registers GET routes for any of the files index.html, app.js, api_transport.js, and styles.css that are present. index.html is exposed at "/" and "/console"; each asset is exposed at "/static/<filename>" with an appropriate Content-Type header. If the static directory is missing, the function is a no-op.
     """
     base = _static_dir()
     if not base.is_dir():
         return
-    for rel in ("index.html", "app.js", "styles.css"):
+    for rel in ("index.html", "app.js", "api_transport.js", "styles.css"):
         full = base / rel
         if not full.is_file():
             continue
@@ -5922,6 +5922,7 @@ def _register_static_routes(server: GatewayServer) -> None:
         ct = {
             "index.html": "text/html; charset=utf-8",
             "app.js": "application/javascript; charset=utf-8",
+            "api_transport.js": "application/javascript; charset=utf-8",
             "styles.css": "text/css; charset=utf-8",
         }.get(rel, "application/octet-stream")
 

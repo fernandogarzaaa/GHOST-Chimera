@@ -333,28 +333,27 @@
   });
 
   // ── API helper ───────────────────────────────────────────────────────────
+  // Request orchestration lives in static/api_transport.js (unit-tested via
+  // scripts/api_transport.test.mjs): GET/HEAD-only in-flight dedupe plus
+  // stale replacement. Mutations always reach the server. Bound lazily so
+  // script load order never matters.
+  var ghostTransport = null;
+  function apiTransport() {
+    if (!ghostTransport) {
+      ghostTransport = GhostApiTransport.createApiTransport({
+        fetchFn: function (path, opts) { return fetch(path, opts); },
+        getToken: function () { return state.token || ""; },
+        onUnauthorized: function () {
+          state.token = "";
+          clearStoredToken();
+          showTokenOverlay();
+        },
+      });
+    }
+    return ghostTransport;
+  }
   async function api(path, opts) {
-    opts = opts || {};
-    if (!opts.headers) opts.headers = {};
-    opts.headers["Content-Type"] = "application/json";
-    if (state.token) opts.headers["X-Gateway-Token"] = state.token;
-    if (opts.body && typeof opts.body === "object") opts.body = JSON.stringify(opts.body);
-    var r = await fetch(path, opts);
-    if (r.status === 401) {
-      state.token = "";
-      clearStoredToken();
-      showTokenOverlay();
-      throw new Error("Unauthorized — enter the console token");
-    }
-    if (!r.ok) {
-      var errText = await r.text().catch(function() { return ""; });
-      throw new Error("HTTP " + r.status + ": " + errText);
-    }
-    var ct = r.headers.get("content-type") || "";
-    if (ct.indexOf("application/json") !== -1) {
-      try { return await r.json(); } catch (e) { return null; }
-    }
-    return await r.text().catch(function() { return null; });
+    return apiTransport().request(path, opts);
   }
 
   function badge(el, text, cls) { el.textContent = text; el.className = "badge " + (cls || ""); }

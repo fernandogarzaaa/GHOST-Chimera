@@ -26,7 +26,11 @@ jobs:
       - name: Check formatting
         run: python -m ruff format --check .
       - name: Check console JavaScript syntax
-        run: node --check ghostchimera/control_plane/static/app.js
+        run: |
+          node --check ghostchimera/control_plane/static/app.js
+          node --check ghostchimera/control_plane/static/api_transport.js
+      - name: Run console JavaScript unit tests
+        run: node --test "scripts/**/*.test.mjs"
       - name: Run strict project scan
         run: ghost-eve-scan --root .
       - name: Run tests
