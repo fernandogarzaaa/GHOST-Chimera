@@ -14,9 +14,41 @@ from typing import Any
 
 from .context import ContextFabric, ContextItem, InMemoryRetriever
 from .events import new_event
-from .intervention import InterventionOutcome
+from .intervention import InterventionOutcome, InterventionState
 from .loop import StealthLoop
 from .stealth_policy import AutonomyLevel, Decision, GhostPolicy
+
+# States an intervention settles into on its own; it will not move further
+# without an explicit inject()/observe_outcome() call from the caller.
+_TERMINAL_INTERVENTION_STATES = frozenset(
+    {
+        InterventionState.READY,
+        InterventionState.INJECTED,
+        InterventionState.EXECUTED,
+        InterventionState.CONSUMED,
+        InterventionState.OUTCOME,
+        InterventionState.EXPIRED,
+    }
+)
+
+
+def _drain_interventions(loop: StealthLoop, *, timeout: float = 10.0) -> None:
+    """Wait until every in-flight intervention settles before scoring.
+
+    StealthLoop.emit() hands PREPARE decisions to a threaded BackgroundRuntime
+    and returns immediately, so interventions may still be QUEUED (worker has
+    not picked them up) or PREPARING (worker is mid-prepare) when the caller
+    wants to score them. Poll until each intervention reaches READY or another
+    terminal state. Bounded: a stuck worker can never hang the eval forever.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        pending = [item for item in loop.interventions.values() if item.state not in _TERMINAL_INTERVENTION_STATES]
+        if not pending:
+            return
+        if time.monotonic() >= deadline:
+            return
+        time.sleep(0.01)
 
 
 @dataclass
@@ -141,11 +173,13 @@ class StealthEval:
                 )
             )
             timings.append(time.perf_counter() - t0)
-            # Outcomes: mark ready interventions useful, measure precision.
+            # Outcomes: drain in-flight prepares, then mark ready interventions
+            # useful and measure precision. The drain is required because
+            # emit() returns before background workers finish QUEUED ->
+            # PREPARING -> READY; scoring early undercounts useful.
+            _drain_interventions(loop)
             useful = 0
             for iid, item in loop.interventions.items():
-                from .intervention import InterventionState
-
                 if item.state == InterventionState.READY:
                     loop.inject(iid, host="eval")
                     loop.observe_outcome(iid, InterventionOutcome.USEFUL)
