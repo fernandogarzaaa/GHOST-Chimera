@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ghostchimera.redaction import scrubbed_environ
+
 
 @dataclass(frozen=True)
 class LocalVoiceProviderStatus:
@@ -337,6 +339,7 @@ class LocalVoiceTranscriber:
             capture_output=True,
             text=True,
             timeout=float(os.environ.get("GHOSTCHIMERA_LOCAL_STT_TIMEOUT", "45")),
+            env=scrubbed_environ(),
         )
         if completed.returncode != 0:
             stderr = (completed.stderr or "").strip()

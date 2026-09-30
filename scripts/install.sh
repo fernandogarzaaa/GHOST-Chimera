@@ -2,7 +2,10 @@
 set -euo pipefail
 
 INSTALL_DIR="${GHOSTCHIMERA_INSTALL_DIR:-"$HOME/ghost-chimera"}"
-EXTRAS="${GHOSTCHIMERA_EXTRAS:-all,dev}"
+# Lean default: gateway + dev tooling. The "all" extra pulls torch,
+# pyqpanda3, llama-cpp-python and cutlass (slow, often fails on fresh
+# machines); opt in explicitly with GHOSTCHIMERA_EXTRAS="all,dev".
+EXTRAS="${GHOSTCHIMERA_EXTRAS:-gateway,dev}"
 REF="${GHOSTCHIMERA_REF:-main}"
 DRY_RUN="${GHOSTCHIMERA_DRY_RUN:-0}"
 

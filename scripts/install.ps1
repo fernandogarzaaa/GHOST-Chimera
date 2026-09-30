@@ -1,6 +1,9 @@
 param(
     [string]$InstallDir = $(if ($env:GHOSTCHIMERA_INSTALL_DIR) { $env:GHOSTCHIMERA_INSTALL_DIR } else { Join-Path $HOME "ghost-chimera" }),
-    [string]$Extras = $(if ($env:GHOSTCHIMERA_EXTRAS) { $env:GHOSTCHIMERA_EXTRAS } else { "all,dev" }),
+    # Lean default: gateway + dev tooling. The "all" extra pulls torch, pyqpanda3,
+    # llama-cpp-python and cutlass (slow, often fails on fresh machines);
+    # opt in explicitly with GHOSTCHIMERA_EXTRAS="all,dev".
+    [string]$Extras = $(if ($env:GHOSTCHIMERA_EXTRAS) { $env:GHOSTCHIMERA_EXTRAS } else { "gateway,dev" }),
     [string]$Ref = $(if ($env:GHOSTCHIMERA_REF) { $env:GHOSTCHIMERA_REF } else { "main" }),
     [switch]$DryRun
 )

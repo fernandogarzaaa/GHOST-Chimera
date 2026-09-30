@@ -19,6 +19,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ghostchimera.redaction import scrubbed_environ
+
 DEFAULT_DEBUG_PORT = 9222
 _LAUNCH_POLL_INTERVAL = 0.25
 
@@ -172,6 +174,7 @@ class ChromeDebugManager:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     stdin=subprocess.DEVNULL,
+                    env=scrubbed_environ(),
                     **(
                         {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
                         if sys.platform.startswith("win")

@@ -10,20 +10,15 @@ def test_one_line_install_scripts_exist() -> None:
     assert (ROOT / "scripts" / "install.sh").is_file()
 
 
-def test_install_scripts_default_to_full_runtime_profile() -> None:
+def test_install_scripts_default_to_lean_runtime_profile() -> None:
     powershell = (ROOT / "scripts" / "install.ps1").read_text(encoding="utf-8")
     bash = (ROOT / "scripts" / "install.sh").read_text(encoding="utf-8")
 
-    assert '"all,dev"' in powershell
-    assert "GHOSTCHIMERA_EXTRAS:-all,dev" in bash
-    assert "Installing full Python runtime dependencies" in powershell
-    assert "Installing full Python runtime dependencies" in bash
-    assert "pip check" in powershell
-    assert "pip check" in bash
-    assert "runtime dependency surface ok" in powershell
-    assert "runtime dependency surface ok" in bash
-    assert "ghostchimera.exe console" in powershell
-    assert "ghostchimera console" in bash
+    # Lean default: gateway + dev. "all" stays opt-in via GHOSTCHIMERA_EXTRAS.
+    assert '"gateway,dev"' in powershell
+    assert "GHOSTCHIMERA_EXTRAS:-gateway,dev" in bash
+    assert "all,dev" in powershell  # documented opt-in
+    assert "all,dev" in bash  # documented opt-in
 
 
 def test_readme_documents_one_line_install_and_specs() -> None:

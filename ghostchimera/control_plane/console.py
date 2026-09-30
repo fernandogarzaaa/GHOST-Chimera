@@ -299,6 +299,24 @@ def _is_secret_env_key(key: str) -> bool:
     return any(part in marker for part in ("API_KEY", "TOKEN", "SECRET", "PASSWORD"))
 
 
+# TTL cache for expensive, slowly-changing introspection data. The repo
+# capability walk and static asset reads must not run on every poll of the
+# dashboard endpoints.
+_INTROSPECTION_TTL_S = 60.0
+_ttl_cache: dict[str, tuple[float, Any]] = {}
+
+
+def _cached(key: str, loader: Callable[[], Any]) -> Any:
+    """Return the cached value for key, refreshing it via loader after the TTL."""
+    now = time.monotonic()
+    hit = _ttl_cache.get(key)
+    if hit is not None and now - hit[0] < _INTROSPECTION_TTL_S:
+        return hit[1]
+    value = loader()
+    _ttl_cache[key] = (now, value)
+    return value
+
+
 def _option_ids() -> set[str]:
     return {str(option["id"]) for option in PROVIDER_OPTIONS}
 
@@ -699,10 +717,20 @@ def _status_payload(server: GatewayServer) -> dict[str, Any]:
     profile = get_autonomy_profile(str(autonomy.get("level") or "supervised"))
     if "personal_context" not in autonomy:
         autonomy["personal_context"] = True
+    gateway = server.status()
+    # Trimmed gateway summary: session records and the route table are
+    # internal details and must not be exposed through /status.
     return {
         "ok": True,
         "timestamp": time.time(),
-        "gateway": server.status(),
+        "gateway": {
+            "host": gateway.get("host"),
+            "port": gateway.get("port"),
+            "http_port": gateway.get("http_port"),
+            "running": gateway.get("running"),
+            "session_count": gateway.get("session_count", 0),
+            "route_count": len(gateway.get("routes") or []),
+        },
         "runtime": GhostChimeraConfig.from_env().to_dict(),
         "autonomy": {
             "config": autonomy,
@@ -1103,6 +1131,12 @@ def register_console_routes(
                 return item
         return None
 
+    # Console shell: the packaged static/index.html when present, otherwise the
+    # placeholder. console_page is the single "/" handler: it checks OAuth
+    # callback parameters first and serves this shell otherwise.
+    _shell_path = _static_dir() / "index.html"
+    _shell_html: str = _shell_path.read_text(encoding="utf-8") if _shell_path.is_file() else CONSOLE_HTML
+
     def console_page(ctx: dict[str, Any]) -> HttpResponse:
         query = ctx.get("query") or {}
         state = str(query.get("state") or "").strip()
@@ -1141,7 +1175,7 @@ def register_console_routes(
                 status=400,
                 content_type="text/html",
             )
-        return HttpResponse(body=CONSOLE_HTML, content_type="text/html; charset=utf-8")
+        return HttpResponse(body=_shell_html, content_type="text/html; charset=utf-8")
 
     def status(ctx: dict[str, Any]) -> dict[str, Any]:
         payload = _status_payload(server)
@@ -2966,7 +3000,7 @@ def register_console_routes(
         return result
 
     def capabilities(ctx: dict[str, Any]) -> dict[str, Any]:
-        return inspect_capabilities()
+        return _cached("capabilities", inspect_capabilities)
 
     def role_profiles(ctx: dict[str, Any]) -> dict[str, Any]:
         from ..personalization.role_profiles import list_role_profiles
@@ -3047,7 +3081,7 @@ def register_console_routes(
         active_path = get_active_ghost_path(config_path=path_config_file)
         workspace_snapshot = workspace_store.snapshot()
         minimind = personal_minimind().status()
-        capability_payload = inspect_capabilities()
+        capability_payload = _cached("capabilities", inspect_capabilities)
         resolved_profile = status_payload.get("autonomy", {}).get("resolved_profile", {})
         capability_count = len(capability_payload.get("capabilities") or [])
         covered_count = sum(
@@ -3717,14 +3751,18 @@ def register_console_routes(
         }
 
     def _superiority_payload(summary: dict[str, Any]) -> dict[str, Any]:
-        static_dir = Path(__file__).resolve().parent / "static"
-        html_text = ""
-        app_text = ""
-        with contextlib.suppress(OSError):
-            html_text = (static_dir / "index.html").read_text(encoding="utf-8")
-        with contextlib.suppress(OSError):
-            app_text = (static_dir / "app.js").read_text(encoding="utf-8")
-        capability_payload = inspect_capabilities(Path(__file__).resolve().parents[2])
+        def _read_static(name: str) -> str:
+            static_dir = Path(__file__).resolve().parent / "static"
+            with contextlib.suppress(OSError):
+                return (static_dir / name).read_text(encoding="utf-8")
+            return ""
+
+        html_text = _cached("static:index.html", lambda: _read_static("index.html"))
+        app_text = _cached("static:app.js", lambda: _read_static("app.js"))
+        capability_payload = _cached(
+            "capabilities:repo-root",
+            lambda: inspect_capabilities(Path(__file__).resolve().parents[2]),
+        )
         routes = [str(route.get("path") or "") for route in server.routes.list_all()]
         return build_superiority_scorecard(
             operator_summary=summary,
@@ -5859,7 +5897,7 @@ def run_console(
         # The value itself is never printed: it would leak into terminal
         # scrollback, Docker logs, CI logs, and support captures. The
         # operator already holds it (argument, file, or environment).
-        print("Auth token required — set the X-Gateway-Token header (and ?token= for WebSocket).")
+        print("Auth token required — set the X-Gateway-Token header (or Authorization: Bearer).")
     if open_browser:
         webbrowser.open(url)
     if block:
@@ -5898,6 +5936,7 @@ CONSOLE_CSP = (
     "script-src 'self'; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data:; "
+    "media-src 'self' data:; "  # TTS replies arrive as base64 MP3 data: URLs
     "connect-src 'self'; "
     "object-src 'none'; "
     "base-uri 'self'; "
@@ -5909,7 +5948,13 @@ def _register_static_routes(server: GatewayServer) -> None:
     """
     Register HTTP routes that serve packaged static console assets.
 
-    If a "static" directory exists next to this module, this function registers GET routes for any of the files index.html, app.js, api_transport.js, and styles.css that are present. index.html is exposed at "/" and "/console"; each asset is exposed at "/static/<filename>" with an appropriate Content-Type header. If the static directory is missing, the function is a no-op.
+    If a "static" directory exists next to this module, this function registers GET routes for any of the files
+    index.html, app.js, api_transport.js, and styles.css that are present; each asset is exposed at
+    "/static/<filename>" with an appropriate Content-Type header. The "/" and "/console" paths are NOT
+    registered here: console_page (registered by register_console_routes) is the single handler for "/",
+    and it serves the static shell itself after checking for OAuth callback parameters. Registering "/"
+    here as well would shadow the OAuth callback because the route registry returns the first match.
+    If the static directory is missing, this function is a no-op.
     """
     base = _static_dir()
     if not base.is_dir():
@@ -5941,13 +5986,10 @@ def _register_static_routes(server: GatewayServer) -> None:
                 body=data, content_type=ct_, headers={"Content-Security-Policy": CONSOLE_CSP}
             )
 
-        if rel == "index.html":
-            server.routes.register(
-                "/", make_handler(body, ct), method="GET", auth="open", description="Ghost Console static page"
-            )
-            server.routes.register(
-                "/console", make_handler(body, ct), method="GET", auth="open", description="Ghost Console static page"
-            )
+        # NOTE: "/" and "/console" are intentionally NOT registered here.
+        # console_page is the single "/" handler: it checks OAuth callback
+        # parameters first and serves index.html as the shell otherwise.
+        # (First-match routing would otherwise shadow the OAuth callback.)
         server.routes.register(
             "/static/" + rel, make_handler(body, ct), method="GET", auth="open", description="Static asset"
         )

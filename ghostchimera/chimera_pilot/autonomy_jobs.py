@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ..model_layer.minimind_lifecycle import MiniMindLifecycle
+from ..redaction import scrubbed_environ
 from .autonomy import AutonomyProfile, get_autonomy_profile
 from .kernel import ChimeraPilotKernel
 
@@ -201,7 +202,9 @@ class AutonomyJobRunner:
             )
         timeout = self._regression_timeout_seconds()
         try:
-            completed = subprocess.run(command, text=True, capture_output=True, check=False, timeout=timeout)
+            completed = subprocess.run(
+                command, text=True, capture_output=True, check=False, timeout=timeout, env=scrubbed_environ()
+            )
         except subprocess.TimeoutExpired as exc:
             return AutonomyJobResult(
                 job="test-regression",
