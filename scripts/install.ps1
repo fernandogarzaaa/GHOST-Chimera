@@ -3,7 +3,9 @@ param(
     # Lean default: gateway + dev tooling. The "all" extra pulls torch, pyqpanda3,
     # llama-cpp-python and cutlass (slow, often fails on fresh machines);
     # opt in explicitly with GHOSTCHIMERA_EXTRAS="all,dev".
-    [string]$Extras = $(if ($env:GHOSTCHIMERA_EXTRAS) { $env:GHOSTCHIMERA_EXTRAS } else { "gateway,dev" }),
+    # An explicitly EMPTY GHOSTCHIMERA_EXTRAS means "no extras, base install
+    # only" — the default below applies only when the variable is unset.
+    [string]$Extras = $(if ($null -ne $env:GHOSTCHIMERA_EXTRAS) { $env:GHOSTCHIMERA_EXTRAS } else { "gateway,dev" }),
     [string]$Ref = $(if ($env:GHOSTCHIMERA_REF) { $env:GHOSTCHIMERA_REF } else { "main" }),
     [switch]$DryRun
 )
@@ -134,7 +136,11 @@ try {
     Write-Step "Installing full Python runtime dependencies, optional extras, and developer verification tools."
     & $venvPython -m pip install --upgrade pip
     if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
-    & $venvPython -m pip install -e ".[${Extras}]"
+    if ($Extras) {
+        & $venvPython -m pip install -e ".[${Extras}]"
+    } else {
+        & $venvPython -m pip install -e .
+    }
     if ($LASTEXITCODE -ne 0) { throw "Ghost Chimera install failed" }
 
     Write-Step "Verifying installed dependency surface."

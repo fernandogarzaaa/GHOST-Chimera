@@ -16,7 +16,11 @@ def test_install_scripts_default_to_lean_runtime_profile() -> None:
 
     # Lean default: gateway + dev. "all" stays opt-in via GHOSTCHIMERA_EXTRAS.
     assert '"gateway,dev"' in powershell
-    assert "GHOSTCHIMERA_EXTRAS:-gateway,dev" in bash
+    assert 'EXTRAS="gateway,dev"' in bash
+    # The default applies only when GHOSTCHIMERA_EXTRAS is UNSET; an explicitly
+    # empty value means "no extras, base install only" and must be honored.
+    assert "$null -ne $env:GHOSTCHIMERA_EXTRAS" in powershell
+    assert "${GHOSTCHIMERA_EXTRAS+x}" in bash
     assert "all,dev" in powershell  # documented opt-in
     assert "all,dev" in bash  # documented opt-in
 
