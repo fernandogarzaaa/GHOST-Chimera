@@ -5,7 +5,13 @@ INSTALL_DIR="${GHOSTCHIMERA_INSTALL_DIR:-"$HOME/ghost-chimera"}"
 # Lean default: gateway + dev tooling. The "all" extra pulls torch,
 # pyqpanda3, llama-cpp-python and cutlass (slow, often fails on fresh
 # machines); opt in explicitly with GHOSTCHIMERA_EXTRAS="all,dev".
-EXTRAS="${GHOSTCHIMERA_EXTRAS:-gateway,dev}"
+# An explicitly EMPTY GHOSTCHIMERA_EXTRAS means "no extras, base install
+# only" — the default below applies only when the variable is unset.
+if [ -z "${GHOSTCHIMERA_EXTRAS+x}" ]; then
+  EXTRAS="gateway,dev"
+else
+  EXTRAS="$GHOSTCHIMERA_EXTRAS"
+fi
 REF="${GHOSTCHIMERA_REF:-main}"
 DRY_RUN="${GHOSTCHIMERA_DRY_RUN:-0}"
 
@@ -106,7 +112,11 @@ VENV_GHOST="$INSTALL_DIR/.venv/bin/ghostchimera"
 
 step "Installing full Python runtime dependencies, optional extras, and developer verification tools."
 "$VENV_PYTHON" -m pip install --upgrade pip
-"$VENV_PYTHON" -m pip install -e ".[${EXTRAS}]"
+if [ -n "$EXTRAS" ]; then
+  "$VENV_PYTHON" -m pip install -e ".[${EXTRAS}]"
+else
+  "$VENV_PYTHON" -m pip install -e .
+fi
 
 step "Verifying installed dependency surface."
 "$VENV_PYTHON" - <<'PY'
