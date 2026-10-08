@@ -1,6 +1,6 @@
 {
-  "generated_at": 1791210658.7831433,
-  "generated_at_iso": "2026-10-05T14:30:58Z",
+  "generated_at": 1791465823.3915226,
+  "generated_at_iso": "2026-10-08T13:23:43Z",
   "model_count": 125,
   "models": [
     {
@@ -450,6 +450,48 @@
       "recommended_use_cases": [
         "manager",
         "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2309.00071",
+        "arxiv:2407.10671",
+        "arxiv:2409.12186",
+        "base_model:finetune:qwen/qwen2.5-coder-14b",
+        "base_model:qwen/qwen2.5-coder-14b",
+        "chat",
+        "code",
+        "codeqwen",
+        "conversational",
+        "deploy:azure",
+        "en",
+        "endpoints_compatible",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen",
+        "qwen-coder",
+        "qwen2",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen2.5-Coder-14B-Instruct",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen2.5-Coder-14B-Instruct",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "self-evolution"
       ],
       "source": "huggingface"
     },
@@ -1373,40 +1415,6 @@
     {
       "auth_required": true,
       "capability_badges": [
-        "arxiv:2310.06825",
-        "conversational",
-        "deploy:azure",
-        "eval-results",
-        "finetuned",
-        "license:apache-2.0",
-        "mistral",
-        "mistral-common",
-        "open-weight",
-        "pytorch",
-        "region:us",
-        "safetensors",
-        "text-generation",
-        "text-generation-inference",
-        "transformers"
-      ],
-      "compatibility_status": "candidate_only",
-      "context_length": 0,
-      "cost_class": "unknown",
-      "display_name": "mistralai/Mistral-7B-Instruct-v0.2",
-      "modalities": [
-        "text"
-      ],
-      "model_id": "mistralai/Mistral-7B-Instruct-v0.2",
-      "provider": "huggingface",
-      "recommended_use_cases": [
-        "manager",
-        "virtual-assistant"
-      ],
-      "source": "huggingface"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
         "arxiv:2412.02595",
         "arxiv:2504.03624",
         "arxiv:2511.16664",
@@ -1592,6 +1600,33 @@
         "text"
       ],
       "model_id": "openai/gpt-oss-20b",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "conversational",
+        "endpoints_compatible",
+        "gguf",
+        "license:mit",
+        "open-weight",
+        "region:us",
+        "text-generation",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "ornith-ai/Ornith-1.0-35B-GGUF",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "ornith-ai/Ornith-1.0-35B-GGUF",
       "provider": "huggingface",
       "recommended_use_cases": [
         "manager",
@@ -1806,39 +1841,6 @@
         "text"
       ],
       "model_id": "vikhyatk/moondream2",
-      "provider": "huggingface",
-      "recommended_use_cases": [
-        "manager",
-        "virtual-assistant"
-      ],
-      "source": "huggingface"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "arxiv:2508.06471",
-        "conversational",
-        "deploy:azure",
-        "en",
-        "endpoints_compatible",
-        "eval-results",
-        "glm4_moe_lite",
-        "license:mit",
-        "open-weight",
-        "region:us",
-        "safetensors",
-        "text-generation",
-        "transformers",
-        "zh"
-      ],
-      "compatibility_status": "candidate_only",
-      "context_length": 0,
-      "cost_class": "unknown",
-      "display_name": "zai-org/GLM-4.7-Flash",
-      "modalities": [
-        "text"
-      ],
-      "model_id": "zai-org/GLM-4.7-Flash",
       "provider": "huggingface",
       "recommended_use_cases": [
         "manager",
@@ -4191,14 +4193,14 @@
       "count": 50,
       "error": "",
       "included_count": 50,
-      "last_refreshed": 1791210658.4139092,
+      "last_refreshed": 1791465823.0159595,
       "ok": true
     },
     "openrouter": {
-      "count": 466,
+      "count": 468,
       "error": "",
       "included_count": 75,
-      "last_refreshed": 1791210658.4139092,
+      "last_refreshed": 1791465823.0159595,
       "ok": true
     },
     "vultr": {
