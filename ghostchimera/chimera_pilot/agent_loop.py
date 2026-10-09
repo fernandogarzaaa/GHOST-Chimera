@@ -702,10 +702,10 @@ class AIAgent:
             content=f"[CONTEXT COMPACTION] Earlier conversation summarized:\n{summary[:4000]}",
         )
 
-        self._session.messages = [summary_msg] + tail
+        self._session.messages = head + [summary_msg] + tail
         self._session.compression_count += 1
         logger.info(
-            "Compressed session: %d -> %d messages", len(middle) + len(head) + len(tail), len(self._session.messages)
+            "Compressed session: %d -> %d messages", len(messages), len(self._session.messages)
         )
 
     def _track_usage(self, response: dict[str, Any]) -> None:
