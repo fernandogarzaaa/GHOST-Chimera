@@ -110,7 +110,7 @@ class ToolsetManagerTests(unittest.TestCase):
         self.manager = ToolsetManager(registry=self.registry)
 
     def test_default_active_toolsets(self) -> None:
-        self.assertEqual(self.manager._active_toolsets, ["coding"])
+        self.assertEqual(self.manager._active_toolsets, ["coding", "delegation"])
 
     def test_enable_toolset(self) -> None:
         self.assertTrue(self.manager.enable_toolset("research"))

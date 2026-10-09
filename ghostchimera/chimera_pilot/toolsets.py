@@ -113,6 +113,11 @@ class ToolsetRegistry:
         built_skills = skill_manager.list_skills()
         logger.info("Registered %d skills from skill_manager", len(built_skills))
 
+        # delegation toolset (lazy import: delegate_tool imports toolsets)
+        from .delegate_tool import register_delegate_toolset
+
+        register_delegate_toolset(self)
+
         # coding toolset
         coding_tools = [
             ToolDefinition(
@@ -311,11 +316,11 @@ class ToolsetManager:
         if state_file.exists():
             try:
                 with open(state_file) as f:
-                    self._active_toolsets = json.load(f).get("active", ["coding"])
+                    self._active_toolsets = json.load(f).get("active", ["coding", "delegation"])
             except (json.JSONDecodeError, KeyError):
-                self._active_toolsets = ["coding"]
+                self._active_toolsets = ["coding", "delegation"]
         else:
-            self._active_toolsets = ["coding"]  # default: coding only
+            self._active_toolsets = ["coding", "delegation"]  # default: coding + delegation
 
     def _save_active(self) -> None:
         state_file = (
