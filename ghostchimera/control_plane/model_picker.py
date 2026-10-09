@@ -5,8 +5,22 @@ Lists configured providers and lets the user switch the current model.
 
 from __future__ import annotations
 
-from .colors import Colors, color, print_error, print_header, print_info, print_success
+from .colors import Colors, color, print_error, print_header, print_info, print_success, print_warning
 from .config import CONFIG_FILE, load_config, save_config
+
+
+def _opencode_cli_model_list() -> list[tuple[str, str]]:
+    """Build the OpenCode free-model choices from the provider's live list.
+
+    Generated from ghostchimera.model_layer.opencode_cli_provider.KNOWN_FREE_MODELS
+    so the picker never offers a stale hardcoded free-model list.
+    """
+
+    from ..model_layer.opencode_cli_provider import KNOWN_FREE_MODELS
+
+    return [(f"{free_model} (free)", free_model) for free_model in KNOWN_FREE_MODELS] + [
+        ("Use a different model", "")
+    ]
 
 _MODEL_LISTS: dict[str, list[tuple[str, str]]] = {
     "openai": [
@@ -36,13 +50,8 @@ _MODEL_LISTS: dict[str, list[tuple[str, str]]] = {
         ("balanced (SmolLM2 1.7B, 4GB RAM)", "balanced"),
         ("stronger (Phi-3.5 mini, 6GB RAM)", "stronger"),
     ],
-    "opencode_cli": [
-        ("opencode/mimo-v2.5-free (free)", "opencode/mimo-v2.5-free"),
-        ("opencode/ling-3.0-flash-fin-free (free)", "opencode/ling-3.0-flash-fin-free"),
-        ("opencode/nemotron-3.5-lightning-free (free)", "opencode/nemotron-3.5-lightning-free"),
-        ("opencode/muse-spark-1.3-contributor-free (free)", "opencode/muse-spark-1.3-contributor-free"),
-        ("Use a different model", ""),
-    ],
+    # NOTE: "opencode_cli" is intentionally absent here; its model list is
+    # generated at selection time by _opencode_cli_model_list().
 }
 
 _PROVIDER_DISPLAY = {
@@ -104,9 +113,20 @@ def run_model_picker() -> None:
     new_provider = providers[idx]
     config["model"]["provider"] = new_provider
 
+    if new_provider == "opencode_cli":
+        from ..model_layer.opencode_cli_provider import (
+            FREE_TIER_DATA_USE_NOTICE,
+            opencode_setup_guidance,
+        )
+
+        print()
+        for line in opencode_setup_guidance():
+            print_warning(line)
+        print_warning(FREE_TIER_DATA_USE_NOTICE)
+
     # Show model list if available
-    if new_provider in _MODEL_LISTS:
-        models = _MODEL_LISTS[new_provider]
+    models = _opencode_cli_model_list() if new_provider == "opencode_cli" else _MODEL_LISTS.get(new_provider, [])
+    if models:
         print(f"\nModels for {_PROVIDER_DISPLAY[new_provider]}:")
         for i, (label, _name) in enumerate(models):
             print(f"  {i + 1}) {label}")

@@ -6,10 +6,14 @@ import unittest
 from unittest import mock
 
 from ghostchimera.model_layer.opencode_cli_provider import (
+    FREE_TIER_DATA_USE_NOTICE,
+    KNOWN_FREE_MODELS,
     OpenCodeCliProvider,
+    OpenCodeCliStatus,
     _extract_json_answer,
     get_opencode_cli_status,
     opencode_login_command,
+    opencode_setup_guidance,
 )
 
 
@@ -125,6 +129,191 @@ class OpenCodeCliProviderTests(unittest.TestCase):
         ):
             self.assertEqual(OpenCodeCliProvider().model, "opencode/custom-free")
         self.assertIn("free", OpenCodeCliProvider.default_model)
+
+
+def _available_status() -> mock.Mock:
+    return mock.Mock(available=True, logged_in=True, to_dict=lambda: {})
+
+
+class TimeoutHandlingTests(unittest.TestCase):
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.get_opencode_cli_status")
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.subprocess.run")
+    def test_chat_raises_operator_error_on_timeout(self, run_mock: mock.Mock, status_mock: mock.Mock) -> None:
+        status_mock.return_value = _available_status()
+        run_mock.side_effect = subprocess.TimeoutExpired(cmd=["opencode"], timeout=180)
+        provider = OpenCodeCliProvider()
+
+        with self.assertRaises(RuntimeError) as exc:
+            provider.chat("system", "user")
+
+        message = str(exc.exception)
+        self.assertIn("timed out", message)
+        self.assertIn("GHOSTCHIMERA_OPENCODE_TIMEOUT_SECONDS", message)
+
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.get_opencode_cli_status")
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.subprocess.run")
+    def test_chat_raises_operator_error_when_cli_cannot_launch(
+        self, run_mock: mock.Mock, status_mock: mock.Mock
+    ) -> None:
+        status_mock.return_value = _available_status()
+        run_mock.side_effect = OSError("noexec")
+        provider = OpenCodeCliProvider()
+
+        with self.assertRaises(RuntimeError) as exc:
+            provider.chat("system", "user")
+
+        self.assertIn("could not launch", str(exc.exception))
+
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.get_opencode_cli_status")
+    def test_invalid_timeout_env_raises_clear_error(self, status_mock: mock.Mock) -> None:
+        status_mock.return_value = _available_status()
+        for bad in ("abc", "0", "-5"):
+            with (
+                mock.patch.dict("os.environ", {"GHOSTCHIMERA_OPENCODE_TIMEOUT_SECONDS": bad}),
+                self.assertRaises(RuntimeError) as exc,
+            ):
+                OpenCodeCliProvider()
+            self.assertIn("GHOSTCHIMERA_OPENCODE_TIMEOUT_SECONDS", str(exc.exception))
+
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.get_opencode_cli_status")
+    def test_valid_timeout_env_is_honored(self, status_mock: mock.Mock) -> None:
+        status_mock.return_value = _available_status()
+        with mock.patch.dict("os.environ", {"GHOSTCHIMERA_OPENCODE_TIMEOUT_SECONDS": "45"}):
+            self.assertEqual(OpenCodeCliProvider().timeout_seconds, 45.0)
+
+
+class FreeModelRotationTests(unittest.TestCase):
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.get_opencode_cli_status")
+    def test_default_candidates_follow_known_free_list(self, status_mock: mock.Mock) -> None:
+        status_mock.return_value = _available_status()
+        with mock.patch.dict("os.environ", {}, clear=False):
+            provider = OpenCodeCliProvider()
+
+        self.assertEqual(provider.resolve_model_candidates(), list(KNOWN_FREE_MODELS))
+        self.assertEqual(provider.model, KNOWN_FREE_MODELS[0])
+
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.get_opencode_cli_status")
+    def test_explicit_non_free_model_is_never_silently_replaced(self, status_mock: mock.Mock) -> None:
+        status_mock.return_value = _available_status()
+        with mock.patch.dict("os.environ", {"GHOSTCHIMERA_OPENCODE_MODEL": "opencode/custom-paid"}):
+            provider = OpenCodeCliProvider()
+
+        self.assertEqual(provider.resolve_model_candidates(), ["opencode/custom-paid"])
+
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.get_opencode_cli_status")
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.subprocess.run")
+    def test_chat_falls_through_to_next_free_model_when_retired(
+        self, run_mock: mock.Mock, status_mock: mock.Mock
+    ) -> None:
+        status_mock.return_value = _available_status()
+        run_mock.side_effect = [
+            subprocess.CompletedProcess(
+                args=["opencode"],
+                returncode=1,
+                stdout="",
+                stderr="Error: model not found: opencode/mimo-v2.5-free",
+            ),
+            subprocess.CompletedProcess(
+                args=["opencode"],
+                returncode=0,
+                stdout=_ndjson(_text_event("fallback answer")),
+                stderr="",
+            ),
+        ]
+        with mock.patch.dict("os.environ", {"GHOSTCHIMERA_OPENCODE_MODEL": KNOWN_FREE_MODELS[0]}):
+            provider = OpenCodeCliProvider()
+
+        self.assertEqual(provider.chat("system", "user"), "fallback answer")
+        self.assertEqual(provider.last_model_used, KNOWN_FREE_MODELS[1])
+        attempted = [call.args[0][call.args[0].index("--model") + 1] for call in run_mock.call_args_list]
+        self.assertEqual(attempted, [KNOWN_FREE_MODELS[0], KNOWN_FREE_MODELS[1]])
+
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.get_opencode_cli_status")
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.subprocess.run")
+    def test_chat_does_not_retry_non_model_errors(self, run_mock: mock.Mock, status_mock: mock.Mock) -> None:
+        status_mock.return_value = _available_status()
+        run_mock.return_value = subprocess.CompletedProcess(
+            args=["opencode"], returncode=1, stdout="", stderr="Error: rate limited, slow down"
+        )
+        with mock.patch.dict("os.environ", {"GHOSTCHIMERA_OPENCODE_MODEL": KNOWN_FREE_MODELS[0]}):
+            provider = OpenCodeCliProvider()
+
+        with self.assertRaises(RuntimeError) as exc:
+            provider.chat("system", "user")
+
+        self.assertEqual(run_mock.call_count, 1)
+        self.assertIn("rate limited", str(exc.exception))
+
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.get_opencode_cli_status")
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.subprocess.run")
+    def test_exhausted_free_models_raise_actionable_error(
+        self, run_mock: mock.Mock, status_mock: mock.Mock
+    ) -> None:
+        status_mock.return_value = _available_status()
+        run_mock.return_value = subprocess.CompletedProcess(
+            args=["opencode"], returncode=1, stdout="", stderr="Error: unknown model"
+        )
+        with mock.patch.dict("os.environ", {"GHOSTCHIMERA_OPENCODE_MODEL": KNOWN_FREE_MODELS[0]}):
+            provider = OpenCodeCliProvider()
+
+        with self.assertRaises(RuntimeError) as exc:
+            provider.chat("system", "user")
+
+        message = str(exc.exception)
+        self.assertEqual(run_mock.call_count, len(KNOWN_FREE_MODELS))
+        self.assertIn("retired or unknown", message)
+        self.assertIn("GHOSTCHIMERA_OPENCODE_MODEL", message)
+
+
+class DataUseNoticeTests(unittest.TestCase):
+    def test_notice_warns_about_training_use(self) -> None:
+        self.assertIn("prompts", FREE_TIER_DATA_USE_NOTICE)
+        self.assertIn("confidential", FREE_TIER_DATA_USE_NOTICE)
+
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.get_opencode_cli_status")
+    def test_to_dict_surfaces_notice_and_last_model(self, status_mock: mock.Mock) -> None:
+        status_mock.return_value = _available_status()
+        provider = OpenCodeCliProvider()
+
+        payload = provider.to_dict()
+        self.assertEqual(payload["data_use_notice"], FREE_TIER_DATA_USE_NOTICE)
+        self.assertEqual(payload["last_model_used"], "")
+        self.assertEqual(payload["model_candidates"], list(KNOWN_FREE_MODELS))
+
+
+class SetupGuidanceTests(unittest.TestCase):
+    def test_missing_cli_guidance_covers_install_and_login(self) -> None:
+        lines = opencode_setup_guidance(
+            OpenCodeCliStatus(
+                available=False, logged_in=False, command="opencode", model="", detail=""
+            )
+        )
+
+        joined = "\n".join(lines)
+        self.assertIn("PATH", joined)
+        self.assertIn("opencode auth login", joined)
+        self.assertIn("docs/OPENCODE_FREE_TIER.md", joined)
+
+    def test_not_logged_in_guidance_points_at_login(self) -> None:
+        lines = opencode_setup_guidance(
+            OpenCodeCliStatus(
+                available=True, logged_in=False, command="opencode", model="", detail=""
+            )
+        )
+
+        joined = "\n".join(lines)
+        self.assertIn("opencode auth login", joined)
+        self.assertIn("never reads", joined)
+
+    def test_ready_cli_returns_no_guidance(self) -> None:
+        self.assertEqual(
+            opencode_setup_guidance(
+                OpenCodeCliStatus(
+                    available=True, logged_in=True, command="opencode", model="", detail=""
+                )
+            ),
+            [],
+        )
 
 
 if __name__ == "__main__":

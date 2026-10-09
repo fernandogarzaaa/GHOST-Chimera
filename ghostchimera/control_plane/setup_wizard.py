@@ -193,13 +193,9 @@ _PROVIDER_MODELS: dict[str, list[tuple[str, str]]] = {
         ("Nemotron 3 Super 120B (agentic reasoning)", "nvidia/nemotron-3-super-120b-a12b"),
         ("Use a different model", ""),
     ],
-    "opencode_cli": [
-        ("opencode/mimo-v2.5-free (free)", "opencode/mimo-v2.5-free"),
-        ("opencode/ling-3.0-flash-fin-free (free)", "opencode/ling-3.0-flash-fin-free"),
-        ("opencode/nemotron-3.5-lightning-free (free)", "opencode/nemotron-3.5-lightning-free"),
-        ("opencode/muse-spark-1.3-contributor-free (free)", "opencode/muse-spark-1.3-contributor-free"),
-        ("Use a different model", ""),
-    ],
+    # NOTE: opencode_cli models are generated at selection time from
+    # ghostchimera.model_layer.opencode_cli_provider.KNOWN_FREE_MODELS so the
+    # wizard never offers a stale hardcoded free-model list.
     "local": [
         ("tiny (Qwen2.5 0.5B, 2GB RAM)", "tiny"),
         ("balanced (SmolLM2 1.7B, 4GB RAM)", "balanced"),
@@ -234,6 +230,17 @@ def _setup_provider(config: dict) -> None:
     providers = ["free", "openai", "openrouter", "anthropic", "nebius", "opencode_cli", "custom", "local", "skip"]
     provider = providers[idx]
     config["model"]["provider"] = provider
+
+    if provider == "opencode_cli":
+        from ..model_layer.opencode_cli_provider import (
+            FREE_TIER_DATA_USE_NOTICE,
+            opencode_setup_guidance,
+        )
+
+        print()
+        for line in opencode_setup_guidance():
+            print_warning(line)
+        print_warning(FREE_TIER_DATA_USE_NOTICE)
 
     if provider == "skip":
         config["model"]["model"] = ""
@@ -306,8 +313,14 @@ def _setup_provider(config: dict) -> None:
             print_warning("  Skipped — will prompt for key at runtime")
 
     # Model selection
-    if provider in _PROVIDER_MODELS:
-        models = _PROVIDER_MODELS[provider]
+    if provider == "opencode_cli":
+        from ..model_layer.opencode_cli_provider import KNOWN_FREE_MODELS
+
+        models = [(f"{free_model} (free)", free_model) for free_model in KNOWN_FREE_MODELS]
+        models.append(("Use a different model", ""))
+    else:
+        models = _PROVIDER_MODELS.get(provider, [])
+    if models:
         model_idx = prompt_choice("Select a model:", [m[0] for m in models], 0)
         config["model"]["model"] = models[model_idx][1]
         print_success(f"  Model: {models[model_idx][0]}")
