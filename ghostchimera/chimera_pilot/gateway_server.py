@@ -26,6 +26,7 @@ from ..chimera_pilot.credential_pool import get_pool
 from ..chimera_pilot.toolsets import ToolsetManager
 from ..config import GhostChimeraConfig
 from ..logging_config import get_logger
+from ..trust_runtime import TrustRuntimeStore
 from .service_registry import BackgroundService, ServiceHealth
 
 logger = get_logger("gateway_server")
@@ -362,6 +363,10 @@ class GatewayServer(BackgroundService):
         self._toolset_manager = ToolsetManager()
         self._checkpoints = get_checkpoint_manager(self.config)
         self.routes = HttpRouteRegistry()
+        # Durable session snapshots live in the trust runtime store, keyed by
+        # session_id. Rehydration is lazy (see get_session): restarting the
+        # gateway costs nothing until a client reconnects.
+        self._session_store = TrustRuntimeStore(self.config.state_dir)
         self._register_builtin_routes()
 
     def _register_builtin_routes(self) -> None:
@@ -384,10 +389,31 @@ class GatewayServer(BackgroundService):
     def _handle_status(self, ctx: dict[str, Any]) -> dict[str, Any]:
         return self.status()
 
+    @staticmethod
+    def _stored_session_summary(record: dict[str, Any]) -> dict[str, Any]:
+        """Lean summary of a persisted (not currently live) session."""
+        messages = record.get("messages") or []
+        return {
+            "session_id": record.get("session_id"),
+            "created_at": record.get("created_at"),
+            "last_active": record.get("last_active"),
+            "updated_at": record.get("updated_at"),
+            "message_count": record.get("message_count", len(messages)),
+            "total_tokens": record.get("total_tokens", 0),
+            "is_connected": False,
+            "resumable": True,
+        }
+
     def _handle_list_sessions(self, ctx: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
-            sessions = [s.to_dict() for s in self._sessions.values()]
-        return {"sessions": sessions, "count": len(sessions)}
+            live = {session_id: session.to_dict() for session_id, session in self._sessions.items()}
+        merged = list(live.values())
+        stored = self._session_store.list_sessions().get("sessions", [])
+        for record in stored:
+            session_id = record.get("session_id")
+            if session_id not in live:
+                merged.append(self._stored_session_summary(record))
+        return {"sessions": merged, "count": len(merged)}
 
     def register_route(
         self,
@@ -437,12 +463,89 @@ class GatewayServer(BackgroundService):
         )
         with self._lock:
             self._sessions[session_id] = session
+        self._persist_session(session)
         logger.info("Created session %s", session_id)
         return session
 
     def get_session(self, session_id: str) -> GatewaySession | None:
         with self._lock:
-            return self._sessions.get(session_id)
+            session = self._sessions.get(session_id)
+        if session is not None:
+            return session
+        # Restore-on-restart: rehydrate a persisted session on demand.
+        return self._rehydrate_session(session_id)
+
+    def _session_payload(self, session: GatewaySession) -> dict[str, Any]:
+        """Build the durable snapshot for one gateway session."""
+        payload = session.agent.session.to_dict()
+        payload.update(
+            {
+                "message_count": session.message_count,
+                "created_at": session.created_at,
+                "last_active": session.last_active,
+                "is_connected": session.is_connected,
+            }
+        )
+        return payload
+
+    def _persist_session(self, session: GatewaySession) -> None:
+        """Atomically snapshot one session into the trust runtime store."""
+        try:
+            self._session_store.save_session(self._session_payload(session))
+        except Exception:  # noqa: BLE001 - persistence must never break a turn
+            logger.exception("Failed to persist session %s", session.session_id)
+
+    def _rehydrate_session(self, session_id: str) -> GatewaySession | None:
+        """Rebuild a gateway session from its durable snapshot, if one exists."""
+        payload = self._session_store.get_session(session_id)
+        if not payload:
+            return None
+        state = SessionState.from_dict(payload)
+        agent = AIAgent(
+            system_prompt=state.system_prompt,
+            config=self.config,
+            session=state,
+        )
+        session = GatewaySession(
+            session_id=session_id,
+            agent=agent,
+            credential_pool=self._credentials,
+            toolset_manager=self._toolset_manager,
+            created_at=float(payload.get("created_at") or time.time()),
+            last_active=float(payload.get("last_active") or time.time()),
+            message_count=int(payload.get("message_count") or 0),
+        )
+        session.is_connected = False
+        with self._lock:
+            existing = self._sessions.get(session_id)
+            if existing is not None:
+                return existing
+            self._sessions[session_id] = session
+        logger.info("Rehydrated session %s from durable store", session_id)
+        return session
+
+    def resume_session(self, session_id: str) -> dict[str, Any]:
+        """Reattach to a persisted session and return a resume receipt.
+
+        This is the gateway half of the RunResumeToken story: a dropped
+        WebSocket reconnects with its session_id and receives proof of
+        continuity (history depth, token totals) to verify against.
+        """
+        session = self.get_session(session_id)
+        if session is None:
+            return {"ok": False, "error": f"unknown session: {session_id}"}
+        return {
+            "ok": True,
+            "session_id": session_id,
+            "resume": {
+                "session_id": session_id,
+                "resume_from_message": session.message_count,
+                "reason": "reconnect",
+                "history_messages": len(session.agent.session.messages),
+                "total_tokens": session.agent.session.total_tokens,
+            },
+            "session": session.to_dict(),
+        }
 
     async def handle_client(self, websocket, session_id: str) -> None:
         """Handle a single WebSocket client connection."""
@@ -480,6 +583,17 @@ class GatewayServer(BackgroundService):
                             type="status",
                             session_id=session_id,
                             data=session.to_dict(),
+                        ).to_json()
+                    )
+                    continue
+
+                if msg.type == "resume":
+                    receipt = self.resume_session(session_id)
+                    await websocket.send(
+                        GatewayMessage(
+                            type="resume",
+                            session_id=session_id,
+                            data=receipt,
                         ).to_json()
                     )
                     continue
@@ -533,6 +647,9 @@ class GatewayServer(BackgroundService):
                     data={"error": str(exc)},
                 ).to_json()
             )
+        finally:
+            # Snapshot after every turn so a kill -9 loses at most one turn.
+            self._persist_session(session)
 
     def _resolve_ports(self) -> None:
         """Auto-select free ports so parallel consoles never overlap.

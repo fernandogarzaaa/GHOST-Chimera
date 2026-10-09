@@ -45,6 +45,41 @@ The `/api/console/stream` endpoint provides real-time output streaming:
 3. Each turn sends a JSON message: `{"type": "turn", "turn": N, "output": "..."}`
 4. Final message: `{"type": "done", "result": { ... }}`
 
+### Durable sessions
+
+Gateway sessions survive restarts. Every session snapshot (message history,
+token totals, compression count, confidence history, gateway bookkeeping) is
+persisted to the trust runtime store at
+`<state_dir>/trust_runtime/sessions.json` (see `TrustRuntimeStore.save_session`
+/ `get_session` / `list_sessions` / `delete_session`):
+
+- `create_session()` snapshots immediately; every agent turn re-snapshots in a
+  `finally` block, so a `kill -9` loses at most one turn.
+- Writes are atomic (temp file + rename) and **unredacted**: redaction would
+  corrupt message fidelity on resume. The state dir is local-only.
+- `get_session()` rehydrates lazily: a restarted gateway rebuilds the
+  `GatewaySession` + `AIAgent` from the snapshot the first time the
+  session id is requested, so restarts cost nothing until a client
+  reconnects.
+- `GET /sessions` merges live sessions with stored snapshots; stored-only
+  sessions are marked `"resumable": true`.
+- WebSocket message type `"resume"` (or `GatewayServer.resume_session()`)
+  returns a resume receipt: session id, `resume_from_message`, history depth,
+  and token totals, so a dropped client can verify continuity.
+
+`SessionState.to_dict()` / `from_dict()` / `save(store)` / `load(store, id)`
+in `ghostchimera/chimera_pilot/agent_loop.py` implement the serialization.
+
+### Audit state-dir decision
+
+Approval decisions made in the agent loop (`AIAgent._execute_tool_calls`)
+are appended to the same audit trail the connector write-gate path uses:
+`<state_dir>/audit/connector-audit.jsonl` (event `approval_decision`,
+provider `agent-loop`). The state dir resolves in this order: explicit
+`state_dir` constructor argument, then `config.state_dir`, then
+`~/.ghostchimera`. Pass `audit_trail=` to inject a custom sink (used by
+tests).
+
 ### Static File Serving
 
 The GatewayServer serves the Ghost Console static files from `ghostchimera/control_plane/static/`:
