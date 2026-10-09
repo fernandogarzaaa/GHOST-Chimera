@@ -174,12 +174,30 @@ def test_no_live_secrets_in_repo() -> None:
     seq_digit = re.compile(r"123|234|345|456|789|901")
     repo = Path(__file__).resolve().parents[1]
     hits: list[str] = []
-    skip_dirs = {".git", "__pycache__", ".pytest_cache", "node_modules"}
+    # Skip VCS, caches, local virtualenvs and build output: a contributor following
+    # CLAUDE.md (`python -m venv .venv` in the repo) otherwise makes this test scan
+    # every installed site-package, which hangs for minutes and flags vendored fixtures.
+    skip_dirs = {
+        ".git",
+        "__pycache__",
+        ".pytest_cache",
+        "node_modules",
+        ".venv",
+        "venv",
+        ".tox",
+        ".nox",
+        ".mypy_cache",
+        ".ruff_cache",
+        "build",
+        "dist",
+        "site",
+    }
     skip_files = {"test_agent_actions.py"}  # this module holds pattern literals, not keys
     for path in repo.rglob("*"):
         if not path.is_file() or path.name in skip_files:
             continue
-        if any(part in skip_dirs for part in path.parts):
+        rel_parts = path.relative_to(repo).parts
+        if any(part in skip_dirs or part.endswith(".egg-info") for part in rel_parts):
             continue
         if path.suffix not in {
             ".py",
