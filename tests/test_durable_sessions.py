@@ -353,3 +353,79 @@ class GatewayDurableSessionTests(unittest.TestCase):
         # The client still got an error frame.
         frames = [json.loads(raw) for raw in ws.sent]
         self.assertTrue(any(f["type"] == "error" for f in frames))
+
+
+class MutationHardeningTests(unittest.TestCase):
+    """Pin down defaults and fallback paths the mutation gate flagged."""
+
+    def test_from_dict_falsy_max_tokens_falls_back_to_default(self) -> None:
+        state = SessionState.from_dict({"session_id": "s", "max_tokens": 0})
+        self.assertEqual(state.max_tokens, 16384)
+
+    def test_from_dict_explicit_max_tokens_used(self) -> None:
+        state = SessionState.from_dict({"session_id": "s", "max_tokens": 8192})
+        self.assertEqual(state.max_tokens, 8192)
+
+    def test_from_dict_default_max_tokens_exact(self) -> None:
+        state = SessionState.from_dict({"session_id": "s"})
+        self.assertEqual(state.max_tokens, 16384)
+
+    def test_from_dict_falsy_started_at_falls_back(self) -> None:
+        state = SessionState.from_dict({"session_id": "s", "started_at": 0.0})
+        self.assertEqual(state.started_at, 0.0)
+        state2 = SessionState.from_dict({"session_id": "s", "started_at": 123.5})
+        self.assertEqual(state2.started_at, 123.5)
+
+    def test_agent_init_max_tool_rounds_explicit(self) -> None:
+        from ghostchimera.chimera_pilot.agent_loop import AIAgent
+        from ghostchimera.chimera_pilot.autonomy import get_autonomy_profile
+
+        agent = AIAgent(
+            model_name="t",
+            autonomy_profile=get_autonomy_profile("supervised"),
+            max_tool_rounds=3,
+        )
+        self.assertEqual(agent.max_tool_rounds, 3)
+
+    def test_agent_init_max_tool_rounds_defaults_to_profile(self) -> None:
+        from ghostchimera.chimera_pilot.agent_loop import AIAgent
+        from ghostchimera.chimera_pilot.autonomy import get_autonomy_profile
+
+        profile = get_autonomy_profile("supervised")
+        agent = AIAgent(model_name="t", autonomy_profile=profile)
+        self.assertEqual(agent.max_tool_rounds, profile.max_tool_rounds)
+
+    def test_agent_init_defaults(self) -> None:
+        from ghostchimera.chimera_pilot.agent_loop import AIAgent
+        from ghostchimera.chimera_pilot.autonomy import get_autonomy_profile
+
+        agent = AIAgent(model_name="t", autonomy_profile=get_autonomy_profile("supervised"))
+        self.assertEqual(agent.max_tokens, 16384)
+        self.assertEqual(agent.current_confidence, 0.0)
+
+    def test_gateway_init_bad_http_port_env_falls_back(self) -> None:
+        import os
+        from unittest.mock import patch
+
+        from ghostchimera.chimera_pilot.gateway_server import HTTP_PORT
+
+        with patch.dict(os.environ, {"GHOSTCHIMERA_HTTP_PORT": "notaport"}):
+            server = GatewayServer()
+        self.assertEqual(server.http_port, HTTP_PORT)
+
+    def test_persist_session_error_is_logged_not_raised(self) -> None:
+        from unittest.mock import patch
+
+        from ghostchimera.chimera_pilot.gateway_server import GatewayServer
+
+        with tempfile.TemporaryDirectory(prefix="ghost-mut-") as tmp:
+            config = dataclasses.replace(GhostChimeraConfig.from_env(), state_dir=tmp)
+            server = GatewayServer(config=config)
+            session = server.create_session("gw-mut-1")
+            with (
+                patch.object(server._session_store, "save_session", side_effect=RuntimeError("disk gone")),
+                self.assertLogs("ghostchimera.gateway_server", level="ERROR"),
+            ):
+                server._persist_session(session)
+            # The session still works; persistence failure never breaks a turn.
+            self.assertIsNotNone(server.get_session("gw-mut-1"))
