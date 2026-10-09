@@ -11,6 +11,7 @@ import json
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from ..cognition_layer.confidence import (
@@ -65,6 +66,20 @@ class Message:
             result["tokens"] = self.tokens
         return result
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Message:
+        """Rebuild a Message from :meth:`to_dict` output."""
+        if not isinstance(data, dict):
+            raise TypeError(f"Message.from_dict requires a dict, got {type(data).__name__}")
+        return cls(
+            role=str(data.get("role", "user")),
+            content=data.get("content", ""),
+            tool_calls=data.get("tool_calls"),
+            tool_call_id=data.get("tool_call_id"),
+            finish_reason=data.get("finish_reason"),
+            tokens=data.get("tokens"),
+        )
+
 
 @dataclass
 class SessionState:
@@ -99,6 +114,65 @@ class SessionState:
         if not self.confidence_history:
             return 0.0
         return sum(self.confidence_history[-n:]) / min(n, len(self.confidence_history))
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the full session, including message history and token state."""
+        return {
+            "session_id": self.session_id,
+            "system_prompt": self.system_prompt,
+            "model_name": self.model_name,
+            "max_tokens": self.max_tokens,
+            "messages": self.message_dicts(),
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "compression_count": self.compression_count,
+            "started_at": self.started_at,
+            "ended_at": self.ended_at,
+            "end_reason": self.end_reason,
+            "api_call_count": self.api_call_count,
+            "estimated_cost_usd": self.estimated_cost_usd,
+            "confidence_history": list(self.confidence_history),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SessionState:
+        """Rebuild a SessionState from :meth:`to_dict` output."""
+        if not isinstance(data, dict):
+            raise TypeError(f"SessionState.from_dict requires a dict, got {type(data).__name__}")
+        messages: list[Message] = []
+        for item in data.get("messages", []) or []:
+            if isinstance(item, dict):
+                messages.append(Message.from_dict(item))
+        return cls(
+            session_id=str(data.get("session_id", "")),
+            messages=messages,
+            system_prompt=str(data.get("system_prompt", "")),
+            model_name=str(data.get("model_name", "")),
+            max_tokens=int(data.get("max_tokens", 16384) or 16384),
+            prompt_tokens=int(data.get("prompt_tokens", 0) or 0),
+            completion_tokens=int(data.get("completion_tokens", 0) or 0),
+            total_tokens=int(data.get("total_tokens", 0) or 0),
+            compression_count=int(data.get("compression_count", 0) or 0),
+            started_at=float(data.get("started_at", 0.0) or 0.0),
+            ended_at=data.get("ended_at"),
+            end_reason=data.get("end_reason"),
+            api_call_count=int(data.get("api_call_count", 0) or 0),
+            estimated_cost_usd=float(data.get("estimated_cost_usd", 0.0) or 0.0),
+            confidence_history=list(data.get("confidence_history", []) or []),
+        )
+
+    def save(self, store: Any) -> dict[str, Any]:
+        """Persist this session to a TrustRuntimeStore. Returns the store receipt."""
+        return store.save_session(self.to_dict())
+
+    @classmethod
+    def load(cls, store: Any, session_id: str) -> SessionState | None:
+        """Load a persisted session from a TrustRuntimeStore. None when unknown."""
+        payload = store.get_session(session_id)
+        if not payload:
+            return None
+        return cls.from_dict(payload)
 
 
 @dataclass
@@ -206,6 +280,8 @@ class AIAgent:
         config: GhostChimeraConfig | None = None,
         session: SessionState | None = None,
         autonomy_profile: AutonomyProfile | None = None,
+        state_dir: str | Path | None = None,
+        audit_trail: Any | None = None,
     ):
         self.autonomy_profile = autonomy_profile or get_autonomy_profile_from_env()
         self.kernel = kernel or ChimeraPilotKernel.default()
@@ -236,6 +312,32 @@ class AIAgent:
         self._sessions: dict[str, SessionState] = {}
         self._active_session_id: str = session.session_id if session else "default"
         self._session = session or SessionState(session_id=self._active_session_id, system_prompt=system_prompt)
+
+        # Audit trail for agent-loop approval decisions. Resolved lazily so
+        # constructing an agent never touches the filesystem by itself.
+        self._explicit_state_dir = Path(state_dir).expanduser() if state_dir is not None else None
+        self._audit_trail = audit_trail
+
+    def _audit_trail_instance(self) -> Any:
+        """Return the AuditTrail for agent-loop approval decisions.
+
+        State-dir decision (documented, mirrors the connector write-gate
+        path): explicit ``state_dir`` argument first, then
+        ``config.state_dir``, then ``~/.ghostchimera``. Both paths therefore
+        append to the same file,
+        ``<state_dir>/audit/connector-audit.jsonl``.
+        """
+        if self._audit_trail is None:
+            from ..connectors.audit_trail import AuditTrail
+
+            state_dir = self._explicit_state_dir
+            if state_dir is None and self.config is not None:
+                configured = getattr(self.config, "state_dir", None)
+                state_dir = Path(configured).expanduser() if configured is not None else None
+            if state_dir is None:
+                state_dir = Path.home() / ".ghostchimera"
+            self._audit_trail = AuditTrail(state_dir)
+        return self._audit_trail
 
     @property
     def session(self) -> SessionState:
@@ -502,6 +604,24 @@ class AIAgent:
                     tool_def.get("requires_approval", False)
                 ):
                     approval_result = approve(name, args, requester=self._active_session_id)
+                    # Audit every decision (approved AND denied) before acting
+                    # on it, so denials are recorded even though they raise.
+                    # Fail-open: a broken audit trail must not turn an approved
+                    # tool call into an error.
+                    try:
+                        self._audit_trail_instance().record(
+                            "approval_decision",
+                            entity_id=self._active_session_id,
+                            provider="agent-loop",
+                            detail={
+                                "tool_name": name,
+                                "approved": approval_result.approved,
+                                "reason": approval_result.reason,
+                                "approver": approval_result.approver,
+                            },
+                        )
+                    except Exception:  # noqa: BLE001 - audit must never break a turn
+                        logger.exception("Failed to audit approval decision for %s", name)
                     if not approval_result.approved:
                         raise PermissionError(approval_result.reason)
                 handler = tool_def.get("handler")

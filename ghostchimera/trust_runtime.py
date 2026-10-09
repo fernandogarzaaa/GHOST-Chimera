@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -287,6 +288,12 @@ def build_tool_trust_envelope(
 class TrustRuntimeStore:
     """Persistent local storage for the Ghost trust runtime."""
 
+    # One lock per canonical sessions file, shared by every store instance
+    # in this process. Guards the read-modify-write sequences in
+    # save_session/delete_session so concurrent writers cannot lose updates.
+    _session_locks: dict[str, threading.Lock] = {}
+    _session_locks_guard = threading.Lock()
+
     def __init__(self, state_dir: str | Path) -> None:
         self.state_dir = Path(state_dir).expanduser()
         self.trust_dir = self.state_dir / "trust_runtime"
@@ -296,6 +303,7 @@ class TrustRuntimeStore:
         self.mcp_trust_path = self.trust_dir / "mcp_trust.json"
         self.eval_baseline_path = self.trust_dir / "trust_eval_baseline.json"
         self.eval_cases_path = self.trust_dir / "eval_cases.jsonl"
+        self.sessions_path = self.trust_dir / "sessions.json"
         self.trust_dir.mkdir(parents=True, exist_ok=True)
         self.runs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -578,6 +586,66 @@ class TrustRuntimeStore:
         ]
         items.sort(key=lambda item: float(item.get("requested_at") or 0), reverse=True)
         return {"ok": True, "approvals": items, "count": len(items)}
+
+    # ------------------------------------------------------------------
+    # Durable agent sessions
+    #
+    # Sessions are written UNREDACTED (redact=False): redaction would
+    # corrupt message fidelity and break resume. The state dir is
+    # local-only, same trust posture as the rest of trust_runtime.
+    # ------------------------------------------------------------------
+
+    def _session_lock(self) -> threading.Lock:
+        key = str(self.sessions_path.resolve())
+        with TrustRuntimeStore._session_locks_guard:
+            lock = TrustRuntimeStore._session_locks.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                TrustRuntimeStore._session_locks[key] = lock
+            return lock
+
+    def save_session(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Upsert one gateway/agent session snapshot, keyed by session_id."""
+        session_id = str(payload.get("session_id") or "")
+        if not session_id:
+            return {"ok": False, "error": "session_id is required"}
+        with self._session_lock():
+            sessions = self._load_json(self.sessions_path, {})
+            record = dict(payload)
+            record["updated_at"] = time.time()
+            sessions[session_id] = record
+            self._write_json(self.sessions_path, sessions, redact=False)
+        return {"ok": True, "session_id": session_id}
+
+    def get_session(self, session_id: str) -> dict[str, Any] | None:
+        """Return the stored snapshot for a session, or None when unknown."""
+        sessions = self._load_json(self.sessions_path, {})
+        record = sessions.get(str(session_id))
+        return dict(record) if isinstance(record, dict) else None
+
+    def list_sessions(self, *, limit: int = 100) -> dict[str, Any]:
+        """List stored session snapshots, most recently updated first."""
+        sessions = self._load_json(self.sessions_path, {})
+        ordered = sorted(
+            (record for record in sessions.values() if isinstance(record, dict)),
+            key=lambda record: float(record.get("updated_at") or 0),
+            reverse=True,
+        )
+        return {
+            "ok": True,
+            "sessions": ordered[: max(1, min(limit, 500))],
+            "count": len(sessions),
+        }
+
+    def delete_session(self, session_id: str) -> dict[str, Any]:
+        """Remove one stored session snapshot."""
+        with self._session_lock():
+            sessions = self._load_json(self.sessions_path, {})
+            if str(session_id) not in sessions:
+                return {"ok": False, "error": "unknown session"}
+            del sessions[str(session_id)]
+            self._write_json(self.sessions_path, sessions, redact=False)
+        return {"ok": True, "session_id": str(session_id)}
 
     def promote_run_to_eval_case(self, run_id: str, *, label: str = "", severity: str = "P2") -> dict[str, Any]:
         detail = self.get_run(run_id)
@@ -1062,10 +1130,11 @@ class TrustRuntimeStore:
             return default
         return data if isinstance(data, type(default)) else default
 
-    def _write_json(self, path: Path, payload: Any) -> None:
+    def _write_json(self, path: Path, payload: Any, *, redact: bool = True) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
+        body = _redact_value(payload) if redact else payload
         tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(_redact_value(payload), indent=2, sort_keys=True), encoding="utf-8")
+        tmp.write_text(json.dumps(body, indent=2, sort_keys=True), encoding="utf-8")
         tmp.replace(path)
 
 
