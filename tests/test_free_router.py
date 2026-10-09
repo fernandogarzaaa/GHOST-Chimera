@@ -227,19 +227,62 @@ def test_quota_reservations_hold_under_threads(tmp_path, monkeypatch) -> None:
             "note": "",
         },
     )
-    results: list = []
 
-    def attempt():
-        try:
-            router.chat("sys", "hi", tiers=["tiny"])
-            results.append("ok")
-        except RuntimeError:
-            results.append("denied")
+    # Repeat: the double-count race between _bump() and _release() only
+    # bites ~1% of single runs, so one pass cannot guard the invariant.
+    def race_once() -> list:
+        results: list = []
 
-    threads = [threading.Thread(target=attempt) for _ in range(10)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-    assert results.count("ok") == 3
-    assert router.used_today("tiny") == 3
+        def attempt():
+            try:
+                router.chat("sys", "hi", tiers=["tiny"])
+                results.append("ok")
+            except RuntimeError:
+                results.append("denied")
+
+        threads = [threading.Thread(target=attempt) for _ in range(10)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        return results
+
+    for _ in range(25):
+        router._usage = {}
+        router._pending = {}
+        router._save()
+        results = race_once()
+        assert results.count("ok") == 3
+        assert router.used_today("tiny") == 3
+
+
+def test_bump_converts_reservation_without_double_count(tmp_path, monkeypatch) -> None:
+    """_bump() must move the unit from pending to used atomically.
+
+    Regression test for the race where a quota unit sat in *both* counters
+    between _bump() and the finally: _release(), so racing threads saw a
+    phantom-full quota (used + pending at cap) and were wrongly denied.
+    """
+    _keys(monkeypatch, GROQ_API_KEY="q")
+    router, _ = _router(tmp_path, monkeypatch, {"groq": "ok"})
+    router.tiers = (
+        {
+            "tier": "tiny",
+            "provider": "groq",
+            "model": "m",
+            "key_env": "GROQ_API_KEY",
+            "trains_on_data": False,
+            "requests_per_day": 3,
+            "note": "",
+        },
+    )
+    assert router._reserve("tiny") is True
+    assert router._pending.get("tiny", 0) == 1
+    router._bump("tiny")
+    # The reservation converted to usage: exactly one unit outstanding, and
+    # the finally: _release() in chat() must not release it a second time.
+    assert router.used_today("tiny") == 1
+    assert router._pending.get("tiny", 0) == 0
+    router._release("tiny")
+    assert router._pending.get("tiny", 0) == 0
+    assert router.used_today("tiny") == 1
