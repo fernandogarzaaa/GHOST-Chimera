@@ -126,10 +126,7 @@ class HeadPreservationTests(unittest.TestCase):
         agent = make_agent()
         drive(agent, 16)
         messages = agent.session.messages
-        summaries = [
-            m for m in messages
-            if m.role == "system" and "[CONTEXT COMPACTION]" in str(m.content)
-        ]
+        summaries = [m for m in messages if m.role == "system" and "[CONTEXT COMPACTION]" in str(m.content)]
         self.assertEqual(len(summaries), 1)
         self.assertGreater(messages.index(summaries[0]), 2)
 
@@ -137,8 +134,7 @@ class HeadPreservationTests(unittest.TestCase):
         agent = make_agent()
         drive(agent, 16)
         summaries = [
-            m for m in agent.session.messages
-            if m.role == "system" and "[CONTEXT COMPACTION]" in str(m.content)
+            m for m in agent.session.messages if m.role == "system" and "[CONTEXT COMPACTION]" in str(m.content)
         ]
         self.assertEqual(len(summaries), 1)
         # A middle turn (turn 8) must appear in the summary text.
@@ -173,8 +169,7 @@ class CompressSessionBoundaryTests(unittest.TestCase):
     def _agent_with(self, n: int) -> AIAgent:
         agent = make_agent()
         agent.session.messages = [
-            Message(role="user" if i % 2 == 0 else "assistant", content=f"marker-{i}")
-            for i in range(n)
+            Message(role="user" if i % 2 == 0 else "assistant", content=f"marker-{i}") for i in range(n)
         ]
         return agent
 
@@ -227,14 +222,12 @@ class CompressSessionBoundaryTests(unittest.TestCase):
         agent = self._agent_with(60)  # middle = indices 3..53 (51 messages)
         agent._compress_session()
         summary = str(agent.session.messages[3].content)
-        self.assertIn("marker-52", summary)      # 50th middle message kept
-        self.assertNotIn("marker-53", summary)   # 51st middle message cut
+        self.assertIn("marker-52", summary)  # 50th middle message kept
+        self.assertNotIn("marker-53", summary)  # 51st middle message cut
 
     def test_list_content_with_non_dict_part(self) -> None:
         agent = self._agent_with(12)
-        agent.session.messages[4] = Message(
-            role="user", content=[{"text": "kept-text"}, "raw-string-part"]
-        )
+        agent.session.messages[4] = Message(role="user", content=[{"text": "kept-text"}, "raw-string-part"])
         agent._compress_session()  # mutant `or` would raise AttributeError here
         summary = str(agent.session.messages[3].content)
         self.assertIn("kept-text", summary)
