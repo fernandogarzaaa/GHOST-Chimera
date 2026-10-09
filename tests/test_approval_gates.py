@@ -78,9 +78,11 @@ class DefaultHandlerSelectionTests(unittest.TestCase):
 
     def test_auto_approve_requires_explicit_env(self):
         """Auto-approve only via explicit GHOSTCHIMERA_AUTO_APPROVE=1."""
-        with mock.patch.object(sys.stdin, "isatty", return_value=False):
-            with mock.patch.dict(os.environ, {AUTO_APPROVE_ENV: "1"}):
-                handler = get_default_handler()
+        with (
+            mock.patch.object(sys.stdin, "isatty", return_value=False),
+            mock.patch.dict(os.environ, {AUTO_APPROVE_ENV: "1"}),
+        ):
+            handler = get_default_handler()
         self.assertIsInstance(handler, AutoApproveHandler)
 
     def test_tty_defaults_to_console_prompt(self):

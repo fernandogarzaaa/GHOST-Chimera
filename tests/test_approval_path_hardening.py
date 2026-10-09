@@ -47,9 +47,11 @@ class ShredTempCopyTests(unittest.TestCase):
             handle.write(b"secret")
             tmp = handle.name
         try:
-            with mock.patch("os.remove", side_effect=PermissionError("denied")):
-                with self.assertRaises(BrowserVaultError):
-                    _shred_temp_copy(tmp)
+            with (
+                mock.patch("os.remove", side_effect=PermissionError("denied")),
+                self.assertRaises(BrowserVaultError),
+            ):
+                _shred_temp_copy(tmp)
             self.assertTrue(os.path.exists(tmp))
         finally:
             if os.path.exists(tmp):
@@ -109,9 +111,11 @@ class AuditTrailFailureTests(unittest.TestCase):
     def test_record_never_raises_but_logs(self):
         with tempfile.TemporaryDirectory() as state_dir:
             trail = AuditTrail(state_dir)
-            with mock.patch("builtins.open", side_effect=OSError("disk full")):
-                with self.assertLogs("ghostchimera.audit_trail", level="WARNING") as logs:
-                    trail.record("approval.denied", entity_id="e1")  # must not raise
+            with (
+                mock.patch("builtins.open", side_effect=OSError("disk full")),
+                self.assertLogs("ghostchimera.audit_trail", level="WARNING") as logs,
+            ):
+                trail.record("approval.denied", entity_id="e1")  # must not raise
         self.assertTrue(any("audit trail write failed" in m for m in logs.output))
 
     def test_record_unserializable_detail_does_not_raise(self):
@@ -186,24 +190,31 @@ class CheckEmailTests(unittest.TestCase):
             engine, auto_id = _make_engine_with_email_automation(state_dir)
             automation = engine._find_mutable(auto_id)
             rap, fi, cae = _mail_mocks()
-            with rap, fi, cae:
-                with mock.patch(
+            with (
+                rap,
+                fi,
+                cae,
+                mock.patch(
                     "ghostchimera.integrations.mail_basic.resolve_app_password",
                     side_effect=ValueError("nope"),
-                ):
-                    self.assertEqual(engine._check_email(automation), [])
+                ),
+            ):
+                self.assertEqual(engine._check_email(automation), [])
 
     def test_fetch_failure_returns_no_runs(self):
         with tempfile.TemporaryDirectory() as state_dir:
             engine, auto_id = _make_engine_with_email_automation(state_dir)
             automation = engine._find_mutable(auto_id)
             rap, fi, cae = _mail_mocks()
-            with rap, cae:
-                with mock.patch(
+            with (
+                rap,
+                cae,
+                mock.patch(
                     "ghostchimera.integrations.mail_basic.fetch_inbox",
                     side_effect=ValueError("nope"),
-                ):
-                    self.assertEqual(engine._check_email(automation), [])
+                ),
+            ):
+                self.assertEqual(engine._check_email(automation), [])
 
     def test_new_message_fires_run(self):
         with tempfile.TemporaryDirectory() as state_dir:
@@ -256,28 +267,34 @@ class CheckEmailTests(unittest.TestCase):
             engine, auto_id = _make_engine_with_email_automation(state_dir)
             automation = engine._find_mutable(auto_id)
             rap, fi, cae = _mail_mocks()
-            with rap, fi, cae:
-                with mock.patch.object(
+            with (
+                rap,
+                fi,
+                cae,
+                mock.patch.object(
                     AutomationsEngine,
                     "_find_mutable",
                     side_effect=AutomationError("gone"),
-                ):
-                    self.assertEqual(engine._check_email(automation), [])
+                ),
+            ):
+                self.assertEqual(engine._check_email(automation), [])
 
 
 class NotifyFailureTests(unittest.TestCase):
     def test_notify_logs_unavailable_engine(self):
         with tempfile.TemporaryDirectory() as state_dir:
             engine = AutomationsEngine(state_dir)
-            with mock.patch(
-                "ghostchimera.connectors.auth_engine.CustomAuthEngine",
-                side_effect=RuntimeError("boom"),
+            with (
+                mock.patch(
+                    "ghostchimera.connectors.auth_engine.CustomAuthEngine",
+                    side_effect=RuntimeError("boom"),
+                ),
+                self.assertLogs("ghostchimera.automations", level="WARNING") as logs,
             ):
-                with self.assertLogs("ghostchimera.automations", level="WARNING") as logs:
-                    result = engine._notify(
-                        {"name": "nightly"},
-                        {"run_id": "r1", "status": "complete", "summary": "ok"},
-                    )
+                result = engine._notify(
+                    {"name": "nightly"},
+                    {"run_id": "r1", "status": "complete", "summary": "ok"},
+                )
         self.assertIsNone(result)
         self.assertTrue(any("audit engine unavailable" in m for m in logs.output))
 
@@ -397,13 +414,15 @@ class AutomationFireTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as state_dir:
             engine, auto_id = _make_engine_with_log_automation(state_dir)
             record = engine._find_mutable(auto_id)
-            with mock.patch.object(
-                AutomationsEngine,
-                "_find_mutable",
-                side_effect=[record, AutomationError("gone")],
+            with (
+                mock.patch.object(
+                    AutomationsEngine,
+                    "_find_mutable",
+                    side_effect=[record, AutomationError("gone")],
+                ),
+                self.assertLogs("ghostchimera.automations", level="DEBUG") as logs,
             ):
-                with self.assertLogs("ghostchimera.automations", level="DEBUG") as logs:
-                    run = engine.fire(auto_id)
+                run = engine.fire(auto_id)
         self.assertEqual(run["status"], "complete")
         self.assertTrue(any("skipping bookkeeping" in m for m in logs.output))
 
