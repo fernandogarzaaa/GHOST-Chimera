@@ -345,13 +345,7 @@ def _main(argv: list[str] | None = None) -> int:
     trust_eval_cases.add_argument("--label", default="", help="Label for promoted eval case.")
     trust_eval_cases.add_argument("--severity", choices=["P0", "P1", "P2", "P3"], default="P2")
     trust_parser.add_argument("--state-dir", default="", help="Optional Trust Runtime state directory.")
-    identity_parser = sub.add_parser("identity", help="Show, initialize, or rotate the persistent agent identity")
-    identity_sub = identity_parser.add_subparsers(dest="identity_command")
-    identity_sub.add_parser("show", help="Show the current agent identity")
-    identity_init = identity_sub.add_parser("init", help="Initialize the agent identity (no-op if one exists)")
-    identity_init.add_argument("--name", default="", help="Human-readable agent name.")
-    identity_sub.add_parser("rotate", help="Rotate the agent identity id (keeps the name)")
-    identity_parser.add_argument("--state-dir", default="", help="Optional agent identity state directory.")
+    _add_identity_parser(sub)
     admission_parser = sub.add_parser("capability-admission", help="Inspect and approve capability admission records")
     admission_parser.add_argument(
         "action", choices=["list", "inspect", "approve", "activate", "revoke", "quarantine"], nargs="?", default="list"
@@ -1411,6 +1405,17 @@ def _run_live_presence_cli(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+def _add_identity_parser(sub) -> None:
+    """Register the ``identity`` subcommand (show|init|rotate) on the CLI."""
+    identity_parser = sub.add_parser("identity", help="Show, initialize, or rotate the persistent agent identity")
+    identity_sub = identity_parser.add_subparsers(dest="identity_command")
+    identity_sub.add_parser("show", help="Show the current agent identity")
+    identity_init = identity_sub.add_parser("init", help="Initialize the agent identity (no-op if one exists)")
+    identity_init.add_argument("--name", default="", help="Human-readable agent name.")
+    identity_sub.add_parser("rotate", help="Rotate the agent identity id (keeps the name)")
+    identity_parser.add_argument("--state-dir", default="", help="Optional agent identity state directory.")
+
+
 def _run_identity_cli(args: argparse.Namespace) -> int:
     from ..identity_store import IdentityStore
 
@@ -1420,11 +1425,17 @@ def _run_identity_cli(args: argparse.Namespace) -> int:
 
     if command == "show":
         identity = store.load()
-        print(json.dumps({
-            "ok": True,
-            "exists": identity is not None,
-            "identity": identity.to_dict() if identity is not None else None,
-        }, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "exists": identity is not None,
+                    "identity": identity.to_dict() if identity is not None else None,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
 
     if command == "init":
@@ -1434,11 +1445,17 @@ def _run_identity_cli(args: argparse.Namespace) -> int:
         if identity is None:
             identity = store.load_or_create(name=name)
             created = True
-        print(json.dumps({
-            "ok": True,
-            "created": created,
-            "identity": identity.to_dict(),
-        }, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "created": created,
+                    "identity": identity.to_dict(),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
 
     if command == "rotate":
