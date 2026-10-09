@@ -429,3 +429,160 @@ class MutationHardeningTests(unittest.TestCase):
                 server._persist_session(session)
             # The session still works; persistence failure never breaks a turn.
             self.assertIsNotNone(server.get_session("gw-mut-1"))
+
+
+class TrustRuntimeSessionMutationTests(unittest.TestCase):
+    """Kill the remaining trust_runtime mutants: init mkdirs, list limits, write formatting."""
+
+    def test_init_creates_missing_nested_directories(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-mut-") as tmp:
+            nested = str(Path(tmp) / "a" / "b" / "state")
+            store = TrustRuntimeStore(nested)
+            self.assertTrue(Path(nested).is_dir())
+            receipt = store.save_session({"session_id": "s1", "messages": []})
+            self.assertTrue(receipt["ok"])
+
+    def test_list_default_limit_is_100(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-mut-") as tmp:
+            store = TrustRuntimeStore(tmp)
+            payload = {f"s{i}": {"session_id": f"s{i}", "updated_at": float(i)} for i in range(101)}
+            store._write_json(store.sessions_path, payload, redact=False)
+            result = store.list_sessions()
+            self.assertEqual(len(result["sessions"]), 100)
+            self.assertEqual(result["count"], 101)
+
+    def test_list_missing_updated_at_sorts_as_zero(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-mut-") as tmp:
+            store = TrustRuntimeStore(tmp)
+            payload = {
+                "old": {"session_id": "old", "updated_at": 0.5},
+                "nokey": {"session_id": "nokey"},
+            }
+            store._write_json(store.sessions_path, payload, redact=False)
+            ids = [s["session_id"] for s in store.list_sessions()["sessions"]]
+            self.assertEqual(ids, ["old", "nokey"])
+
+    def test_list_caps_at_500(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-mut-") as tmp:
+            store = TrustRuntimeStore(tmp)
+            payload = {f"s{i}": {"session_id": f"s{i}", "updated_at": float(i)} for i in range(501)}
+            store._write_json(store.sessions_path, payload, redact=False)
+            result = store.list_sessions(limit=10**6)
+            self.assertEqual(len(result["sessions"]), 500)
+            self.assertEqual(result["count"], 501)
+
+    def test_write_json_creates_missing_parent(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-mut-") as tmp:
+            store = TrustRuntimeStore(tmp)
+            target = Path(tmp) / "newdir" / "sub" / "data.json"
+            store._write_json(target, {"b": 1, "a": 2})
+            self.assertTrue(target.is_file())
+
+    def test_write_json_uses_two_space_indent_and_sorted_keys(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ghost-mut-") as tmp:
+            store = TrustRuntimeStore(tmp)
+            target = Path(tmp) / "fmt.json"
+            store._write_json(target, {"z": 1, "a": {"y": 2, "b": 3}})
+            text = target.read_text(encoding="utf-8")
+            self.assertIn('{\n  "a": {', text)
+            self.assertLess(text.index('"a"'), text.index('"z"'))
+            self.assertLess(text.index('"b"'), text.index('"y"'))
+
+
+class ScriptedWebSocket(FakeWebSocket):
+    def __init__(self, messages: list[str], disconnect_exc: Exception | None = None) -> None:
+        super().__init__()
+        self._messages = list(messages)
+        self._disconnect_exc = disconnect_exc
+
+    def __aiter__(self):  # type: ignore[override]
+        return self
+
+    async def __anext__(self) -> str:
+        if self._messages:
+            return self._messages.pop(0)
+        if self._disconnect_exc is not None:
+            raise self._disconnect_exc
+        raise StopAsyncIteration
+
+
+def _gw_msg(msg_type: str, session_id: str, data: dict | None = None) -> str:
+    from ghostchimera.chimera_pilot.gateway_server import GatewayMessage
+
+    return GatewayMessage(type=msg_type, session_id=session_id, data=data or {}).to_json()
+
+
+class HandleClientTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory(prefix="ghost-handle-")
+        self.state_dir = Path(self._dir.name) / "state"
+        self.server = GatewayServer(config=_config(self.state_dir))
+
+    def tearDown(self) -> None:
+        self._dir.cleanup()
+
+    def test_creates_session_when_missing(self) -> None:
+        ws = ScriptedWebSocket([])
+        asyncio.run(self.server.handle_client(ws, "brand-new"))
+        session = self.server.get_session("brand-new")
+        self.assertIsNotNone(session)
+        assert session is not None
+        self.assertIn("WebSocket gateway", session.agent.session.system_prompt)
+        self.assertFalse(session.is_connected)
+
+    def test_reuses_existing_session(self) -> None:
+        self.server.create_session("existing")
+        ws = ScriptedWebSocket([])
+        asyncio.run(self.server.handle_client(ws, "existing"))
+        self.assertEqual(len(self.server._handle_list_sessions({})["sessions"]), 1)
+
+    def test_ping_gets_pong(self) -> None:
+        ws = ScriptedWebSocket([_gw_msg("ping", "s1")])
+        asyncio.run(self.server.handle_client(ws, "s1"))
+        frames = [json.loads(raw) for raw in ws.sent]
+        pongs = [f for f in frames if f["type"] == "pong"]
+        self.assertEqual(len(pongs), 1)
+        self.assertGreaterEqual(pongs[0]["data"]["latency"], 0)
+
+    def test_text_dispatches_to_agent(self) -> None:
+        session = self.server.create_session("s2")
+        session.agent.run = lambda message: "agent reply"  # type: ignore[method-assign]
+        ws = ScriptedWebSocket([_gw_msg("text", "s2", {"message": "hello"})])
+        asyncio.run(self.server.handle_client(ws, "s2"))
+        frames = [json.loads(raw) for raw in ws.sent]
+        texts = [f for f in frames if f["type"] == "text"]
+        self.assertEqual(len(texts), 1)
+        self.assertEqual(texts[0]["data"]["message"], "agent reply")
+
+    def test_status_returns_session_dict(self) -> None:
+        self.server.create_session("s3")
+        ws = ScriptedWebSocket([_gw_msg("status", "s3")])
+        asyncio.run(self.server.handle_client(ws, "s3"))
+        frames = [json.loads(raw) for raw in ws.sent]
+        statuses = [f for f in frames if f["type"] == "status"]
+        self.assertEqual(len(statuses), 1)
+        self.assertEqual(statuses[0]["data"]["session_id"], "s3")
+
+    def test_resume_returns_receipt(self) -> None:
+        session = self.server.create_session("s4")
+        session.agent.session.messages.append(Message(role="user", content="hi"))
+        ws = ScriptedWebSocket([_gw_msg("resume", "s4")])
+        asyncio.run(self.server.handle_client(ws, "s4"))
+        frames = [json.loads(raw) for raw in ws.sent]
+        resumes = [f for f in frames if f["type"] == "resume"]
+        self.assertEqual(len(resumes), 1)
+        self.assertEqual(resumes[0]["data"]["session_id"], "s4")
+        self.assertEqual(resumes[0]["data"]["resume"]["reason"], "reconnect")
+
+    def test_unknown_message_type_ignored(self) -> None:
+        ws = ScriptedWebSocket([_gw_msg("bogus", "s5"), _gw_msg("ping", "s5")])
+        asyncio.run(self.server.handle_client(ws, "s5"))
+        frames = [json.loads(raw) for raw in ws.sent]
+        self.assertTrue(any(f["type"] == "pong" for f in frames))
+
+    def test_disconnect_clears_connected_flag(self) -> None:
+        session = self.server.create_session("s6")
+        ws = ScriptedWebSocket([], disconnect_exc=RuntimeError("gone"))
+        with self.assertLogs("ghostchimera.gateway_server", level="WARNING"):
+            asyncio.run(self.server.handle_client(ws, "s6"))
+        self.assertFalse(session.is_connected)
