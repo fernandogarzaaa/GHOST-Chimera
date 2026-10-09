@@ -247,13 +247,18 @@ class FreeRouter:
         ]
 
     def _bump(self, tier: str) -> None:
-        day = _today()
-        self._usage.setdefault(day, {})
-        self._usage[day][tier] = self.used_today(tier) + 1
-        # Keep a rolling week, not unbounded history.
-        for old in sorted(self._usage)[:-7]:
-            del self._usage[old]
-        self._save()
+        # The reservation check in _reserve() is only atomic if the increment
+        # is too: without this lock, two threads can interleave setdefault /
+        # sorted(self._usage) and one dies with "dictionary changed size
+        # during iteration", losing a quota unit (and the request with it).
+        with self._lock:
+            day = _today()
+            self._usage.setdefault(day, {})
+            self._usage[day][tier] = self.used_today(tier) + 1
+            # Keep a rolling week, not unbounded history.
+            for old in sorted(self._usage)[:-7]:
+                del self._usage[old]
+            self._save()
 
     # -- routing ------------------------------------------------------------------
     def _tier_available(self, tier: dict[str, Any], *, sensitive: bool) -> tuple[bool, str]:
