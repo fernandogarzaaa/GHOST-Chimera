@@ -704,9 +704,7 @@ class AIAgent:
 
         self._session.messages = head + [summary_msg] + tail
         self._session.compression_count += 1
-        logger.info(
-            "Compressed session: %d -> %d messages", len(messages), len(self._session.messages)
-        )
+        logger.info("Compressed session: %d -> %d messages", len(messages), len(self._session.messages))
 
     def _track_usage(self, response: dict[str, Any]) -> None:
         """Track token usage from API response."""
