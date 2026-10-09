@@ -394,5 +394,66 @@ class InitAndSubprocessContractTests(unittest.TestCase):
         self.assertEqual(kwargs["env"]["NO_COLOR"], "1")
 
 
+class ModelUnavailableRegexTests(unittest.TestCase):
+    """The unavailable-model matcher must not fire on unrelated errors."""
+
+    def _provider(self) -> OpenCodeCliProvider:
+        with mock.patch(
+            "ghostchimera.model_layer.opencode_cli_provider.get_opencode_cli_status",
+            return_value=_available_status(),
+        ):
+            return OpenCodeCliProvider()
+
+    def _chat(self, provider: OpenCodeCliProvider, stderr: str) -> mock.Mock:
+        with (
+            mock.patch(
+                "ghostchimera.model_layer.opencode_cli_provider.subprocess.run",
+                return_value=subprocess.CompletedProcess(args=["opencode"], returncode=1, stdout="", stderr=stderr),
+            ) as run_mock,
+            mock.patch.dict("os.environ", {"GHOSTCHIMERA_OPENCODE_MODEL": KNOWN_FREE_MODELS[0]}),
+            self.assertRaises(RuntimeError),
+        ):
+            provider.chat("system", "user")
+        return run_mock
+
+    def test_service_not_available_does_not_retry(self) -> None:
+        run_mock = self._chat(self._provider(), "Error: service not available, try later")
+        self.assertEqual(run_mock.call_count, 1)
+
+    def test_quota_not_available_does_not_retry(self) -> None:
+        run_mock = self._chat(self._provider(), "Error: quota not available for this account")
+        self.assertEqual(run_mock.call_count, 1)
+
+    def test_model_retired_phrase_retries(self) -> None:
+        run_mock = self._chat(self._provider(), "Error: model 'mimo-v2.5-free' has been retired")
+        self.assertEqual(run_mock.call_count, len(KNOWN_FREE_MODELS))
+
+    def test_model_no_longer_available_phrase_retries(self) -> None:
+        run_mock = self._chat(self._provider(), "Error: model mimo-v2.5-free is no longer available")
+        self.assertEqual(run_mock.call_count, len(KNOWN_FREE_MODELS))
+
+
+class CleanExitNoAnswerTests(unittest.TestCase):
+    """A clean exit with no answer fails fast instead of misreporting retirement."""
+
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.get_opencode_cli_status")
+    @mock.patch("ghostchimera.model_layer.opencode_cli_provider.subprocess.run")
+    def test_clean_exit_no_answer_does_not_try_fallback_models(
+        self, run_mock: mock.Mock, status_mock: mock.Mock
+    ) -> None:
+        status_mock.return_value = _available_status()
+        run_mock.return_value = subprocess.CompletedProcess(args=["opencode"], returncode=0, stdout="", stderr="")
+        with mock.patch.dict("os.environ", {"GHOSTCHIMERA_OPENCODE_MODEL": KNOWN_FREE_MODELS[0]}):
+            provider = OpenCodeCliProvider()
+
+        with self.assertRaises(RuntimeError) as exc:
+            provider.chat("system", "user")
+
+        self.assertEqual(run_mock.call_count, 1)
+        message = str(exc.exception)
+        self.assertIn("returned no answer", message)
+        self.assertNotIn("retired or unknown", message)
+
+
 if __name__ == "__main__":
     unittest.main()

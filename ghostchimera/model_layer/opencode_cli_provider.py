@@ -53,8 +53,8 @@ KNOWN_FREE_MODELS: tuple[str, ...] = (
 _DEFAULT_TIMEOUT_SECONDS = 180.0
 
 _MODEL_UNAVAILABLE_RE = re.compile(
-    r"model not found|unknown model|invalid model|no longer available|"
-    r"retired|does not exist|not available",
+    r"model not found|unknown model|invalid model|"
+    r"model\b[^\n]{0,80}\b(?:no longer available|retired|does not exist|not available)",
     re.IGNORECASE,
 )
 
@@ -326,7 +326,14 @@ class OpenCodeCliProvider(BaseProvider):
                 if _looks_like_model_unavailable(detail):
                     continue
                 raise RuntimeError(f"OpenCode CLI provider failed: {detail}")
-            last_error = (result.stdout or "").strip() or "OpenCode CLI returned no answer."
+            # Clean exit but no answer: a CLI/output problem, not a retired
+            # model. Fail fast with the truth instead of burning through the
+            # remaining candidates and misreporting "retired or unknown".
+            raise RuntimeError(
+                f"OpenCode CLI provider returned no answer (model {model}, exit code 0). "
+                "The CLI exited cleanly but produced no text events, so no fallback "
+                "model was tried."
+            )
         raise RuntimeError(
             "OpenCode CLI provider failed: the configured free model appears to be "
             f"retired or unknown ({self.model}). Tried: "
