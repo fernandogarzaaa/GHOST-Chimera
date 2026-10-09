@@ -65,6 +65,7 @@ class DurableRun:
     ghost_path: str = ""
     model_provider: str = ""
     model_name: str = ""
+    identity_id: str = ""
     step_count: int = 0
     pending_approval_count: int = 0
 
@@ -316,6 +317,7 @@ class TrustRuntimeStore:
         ghost_path: str = "",
         model_provider: str = "",
         model_name: str = "",
+        identity_id: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         run_id = _stable_id(source, objective, _now(), length=20)
@@ -327,6 +329,7 @@ class TrustRuntimeStore:
             ghost_path=ghost_path,
             model_provider=model_provider,
             model_name=model_name,
+            identity_id=identity_id,
         )
         run_payload = run.to_dict()
         if metadata:
