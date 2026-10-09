@@ -27,13 +27,17 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from ..logging_config import get_logger
+
+logger = get_logger("automations")
+
 POLL_INTERVAL_S = 60.0
 EMAIL_CHECK_MIN_GAP_S = 300.0
 MAX_SEEN_UIDS = 200
 
 
 class AutomationError(RuntimeError):
-    pass
+    """Raised for unknown automation ids and invalid automation specs."""
 
 
 def _now() -> float:
@@ -265,7 +269,8 @@ class AutomationsEngine:
                     live["next_run_at"] = _next_cron_run(live["trigger"]["cron"])
                 self._save()
             except AutomationError:
-                pass
+                # Automation was deleted concurrently; per-run bookkeeping is moot.
+                logger.debug("skipping bookkeeping for concurrently deleted automation")
         self._record_run(run)
         self._notify(snapshot, run)
         return run
@@ -378,17 +383,20 @@ class AutomationsEngine:
             from .auth_engine import CustomAuthEngine
 
             engine = CustomAuthEngine(self.state_dir)
-            try:
-                engine.audit.record(
-                    "automation.ran",
-                    entity_id="console-user",
-                    provider=automation["name"][:60],
-                    detail={"run_id": run["run_id"], "status": run["status"], "summary": run["summary"][:200]},
-                )
-            finally:
-                _close_engine(engine)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Notification is best-effort, but a broken audit engine must be
+            # visible in logs rather than failing silently.
+            logger.warning("automation notify: audit engine unavailable: %s", exc)
+            return
+        try:
+            engine.audit.record(
+                "automation.ran",
+                entity_id="console-user",
+                provider=automation["name"][:60],
+                detail={"run_id": run["run_id"], "status": run["status"], "summary": run["summary"][:200]},
+            )
+        finally:
+            _close_engine(engine)
 
     # -- poller ----------------------------------------------------------------------
     def ensure_running(self) -> bool:
@@ -488,7 +496,8 @@ class AutomationsEngine:
                 live["last_check_at"] = _now()
                 self._save()
             except AutomationError:
-                pass
+                # Automation was deleted concurrently; uid bookkeeping is moot.
+                logger.debug("skipping uid bookkeeping for concurrently deleted automation")
             return runs
 
 

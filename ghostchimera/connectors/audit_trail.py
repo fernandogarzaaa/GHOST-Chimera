@@ -16,6 +16,10 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
+from ..logging_config import get_logger
+
+logger = get_logger("audit_trail")
+
 _FILENAME = "connector-audit.jsonl"
 _MAX_DETAIL_BYTES = 2048
 
@@ -39,14 +43,17 @@ class AuditTrail:
                     "detail": _redact(detail),
                 }
             )[:_MAX_DETAIL_BYTES]
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
+            # Unserializable or circular detail: drop the record, never crash.
             return
         with self._lock:
             try:
                 with open(self.path, "a", encoding="utf-8") as handle:
                     handle.write(payload + "\n")
-            except OSError:
-                pass
+            except OSError as exc:
+                # Best-effort: the audit trail must never crash its caller,
+                # but a lost audit write must be visible in logs, not silent.
+                logger.warning("audit trail write failed: %s", exc)
 
     def recent(self, *, limit: int = 50) -> list[dict[str, Any]]:
         limit = max(1, min(200, limit))

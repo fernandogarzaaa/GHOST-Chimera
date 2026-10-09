@@ -21,7 +21,7 @@ DEFAULT_PATH = "/callback"
 
 
 class LoopbackError(RuntimeError):
-    pass
+    """Raised when the OAuth loopback listener cannot start or complete."""
 
 
 class LoopbackListener:

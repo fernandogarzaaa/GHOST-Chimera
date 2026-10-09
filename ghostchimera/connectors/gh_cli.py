@@ -18,7 +18,7 @@ TIMEOUT_SECONDS = 15.0
 
 
 class GhCliError(RuntimeError):
-    pass
+    """Raised when the gh CLI is missing or a gh invocation fails."""
 
 
 def _gh_bin() -> str:

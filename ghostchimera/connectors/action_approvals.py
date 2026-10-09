@@ -25,7 +25,7 @@ MAX_BODY_BYTES = 8 * 1024
 
 
 class ActionApprovalError(RuntimeError):
-    pass
+    """Raised for malformed approval requests and ledger misuse."""
 
 
 def action_digest(provider: str, method: str, url: str, data: Any, scope: str = "") -> str:

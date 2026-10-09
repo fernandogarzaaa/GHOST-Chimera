@@ -46,7 +46,7 @@ LOGIN_ONLY_PROVIDERS = frozenset({"x"})
 
 
 class AuthEngineError(RuntimeError):
-    pass
+    """Base error for connector auth-engine failures."""
 
 
 class NeedsReauth(AuthEngineError):
@@ -58,7 +58,7 @@ class NeedsApproval(AuthEngineError):
 
 
 class UnknownProvider(AuthEngineError):
-    pass
+    """Raised when a provider id matches no known connector preset."""
 
 
 @dataclass(frozen=True)
@@ -483,7 +483,7 @@ class CustomAuthEngine:
                 if isinstance(entry, dict) and str(entry.get("client_id", "")).strip():
                     return str(entry["client_id"]).strip()
         except Exception:
-            pass
+            pass  # Fall through to the next credential source; a corrupt config must not break auth resolution.
         # 3. Shipped shared logins: one project-owned OAuth app per provider,
         #    so users get 1-click without registering anything. Desktop/native
         #    app type (PKCE, no secret) — safe to embed; see docs/CUSTOM_AUTH.md
@@ -506,7 +506,7 @@ class CustomAuthEngine:
             ):
                 return "saved"
         except Exception:
-            pass
+            pass  # Fall through to the next credential source; a corrupt config must not break auth resolution.
         if SHIPPED_CLIENT_IDS.get(preset_id):
             return "shared"
         return "none"
@@ -532,7 +532,7 @@ class CustomAuthEngine:
                 if isinstance(entry, dict) and str(entry.get("client_secret", "")).strip():
                     return str(entry["client_secret"]).strip()
         except Exception:
-            pass
+            pass  # Fall through to the next credential source; a corrupt config must not break auth resolution.
         return ""
 
     def client_secret_source(self, preset_id: str) -> str:
@@ -551,7 +551,7 @@ class CustomAuthEngine:
             ):
                 return "saved"
         except Exception:
-            pass
+            pass  # Fall through to the next credential source; a corrupt config must not break auth resolution.
         return "none"
 
     # -- Step 1: authorize URL ------------------------------------------------

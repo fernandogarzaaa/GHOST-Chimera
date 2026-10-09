@@ -27,7 +27,7 @@ _OAUTH_PREFERRED = ("github.com", "google.com", "slack.com", "notion.", "discord
 
 
 class CredentialImportError(ValueError):
-    pass
+    """Raised when a credential row cannot be parsed or mapped."""
 
 
 def _root_host(url: str) -> str:

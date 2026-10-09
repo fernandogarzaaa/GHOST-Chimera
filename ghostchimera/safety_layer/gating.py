@@ -2,10 +2,10 @@
 Safety Gating
 =============
 
-Defines functions to decide whether a task requires user approval.  In a
-production setting this module would implement policies around which
-operations may be executed autonomously and which require a human in the
-loop.
+Decides whether a task requires user approval and enforces the default-deny
+:class:`ExecutionPolicy` for high-impact local operations (shell, network,
+file reads/writes). Operations outside the policy are rejected with
+``PolicyViolation``; nothing here is advisory-only.
 """
 
 from __future__ import annotations

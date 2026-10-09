@@ -2,8 +2,10 @@
 
 Mirrors OpenClaw's ACP (Agent Conversation Protocol) approval surface.
 Tool calls that require human review are routed through an
-:class:`ApprovalHandler` before execution.  The default handler auto-approves
-calls that match the policy's trusted set and blocks everything else.
+:class:`ApprovalHandler` before execution. The default handler denies
+everything that is not in the policy's trusted set when running
+non-interactively, and prompts on the console when attached to a TTY.
+Auto-approve is only ever an explicit opt-in (``GHOSTCHIMERA_AUTO_APPROVE``).
 
 Usage::
 
@@ -336,11 +338,14 @@ def get_default_handler() -> ApprovalHandler:
     """
     global _default_handler
     if _default_handler is None:
+        # NOTE: resolve the policy BEFORE taking the lock. get_default_policy()
+        # takes _singleton_lock itself; nesting it here self-deadlocks a fresh
+        # process (threading.Lock is not reentrant).
+        policy = get_default_policy()
         with _singleton_lock:
             if _default_handler is None:
                 import sys
 
-                policy = get_default_policy()
                 if sys.stdin.isatty() and not _truthy(os.environ.get("GHOSTCHIMERA_AUTO_APPROVE")):
                     _default_handler = ConsoleApprovalHandler(policy)
                 elif _truthy(os.environ.get("GHOSTCHIMERA_AUTO_APPROVE")):

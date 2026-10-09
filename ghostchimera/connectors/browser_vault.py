@@ -19,6 +19,7 @@ the OS account-unlock/consent screen is the authorization boundary.
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import os
 import shutil
@@ -34,7 +35,7 @@ CONSENT_TEXT = (
 
 
 class BrowserVaultError(RuntimeError):
-    pass
+    """Raised when the browser login store cannot be read or cleaned up safely."""
 
 
 _BROWSERS = ("chrome", "brave", "edge")
@@ -128,6 +129,25 @@ def _decrypt_password(blob: bytes, key: bytes) -> str:
         raise BrowserVaultError(f"entry decrypt failed: {exc}") from exc
 
 
+def _shred_temp_copy(tmp: str) -> None:
+    """Overwrite then remove a temp copy of the browser login store.
+
+    Fail closed: if the file cannot be removed and still exists, raise
+    :class:`BrowserVaultError` so a lingering credential copy is never silent.
+    """
+    with contextlib.suppress(OSError):
+        size = os.path.getsize(tmp)
+        with open(tmp, "r+b") as handle:
+            handle.write(b"\x00" * size)
+    try:
+        os.remove(tmp)
+    except OSError as exc:
+        # Already gone is fine; anything else with the file still present
+        # is a credential-leak risk, so fail closed.
+        if not isinstance(exc, FileNotFoundError) and os.path.exists(tmp):
+            raise BrowserVaultError(f"could not remove temp credential copy: {exc}") from exc
+
+
 def _read_rows(db: Path, key: bytes, *, with_passwords: bool) -> list[dict[str, Any]]:
     fd, tmp = tempfile.mkstemp(prefix="ghost-logins-", suffix=".db")
     os.close(fd)
@@ -143,14 +163,8 @@ def _read_rows(db: Path, key: bytes, *, with_passwords: bool) -> list[dict[str, 
     except sqlite3.Error as exc:
         raise BrowserVaultError(f"cannot read login store (is the browser open? close it and retry): {exc}") from exc
     finally:
-        # Shred the temp copy regardless of outcome.
-        try:
-            size = os.path.getsize(tmp)
-            with open(tmp, "r+b") as handle:
-                handle.write(b"\x00" * size)
-            os.remove(tmp)
-        except OSError:
-            pass
+        # Shred the temp copy regardless of outcome; fail closed on leftovers.
+        _shred_temp_copy(tmp)
     out: list[dict[str, Any]] = []
     for index, (url, username, blob) in enumerate(rows):
         if not username and not blob:
