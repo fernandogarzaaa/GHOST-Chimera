@@ -28,6 +28,7 @@ Design notes
 
 from __future__ import annotations
 
+import functools
 import threading
 import time
 from dataclasses import dataclass
@@ -207,8 +208,14 @@ class DelegateTool:
             "requires_approval": True,
         }
 
-    def child_tool(self) -> DelegateTool | None:
-        """A delegate tool for the child at ``depth + 1``, or ``None`` at the cap."""
+    def child_tool(self, allowed_tools: list[str] | None = None) -> DelegateTool | None:
+        """A delegate tool for the child at ``depth + 1``, or ``None`` at the cap.
+
+        ``allowed_tools`` is the child's effective (already narrowed) tool
+        list. The nested delegate must not widen it back to the parent's
+        full allowance, or a child could grant its own children more tools
+        than it received itself.
+        """
         if self.depth + 1 >= self.max_depth:
             return None
         return DelegateTool(
@@ -217,7 +224,7 @@ class DelegateTool:
             depth=self.depth + 1,
             max_depth=self.max_depth,
             default_budget=self.default_budget,
-            allowed_tools=self.allowed_tools,
+            allowed_tools=self.allowed_tools if allowed_tools is None else allowed_tools,
             blocked_tools=self.blocked_tools,
             tool_registry=self.tool_registry,
             agent_factory=self.agent_factory,
@@ -230,7 +237,7 @@ class DelegateTool:
         requested = list(allowed_tools) if allowed_tools is not None else list(self.allowed_tools)
         effective = [name for name in requested if name not in self.blocked_tools]
         tools = [self.tool_registry[name] for name in effective if name in self.tool_registry]
-        nested = self.child_tool()
+        nested = self.child_tool(effective)
         if nested is not None:
             tools.append(nested.as_tool_dict())
         return tools
@@ -312,36 +319,60 @@ class DelegateTool:
         result_text = ""
         breach: str | None = None
         error: str | None = None
-        turns_taken = 0
-        tokens_used = 0
         outcome: dict[str, Any] = {}
         finished = threading.Event()
+        cancelled = threading.Event()
+
+        def _guarded(handler: Any) -> Any:
+            """Refuse child tool calls once the delegation is cancelled."""
+
+            @functools.wraps(handler)
+            def wrapper(**kwargs: Any) -> Any:
+                if cancelled.is_set():
+                    raise RuntimeError("delegation cancelled: wall-time budget exceeded")
+                return handler(**kwargs)
+
+            return wrapper
+
+        guarded_tools = []
+        for tool in child_tools:
+            if isinstance(tool, dict) and callable(tool.get("handler")):
+                tool = dict(tool)
+                tool["handler"] = _guarded(tool["handler"])
+            guarded_tools.append(tool)
 
         def _run_child() -> None:
             try:
-                outcome["value"] = agent.run(objective, child_tools)
+                outcome["value"] = agent.run(objective, guarded_tools)
             except Exception as exc:  # noqa: BLE001 — captured into the receipt
                 outcome["error"] = exc
             finally:
+                # Capture stats here, while the worker is still the only
+                # writer; reading them after a timeout would race.
+                session = getattr(agent, "session", None)
+                if session is not None:
+                    outcome["turns_taken"] = _session_stat(session, "turn_count")
+                    outcome["tokens_used"] = _session_stat(session, "total_tokens")
                 finished.set()
 
         # Daemon thread: on timeout the worker is abandoned, never joined,
         # so a runaway child cannot hang the parent process at exit.
+        # Cooperative cancellation (the `cancelled` event) stops the child
+        # from starting new tool calls after the parent has moved on.
         worker = threading.Thread(target=_run_child, daemon=True, name=f"delegate-{child_id}")
         worker.start()
         if not finished.wait(timeout=budget.timeout_seconds):
             breach = "timeout_seconds"
             error = f"delegation wall-time budget exceeded ({budget.timeout_seconds}s); child abandoned"
+            cancelled.set()
         elif "error" in outcome:
             error = f"child agent failed: {outcome['error']}"
         else:
             result_text = str(outcome.get("value", ""))
 
         duration = time.time() - start
-        session = getattr(agent, "session", None)
-        if session is not None:
-            turns_taken = _session_stat(session, "turn_count")
-            tokens_used = _session_stat(session, "total_tokens")
+        turns_taken = int(outcome.get("turns_taken", 0) or 0)
+        tokens_used = int(outcome.get("tokens_used", 0) or 0)
 
         if breach is None and tokens_used > budget.max_tokens:
             breach = "max_tokens"

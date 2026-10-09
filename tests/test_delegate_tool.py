@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 import threading
 import unittest
@@ -435,6 +436,48 @@ class DelegateHardeningTests(unittest.TestCase):
     def tearDown(self) -> None:
         os.environ.pop("GHOSTCHIMERA_AUDIT_KEY", None)
 
+    def test_nested_delegate_inherits_narrowed_allowance(self) -> None:
+        # CodeRabbit #110: the nested delegate tool must not widen the
+        # child's narrowed tool allowance back to the parent's full list.
+        registry = {
+            "read_file": {"name": "read_file", "handler": lambda **kw: "r"},
+            "write_file": {"name": "write_file", "handler": lambda **kw: "w"},
+        }
+        tool, _ = make_tool(tool_registry=registry)
+        child_tools = tool.build_child_tools(allowed_tools=["read_file"])
+        nested_dict = next(t for t in child_tools if t["name"] == "delegate")
+        nested_tool = nested_dict["handler"].__self__
+        self.assertEqual(nested_tool.allowed_tools, ["read_file"])
+        self.assertNotIn("write_file", nested_tool.allowed_tools)
+
+    def test_timed_out_child_tools_refuse_after_cancel(self) -> None:
+        # CodeRabbit #110: after a wall-time breach, the abandoned child
+        # must not be able to start new tool calls.
+        block = threading.Event()
+        seen_tools: list = []
+
+        def slow_factory(**kwargs):
+            agent = FakeAgent(block=block, block_seconds=30.0)
+
+            def run(objective, tools=None):
+                seen_tools.append(list(tools or []))
+                return agent.__class__.run(agent, objective, tools)
+
+            agent.run = run
+            return agent
+
+        registry = {"read_file": {"name": "read_file", "handler": lambda **kw: "r"}}
+        # MIN_TIMEOUT_SECONDS is 5; the child blocks 30s so the wait always breaches.
+        budget = DelegationBudget(timeout_seconds=5)
+        tool, _ = make_tool(factory=slow_factory, tool_registry=registry, default_budget=budget)
+        receipt = tool.delegate(objective="slow", allowed_tools=["read_file"])
+        self.assertFalse(receipt["success"])
+        self.assertIn("wall-time", receipt["error"])
+        block.set()
+        handler = next(t["handler"] for t in seen_tools[0] if t["name"] == "read_file")
+        with self.assertRaises(RuntimeError):
+            handler()
+
     def test_result_truncated_at_8000_chars(self) -> None:
         agent = FakeAgent(text="x" * 9000)
         tool, _ = make_tool(audit_file=self.audit_file, factory=lambda **kw: agent)
@@ -506,7 +549,15 @@ class DelegateHardeningTests(unittest.TestCase):
 class DelegateBuiltinRegistrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.mkdtemp()
+        self._old_state_dir = os.environ.get("GHOSTCHIMERA_STATE_DIR")
         os.environ["GHOSTCHIMERA_STATE_DIR"] = self.tmpdir
+
+    def tearDown(self) -> None:
+        if self._old_state_dir is None:
+            os.environ.pop("GHOSTCHIMERA_STATE_DIR", None)
+        else:
+            os.environ["GHOSTCHIMERA_STATE_DIR"] = self._old_state_dir
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_builtin_toolsets_include_delegation(self) -> None:
         registry = ToolsetRegistry()
