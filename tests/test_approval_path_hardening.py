@@ -543,6 +543,10 @@ class ReadRowsTests(unittest.TestCase):
             leftovers = [p for p in Path(tmp).iterdir() if p.name.startswith("ghost-logins-")]
         self.assertEqual(leftovers, [])
 
+    @unittest.skipUnless(
+        os.path.isdir("/proc/self/fd"),
+        "requires /proc/self/fd (Linux only)",
+    )
     def test_no_fd_leak(self):
         """mkstemp fd and sqlite connection must both be closed."""
         with tempfile.TemporaryDirectory() as tmp:
