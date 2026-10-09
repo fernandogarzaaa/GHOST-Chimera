@@ -606,17 +606,22 @@ class AIAgent:
                     approval_result = approve(name, args, requester=self._active_session_id)
                     # Audit every decision (approved AND denied) before acting
                     # on it, so denials are recorded even though they raise.
-                    self._audit_trail_instance().record(
-                        "approval_decision",
-                        entity_id=self._active_session_id,
-                        provider="agent-loop",
-                        detail={
-                            "tool_name": name,
-                            "approved": approval_result.approved,
-                            "reason": approval_result.reason,
-                            "approver": approval_result.approver,
-                        },
-                    )
+                    # Fail-open: a broken audit trail must not turn an approved
+                    # tool call into an error.
+                    try:
+                        self._audit_trail_instance().record(
+                            "approval_decision",
+                            entity_id=self._active_session_id,
+                            provider="agent-loop",
+                            detail={
+                                "tool_name": name,
+                                "approved": approval_result.approved,
+                                "reason": approval_result.reason,
+                                "approver": approval_result.approver,
+                            },
+                        )
+                    except Exception:  # noqa: BLE001 - audit must never break a turn
+                        logger.exception("Failed to audit approval decision for %s", name)
                     if not approval_result.approved:
                         raise PermissionError(approval_result.reason)
                 handler = tool_def.get("handler")

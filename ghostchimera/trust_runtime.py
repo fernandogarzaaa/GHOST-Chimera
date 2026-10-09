@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -286,6 +287,12 @@ def build_tool_trust_envelope(
 
 class TrustRuntimeStore:
     """Persistent local storage for the Ghost trust runtime."""
+
+    # One lock per canonical sessions file, shared by every store instance
+    # in this process. Guards the read-modify-write sequences in
+    # save_session/delete_session so concurrent writers cannot lose updates.
+    _session_locks: dict[str, threading.Lock] = {}
+    _session_locks_guard = threading.Lock()
 
     def __init__(self, state_dir: str | Path) -> None:
         self.state_dir = Path(state_dir).expanduser()
@@ -588,16 +595,26 @@ class TrustRuntimeStore:
     # local-only, same trust posture as the rest of trust_runtime.
     # ------------------------------------------------------------------
 
+    def _session_lock(self) -> threading.Lock:
+        key = str(self.sessions_path.resolve())
+        with TrustRuntimeStore._session_locks_guard:
+            lock = TrustRuntimeStore._session_locks.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                TrustRuntimeStore._session_locks[key] = lock
+            return lock
+
     def save_session(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Upsert one gateway/agent session snapshot, keyed by session_id."""
         session_id = str(payload.get("session_id") or "")
         if not session_id:
             return {"ok": False, "error": "session_id is required"}
-        sessions = self._load_json(self.sessions_path, {})
-        record = dict(payload)
-        record["updated_at"] = time.time()
-        sessions[session_id] = record
-        self._write_json(self.sessions_path, sessions, redact=False)
+        with self._session_lock():
+            sessions = self._load_json(self.sessions_path, {})
+            record = dict(payload)
+            record["updated_at"] = time.time()
+            sessions[session_id] = record
+            self._write_json(self.sessions_path, sessions, redact=False)
         return {"ok": True, "session_id": session_id}
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
@@ -622,11 +639,12 @@ class TrustRuntimeStore:
 
     def delete_session(self, session_id: str) -> dict[str, Any]:
         """Remove one stored session snapshot."""
-        sessions = self._load_json(self.sessions_path, {})
-        if str(session_id) not in sessions:
-            return {"ok": False, "error": "unknown session"}
-        del sessions[str(session_id)]
-        self._write_json(self.sessions_path, sessions, redact=False)
+        with self._session_lock():
+            sessions = self._load_json(self.sessions_path, {})
+            if str(session_id) not in sessions:
+                return {"ok": False, "error": "unknown session"}
+            del sessions[str(session_id)]
+            self._write_json(self.sessions_path, sessions, redact=False)
         return {"ok": True, "session_id": str(session_id)}
 
     def promote_run_to_eval_case(self, run_id: str, *, label: str = "", severity: str = "P2") -> dict[str, Any]:

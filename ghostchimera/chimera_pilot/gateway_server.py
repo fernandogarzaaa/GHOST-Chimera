@@ -500,7 +500,13 @@ class GatewayServer(BackgroundService):
         payload = self._session_store.get_session(session_id)
         if not payload:
             return None
-        state = SessionState.from_dict(payload)
+        try:
+            state = SessionState.from_dict(payload)
+        except (TypeError, ValueError):
+            # A corrupt snapshot must not fail the client connection; the
+            # record stays on disk for inspection and resume reports unknown.
+            logger.warning("Ignoring corrupt session snapshot %s", session_id)
+            return None
         agent = AIAgent(
             system_prompt=state.system_prompt,
             config=self.config,

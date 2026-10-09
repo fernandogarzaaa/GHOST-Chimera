@@ -586,3 +586,41 @@ class HandleClientTests(unittest.TestCase):
         with self.assertLogs("ghostchimera.gateway_server", level="WARNING"):
             asyncio.run(self.server.handle_client(ws, "s6"))
         self.assertFalse(session.is_connected)
+
+    def test_rehydrate_ignores_corrupt_snapshot(self) -> None:
+        # CodeRabbit #111: a corrupt snapshot must not fail the connection.
+        store = TrustRuntimeStore(str(self.state_dir))
+        store.save_session({"session_id": "corrupt", "messages": []})
+        payload = store.get_session("corrupt")
+        assert payload is not None
+        payload["max_tokens"] = "not-a-number"
+        store._write_json(store.sessions_path, {"corrupt": payload}, redact=False)
+        with self.assertLogs("ghostchimera.gateway_server", level="WARNING"):
+            self.assertIsNone(self.server._rehydrate_session("corrupt"))
+        self.assertIsNone(self.server.get_session("corrupt"))
+
+    def test_concurrent_save_sessions_lose_no_updates(self) -> None:
+        # The per-path lock guards read-modify-write across store instances.
+        import threading
+
+        store_a = TrustRuntimeStore(str(self.state_dir))
+        store_b = TrustRuntimeStore(str(self.state_dir))
+        errors: list = []
+
+        def save_many(store: TrustRuntimeStore, prefix: str) -> None:
+            try:
+                for i in range(25):
+                    store.save_session({"session_id": f"{prefix}-{i}", "messages": []})
+            except Exception as exc:  # noqa: BLE001 - collected, then asserted
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=save_many, args=(store_a, "a")),
+            threading.Thread(target=save_many, args=(store_b, "b")),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(TrustRuntimeStore(str(self.state_dir)).list_sessions()["count"], 50)

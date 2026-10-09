@@ -137,9 +137,11 @@ class ApprovalAuditTests(unittest.TestCase):
             config=None,
             state_dir=None,
         )
-        trail = agent._audit_trail_instance()
-        # Resolves without touching the filesystem.
+        # Keep the last-resort ~/.ghostchimera out of the runner's home.
+        with patch("pathlib.Path.home", return_value=Path(self._dir.name)):
+            trail = agent._audit_trail_instance()
         self.assertTrue(str(trail.path).endswith(".ghostchimera/audit/connector-audit.jsonl"))
+        self.assertEqual(trail.path.parent.parent.parent, Path(self._dir.name))
 
     def test_approval_exception_still_surfaces_as_tool_error(self) -> None:
         agent = self._agent()
@@ -149,3 +151,19 @@ class ApprovalAuditTests(unittest.TestCase):
         self.assertEqual(results[0]["status"], "error")
         self.assertIn("handler blew up", results[0]["content"])
         self.assertEqual(self._audit_lines(), [])
+
+    def test_broken_audit_trail_is_fail_open(self) -> None:
+        # CodeRabbit #111: an audit failure must not turn an approved
+        # tool call into an error.
+        class BrokenAudit:
+            def record(self, *args: Any, **kwargs: Any) -> None:
+                raise OSError("disk gone")
+
+        agent = self._agent(audit_trail=BrokenAudit())
+        with (
+            patch.object(agent_loop, "approve", return_value=ApprovalResult.allow()),
+            self.assertLogs("ghostchimera.agent_loop", level="ERROR"),
+        ):
+            results = agent._execute_tool_calls(self._call(), tools=[self._danger_tool()])
+        self.assertEqual(results[0]["status"], "success")
+        self.assertEqual(results[0]["content"], "wrote")
