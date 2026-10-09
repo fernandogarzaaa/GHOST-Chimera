@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -1109,11 +1110,14 @@ class ConsoleRouteTests(unittest.TestCase):
         missing = route.handler(
             {"method": "POST", "path": "/api/console/run", "headers": {}, "body": "{}", "query": {}}
         )
-        self.assertFalse(missing["ok"])
-        self.assertIn("objective", missing["error"])
+        # Missing objective -> 400 JSON error (HttpResponse, not a plain dict).
+        self.assertEqual(missing.status, 400)
+        missing_payload = json.loads(missing.body_bytes())
+        self.assertFalse(missing_payload["ok"])
+        self.assertIn("objective", missing_payload["error"])
         self.assertEqual(calls, [])
 
-        result = route.handler(
+        accepted = route.handler(
             {
                 "method": "POST",
                 "path": "/api/console/run",
@@ -1122,9 +1126,42 @@ class ConsoleRouteTests(unittest.TestCase):
                 "query": {},
             }
         )
-        self.assertTrue(result["ok"])
+        # Background job: 202 + run_id; the runner executes off the HTTP thread.
+        self.assertEqual(accepted.status, 202)
+        accepted_payload = json.loads(accepted.body_bytes())
+        self.assertTrue(accepted_payload["ok"])
+        run_id = accepted_payload["run_id"]
+        self.assertTrue(run_id)
+
+        deadline = time.time() + 15
+        history = None
+        while time.time() < deadline:
+            history_route = server.routes.find("GET", "/api/console/runs")
+            history = history_route.handler(
+                {"method": "GET", "path": "/api/console/runs", "headers": {}, "body": "", "query": {}}
+            )
+            match = next((r for r in history["runs"] if r["run_id"] == run_id), None)
+            if match is not None and match["status"] in ("completed", "failed", "cancelled"):
+                break
+            time.sleep(0.1)
+        self.assertIsNotNone(match)
+        self.assertEqual(match["status"], "completed")
         self.assertEqual(calls, ["summarize runtime status"])
-        self.assertEqual(result["executions"][0]["objective"], "summarize runtime status")
+        self.assertEqual(match["result"]["executions"][0]["objective"], "summarize runtime status")
+
+        # Cancel endpoint round-trip on a finished run.
+        cancel_route = server.routes.find("POST", "/api/console/runs/")
+        cancel_result = cancel_route.handler(
+            {
+                "method": "POST",
+                "path": f"/api/console/runs/{run_id}/cancel",
+                "headers": {},
+                "body": "",
+                "query": {},
+            }
+        )
+        self.assertTrue(cancel_result["ok"])
+        self.assertTrue(cancel_result["already_done"])
 
     def test_console_autonomy_route_persists_true_autonomy_toggle(self) -> None:
         with (

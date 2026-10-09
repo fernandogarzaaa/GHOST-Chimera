@@ -39,7 +39,6 @@ citation; **partial** = capability exists with a known hole;
 | §18–§19 | Cost/attention budgets | `ghostchimera/stealth/budgets.py` | `tests/test_budgets.py` (8 tests); cost side unmetered |
 | §24-adjacent | Approval requests | `ghostchimera/stealth/approvals.py` | `tests/test_approvals.py` (10 tests) |
 | §33-adjacent | Generated host files | `standing_context.py` (`write_if_changed`) | `tests/test_standing_context.py` |
-| §47 | This audit + matrix | `docs/ARCHITECTURE_AUDIT.md` | this file |
 
 ## Missing (verified absent)
 

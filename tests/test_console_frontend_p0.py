@@ -42,9 +42,11 @@ def test_csp_covers_console_assets() -> None:
     assert "object-src 'none'" in CONSOLE_CSP
     assert "frame-ancestors 'self'" in CONSOLE_CSP
     # No inline scripts exist, so script-src needs no 'unsafe-inline'.
+    # Both scripts are first-party assets (transport must load before app).
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert "<script src=" in html
-    assert html.count("<script") == 1
+    assert '<script src="/static/api_transport.js">' in html
+    assert '<script src="/static/app.js">' in html
+    assert html.count("<script") == 2
 
 
 def test_static_responses_carry_csp(tmp_path) -> None:
@@ -56,7 +58,9 @@ def test_static_responses_carry_csp(tmp_path) -> None:
     try:
         http_port = server._http_server.server_address[1] if server._http_server else server.http_port
         for path, content_type in (
-            ("/", "text/html"),
+            # "/" is served by console_page (the single "/" handler), not by
+            # _register_static_routes; the static shell asset keeps its CSP here.
+            ("/static/index.html", "text/html"),
             ("/static/app.js", "application/javascript"),
             ("/static/styles.css", "text/css"),
         ):

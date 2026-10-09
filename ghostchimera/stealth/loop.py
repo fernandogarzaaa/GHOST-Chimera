@@ -16,6 +16,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..logging_config import get_logger
 from .approvals import ApprovalQueue, ApprovalRequest
 from .attention import AttentionEngine, AttentionSignal
 from .budgets import ATTENTION_BUDGET, PROPOSAL_BUDGET, BudgetTracker
@@ -59,6 +60,8 @@ from .user_model import UserModel
 from .workflow_learner import WorkflowLearner
 from .world_state import WorldState
 
+logger = get_logger("stealth_loop")
+
 
 @dataclass
 class LoopResult:
@@ -87,6 +90,8 @@ class StealthLoop:
         own_runtime: bool = True,
         store: Any = None,
         computer_capability: ComputerCapability | None = None,
+        reasoner: Any | None = None,
+        grounding: Any | None = None,
     ) -> None:
         self.policy = policy or GhostPolicy.conservative_default()
         self.evaluator = StealthEvaluator(self.policy)
@@ -121,6 +126,13 @@ class StealthLoop:
         )
         self.computer.register(DelegatingComputerProvider(name="vision-last-resort", modality=ComputerModality.VISION))
         self.computer_capability = computer_capability or ComputerCapability()
+
+        # Optional cloud enhancements: Nemotron reasoning (Nebius Token
+        # Factory) and Tavily web grounding in the UNDERSTAND phase. Both
+        # default to None — the loop runs fully local unless the caller
+        # attaches them (see stealth.nemotron_reasoning.build_cloud_enhancements).
+        self._reasoner = reasoner
+        self._grounding = grounding
 
         self._experience: ExperienceState | None = None
         self._experience_stream: Any = None
@@ -186,6 +198,9 @@ class StealthLoop:
         intent_hypotheses = self.intent_engine.update(event, self.graph, self.learner)
         hypothesis = self.learner.match(list(history))
         preds = self.predictions.predict(list(history), hypothesis)
+        # UNDERSTAND-phase cloud enrichment (best-effort; never blocks the loop).
+        nemotron_insight = self._consult_nemotron_reasoner(event, hypothesis, preds)
+        web_context = self._consult_web_grounding(event)
         friction = self.friction_detector.observe(event, predicted_actions=[pred.action for pred in preds])
         self.attention.update_friction(friction.score)
         self._update_experience(event, perception_result, intent_hypotheses, friction)
@@ -221,6 +236,10 @@ class StealthLoop:
         governed = self.governor.govern(decision, workflow)
         decision = governed.decision
         trace = {**trace, "governance": governed.to_dict()}
+        if nemotron_insight:
+            trace["nemotron"] = nemotron_insight
+        if web_context:
+            trace["web_grounding"] = web_context
         requested_action = event.payload.get("computer_action")
         if isinstance(requested_action, dict) and decision == Decision.ACT:
             computer_use = self.request_computer_use(requested_action, workflow=workflow, dry_run=True)
@@ -319,6 +338,37 @@ class StealthLoop:
             intent=self.intent_engine.to_dict(),
             friction=friction.to_dict(),
         )
+
+    def _consult_nemotron_reasoner(self, event: Event, hypothesis: Any, preds: Any) -> dict[str, Any] | None:
+        """UNDERSTAND via Nemotron 3 on Nebius Token Factory (best-effort)."""
+        reasoner = self._reasoner
+        if reasoner is None or not getattr(reasoner, "available", False):
+            return None
+        try:
+            insight = reasoner.understand(event, hypothesis=hypothesis, predictions=preds)
+        except Exception as exc:
+            logger.warning("Nemotron reasoner failed: %s", exc)
+            return None
+        return insight if isinstance(insight, dict) else None
+
+    def _consult_web_grounding(self, event: Event) -> dict[str, Any] | None:
+        """UNDERSTAND-phase Tavily web grounding (best-effort).
+
+        Skipped when a Nemotron reasoner is attached and available — the
+        reasoner already grounds internally, so this avoids double web calls.
+        """
+        grounding = self._grounding
+        if grounding is None or not getattr(grounding, "available", False):
+            return None
+        reasoner = self._reasoner
+        if reasoner is not None and getattr(reasoner, "available", False):
+            return None
+        try:
+            grounded = grounding.ground_event(event)
+        except Exception as exc:
+            logger.warning("Tavily web grounding failed: %s", exc)
+            return None
+        return grounded if isinstance(grounded, dict) else None
 
     def _perceive(self, event: Event, level: PerceptionLevel):
         try:

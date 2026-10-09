@@ -78,7 +78,7 @@ from ..sandbox.journey import run_sandbox_journey
 from ..superiority import build_local_operator_summary, build_superiority_scorecard
 from ..tool_layer.browser import http_get
 from ..tool_layer.browser_workspace import AgentBrowserWorkspace
-from ..trust_runtime import TrustRuntimeStore
+from ..trust_runtime import TrustRuntimeStore, trust_run_scope
 from .browser_debug import ChromeDebugManager
 from .config import CONFIG_FILE, config_to_env_vars, get_autonomy_config, get_default_config, load_config, save_config
 from .conversation import ConversationalLoopController, ConversationStore, summarize_run_result
@@ -97,6 +97,7 @@ from .host_execution import CONFIRMATION_PHRASE, HostExecutionStore
 from .latency import latency_summary, record_latency_event
 from .live_presence import LivePresenceStore
 from .local_voice import LocalVoiceTranscriber
+from .run_jobs import ConsoleRunManager
 from .standing_orders import StandingOrderStore
 
 RunObjective = Callable[[str], dict[str, Any]]
@@ -297,6 +298,24 @@ def _redact_secret(value: str) -> str:
 def _is_secret_env_key(key: str) -> bool:
     marker = key.upper()
     return any(part in marker for part in ("API_KEY", "TOKEN", "SECRET", "PASSWORD"))
+
+
+# TTL cache for expensive, slowly-changing introspection data. The repo
+# capability walk and static asset reads must not run on every poll of the
+# dashboard endpoints.
+_INTROSPECTION_TTL_S = 60.0
+_ttl_cache: dict[str, tuple[float, Any]] = {}
+
+
+def _cached(key: str, loader: Callable[[], Any]) -> Any:
+    """Return the cached value for key, refreshing it via loader after the TTL."""
+    now = time.monotonic()
+    hit = _ttl_cache.get(key)
+    if hit is not None and now - hit[0] < _INTROSPECTION_TTL_S:
+        return hit[1]
+    value = loader()
+    _ttl_cache[key] = (now, value)
+    return value
 
 
 def _option_ids() -> set[str]:
@@ -553,6 +572,11 @@ def _json_body(ctx: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def _json_response(payload: dict[str, Any], *, status: int = 200) -> HttpResponse:
+    """Build a JSON HttpResponse with an explicit HTTP status code."""
+    return HttpResponse(body=json.dumps(payload), status=status, content_type="application/json")
+
+
 def _as_bool(value: Any, *, default: bool = False) -> bool:
     if value is None:
         return default
@@ -699,10 +723,20 @@ def _status_payload(server: GatewayServer) -> dict[str, Any]:
     profile = get_autonomy_profile(str(autonomy.get("level") or "supervised"))
     if "personal_context" not in autonomy:
         autonomy["personal_context"] = True
+    gateway = server.status()
+    # Trimmed gateway summary: session records and the route table are
+    # internal details and must not be exposed through /status.
     return {
         "ok": True,
         "timestamp": time.time(),
-        "gateway": server.status(),
+        "gateway": {
+            "host": gateway.get("host"),
+            "port": gateway.get("port"),
+            "http_port": gateway.get("http_port"),
+            "running": gateway.get("running"),
+            "session_count": gateway.get("session_count", 0),
+            "route_count": len(gateway.get("routes") or []),
+        },
         "runtime": GhostChimeraConfig.from_env().to_dict(),
         "autonomy": {
             "config": autonomy,
@@ -863,6 +897,7 @@ def register_console_routes(
     remote_store = RemoteControlStore(console_state_dir)
     standing_order_store = StandingOrderStore(console_state_dir)
     trust_store = TrustRuntimeStore(console_state_dir)
+    run_manager = ConsoleRunManager(max_concurrent=4)
     admission_store = CapabilityAdmissionStore(console_state_dir)
     conversation_store = ConversationStore(console_state_dir)
     live_presence_store = LivePresenceStore(console_state_dir, trust_store=trust_store)
@@ -1103,6 +1138,12 @@ def register_console_routes(
                 return item
         return None
 
+    # Console shell: the packaged static/index.html when present, otherwise the
+    # placeholder. console_page is the single "/" handler: it checks OAuth
+    # callback parameters first and serves this shell otherwise.
+    _shell_path = _static_dir() / "index.html"
+    _shell_html: str = _shell_path.read_text(encoding="utf-8") if _shell_path.is_file() else CONSOLE_HTML
+
     def console_page(ctx: dict[str, Any]) -> HttpResponse:
         query = ctx.get("query") or {}
         state = str(query.get("state") or "").strip()
@@ -1141,7 +1182,7 @@ def register_console_routes(
                 status=400,
                 content_type="text/html",
             )
-        return HttpResponse(body=CONSOLE_HTML, content_type="text/html; charset=utf-8")
+        return HttpResponse(body=_shell_html, content_type="text/html; charset=utf-8")
 
     def status(ctx: dict[str, Any]) -> dict[str, Any]:
         payload = _status_payload(server)
@@ -1817,67 +1858,97 @@ def register_console_routes(
         save_config(config)
         return {"ok": True, "autonomy": _status_payload(server)["autonomy"]}
 
-    def run(ctx: dict[str, Any]) -> dict[str, Any]:
+    def run(ctx: dict[str, Any]) -> HttpResponse:
+        """Start a Ghost objective as a background job (HTTP 202 + run_id).
+
+        Objectives can run for minutes; the HTTP worker thread must not block
+        on them now that the server is threaded. Poll GET /api/console/runs
+        (or /api/console/runs/<run_id>) for status, or cancel via
+        POST /api/console/runs/<run_id>/cancel.
+        """
         body = _json_body(ctx)
         objective = str(body.get("objective") or "").strip()
         if not objective:
-            return {"ok": False, "error": "Missing objective"}
+            return _json_response({"ok": False, "error": "Missing objective"}, status=400)
         trust_run = trust_store.create_run(
             agent_name="ghost_console",
             objective=objective,
             source="console",
             metadata={"route": "/api/console/run"},
         )
-        previous_trust_run_id = os.environ.get("GHOSTCHIMERA_TRUST_RUN_ID")
-        os.environ["GHOSTCHIMERA_TRUST_RUN_ID"] = trust_run["run_id"]
-        try:
+        run_id = trust_run["run_id"]
+        with trust_run_scope(run_id):
             trust_store.record_step(
-                trust_run["run_id"],
+                run_id,
                 step_type="goal_intake",
                 status="completed",
                 inputs={"objective": objective},
-                idempotency_key=f"{trust_run['run_id']}:goal-intake",
+                idempotency_key=f"{run_id}:goal-intake",
             )
-            result = objective_runner(objective)
-            ok = not (isinstance(result, dict) and result.get("ok") is False)
-            trust_store.record_step(
-                trust_run["run_id"],
-                step_type="execution_result",
-                status="completed" if ok else "failed",
-                outputs=result if isinstance(result, dict) else {"result": result},
-                idempotency_key=f"{trust_run['run_id']}:execution-result",
-            )
-            if isinstance(result, dict):
-                result.setdefault("trust_run", trust_store.get_run(trust_run["run_id"]))
-                result.setdefault("operator_report", summarize_run_result(result, ok=ok, objective=objective))
-                return result
-            payload = {"ok": True, "result": result, "trust_run": trust_store.get_run(trust_run["run_id"])}
-            payload["operator_report"] = summarize_run_result(payload, ok=True, objective=objective)
-            return payload
-        except PermissionError as exc:
-            trust_store.record_step(
-                trust_run["run_id"],
-                step_type="policy_check",
-                status="blocked",
-                outputs={"error": str(exc), "type": "permission"},
-                policy_decision={"decision": "blocked", "reason": str(exc)},
-                idempotency_key=f"{trust_run['run_id']}:permission-error",
-            )
-            return {"ok": False, "error": str(exc), "type": "permission"}
-        except Exception as exc:
-            trust_store.record_step(
-                trust_run["run_id"],
-                step_type="execution_result",
-                status="failed",
-                outputs={"error": str(exc), "type": "runtime"},
-                idempotency_key=f"{trust_run['run_id']}:runtime-error",
-            )
-            return {"ok": False, "error": str(exc), "type": "runtime"}
-        finally:
-            if previous_trust_run_id is None:
-                os.environ.pop("GHOSTCHIMERA_TRUST_RUN_ID", None)
-            else:
-                os.environ["GHOSTCHIMERA_TRUST_RUN_ID"] = previous_trust_run_id
+
+        def _execute() -> dict[str, Any]:
+            with trust_run_scope(run_id):
+                try:
+                    result = objective_runner(objective)
+                    ok = not (isinstance(result, dict) and result.get("ok") is False)
+                    trust_store.record_step(
+                        run_id,
+                        step_type="execution_result",
+                        status="completed" if ok else "failed",
+                        outputs=result if isinstance(result, dict) else {"result": result},
+                        idempotency_key=f"{run_id}:execution-result",
+                    )
+                    if isinstance(result, dict):
+                        result.setdefault("trust_run", trust_store.get_run(run_id))
+                        result.setdefault("operator_report", summarize_run_result(result, ok=ok, objective=objective))
+                        return result
+                    payload = {"ok": True, "result": result, "trust_run": trust_store.get_run(run_id)}
+                    payload["operator_report"] = summarize_run_result(payload, ok=True, objective=objective)
+                    return payload
+                except PermissionError as exc:
+                    trust_store.record_step(
+                        run_id,
+                        step_type="policy_check",
+                        status="blocked",
+                        outputs={"error": str(exc), "type": "permission"},
+                        policy_decision={"decision": "blocked", "reason": str(exc)},
+                        idempotency_key=f"{run_id}:permission-error",
+                    )
+                    return {"ok": False, "error": str(exc), "type": "permission"}
+                except Exception as exc:
+                    trust_store.record_step(
+                        run_id,
+                        step_type="execution_result",
+                        status="failed",
+                        outputs={"error": str(exc), "type": "runtime"},
+                        idempotency_key=f"{run_id}:runtime-error",
+                    )
+                    return {"ok": False, "error": str(exc), "type": "runtime"}
+
+        record = run_manager.submit(objective, _execute)
+        return _json_response(
+            {"ok": True, "run_id": record.run_id, "trust_run_id": run_id, "status": record.status},
+            status=202,
+        )
+
+    def console_runs(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Run history, newest first."""
+        return {"ok": True, "runs": run_manager.list()}
+
+    def console_run_action(ctx: dict[str, Any]) -> dict[str, Any] | HttpResponse:
+        """GET /api/console/runs/<run_id> -> status; POST .../cancel -> cancel."""
+        path = str(ctx.get("path") or "")
+        rest = path.split("/api/console/runs/", 1)[1] if "/api/console/runs/" in path else ""
+        run_id = rest.split("/", 1)[0].strip()
+        action = rest.split("/", 1)[1].strip().rstrip("/") if "/" in rest else ""
+        if not run_id:
+            return _json_response({"ok": False, "error": "Missing run_id"}, status=400)
+        if ctx.get("method") == "POST" and action == "cancel":
+            return run_manager.cancel(run_id)
+        record = run_manager.get(run_id)
+        if record is None:
+            return _json_response({"ok": False, "error": "Unknown run_id"}, status=404)
+        return {"ok": True, "run": record.to_dict()}
 
     def conversation_sessions(ctx: dict[str, Any]) -> dict[str, Any]:
         if ctx.get("method") == "GET":
@@ -2966,7 +3037,7 @@ def register_console_routes(
         return result
 
     def capabilities(ctx: dict[str, Any]) -> dict[str, Any]:
-        return inspect_capabilities()
+        return _cached("capabilities", inspect_capabilities)
 
     def role_profiles(ctx: dict[str, Any]) -> dict[str, Any]:
         from ..personalization.role_profiles import list_role_profiles
@@ -3047,7 +3118,7 @@ def register_console_routes(
         active_path = get_active_ghost_path(config_path=path_config_file)
         workspace_snapshot = workspace_store.snapshot()
         minimind = personal_minimind().status()
-        capability_payload = inspect_capabilities()
+        capability_payload = _cached("capabilities", inspect_capabilities)
         resolved_profile = status_payload.get("autonomy", {}).get("resolved_profile", {})
         capability_count = len(capability_payload.get("capabilities") or [])
         covered_count = sum(
@@ -3717,14 +3788,18 @@ def register_console_routes(
         }
 
     def _superiority_payload(summary: dict[str, Any]) -> dict[str, Any]:
-        static_dir = Path(__file__).resolve().parent / "static"
-        html_text = ""
-        app_text = ""
-        with contextlib.suppress(OSError):
-            html_text = (static_dir / "index.html").read_text(encoding="utf-8")
-        with contextlib.suppress(OSError):
-            app_text = (static_dir / "app.js").read_text(encoding="utf-8")
-        capability_payload = inspect_capabilities(Path(__file__).resolve().parents[2])
+        def _read_static(name: str) -> str:
+            static_dir = Path(__file__).resolve().parent / "static"
+            with contextlib.suppress(OSError):
+                return (static_dir / name).read_text(encoding="utf-8")
+            return ""
+
+        html_text = _cached("static:index.html", lambda: _read_static("index.html"))
+        app_text = _cached("static:app.js", lambda: _read_static("app.js"))
+        capability_payload = _cached(
+            "capabilities:repo-root",
+            lambda: inspect_capabilities(Path(__file__).resolve().parents[2]),
+        )
         routes = [str(route.get("path") or "") for route in server.routes.list_all()]
         return build_superiority_scorecard(
             operator_summary=summary,
@@ -5637,7 +5712,24 @@ def register_console_routes(
         prefix=True,
         description="Update, run, or delete autonomy schedule",
     )
-    _api_register("/api/console/run", run, method="POST", description="Run a Ghost objective")
+    _api_register(
+        "/api/console/run", run, method="POST", description="Run a Ghost objective (background job, 202 + run_id)"
+    )
+    _api_register("/api/console/runs", console_runs, method="GET", description="Console run history (background jobs)")
+    _api_register(
+        "/api/console/runs/",
+        console_run_action,
+        method="GET",
+        prefix=True,
+        description="Console run status by run_id",
+    )
+    _api_register(
+        "/api/console/runs/",
+        console_run_action,
+        method="POST",
+        prefix=True,
+        description="Cancel a console run (/api/console/runs/<run_id>/cancel)",
+    )
     _api_register(
         "/api/console/browser/fetch",
         browser_fetch,
@@ -5859,7 +5951,7 @@ def run_console(
         # The value itself is never printed: it would leak into terminal
         # scrollback, Docker logs, CI logs, and support captures. The
         # operator already holds it (argument, file, or environment).
-        print("Auth token required — set the X-Gateway-Token header (and ?token= for WebSocket).")
+        print("Auth token required — set the X-Gateway-Token header (or Authorization: Bearer).")
     if open_browser:
         webbrowser.open(url)
     if block:
@@ -5898,6 +5990,7 @@ CONSOLE_CSP = (
     "script-src 'self'; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data:; "
+    "media-src 'self' data:; "  # TTS replies arrive as base64 MP3 data: URLs
     "connect-src 'self'; "
     "object-src 'none'; "
     "base-uri 'self'; "
@@ -5909,12 +6002,18 @@ def _register_static_routes(server: GatewayServer) -> None:
     """
     Register HTTP routes that serve packaged static console assets.
 
-    If a "static" directory exists next to this module, this function registers GET routes for any of the files index.html, app.js, and styles.css that are present. index.html is exposed at "/" and "/console"; each asset is exposed at "/static/<filename>" with an appropriate Content-Type header. If the static directory is missing, the function is a no-op.
+    If a "static" directory exists next to this module, this function registers GET routes for any of the files
+    index.html, app.js, api_transport.js, and styles.css that are present; each asset is exposed at
+    "/static/<filename>" with an appropriate Content-Type header. The "/" and "/console" paths are NOT
+    registered here: console_page (registered by register_console_routes) is the single handler for "/",
+    and it serves the static shell itself after checking for OAuth callback parameters. Registering "/"
+    here as well would shadow the OAuth callback because the route registry returns the first match.
+    If the static directory is missing, this function is a no-op.
     """
     base = _static_dir()
     if not base.is_dir():
         return
-    for rel in ("index.html", "app.js", "styles.css"):
+    for rel in ("index.html", "app.js", "api_transport.js", "styles.css"):
         full = base / rel
         if not full.is_file():
             continue
@@ -5922,6 +6021,7 @@ def _register_static_routes(server: GatewayServer) -> None:
         ct = {
             "index.html": "text/html; charset=utf-8",
             "app.js": "application/javascript; charset=utf-8",
+            "api_transport.js": "application/javascript; charset=utf-8",
             "styles.css": "text/css; charset=utf-8",
         }.get(rel, "application/octet-stream")
 
@@ -5940,13 +6040,10 @@ def _register_static_routes(server: GatewayServer) -> None:
                 body=data, content_type=ct_, headers={"Content-Security-Policy": CONSOLE_CSP}
             )
 
-        if rel == "index.html":
-            server.routes.register(
-                "/", make_handler(body, ct), method="GET", auth="open", description="Ghost Console static page"
-            )
-            server.routes.register(
-                "/console", make_handler(body, ct), method="GET", auth="open", description="Ghost Console static page"
-            )
+        # NOTE: "/" and "/console" are intentionally NOT registered here.
+        # console_page is the single "/" handler: it checks OAuth callback
+        # parameters first and serves index.html as the shell otherwise.
+        # (First-match routing would otherwise shadow the OAuth callback.)
         server.routes.register(
             "/static/" + rel, make_handler(body, ct), method="GET", auth="open", description="Static asset"
         )

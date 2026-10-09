@@ -14,9 +14,15 @@ This is beta-stage software for real, user-supervised work in local-first enviro
 ## Install
 
 ```bash
-pip install "ghostchimera[all]"   # Python: everything included
+pip install ghostchimera            # Python: headless core, installs in seconds
+pip install "ghostchimera[all]"     # Python: every backend (slow, see note below)
 brew tap fernandogarzaaa/ghostchimera && brew install --HEAD ghostchimera
 ```
+
+> **Install time:** the `[all]` extra pulls every backend (desktop, local models, MCP, voice, quantum),
+> including large ML and native packages (torch, transformers, llama-cpp-python, the voice stack).
+> It can take well over 10 minutes on a typical connection. New users should start with the base
+> package and add only the extras they need, for example `pip install "ghostchimera[mcp,gateway]"`.
 
 Full matrix (extras, publishing): [docs/INSTALL.md](docs/INSTALL.md)
 
@@ -83,6 +89,75 @@ Full walkthrough with use cases, everyday recipes, and the safety model: **[docs
 2. **Chimera Pilot does.** Approved objectives compile into steps across deterministic, local-model, browser, and desktop backends — dry-runnable before anything touches the world.
 3. **Trust Runtime keeps receipts.** Every run, approval, and outcome is journaled locally and replayable.
 
+## Cloud reasoning: NVIDIA Nemotron on Nebius Token Factory
+
+Ghost stays local-first by default, but the Stealth Loop can consult NVIDIA's
+open Nemotron models in the cloud when you want deeper understanding than the
+deterministic engines provide.
+
+**Where Token Factory accelerates the workflow** — the optional
+`NemotronReasoner` (`ghostchimera/stealth/nemotron_reasoning.py`) plugs into
+the Stealth Loop's UNDERSTAND and PREDICT phases:
+
+- **UNDERSTAND** — Nemotron 3 Nano (`nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`) interprets
+  an observation and returns a structured read (intent, confidence, suggested
+  workflow, risk flags). Fast and cheap, so it can run per high-value event.
+- **PREDICT** — Nemotron 3 Super (`nvidia/nemotron-3-super-120b-a12b`) sharpens
+  next-action predictions with real reasoning when the loop needs it.
+- Insights land in the loop's trace (`trace["nemotron"]`) and in intervention
+  provenance. Anything classified `secret` is never sent to the cloud, and a
+  failed cloud call degrades silently to the local loop.
+
+**Setup** — get a key at <https://console.nebius.com> (Token Factory → API
+keys; free credits via the Nebius Builder Program), then:
+
+```bash
+export NEBIUS_API_KEY="..."
+export NEBIUS_MODEL="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"   # optional override
+```
+
+Or pick **Nebius Token Factory** in the setup wizard / model picker
+(`NEBIUS_API_KEY` + `NEBIUS_MODEL` are the env vars). Attach the reasoner
+programmatically:
+
+```python
+from ghostchimera.stealth import StealthLoop, build_cloud_enhancements
+
+reasoner, grounding = build_cloud_enhancements()  # (None, None) without keys
+loop = StealthLoop(reasoner=reasoner, grounding=grounding)
+```
+
+**Web grounding with Tavily** — when an event asks for fresh facts
+(`payload["ground_with_web"]` or a research/news-style event), the UNDERSTAND
+phase grounds it through Tavily, MCP-first:
+
+1. Remote Tavily MCP server (`https://mcp.tavily.com/mcp`, `tavily-search` /
+   `tavily-extract`) via the stdlib MCP client in `ghostchimera/mcp/mcp_protocol.py`
+2. Local `tavily-mcp` over stdio (`npx -y tavily-mcp`)
+3. Direct REST fallback (`POST https://api.tavily.com/search`)
+
+```bash
+export TAVILY_API_KEY="..."   # get one at https://tavily.com
+# optional: TAVILY_MCP_MODE=auto|remote|local|rest (default: auto)
+```
+
+**Observability (optional)** — Nebius chat completions and Tavily
+search/extract calls can be traced to [LangSmith](https://smith.langchain.com)
+with zero new dependencies (a stdlib-only client posts to the LangSmith
+ingest API; the SDK is not required and not installed). Tracing is strictly
+opt-in: with no `LANGSMITH_API_KEY` set, nothing changes.
+
+```bash
+export LANGSMITH_API_KEY="..."          # from https://smith.langchain.com
+export LANGSMITH_PROJECT="ghost-chimera-hackathon"  # optional, this is the default
+export LANGSMITH_TRACING=1              # set to 0 to disable while keeping the key
+```
+
+Traced runs show up as `nebius.chat_completion`, `tavily.search`, and
+`tavily.extract` with the model, query, transport (MCP remote/local or REST),
+and result counts. API keys are never included in run payloads, and a tracing
+outage can never break the traced call.
+
 ## Why Ghost
 
 - **Memory that compounds** across every session and every agent you use.
@@ -96,13 +171,15 @@ Full walkthrough with use cases, everyday recipes, and the safety model: **[docs
 - **Computer use** — browser (console-managed debuggable Chrome), desktop (PyAutoGUI), and vision hierarchy with capability allowlists, risk classification, and explicit approvals.
 - **Connectors** (`ghostchimera/connectors/`) — GitHub (poll + webhooks), self-hosted OAuth2 + token vault (Slack, Notion, LinkedIn, GitHub, Google, Zendesk, Freshdesk, Gorgias, HubSpot, Salesforce, Airtable, Hubstaff, Time Doctor). See [docs/CUSTOM_AUTH.md](docs/CUSTOM_AUTH.md).
 - **Durable local database** — SQLite/WAL journal for events, interventions, outcomes, and workflows, including the useful-intervention-rate metric. No server required.
-- **30+ model providers** — OpenAI, Anthropic, Gemini, OpenRouter, Ollama, local runtimes, and the OpenCode CLI bridge; swap or chain them without rewriting code.
+- **30+ model providers** — OpenAI, Anthropic, Gemini, OpenRouter, Nebius Token Factory (NVIDIA Nemotron), Ollama, local runtimes, and the OpenCode CLI bridge; swap or chain them without rewriting code.
 - **Ghost Console** — full no-code operator dashboard: guided setup, RAG Builder, Self-Evolution, Trust Runtime, Live Presence, remote control, conversational loop, local models, production readiness.
 - **Trust Runtime** — durable run journals, resumable approval checkpoints, capability admission, and eval flywheels. [Details](docs/TRUST_RUNTIME.md)
 - **Standing Orders** — scoped reusable autonomy programs with explicit enable/run controls. [Details](docs/STANDING_ORDERS.md)
 - **Conservative safety defaults** — shell, network, desktop, and host self-editing are off by default; opt-in host mode is explicit and audited.
 
 ## Documentation
+
+> **Note on "MCP":** GHOST's internal `ghostchimera/mcp/` module implements a custom HTTP tool protocol (action/discover/call on 127.0.0.1:3100). It is **not** the standard Model Context Protocol (JSON-RPC over stdio/SSE). The naming is historical. The `ghostchimera mcp` CLI manages trust and approval for external standard-MCP servers; it does not expose a stdio server itself.
 
 - [Usage Guide](docs/USAGE_GUIDE.md) — use cases, everyday recipes, safety model
 - [User Tutorial](docs/USER_TUTORIAL.md) — guided first run

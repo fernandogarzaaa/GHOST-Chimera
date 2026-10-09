@@ -361,7 +361,13 @@ class GatewayCoordinatedBindTests(unittest.TestCase):
             server = GatewayServer(host="127.0.0.1", port=49452)
         self.assertEqual(server.http_port, 49451)
         self.assertTrue(server._http_port_explicit)
-        server._resolve_ports()
+        # Resolve deterministically: never depend on a hardcoded port being
+        # free on the machine running the suite (shared CI runners collide).
+        with mock.patch(
+            "ghostchimera.chimera_pilot.gateway_server.find_free_port",
+            side_effect=lambda host, preferred, **kwargs: preferred,
+        ):
+            server._resolve_ports()
         self.assertEqual(server.http_port, 49451)
 
     def test_ephemeral_ws_keeps_ephemeral_http(self) -> None:
@@ -375,16 +381,71 @@ class GatewayCoordinatedBindTests(unittest.TestCase):
         import socket
         from unittest import mock
 
+        # Occupy an OS-assigned ephemeral port instead of a hardcoded one:
+        # a fixed port may already be in use on shared CI runners, which
+        # makes holder.bind() itself raise and fails the test spuriously.
         holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        holder.bind(("127.0.0.1", 49461))
+        holder.bind(("127.0.0.1", 0))
         holder.listen(1)
         self.addCleanup(holder.close)
+        occupied = holder.getsockname()[1]
         # Force every resolution onto the occupied port: binds must fail.
-        with mock.patch("ghostchimera.chimera_pilot.gateway_server.find_free_port", return_value=49461):
-            server = GatewayServer(host="127.0.0.1", port=49461, http_port=49462)
+        with mock.patch("ghostchimera.chimera_pilot.gateway_server.find_free_port", return_value=occupied):
+            server = GatewayServer(host="127.0.0.1", port=occupied, http_port=occupied)
             with self.assertRaises(OSError):
                 server.start()
             self.assertIsNone(server._http_server)
+
+
+class GatewayReleaseHttpTests(unittest.TestCase):
+    """_release_http() must never hang, even when serve_forever() never ran.
+
+    Regression: shutdown() on a bound-but-never-served HTTPServer blocks
+    forever waiting for the serve loop's shutdown event. The fix only
+    shuts down when the serve thread is actually alive and always closes
+    the socket.
+    """
+
+    def _release_in_thread(self, server: GatewayServer, timeout: float = 5.0) -> None:
+        """Run _release_http() off-thread; fail loud if it does not return."""
+        releaser = threading.Thread(target=server._release_http, daemon=True)
+        releaser.start()
+        releaser.join(timeout=timeout)
+        self.assertFalse(
+            releaser.is_alive(),
+            "_release_http() hung: shutdown() on a bound-but-never-served HTTPServer blocks forever",
+        )
+
+    def _assert_port_rebindable(self, port: int) -> None:
+        """Fail loud unless the released socket's port can be bound again."""
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.addCleanup(probe.close)
+        probe.bind(("127.0.0.1", port))
+
+    def test_release_http_never_served_does_not_hang_and_frees_port(self) -> None:
+        server = GatewayServer(host="127.0.0.1", port=0, http_port=0)
+        server._bind_http()
+        bound_port = server._http_server.server_address[1]
+        self.assertGreater(bound_port, 0)
+
+        self._release_in_thread(server)
+
+        self.assertIsNone(server._http_server)
+        self.assertIsNone(server._http_thread)
+        self._assert_port_rebindable(bound_port)
+
+    def test_release_http_after_serve_shuts_down_cleanly(self) -> None:
+        server = GatewayServer(host="127.0.0.1", port=0, http_port=0)
+        server._bind_http()
+        bound_port = server._http_server.server_address[1]
+        server._serve_http()
+        self.addCleanup(server._release_http)
+
+        self._release_in_thread(server)
+
+        self.assertIsNone(server._http_server)
+        self.assertIsNone(server._http_thread)
+        self._assert_port_rebindable(bound_port)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,11 @@
-"""MCP (Model Context Protocol) server implementation."""
+"""GHOST internal tool protocol server (custom HTTP, not standard MCP).
+
+This module implements GHOST's internal "MCP"-named protocol: a simple HTTP
+server on 127.0.0.1:3100 with action/discover/call endpoints. It is NOT the
+standard Model Context Protocol (JSON-RPC over stdio/SSE). The "MCP" naming
+is historical. For standard MCP compatibility, use the mcp CLI's trust and
+approval management for external servers.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +32,11 @@ class MCPTool:
 
 
 class MCPServer:
-    """MCP server that exposes tools via HTTP."""
+    """GHOST internal tool server exposing tools via custom HTTP protocol.
+
+    Uses action/discover/call endpoints on 127.0.0.1:3100. This is NOT the
+    standard Model Context Protocol (JSON-RPC over stdio/SSE).
+    """
 
     def __init__(self, host: str = "127.0.0.1", port: int = 3100) -> None:
         self.host = host

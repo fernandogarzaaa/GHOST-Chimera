@@ -20,6 +20,8 @@ _SKIP_DIRS = {
     ".pytest_cache",
     ".ruff_cache",
     ".venv",
+    "venv",
+    "site-packages",
     ".ghost",
     ".ghost-admin-live",
     ".ghost-test-remote",

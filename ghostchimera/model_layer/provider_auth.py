@@ -448,6 +448,17 @@ _add_openai_compatible(
     badges=["gpu", "open-weight"],
 )
 _add_openai_compatible(
+    "nebius",
+    name="Nebius Token Factory",
+    description="NVIDIA Nemotron open models via Nebius Token Factory inference.",
+    models=["nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B", "nvidia/nemotron-3-super-120b-a12b"],
+    api_key_env="NEBIUS_API_KEY",
+    model_env="NEBIUS_MODEL",
+    default_base_url="https://api.tokenfactory.nebius.com/v1",
+    badges=["open-weight", "nemotron", "agentic"],
+    docs_url="https://docs.nebius.com",
+)
+_add_openai_compatible(
     "moonshot",
     name="Moonshot Kimi",
     description="Moonshot Kimi long-context models.",
@@ -531,6 +542,7 @@ _PROVIDER_SETUP_URLS: dict[str, str] = {
     "minimind": "https://github.com/jingyaogong/minimind",
     "mistral": "https://console.mistral.ai/api-keys",
     "moonshot": "https://platform.moonshot.ai/console/api-keys",
+    "nebius": "https://console.nebius.com",
     "nvidia": "https://build.nvidia.com/api-keys",
     "ollama": "https://ollama.com/download",
     "openai": "https://platform.openai.com/api-keys",

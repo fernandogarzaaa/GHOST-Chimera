@@ -13,12 +13,17 @@ Two doors, one runtime. Pick the one that matches your machine.
 
 ## pip (Python, recommended for developers)
 
-Full install first — everything included:
+Full install — everything included:
 
 ```bash
 pip install "ghostchimera[all]"   # every backend: desktop, local models, MCP, voice, quantum
 ghostchimera doctor               # reports exactly which backends are live
 ```
+
+> **Install time:** `[all]` downloads large ML and native packages (torch, transformers,
+> llama-cpp-python, the voice stack, the quantum SDK) and can take well over 10 minutes on a
+> typical connection. The base package installs in seconds and covers the console, pilot, and
+> stealth loop; add only the extras your setup needs (e.g. `pip install "ghostchimera[mcp,gateway]"`).
 
 Lean alternative (servers, containers, minimal footprint):
 

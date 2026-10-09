@@ -114,6 +114,13 @@ from .hosts import (
 from .intent import FrictionDetector, IntentEngine
 from .intervention import Intervention, InterventionOutcome, InterventionState
 from .loop import LoopResult, StealthLoop
+from .nemotron_reasoning import (
+    NANO_MODEL,
+    NEBIUS_PROVIDER_ID,
+    SUPER_MODEL,
+    NemotronReasoner,
+    build_cloud_enhancements,
+)
 from .perception import (
     AccessibilityPerceptionProvider,
     BackendFn,
@@ -131,6 +138,7 @@ from .standing_context import TRUNCATION_MARKER, StandingContext, StandingSectio
 from .ste import SimplifyResult, simplify, simplify_sentence
 from .stealth_policy import AutonomyLevel, Decision, GhostPolicy, StealthEvaluator
 from .store import StealthStore
+from .tavily_grounding import EXTRACT_TOOL, SEARCH_TOOL, TavilyError, TavilyGrounding
 from .temporal import (
     CALENDAR_TYPES,
     DEFAULT_DURATION_S,
@@ -181,6 +189,8 @@ __all__ = [
     "Event",
     "EventBus",
     "EvalReport",
+    "EXTRACT_TOOL",
+    "SEARCH_TOOL",
     "StealthEval",
     "ExperienceGraph",
     "ExperienceEventType",
@@ -207,6 +217,9 @@ __all__ = [
     "InterventionOutcome",
     "InterventionState",
     "LoopResult",
+    "NANO_MODEL",
+    "NEBIUS_PROVIDER_ID",
+    "NemotronReasoner",
     "MaturityThresholds",
     "OpenCodeVisionExecutor",
     "OpenClawAdapter",
@@ -238,7 +251,11 @@ __all__ = [
     "StealthHookRegistry",
     "StealthLoop",
     "StealthStore",
+    "SUPER_MODEL",
     "TemporalContext",
+    "TavilyError",
+    "TavilyGrounding",
+    "build_cloud_enhancements",
     "CalendarItem",
     "TrajectoryState",
     "TraitEvidence",
