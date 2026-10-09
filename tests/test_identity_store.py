@@ -229,3 +229,52 @@ def test_quarantine_logs_target_path(tmp_path: Path, caplog: pytest.LogCaptureFi
     with caplog.at_level("WARNING", logger="identity_store"):
         assert store.load() is None
     assert "corrupt-" in caplog.text
+
+
+def _agent(tmp_path: Path, **kwargs) -> AIAgent:
+    kwargs.setdefault("identity_store", _store(tmp_path))
+    kwargs.setdefault("model_name", "claude-haiku-4-20250514")
+    return AIAgent(**kwargs)
+
+
+def test_agent_init_defaults(tmp_path: Path) -> None:
+    agent = _agent(tmp_path)
+    assert agent.max_tokens == 16384
+    assert agent.confidence_threshold == 0.85
+    assert agent._running_confidence == 0.5
+    assert agent.current_confidence == 0.0
+
+
+def test_agent_init_respects_max_tool_rounds(tmp_path: Path) -> None:
+    assert _agent(tmp_path, max_tool_rounds=7).max_tool_rounds == 7
+    defaulted = _agent(tmp_path)
+    assert defaulted.max_tool_rounds == defaulted.autonomy_profile.max_tool_rounds
+
+
+def test_cli_show_output_is_stable_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    # The CLI emits machine-consumed JSON; pin the exact serialization.
+    _run_identity_cli(argparse.Namespace(identity_command="show", state_dir=str(tmp_path / "s"), name=""))
+    expected = json.dumps({"ok": True, "exists": False, "identity": None}, indent=2, sort_keys=True) + "\n"
+    assert capsys.readouterr().out == expected
+
+
+def test_add_identity_parser_registers_subcommands() -> None:
+    import argparse
+
+    from ghostchimera.control_plane.cli import _add_identity_parser
+
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command")
+    _add_identity_parser(sub)
+
+    args = parser.parse_args(["identity", "init", "--name", "x"])
+    assert args.command == "identity"
+    assert args.identity_command == "init"
+    assert args.name == "x"
+
+    args = parser.parse_args(["identity", "show"])
+    assert args.identity_command == "show"
+
+    args = parser.parse_args(["identity", "--state-dir", "/tmp/z", "rotate"])
+    assert args.identity_command == "rotate"
+    assert args.state_dir == "/tmp/z"
