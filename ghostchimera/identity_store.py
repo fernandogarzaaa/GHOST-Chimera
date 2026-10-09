@@ -117,8 +117,7 @@ class IdentityStore:
             return AgentIdentity.from_dict(json.loads(raw))
         except (OSError, UnicodeDecodeError, ValueError) as exc:
             quarantined = self._quarantine()
-            logger.warning("Identity file %s unreadable (%s); quarantined to %s",
-                           self.identity_path, exc, quarantined)
+            logger.warning("Identity file %s unreadable (%s); quarantined to %s", self.identity_path, exc, quarantined)
             return None
 
     def save(self, identity: AgentIdentity) -> AgentIdentity:
@@ -128,8 +127,7 @@ class IdentityStore:
         # Re-validate through from_dict so only well-formed records are stored.
         AgentIdentity.from_dict(identity.to_dict())
         tmp = self.identity_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(identity.to_dict(), indent=2, sort_keys=True) + "\n",
-                       encoding="utf-8")
+        tmp.write_text(json.dumps(identity.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
         os.replace(tmp, self.identity_path)
         return identity
 

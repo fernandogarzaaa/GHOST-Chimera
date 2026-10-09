@@ -228,11 +228,7 @@ class AIAgent:
         if identity_store is not None:
             self.identity_store = identity_store
         else:
-            state_dir = (
-                self.config.state_dir
-                if self.config is not None
-                else GhostChimeraConfig.from_env().state_dir
-            )
+            state_dir = self.config.state_dir if self.config is not None else GhostChimeraConfig.from_env().state_dir
             self.identity_store = IdentityStore(state_dir)
         self.identity: AgentIdentity = self.identity_store.load_or_create()
 

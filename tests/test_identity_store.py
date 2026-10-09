@@ -142,8 +142,7 @@ def test_cli_show_init_rotate(tmp_path: Path, capsys: pytest.CaptureFixture[str]
 
 
 def test_cli_unknown_command(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    rc = _run_identity_cli(argparse.Namespace(
-        identity_command="bogus", state_dir=str(tmp_path / "state"), name=""))
+    rc = _run_identity_cli(argparse.Namespace(identity_command="bogus", state_dir=str(tmp_path / "state"), name=""))
     assert rc == 2
     assert json.loads(capsys.readouterr().out)["ok"] is False
 
@@ -152,28 +151,37 @@ def test_create_run_records_identity_id(tmp_path: Path) -> None:
     store = TrustRuntimeStore(str(tmp_path / "state"))
     payload = store.create_run(objective="smoke", identity_id="ghost-abc123")
     assert payload["identity_id"] == "ghost-abc123"
+    assert len(payload["run_id"]) == 20
     # Backward compatible: omitted identity_id defaults to empty.
     assert store.create_run(objective="smoke2")["identity_id"] == ""
 
 
-@pytest.mark.parametrize("payload", [
-    {"id": ""},
-    {"id": 12345},
-    {"name": ""},
-    {"name": 5},
-    {"capabilities": "not-a-list"},
-    {"capabilities": [1, 2]},
-    {"owner": 5},
-    {"public_key": 5},
-    {"rotated_at": 5},
-    {"previous_ids": "not-a-list"},
-    {"previous_ids": [1]},
-    {"created_at": 5},
-    "not-a-dict",
-    None,
-    [1, 2],
-])
-def test_from_dict_rejects_invalid_payloads(payload) -> None:
+@pytest.mark.parametrize(
+    "field,bad_value",
+    [
+        ("id", ""),
+        ("id", 12345),
+        ("name", ""),
+        ("name", 5),
+        ("capabilities", "not-a-list"),
+        ("capabilities", [1, 2]),
+        ("owner", 5),
+        ("public_key", 5),
+        ("rotated_at", 5),
+        ("previous_ids", "not-a-list"),
+        ("previous_ids", [1]),
+        ("created_at", 5),
+    ],
+)
+def test_from_dict_rejects_invalid_fields(field: str, bad_value) -> None:
+    payload = {"id": "ghost-valid-id", "name": "n"}
+    payload[field] = bad_value
+    with pytest.raises(ValueError):
+        AgentIdentity.from_dict(payload)
+
+
+@pytest.mark.parametrize("payload", ["not-a-dict", None, [1, 2], 42])
+def test_from_dict_rejects_non_dict(payload) -> None:
     with pytest.raises(ValueError):
         AgentIdentity.from_dict(payload)
 
