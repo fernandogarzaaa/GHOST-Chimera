@@ -148,9 +148,7 @@ class AuditTrailFailureTests(unittest.TestCase):
         self.assertEqual(recent[0]["provider"], "p")
 
 
-def _make_engine_with_email_automation(
-    state_dir: str, **trigger_overrides: object
-) -> tuple[AutomationsEngine, str]:
+def _make_engine_with_email_automation(state_dir: str, **trigger_overrides: object) -> tuple[AutomationsEngine, str]:
     engine = AutomationsEngine(state_dir)
     trigger: dict[str, object] = {"type": "email", "key_id": "test-key"}
     trigger.update(trigger_overrides)
@@ -211,9 +209,7 @@ class CheckEmailTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as state_dir:
             engine, auto_id = _make_engine_with_email_automation(state_dir)
             automation = engine._find_mutable(auto_id)
-            rap, fi, cae = _mail_mocks(
-                [{"uid": "u1", "from": "boss@x.test", "subject": "hello"}]
-            )
+            rap, fi, cae = _mail_mocks([{"uid": "u1", "from": "boss@x.test", "subject": "hello"}])
             with rap, fi, cae:
                 runs = engine._check_email(automation)
         self.assertEqual(len(runs), 1)
@@ -224,34 +220,24 @@ class CheckEmailTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as state_dir:
             engine, auto_id = _make_engine_with_email_automation(state_dir)
             automation = engine._find_mutable(auto_id)
-            rap, fi, cae = _mail_mocks(
-                [{"uid": "u1", "from": "boss@x.test", "subject": "hello"}]
-            )
+            rap, fi, cae = _mail_mocks([{"uid": "u1", "from": "boss@x.test", "subject": "hello"}])
             with rap, fi, cae:
                 self.assertEqual(len(engine._check_email(automation)), 1)
                 self.assertEqual(engine._check_email(automation), [])
 
     def test_sender_filter_skips_non_matching(self):
         with tempfile.TemporaryDirectory() as state_dir:
-            engine, auto_id = _make_engine_with_email_automation(
-                state_dir, sender="ceo@x.test"
-            )
+            engine, auto_id = _make_engine_with_email_automation(state_dir, sender="ceo@x.test")
             automation = engine._find_mutable(auto_id)
-            rap, fi, cae = _mail_mocks(
-                [{"uid": "u1", "from": "boss@x.test", "subject": "hello"}]
-            )
+            rap, fi, cae = _mail_mocks([{"uid": "u1", "from": "boss@x.test", "subject": "hello"}])
             with rap, fi, cae:
                 self.assertEqual(engine._check_email(automation), [])
 
     def test_subject_filter_skips_non_matching(self):
         with tempfile.TemporaryDirectory() as state_dir:
-            engine, auto_id = _make_engine_with_email_automation(
-                state_dir, subject="urgent"
-            )
+            engine, auto_id = _make_engine_with_email_automation(state_dir, subject="urgent")
             automation = engine._find_mutable(auto_id)
-            rap, fi, cae = _mail_mocks(
-                [{"uid": "u1", "from": "boss@x.test", "subject": "hello"}]
-            )
+            rap, fi, cae = _mail_mocks([{"uid": "u1", "from": "boss@x.test", "subject": "hello"}])
             with rap, fi, cae:
                 self.assertEqual(engine._check_email(automation), [])
 
@@ -375,9 +361,7 @@ class AutomationFireTests(unittest.TestCase):
     def test_failing_action_marks_run_failed(self):
         with tempfile.TemporaryDirectory() as state_dir:
             engine, auto_id = _make_engine_with_log_automation(state_dir)
-            with mock.patch.object(
-                AutomationsEngine, "_execute_action", side_effect=RuntimeError("boom")
-            ):
+            with mock.patch.object(AutomationsEngine, "_execute_action", side_effect=RuntimeError("boom")):
                 run = engine.fire(auto_id)
         self.assertEqual(run["status"], "failed")
         self.assertTrue(run["summary"].startswith("RuntimeError: boom"))
@@ -469,8 +453,7 @@ def _make_login_db(path: Path, rows: list[tuple[str, str, bytes]]) -> None:
 
     conn = sqlite3.connect(str(path))
     conn.execute(
-        "CREATE TABLE logins (origin_url TEXT, username_value TEXT,"
-        " password_value BLOB, blacklisted_by_user INTEGER)"
+        "CREATE TABLE logins (origin_url TEXT, username_value TEXT, password_value BLOB, blacklisted_by_user INTEGER)"
     )
     conn.executemany(
         "INSERT INTO logins VALUES (?,?,?,0)",
