@@ -478,6 +478,47 @@ class DelegateHardeningTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             handler()
 
+    def test_guarded_handler_passes_through_result(self) -> None:
+        # The happy path through the cancellation guard must be transparent.
+        seen: list = []
+
+        def factory(**kwargs):
+            agent = FakeAgent()
+
+            def run(objective, tools=None):
+                seen.append(list(tools or []))
+                return "ok"
+
+            agent.run = run
+            return agent
+
+        registry = {"read_file": {"name": "read_file", "handler": lambda **kw: "file-contents"}}
+        tool, _ = make_tool(factory=factory, tool_registry=registry)
+        receipt = tool.delegate(objective="q", allowed_tools=["read_file"])
+        self.assertTrue(receipt["success"])
+        handler = next(t["handler"] for t in seen[0] if t["name"] == "read_file")
+        self.assertEqual(handler(), "file-contents")
+
+    def test_guard_loop_skips_non_dict_tools(self) -> None:
+        registry = {
+            "read_file": {"name": "read_file", "handler": lambda **kw: "r"},
+            "weird": "notadict",
+        }
+        tool, _ = make_tool(tool_registry=registry)
+        receipt = tool.delegate(objective="q", allowed_tools=["read_file", "weird"])
+        self.assertTrue(receipt["success"])
+
+    def test_session_stat_returns_zero_on_broken_session(self) -> None:
+        from ghostchimera.chimera_pilot.delegate_tool import _session_stat
+
+        class Broken:
+            @property
+            def turn_count(self):
+                raise RuntimeError("broken")
+
+        self.assertEqual(_session_stat(Broken(), "turn_count"), 0)
+        self.assertEqual(_session_stat(object(), "missing_attr"), 0)
+
     def test_result_truncated_at_8000_chars(self) -> None:
         agent = FakeAgent(text="x" * 9000)
         tool, _ = make_tool(audit_file=self.audit_file, factory=lambda **kw: agent)
