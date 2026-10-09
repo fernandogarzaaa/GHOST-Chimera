@@ -121,6 +121,18 @@ def _cli(args: argparse.Namespace, capsys: pytest.CaptureFixture[str]) -> dict:
     return json.loads(capsys.readouterr().out)
 
 
+def _cli_raw(args: argparse.Namespace, capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
+    rc = _run_identity_cli(args)
+    return rc, capsys.readouterr().out
+
+
+def _assert_stable_json(raw: str) -> dict:
+    """CLI output is machine-consumed JSON; pin the exact serialization."""
+    parsed = json.loads(raw)
+    assert raw == json.dumps(parsed, indent=2, sort_keys=True) + "\n"
+    return parsed
+
+
 def test_cli_show_init_rotate(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     state = str(tmp_path / "state")
     shown = _cli(argparse.Namespace(identity_command="show", state_dir=state, name=""), capsys)
@@ -140,11 +152,22 @@ def test_cli_show_init_rotate(tmp_path: Path, capsys: pytest.CaptureFixture[str]
     assert rotated["identity"]["name"] == "cli-agent"
     assert rotated["identity"]["previous_ids"] == [identity_id]
 
+    rc, raw = _cli_raw(argparse.Namespace(identity_command="rotate", state_dir=state, name=""), capsys)
+    assert rc == 0
+    _assert_stable_json(raw)
+
+    # init is a no-op when an identity already exists.
+    rc, raw = _cli_raw(argparse.Namespace(identity_command="init", state_dir=state, name=""), capsys)
+    assert rc == 0
+    payload = _assert_stable_json(raw)
+    assert payload["created"] is False
+
 
 def test_cli_unknown_command(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    rc = _run_identity_cli(argparse.Namespace(identity_command="bogus", state_dir=str(tmp_path / "state"), name=""))
+    rc, raw = _cli_raw(argparse.Namespace(identity_command="bogus", state_dir=str(tmp_path / "state"), name=""), capsys)
     assert rc == 2
-    assert json.loads(capsys.readouterr().out)["ok"] is False
+    payload = _assert_stable_json(raw)
+    assert payload["ok"] is False
 
 
 def test_create_run_records_identity_id(tmp_path: Path) -> None:
