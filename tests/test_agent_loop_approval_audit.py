@@ -140,7 +140,7 @@ class ApprovalAuditTests(unittest.TestCase):
         # Keep the last-resort ~/.ghostchimera out of the runner's home.
         with patch("pathlib.Path.home", return_value=Path(self._dir.name)):
             trail = agent._audit_trail_instance()
-        self.assertTrue(str(trail.path).endswith(".ghostchimera/audit/connector-audit.jsonl"))
+        self.assertEqual(trail.path.parts[-3:], (".ghostchimera", "audit", "connector-audit.jsonl"))
         self.assertEqual(trail.path.parent.parent.parent, Path(self._dir.name))
 
     def test_approval_exception_still_surfaces_as_tool_error(self) -> None:
