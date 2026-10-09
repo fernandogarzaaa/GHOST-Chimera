@@ -195,7 +195,9 @@ def test_rename_rejects_non_string(tmp_path: Path) -> None:
         _store(tmp_path).rename(123)  # type: ignore[arg-type]
 
 
-def test_quarantine_oserror_does_not_crash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_quarantine_oserror_does_not_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     store = _store(tmp_path)
     store.load_or_create()
     store.identity_path.write_bytes(b"corrupt")
@@ -204,7 +206,12 @@ def test_quarantine_oserror_does_not_crash(tmp_path: Path, monkeypatch: pytest.M
         raise OSError("disk read-only")
 
     monkeypatch.setattr("ghostchimera.identity_store.os.replace", _boom)
-    assert store.load() is None  # quarantine rename failed, but no crash
+    with caplog.at_level("WARNING", logger="ghostchimera.identity_store"):
+        assert store.load() is None  # quarantine rename failed, but no crash
+    # Fallback path removed the unreadable file so a fresh identity can be written.
+    assert not store.identity_path.exists()
+    # The quarantined-to location is reported (falls back to the identity path).
+    assert f"quarantined to {store.identity_path}" in caplog.text
 
 
 def test_quarantine_logs_target_path(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
