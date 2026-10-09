@@ -23,6 +23,7 @@ from ..cognition_layer.confidence import (
 )
 from ..cognition_layer.workspace import ReflectionEngine, SelfModel, WorkingMemory
 from ..config import GhostChimeraConfig
+from ..identity_store import AgentIdentity, IdentityStore
 from ..logging_config import get_logger
 from ..model_layer.router import ModelRouter
 from ..safety_layer.approval import approve
@@ -206,6 +207,7 @@ class AIAgent:
         config: GhostChimeraConfig | None = None,
         session: SessionState | None = None,
         autonomy_profile: AutonomyProfile | None = None,
+        identity_store: IdentityStore | None = None,
     ):
         self.autonomy_profile = autonomy_profile or get_autonomy_profile_from_env()
         self.kernel = kernel or ChimeraPilotKernel.default()
@@ -220,8 +222,22 @@ class AIAgent:
         self.telemetry = InMemoryTelemetryStore()
         self._lock = threading.Lock()
 
+        # Persistent agent identity: loaded from the identity store so the
+        # same identity id survives restarts. A caller may inject its own
+        # store (tests, alternate state dirs); otherwise resolve from config.
+        if identity_store is not None:
+            self.identity_store = identity_store
+        else:
+            state_dir = (
+                self.config.state_dir
+                if self.config is not None
+                else GhostChimeraConfig.from_env().state_dir
+            )
+            self.identity_store = IdentityStore(state_dir)
+        self.identity: AgentIdentity = self.identity_store.load_or_create()
+
         # Cognition primitives
-        self.self_model = SelfModel(identity="ghost-chimera-agent")
+        self.self_model = SelfModel(identity=self.identity.id)
         self.working_memory = WorkingMemory(task="default")
         self.reflection_engine = ReflectionEngine()
 
@@ -712,6 +728,8 @@ class AIAgent:
         """Return current session status."""
         return {
             "session_id": self._active_session_id,
+            "identity_id": self.identity.id,
+            "identity_name": self.identity.name,
             "model": self.model_name,
             "message_count": len(self._session.messages),
             "prompt_tokens": self._session.prompt_tokens,
