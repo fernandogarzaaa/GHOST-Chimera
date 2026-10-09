@@ -154,8 +154,7 @@ def opencode_setup_guidance(status: OpenCodeCliStatus | None = None) -> list[str
     if not checked.available:
         return [
             "OpenCode CLI was not found on PATH.",
-            "Install the OpenCode CLI (https://opencode.ai) and make sure the "
-            "`opencode` command is on your PATH.",
+            "Install the OpenCode CLI (https://opencode.ai) and make sure the `opencode` command is on your PATH.",
             f"Then log in with: {opencode_login_command()}",
             "Full setup guide: docs/OPENCODE_FREE_TIER.md",
         ]
@@ -163,8 +162,7 @@ def opencode_setup_guidance(status: OpenCodeCliStatus | None = None) -> list[str
         return [
             "OpenCode CLI is installed but no login was detected.",
             f"Run: {opencode_login_command()}",
-            "Then re-run setup. Ghost Chimera never reads OpenCode's auth files, "
-            "it only checks that a login exists.",
+            "Then re-run setup. Ghost Chimera never reads OpenCode's auth files, it only checks that a login exists.",
         ]
     return []
 
@@ -195,15 +193,9 @@ def _parse_timeout_seconds() -> float:
     try:
         value = float(raw)
     except ValueError:
-        raise RuntimeError(
-            "GHOSTCHIMERA_OPENCODE_TIMEOUT_SECONDS must be a number of seconds, "
-            f"got {raw!r}."
-        ) from None
+        raise RuntimeError(f"GHOSTCHIMERA_OPENCODE_TIMEOUT_SECONDS must be a number of seconds, got {raw!r}.") from None
     if value <= 0:
-        raise RuntimeError(
-            "GHOSTCHIMERA_OPENCODE_TIMEOUT_SECONDS must be a positive number "
-            f"of seconds, got {raw!r}."
-        )
+        raise RuntimeError(f"GHOSTCHIMERA_OPENCODE_TIMEOUT_SECONDS must be a positive number of seconds, got {raw!r}.")
     return value
 
 
@@ -323,17 +315,13 @@ class OpenCodeCliProvider(BaseProvider):
                     "raise GHOSTCHIMERA_OPENCODE_TIMEOUT_SECONDS or retry later."
                 ) from None
             except OSError as exc:
-                raise RuntimeError(
-                    f"OpenCode CLI provider could not launch {self.executable!r}: {exc}"
-                ) from None
+                raise RuntimeError(f"OpenCode CLI provider could not launch {self.executable!r}: {exc}") from None
             answer = _extract_json_answer(result.stdout or "")
             if answer:
                 self.last_model_used = model
                 return answer
             if result.returncode != 0:
-                detail = _compact_opencode_error(
-                    "\n".join(part for part in (result.stderr, result.stdout) if part)
-                )
+                detail = _compact_opencode_error("\n".join(part for part in (result.stderr, result.stdout) if part))
                 last_error = detail
                 if _looks_like_model_unavailable(detail):
                     continue

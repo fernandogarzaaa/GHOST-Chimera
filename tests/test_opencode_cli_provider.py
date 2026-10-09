@@ -187,13 +187,9 @@ class TimeoutHandlingTests(unittest.TestCase):
 
     @mock.patch("ghostchimera.model_layer.opencode_cli_provider.get_opencode_cli_status")
     @mock.patch("ghostchimera.model_layer.opencode_cli_provider.subprocess.run")
-    def test_empty_stdout_with_clean_exit_reports_no_answer(
-        self, run_mock: mock.Mock, status_mock: mock.Mock
-    ) -> None:
+    def test_empty_stdout_with_clean_exit_reports_no_answer(self, run_mock: mock.Mock, status_mock: mock.Mock) -> None:
         status_mock.return_value = _available_status()
-        run_mock.return_value = subprocess.CompletedProcess(
-            args=["opencode"], returncode=0, stdout=None, stderr=""
-        )
+        run_mock.return_value = subprocess.CompletedProcess(args=["opencode"], returncode=0, stdout=None, stderr="")
         with mock.patch.dict("os.environ", {"GHOSTCHIMERA_OPENCODE_MODEL": "opencode/custom-paid"}):
             provider = OpenCodeCliProvider()
 
@@ -267,9 +263,7 @@ class FreeModelRotationTests(unittest.TestCase):
 
     @mock.patch("ghostchimera.model_layer.opencode_cli_provider.get_opencode_cli_status")
     @mock.patch("ghostchimera.model_layer.opencode_cli_provider.subprocess.run")
-    def test_exhausted_free_models_raise_actionable_error(
-        self, run_mock: mock.Mock, status_mock: mock.Mock
-    ) -> None:
+    def test_exhausted_free_models_raise_actionable_error(self, run_mock: mock.Mock, status_mock: mock.Mock) -> None:
         status_mock.return_value = _available_status()
         run_mock.return_value = subprocess.CompletedProcess(
             args=["opencode"], returncode=1, stdout="", stderr="Error: unknown model"
@@ -305,9 +299,7 @@ class DataUseNoticeTests(unittest.TestCase):
 class SetupGuidanceTests(unittest.TestCase):
     def test_missing_cli_guidance_covers_install_and_login(self) -> None:
         lines = opencode_setup_guidance(
-            OpenCodeCliStatus(
-                available=False, logged_in=False, command="opencode", model="", detail=""
-            )
+            OpenCodeCliStatus(available=False, logged_in=False, command="opencode", model="", detail="")
         )
 
         joined = "\n".join(lines)
@@ -317,9 +309,7 @@ class SetupGuidanceTests(unittest.TestCase):
 
     def test_not_logged_in_guidance_points_at_login(self) -> None:
         lines = opencode_setup_guidance(
-            OpenCodeCliStatus(
-                available=True, logged_in=False, command="opencode", model="", detail=""
-            )
+            OpenCodeCliStatus(available=True, logged_in=False, command="opencode", model="", detail="")
         )
 
         joined = "\n".join(lines)
@@ -329,9 +319,7 @@ class SetupGuidanceTests(unittest.TestCase):
     def test_ready_cli_returns_no_guidance(self) -> None:
         self.assertEqual(
             opencode_setup_guidance(
-                OpenCodeCliStatus(
-                    available=True, logged_in=True, command="opencode", model="", detail=""
-                )
+                OpenCodeCliStatus(available=True, logged_in=True, command="opencode", model="", detail="")
             ),
             [],
         )
@@ -352,9 +340,7 @@ class InitAndSubprocessContractTests(unittest.TestCase):
 
     @mock.patch("ghostchimera.model_layer.opencode_cli_provider.get_opencode_cli_status")
     @mock.patch("ghostchimera.model_layer.opencode_cli_provider._resolve_opencode_executable")
-    def test_executable_uses_resolved_path_when_found(
-        self, resolve_mock: mock.Mock, status_mock: mock.Mock
-    ) -> None:
+    def test_executable_uses_resolved_path_when_found(self, resolve_mock: mock.Mock, status_mock: mock.Mock) -> None:
         status_mock.return_value = _available_status()
         resolve_mock.return_value = "/usr/local/bin/opencode"
 

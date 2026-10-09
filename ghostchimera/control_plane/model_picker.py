@@ -18,9 +18,8 @@ def _opencode_cli_model_list() -> list[tuple[str, str]]:
 
     from ..model_layer.opencode_cli_provider import KNOWN_FREE_MODELS
 
-    return [(f"{free_model} (free)", free_model) for free_model in KNOWN_FREE_MODELS] + [
-        ("Use a different model", "")
-    ]
+    return [(f"{free_model} (free)", free_model) for free_model in KNOWN_FREE_MODELS] + [("Use a different model", "")]
+
 
 _MODEL_LISTS: dict[str, list[tuple[str, str]]] = {
     "openai": [
