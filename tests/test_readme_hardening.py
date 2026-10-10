@@ -201,3 +201,65 @@ def test_trust_replay_cli_subcommand(state_dir: Path) -> None:
     assert result["ok"] is True
     assert result["execution_performed"] is True
     assert result["replayed_from"] == run["run_id"]
+
+
+def test_replay_run_executor_raises_records_failure(state_dir: Path) -> None:
+    """If the executor throws, the replay run records replay_failed and returns ok=False."""
+    store = TrustRuntimeStore(state_dir)
+    run = store.create_run("some objective", source="test")
+
+    def _boom(objective: str) -> list[dict]:
+        raise RuntimeError("executor exploded")
+
+    result = store.replay_run(run["run_id"], executor=_boom)
+
+    assert result["ok"] is False
+    assert "executor exploded" in result["error"]
+    assert "replay_run_id" in result
+    replay = store.get_run(result["replay_run_id"])
+    step_types = {s.get("step_type") for s in replay["steps"]}
+    assert "replay_failed" in step_types
+    assert "replay_comparison" not in step_types
+
+
+def test_replay_run_empty_objective_rejected(state_dir: Path) -> None:
+    store = TrustRuntimeStore(state_dir)
+    # Create a run then blank its objective to simulate a corrupt journal entry.
+    run = store.create_run("temp", source="test")
+    index = store._load_index()
+    index[run["run_id"]]["objective"] = "   "
+    store._save_index(index)
+
+    result = store.replay_run(run["run_id"])
+    assert result["ok"] is False
+    assert "no recorded objective" in result["error"]
+
+
+def test_replay_run_outcome_match_logic(state_dir: Path) -> None:
+    """outcome_match is True only when original and replay agree on success."""
+    store = TrustRuntimeStore(state_dir)
+
+    # Original succeeded, replay succeeds -> match.
+    ok_run = store.create_run("what is 3 + 4", source="test")
+    store.record_step(ok_run["run_id"], step_type="task_executed", status="ok")
+    result = store.replay_run(ok_run["run_id"])
+    assert result["comparison"]["outcome_match"] is True
+
+    # Original had errors, replay succeeds -> mismatch.
+    err_run = store.create_run("what is 5 + 6", source="test")
+    store.record_step(err_run["run_id"], step_type="task_executed", status="error")
+    result = store.replay_run(
+        err_run["run_id"],
+        executor=lambda o: [{"ok": True, "task_id": "t", "output": "11"}],
+    )
+    assert result["comparison"]["original_error_steps"] == 1
+    assert result["comparison"]["outcome_match"] is False
+
+    # Both fail -> match.
+    fail_run = store.create_run("write a novel", source="test")
+    store.record_step(fail_run["run_id"], step_type="task_executed", status="failed")
+    result = store.replay_run(
+        fail_run["run_id"],
+        executor=lambda o: [{"ok": False, "task_id": "t", "error": "nope"}],
+    )
+    assert result["comparison"]["outcome_match"] is True
