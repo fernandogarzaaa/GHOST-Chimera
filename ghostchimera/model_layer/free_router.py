@@ -247,13 +247,28 @@ class FreeRouter:
         ]
 
     def _bump(self, tier: str) -> None:
-        day = _today()
-        self._usage.setdefault(day, {})
-        self._usage[day][tier] = self.used_today(tier) + 1
-        # Keep a rolling week, not unbounded history.
-        for old in sorted(self._usage)[:-7]:
-            del self._usage[old]
-        self._save()
+        """Record one used quota unit, converting this thread's reservation.
+
+        The increment of ``used`` and the release of the matching ``pending``
+        reservation happen under one lock. Without this, the unit is
+        double-counted between ``_bump`` and the ``finally: _release`` in
+        ``chat()``: racing threads then see ``used + pending`` at the cap
+        and are wrongly denied even though a slot is free.
+        """
+        # The reservation check in _reserve() is only atomic if the increment
+        # is too: without this lock, two threads can interleave setdefault /
+        # sorted(self._usage) and one dies with "dictionary changed size
+        # during iteration", losing a quota unit (and the request with it).
+        with self._lock:
+            day = _today()
+            self._usage.setdefault(day, {})
+            self._usage[day][tier] = self.used_today(tier) + 1
+            if self._pending.get(tier, 0) > 0:
+                self._pending[tier] -= 1
+            # Keep a rolling week, not unbounded history.
+            for old in sorted(self._usage)[:-7]:
+                del self._usage[old]
+            self._save()
 
     # -- routing ------------------------------------------------------------------
     def _tier_available(self, tier: dict[str, Any], *, sensitive: bool) -> tuple[bool, str]:
@@ -315,6 +330,10 @@ class FreeRouter:
             if not self._reserve(tier["tier"]):
                 failures.append(f"{tier['tier']}: quota filled while waiting")
                 continue
+            # Tracks whether _bump() already converted this reservation into
+            # recorded usage (releasing the pending slot atomically). The
+            # finally: below must not release twice.
+            converted = False
             try:
                 from .cost_monitor import get_ledger
                 from .providers import get_provider
@@ -330,6 +349,7 @@ class FreeRouter:
                 text = provider.chat(system_message, user_message)
                 latency = round(time.time() - started, 2)
                 self._bump(tier["tier"])
+                converted = True
                 (ledger or get_ledger()).record(
                     tier["provider"],
                     tier["model"],
@@ -353,7 +373,8 @@ class FreeRouter:
                     time.sleep(min(wait_s + random.uniform(0, 1.0), self.max_backoff_s))
                 continue
             finally:
-                self._release(tier["tier"])
+                if not converted:
+                    self._release(tier["tier"])
         raise RuntimeError("All free tiers unavailable: " + "; ".join(failures))
 
 

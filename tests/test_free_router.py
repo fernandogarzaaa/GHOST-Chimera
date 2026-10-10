@@ -227,19 +227,219 @@ def test_quota_reservations_hold_under_threads(tmp_path, monkeypatch) -> None:
             "note": "",
         },
     )
-    results: list = []
 
-    def attempt():
-        try:
-            router.chat("sys", "hi", tiers=["tiny"])
-            results.append("ok")
-        except RuntimeError:
-            results.append("denied")
+    # Repeat: the double-count race between _bump() and _release() only
+    # bites ~1% of single runs, so one pass cannot guard the invariant.
+    def race_once() -> list:
+        results: list = []
 
-    threads = [threading.Thread(target=attempt) for _ in range(10)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-    assert results.count("ok") == 3
-    assert router.used_today("tiny") == 3
+        def attempt():
+            try:
+                router.chat("sys", "hi", tiers=["tiny"])
+                results.append("ok")
+            except RuntimeError:
+                results.append("denied")
+
+        threads = [threading.Thread(target=attempt) for _ in range(10)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        return results
+
+    for _ in range(25):
+        router._usage = {}
+        router._pending = {}
+        router._save()
+        results = race_once()
+        assert results.count("ok") == 3
+        assert router.used_today("tiny") == 3
+
+
+def test_bump_converts_reservation_without_double_count(tmp_path, monkeypatch) -> None:
+    """_bump() must move the unit from pending to used atomically.
+
+    Regression test for the race where a quota unit sat in *both* counters
+    between _bump() and the finally: _release(), so racing threads saw a
+    phantom-full quota (used + pending at cap) and were wrongly denied.
+    """
+    _keys(monkeypatch, GROQ_API_KEY="q")
+    router, _ = _router(tmp_path, monkeypatch, {"groq": "ok"})
+    router.tiers = (
+        {
+            "tier": "tiny",
+            "provider": "groq",
+            "model": "m",
+            "key_env": "GROQ_API_KEY",
+            "trains_on_data": False,
+            "requests_per_day": 3,
+            "note": "",
+        },
+    )
+    assert router._reserve("tiny") is True
+    assert router._pending.get("tiny", 0) == 1
+    router._bump("tiny")
+    # The reservation converted to usage: exactly one unit outstanding, and
+    # the finally: _release() in chat() must not release it a second time.
+    assert router.used_today("tiny") == 1
+    assert router._pending.get("tiny", 0) == 0
+    router._release("tiny")
+    assert router._pending.get("tiny", 0) == 0
+    assert router.used_today("tiny") == 1
+
+
+def _tiny_tiers():
+    return (
+        {
+            "tier": "tiny",
+            "provider": "groq",
+            "model": "m",
+            "key_env": "GROQ_API_KEY",
+            "trains_on_data": False,
+            "requests_per_day": 3,
+            "note": "",
+        },
+    )
+
+
+def test_bump_without_reservation_never_drives_pending_negative(tmp_path, monkeypatch) -> None:
+    """The pending guard in _bump() must not decrement an empty counter."""
+    _keys(monkeypatch, GROQ_API_KEY="q")
+    router, _ = _router(tmp_path, monkeypatch, {"groq": "ok"})
+    router.tiers = _tiny_tiers()
+    router._bump("tiny")
+    assert router.used_today("tiny") == 1
+    assert router._pending.get("tiny", 0) == 0
+
+
+def test_bump_prunes_usage_history_to_seven_days(tmp_path, monkeypatch) -> None:
+    from datetime import datetime, timedelta
+
+    _keys(monkeypatch, GROQ_API_KEY="q")
+    router, _ = _router(tmp_path, monkeypatch, {"groq": "ok"})
+    router.tiers = _tiny_tiers()
+    base = datetime.now(UTC)
+    router._usage = {(base - timedelta(days=d)).strftime("%Y-%m-%d"): {"tiny": 1} for d in range(8)}
+    router._bump("tiny")
+    assert len(router._usage) == 7
+    oldest = min(router._usage)
+    assert oldest == (base - timedelta(days=6)).strftime("%Y-%m-%d")
+
+
+def test_failed_chat_releases_its_reservation(tmp_path, monkeypatch) -> None:
+    """The except path in chat() must release the pending reservation."""
+    _keys(monkeypatch, GROQ_API_KEY="q")
+    router, _ = _router(tmp_path, monkeypatch, {"groq": "http500"})
+    router.tiers = _tiny_tiers()
+    with pytest.raises(RuntimeError, match="All free tiers unavailable"):
+        router.chat("sys", "hi", tiers=["tiny"])
+    assert router._pending.get("tiny", 0) == 0
+    assert router.used_today("tiny") == 0
+
+
+def test_chat_error_message_names_tier_and_exception(tmp_path, monkeypatch) -> None:
+    _keys(monkeypatch, GROQ_API_KEY="q")
+    router, _ = _router(tmp_path, monkeypatch, {"groq": "boom"})
+    router.tiers = _tiny_tiers()
+    with pytest.raises(RuntimeError) as excinfo:
+        router.chat("sys", "hi", tiers=["tiny"])
+    assert "tiny: RuntimeError" in str(excinfo.value)
+
+
+def test_chat_reports_quota_filled_while_waiting(tmp_path, monkeypatch) -> None:
+    _keys(monkeypatch, GROQ_API_KEY="q")
+    router, _ = _router(tmp_path, monkeypatch, {"groq": "ok"})
+    router.tiers = _tiny_tiers()
+    # Force the lost race deterministically: availability check passes but
+    # every slot is taken by the time _reserve() runs.
+    router._pending["tiny"] = 3
+    monkeypatch.setattr(router, "_tier_available", lambda tier, sensitive: (True, ""))
+    with pytest.raises(RuntimeError) as excinfo:
+        router.chat("sys", "hi", tiers=["tiny"])
+    assert "quota filled while waiting" in str(excinfo.value)
+
+
+def test_chat_reports_unknown_provider(tmp_path, monkeypatch) -> None:
+    import ghostchimera.model_layer.providers as providers_mod
+
+    _keys(monkeypatch, GROQ_API_KEY="q")
+    router, _ = _router(tmp_path, monkeypatch, {"groq": "ok"})
+    router.tiers = _tiny_tiers()
+    monkeypatch.setattr(providers_mod, "get_provider", lambda name, profile=None: None)
+    with pytest.raises(RuntimeError) as excinfo:
+        router.chat("sys", "hi", tiers=["tiny"])
+    assert "tiny: unknown provider" in str(excinfo.value)
+
+
+def test_chat_latency_is_sane_and_two_decimals(tmp_path, monkeypatch) -> None:
+    _keys(monkeypatch, GROQ_API_KEY="q")
+    router, _ = _router(tmp_path, monkeypatch, {"groq": "ok"})
+    router.tiers = _tiny_tiers()
+    out = router.chat("sys", "hi", tiers=["tiny"])
+    assert 0 <= out["latency_s"] < 60
+    assert out["latency_s"] == round(out["latency_s"], 2)
+
+
+def test_chat_latency_rounds_to_two_decimals(tmp_path, monkeypatch) -> None:
+    import time as time_mod
+
+    _keys(monkeypatch, GROQ_API_KEY="q")
+    router, _ = _router(tmp_path, monkeypatch, {"groq": "ok"})
+    router.tiers = _tiny_tiers()
+    calls = iter([1000.0, 1000.125])
+    monkeypatch.setattr(time_mod, "time", lambda: next(calls))
+    out = router.chat("sys", "hi", tiers=["tiny"])
+    # 0.125 rounds to 0.12 at two decimals; three decimals would keep 0.125.
+    assert out["latency_s"] == 0.12
+
+
+def test_chat_records_usage_in_ledger(tmp_path, monkeypatch) -> None:
+    from unittest import mock
+
+    _keys(monkeypatch, GROQ_API_KEY="q")
+    router, _ = _router(tmp_path, monkeypatch, {"groq": "ok"})
+    router.tiers = _tiny_tiers()
+    ledger = mock.Mock()
+    out = router.chat("sys", "hi", tiers=["tiny"], ledger=ledger)
+    assert out["ok"] is True
+    ledger.record.assert_called_once()
+    _, kwargs = ledger.record.call_args
+    assert ledger.record.call_args[0] == ("groq", "m")
+    assert kwargs["output_text"] == "[groq] reply"
+
+
+def test_chat_backs_off_once_on_retryable_error(tmp_path, monkeypatch) -> None:
+    import random
+    from unittest import mock
+
+    _keys(monkeypatch)
+    router, _ = _router(tmp_path, monkeypatch, {"groq": "http429"})
+    router.tiers = (
+        {
+            "tier": "tiny-a",
+            "provider": "groq",
+            "model": "m",
+            "key_env": "",
+            "trains_on_data": False,
+            "requests_per_day": 3,
+            "note": "",
+        },
+        {
+            "tier": "tiny-b",
+            "provider": "other",
+            "model": "m",
+            "key_env": "",
+            "trains_on_data": False,
+            "requests_per_day": 3,
+            "note": "",
+        },
+    )
+    sleep_mock = mock.Mock()
+    monkeypatch.setattr("time.sleep", sleep_mock)
+    random.seed(20261010)
+    expected_jitter = random.Random(20261010).uniform(0, 1.0)
+    out = router.chat("sys", "hi", tiers=["tiny-a", "tiny-b"])
+    assert out["tier"] == "tiny-b"
+    sleep_mock.assert_called_once()
+    (wait_arg,) = sleep_mock.call_args[0]
+    assert wait_arg == pytest.approx(4.0 + expected_jitter)
