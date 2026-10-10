@@ -591,8 +591,18 @@
     var reply = $("#conversationReply");
     if (reply && session) {
       var lastReply = session.last_reply || "Ghost is listening for your next instruction.";
+      // Avoid rendering the reply twice: the transcript already shows the
+      // latest ghost turn, so only render the reply box when it differs.
+      var transcriptTurns = session.turns || [];
+      var finalTurn = transcriptTurns.length ? transcriptTurns[transcriptTurns.length - 1] : null;
+      var alreadyShown =
+        finalTurn && finalTurn.role === "ghost" && String(finalTurn.content || "").trim() === String(lastReply).trim();
       reply.innerHTML = "";
-      reply.appendChild(renderTurnNode("ghost", lastReply));
+      if (alreadyShown) {
+        reply.appendChild(renderTurnNode("ghost", "Ghost is listening for your next instruction."));
+      } else {
+        reply.appendChild(renderTurnNode("ghost", lastReply));
+      }
     }
     var mode = session && session.mode ? session.mode : (settings.always_listening ? "listening" : "muted");
     if (settings.full_bypass) setConversationMicState("Bypass Armed", "error");

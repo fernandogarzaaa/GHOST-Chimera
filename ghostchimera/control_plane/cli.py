@@ -61,6 +61,7 @@ _TOP_LEVEL_COMMANDS = {
     "ask",
     "run",
     "batch",
+    "standing-orders",
 }
 _GLOBAL_OPTIONS_WITH_VALUES = {
     "--log-level",
@@ -337,6 +338,8 @@ def _main(argv: list[str] | None = None) -> int:
     trust_trace = trust_sub.add_parser("trace", help="Export a local OTel-compatible trace bundle")
     trust_trace.add_argument("trace_action", choices=["export"], nargs="?", default="export")
     trust_trace.add_argument("run_id", nargs="?", default="latest", help="Run id or latest.")
+    trust_replay = trust_sub.add_parser("replay", help="Re-execute a journaled run's objective and compare outcomes")
+    trust_replay.add_argument("run_id", nargs="?", default="latest", help="Run id or latest.")
     trust_eval = trust_sub.add_parser("eval", help="Create or compare local trust eval baselines")
     trust_eval.add_argument("eval_action", choices=["baseline", "compare"], nargs="?", default="baseline")
     trust_eval_cases = trust_sub.add_parser("eval-cases", help="List or promote Trust Runtime eval cases")
@@ -578,6 +581,15 @@ def _main(argv: list[str] | None = None) -> int:
     ask_parser.add_argument("--json", action="store_true", help="Output full JSON execution payload.")
     ux_audit_parser = sub.add_parser("ux-audit", help="Audit UX readiness and suggest upgrades")
     ux_audit_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
+    orders_parser = sub.add_parser("standing-orders", help="Manage Standing Orders (reusable autonomy programs)")
+    orders_parser.add_argument(
+        "action", choices=["list", "create", "enable", "disable", "run"], nargs="?", default="list"
+    )
+    orders_parser.add_argument("order_id", nargs="?", default="", help="Order id for enable/disable/run.")
+    orders_parser.add_argument("--title", default="", help="Title for create.")
+    orders_parser.add_argument("--objective", default="", help="Objective for create.")
+    orders_parser.add_argument("--scope", default="", help="Scope for create.")
+    orders_parser.add_argument("--state-dir", default="", help="Optional state directory.")
     parser.add_argument(
         "--log-level",
         default="INFO",
@@ -725,6 +737,9 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "trust":
         return _run_trust_cli(args)
+
+    if args.command == "standing-orders":
+        return _run_standing_orders_cli(args)
 
     if args.command == "capability-admission":
         return _run_capability_admission_cli(args)
@@ -957,9 +972,24 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
         deterministic_fulfill=True,
         autonomy_level=autonomy_level,
     )
+    # Journal the ask run in the Trust Runtime so "every run is journaled"
+    # holds for the CLI path, not just the console.
+    from ..trust_runtime import TrustRuntimeStore
+
+    state_dir = GhostChimeraConfig.from_env().state_dir
+    trust_store = TrustRuntimeStore(state_dir)
+    run_record = trust_store.create_run(objective, source="ask-cli")
+    run_id = run_record["run_id"]
     try:
         executions = kernel.run(objective)
     except PermissionError as exc:
+        trust_store.record_step(
+            run_id,
+            step_type="run_failed",
+            status="error",
+            input_payload={"objective": objective},
+            output_payload={"error": str(exc)},
+        )
         payload = {
             "ok": False,
             "error": str(exc),
@@ -971,7 +1001,24 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
             print(payload["error"])
             print(payload["tip"])
         return 1
+    for execution in executions:
+        exec_dict = execution.to_dict()
+        trust_store.record_step(
+            run_id,
+            step_type="task_executed",
+            status="ok" if exec_dict.get("ok") else "error",
+            input_payload={"task_id": exec_dict.get("task_id"), "objective": objective},
+            output_payload={
+                "ok": exec_dict.get("ok"),
+                "backend_id": exec_dict.get("backend_id"),
+                "output": str(exec_dict.get("output") or "")[:2000],
+                "error": exec_dict.get("error"),
+            },
+        )
     payload = [execution.to_dict() for execution in executions]
+    # Include the trust run id so the journal entry is discoverable.
+    for item in payload:
+        item["trust_run_id"] = run_id
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
@@ -1443,6 +1490,11 @@ def _run_trust_cli(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0 if payload.get("ok") else 1
 
+    if command == "replay":
+        payload = store.replay_run(args.run_id or "latest")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload.get("ok") else 1
+
     if command == "eval":
         payload = store.eval_baseline() if args.eval_action == "baseline" else store.eval_compare()
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -1460,6 +1512,42 @@ def _run_trust_cli(args: argparse.Namespace) -> int:
         return 0 if payload.get("ok") else 1
 
     return 2
+
+
+def _run_standing_orders_cli(args: argparse.Namespace) -> int:
+    from .standing_orders import StandingOrderStore
+
+    state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
+    store = StandingOrderStore(state_dir)
+    action = args.action or "list"
+
+    if action == "list":
+        print(json.dumps(store.list_orders(), indent=2, sort_keys=True))
+        return 0
+    if action == "create":
+        try:
+            result = store.create_order(
+                {"title": args.title, "objective": args.objective, "scope": args.scope or "general"}
+            )
+        except ValueError as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}, indent=2))
+            return 1
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if not args.order_id:
+        print(json.dumps({"ok": False, "error": "order_id is required"}, indent=2))
+        return 1
+    if action == "enable":
+        print(json.dumps(store.enable_order(args.order_id), indent=2, sort_keys=True))
+        return 0
+    if action == "disable":
+        print(json.dumps(store.disable_order(args.order_id), indent=2, sort_keys=True))
+        return 0
+    if action == "run":
+        print(json.dumps(store.run_order(args.order_id), indent=2, sort_keys=True))
+        return 0
+    print(json.dumps({"ok": False, "error": f"Unknown action: {action}"}, indent=2))
+    return 1
 
 
 def _run_capability_admission_cli(args: argparse.Namespace) -> int:
