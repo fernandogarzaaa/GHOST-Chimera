@@ -694,6 +694,43 @@ def _default_run_objective(
     try:
         executions = kernel.run(enriched_objective)
     except RuntimeError as exc:
+        # No live backend available. Fall back to the deterministic backend
+        # with fulfill=True so simple deterministic tasks (file listing,
+        # arithmetic) still work honestly instead of failing outright.
+        try:
+            fallback_kernel = ChimeraPilotKernel.default(
+                include_deterministic_backend=True,
+                deterministic_fulfill=True,
+                include_model_provider_backend=False,
+                autonomy_level=str(autonomy.get("level") or "supervised"),
+            )
+            executions = fallback_kernel.run(objective)
+            payload = [execution.to_dict() for execution in executions]
+            if not all(item.get("ok") for item in payload):
+                first_error = next(
+                    (str(item.get("error") or "").strip() for item in payload if item.get("error")),
+                    "",
+                )
+                return {
+                    "ok": False,
+                    "error": first_error or str(exc),
+                    "operator_report": (
+                        first_error
+                        or (
+                            "I could not run the objective with a live model/tool backend. "
+                            f"Reason: {exc}. Configure a model provider or local model before treating this as production execution."
+                        )
+                    ),
+                    "executions": payload,
+                }
+            return {
+                "ok": True,
+                "executions": payload,
+                "operator_context": _compact_operator_context(summary),
+                "note": "Ran on the offline deterministic backend (no model provider configured).",
+            }
+        except Exception:
+            pass
         return {
             "ok": False,
             "error": str(exc),

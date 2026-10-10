@@ -788,6 +788,111 @@ class TrustRuntimeStore:
             },
         }
 
+    def replay_run(
+        self,
+        run_id: str,
+        *,
+        executor: Any | None = None,
+    ) -> dict[str, Any]:
+        """Re-execute a journaled run's objective and compare outcomes.
+
+        Creates a new run linked to the original, executes the objective
+        through the provided executor (or a deterministic offline kernel),
+        and records both the new execution and a comparison against the
+        original run's recorded outcome. This is real re-execution, not a
+        policy preview like simulate_replay.
+        """
+        original = self.get_run(run_id)
+        if not original.get("ok"):
+            return original
+        run = original.get("run") if isinstance(original.get("run"), dict) else {}
+        objective = str(run.get("objective") or "").strip()
+        if not objective:
+            return {"ok": False, "error": "Original run has no recorded objective to replay."}
+        replay_record = self.create_run(
+            objective,
+            source="replay",
+            metadata={"replayed_from": run_id},
+        )
+        replay_id = replay_record["run_id"]
+
+        def _execute(exec_obj: str) -> list[dict[str, Any]]:
+            if executor is not None:
+                return executor(exec_obj)
+            from .chimera_pilot import ChimeraPilotKernel
+
+            kernel = ChimeraPilotKernel.default(
+                include_deterministic_backend=True,
+                deterministic_fulfill=True,
+                include_model_provider_backend=False,
+            )
+            return [execution.to_dict() for execution in kernel.run(exec_obj)]
+
+        try:
+            executions = _execute(objective)
+        except Exception as exc:
+            self.record_step(
+                replay_id,
+                step_type="replay_failed",
+                status="error",
+                input_payload={"replayed_from": run_id, "objective": objective},
+                output_payload={"error": str(exc)},
+            )
+            return {"ok": False, "error": str(exc), "replay_run_id": replay_id}
+
+        ok = all(item.get("ok") for item in executions) if executions else False
+        for execution in executions:
+            self.record_step(
+                replay_id,
+                step_type="replay_execution",
+                status="ok" if execution.get("ok") else "error",
+                input_payload={"replayed_from": run_id, "task_id": execution.get("task_id")},
+                output_payload={
+                    "ok": execution.get("ok"),
+                    "backend_id": execution.get("backend_id"),
+                    "output": str(execution.get("output") or "")[:2000],
+                    "error": execution.get("error"),
+                },
+            )
+
+        original_steps = original.get("steps") if isinstance(original.get("steps"), list) else []
+        original_ok_steps = sum(1 for s in original_steps if str(s.get("status") or "") in {"ok", "completed"})
+        original_err_steps = sum(
+            1 for s in original_steps if str(s.get("status") or "") in {"error", "failed", "denied", "blocked"}
+        )
+        replay_ok = sum(1 for e in executions if e.get("ok"))
+        replay_err = len(executions) - replay_ok
+        outcome_match = (original_err_steps == 0) == ok
+
+        self.record_step(
+            replay_id,
+            step_type="replay_comparison",
+            status="ok",
+            input_payload={"replayed_from": run_id},
+            output_payload={
+                "original_ok_steps": original_ok_steps,
+                "original_error_steps": original_err_steps,
+                "replay_ok": replay_ok,
+                "replay_errors": replay_err,
+                "outcome_match": outcome_match,
+            },
+        )
+        return {
+            "ok": True,
+            "replay_run_id": replay_id,
+            "replayed_from": run_id,
+            "objective": objective,
+            "execution_performed": True,
+            "executions": executions,
+            "comparison": {
+                "original_ok_steps": original_ok_steps,
+                "original_error_steps": original_err_steps,
+                "replay_ok": replay_ok,
+                "replay_errors": replay_err,
+                "outcome_match": outcome_match,
+            },
+        }
+
     def export_trace(self, run_id: str) -> dict[str, Any]:
         if run_id == "latest":
             runs = self.list_runs(limit=1)["runs"]
