@@ -981,6 +981,16 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
                 first_error = str(item.get("error") or "").strip()
         if primary_output:
             print(primary_output)
+            offline_only = all(
+                str(item.get("backend_id") or "") == "deterministic.local" for item in payload if item.get("ok")
+            )
+            if offline_only:
+                print(
+                    "note: no model provider is configured, so this ran on the offline deterministic "
+                    "smoke-test backend (its output is a placeholder, not an answer). Run `ghostchimera setup`, "
+                    "or set NEBIUS_API_KEY (Nemotron on Nebius Token Factory) or another provider key.",
+                    file=sys.stderr,
+                )
         elif first_error:
             print(first_error)
         else:
