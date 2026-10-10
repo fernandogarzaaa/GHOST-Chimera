@@ -263,3 +263,60 @@ def test_replay_run_outcome_match_logic(state_dir: Path) -> None:
         executor=lambda o: [{"ok": False, "task_id": "t", "error": "nope"}],
     )
     assert result["comparison"]["outcome_match"] is True
+
+
+def test_replay_run_output_truncation_and_counts(state_dir: Path) -> None:
+    """Mutants: output truncation, replay_err arithmetic, empty-executions ok=False."""
+    store = TrustRuntimeStore(state_dir)
+    run = store.create_run("count check", source="test")
+
+    long_output = "x" * 5000
+    result = store.replay_run(
+        run["run_id"],
+        executor=lambda o: [
+            {"ok": True, "task_id": "t1", "output": long_output},
+            {"ok": False, "task_id": "t2", "error": "bad"},
+        ],
+    )
+
+    assert result["ok"] is True
+    # replay_err = len(executions) - replay_ok = 2 - 1 = 1, not 3.
+    assert result["comparison"]["replay_ok"] == 1
+    assert result["comparison"]["replay_errors"] == 1
+
+    # Journaled output is truncated to 2000 chars (capture via mocked record_step).
+    captured = []
+    orig_record = store.record_step
+    def _capture(run_id, **kwargs):
+        captured.append(kwargs)
+        return orig_record(run_id, **kwargs)
+    store.record_step = _capture
+    store.replay_run(
+        run["run_id"],
+        executor=lambda o: [{"ok": True, "task_id": "t1", "output": long_output}],
+    )
+    exec_calls = [c for c in captured if c.get("step_type") == "replay_execution"]
+    assert len(exec_calls) == 1
+    assert len(exec_calls[0]["output_payload"]["output"]) == 2000
+    assert exec_calls[0]["status"] == "ok"
+
+    # Empty executions -> ok is False.
+    empty_run = store.create_run("empty", source="test")
+    result = store.replay_run(empty_run["run_id"], executor=lambda o: [])
+    assert result["comparison"]["replay_ok"] == 0
+    assert result["comparison"]["replay_errors"] == 0
+    assert result["comparison"]["outcome_match"] is False
+
+
+def test_replay_run_completed_status_counts_as_ok(state_dir: Path) -> None:
+    """'completed' status counts toward original_ok_steps."""
+    store = TrustRuntimeStore(state_dir)
+    run = store.create_run("status check", source="test")
+    store.record_step(run["run_id"], step_type="task_executed", status="completed")
+    store.record_step(run["run_id"], step_type="task_executed", status="ok")
+
+    result = store.replay_run(run["run_id"], executor=lambda o: [{"ok": True}])
+
+    # run_created (ok) + 2 task_executed = 3.
+    assert result["comparison"]["original_ok_steps"] == 3
+    assert result["comparison"]["original_error_steps"] == 0
