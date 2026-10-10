@@ -18,6 +18,8 @@ The daemon never blocks the caller: :meth:`Daemon.start` is non-blocking,
 
 from __future__ import annotations
 
+import atexit
+import contextlib
 import hashlib
 import hmac
 import json
@@ -25,6 +27,7 @@ import os
 import signal
 import threading
 import uuid
+import weakref
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -45,6 +48,20 @@ logger = get_logger("daemon")
 PID_FILE = "daemon.pid"
 HOOK_SECRET_ENV = "GHOSTCHIMERA_HOOK_SECRET"
 DEFAULT_MAX_WORKERS = 4
+
+# All live Daemon executors, weakly held. An atexit hook shuts them down so
+# a forgotten stop() can never orphan non-daemon pool threads (which would
+# hang pytest / the interpreter at exit).
+_DAEMON_EXECUTORS: weakref.WeakSet[ThreadPoolExecutor] = weakref.WeakSet()
+
+
+def _shutdown_all_executors() -> None:
+    for executor in list(_DAEMON_EXECUTORS):
+        with contextlib.suppress(Exception):
+            executor.shutdown(wait=False, cancel_futures=True)
+
+
+atexit.register(_shutdown_all_executors)
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +159,12 @@ class Daemon(BackgroundService):
         self._lock = threading.Lock()
 
         self._register_hook_route()
+        # Ensure executor threads never orphan the interpreter: if a caller
+        # forgets stop(), the atexit hook still shuts the pool down.
+        # A WeakSet is used so Daemon instances stay collectable; the bound
+        # method callbacks (scheduler/gateway) create cycles that defeat
+        # weakref.finalize on the Daemon itself.
+        _DAEMON_EXECUTORS.add(self._executor)
 
     # ------------------------------------------------------------------
     # Lifecycle

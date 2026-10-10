@@ -176,6 +176,25 @@ class LifecycleTests(unittest.TestCase):
         d.stop()  # must not raise
         self.assertFalse(d.pid_file.exists())
 
+    def test_forgotten_stop_does_not_orphan_executor(self) -> None:
+        # A Daemon whose stop() is never called must still have its executor
+        # registered for atexit shutdown (non-daemon pool threads would
+        # otherwise hang the interpreter at exit).
+        from ghostchimera.chimera_pilot.always_on import daemon as daemon_mod
+
+        d = _daemon(self.state_dir)
+        try:
+            d.start()
+            fut = d._executor.submit(lambda: 42)
+            self.assertEqual(fut.result(timeout=10), 42)
+            self.assertIn(d._executor, daemon_mod._DAEMON_EXECUTORS)
+        finally:
+            d.stop()
+        # After stop(), the pool is shut down: no live daemon-agent threads.
+        time.sleep(0.2)
+        workers = {t for t in threading.enumerate() if t.name.startswith("daemon-agent") and t.is_alive()}
+        self.assertEqual(workers, set())
+
     def test_status_snapshot(self) -> None:
         d = _daemon(self.state_dir)
         try:
