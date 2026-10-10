@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 from ..agent_core.core import AgentCore
@@ -38,6 +40,7 @@ _TOP_LEVEL_COMMANDS = {
     "remote",
     "production-gaps",
     "conversation",
+    "daemon",
     "live-presence",
     "saas",
     "worker",
@@ -248,6 +251,16 @@ def _main(argv: list[str] | None = None) -> int:
     conversation_parser.add_argument("--voice", action="store_true", help="Treat send input as a voice turn.")
     conversation_parser.add_argument("--full-bypass", action="store_true", help="Arm Full Bypass before sending.")
     conversation_parser.add_argument("--no-listen", action="store_true", help="Start without always-listening mode.")
+    daemon_parser = sub.add_parser("daemon", help="Run the always-on Ghost daemon (gateway + cron + webhooks)")
+    daemon_parser.add_argument(
+        "action",
+        choices=["start", "stop", "status", "run"],
+        nargs="?",
+        default="status",
+        help="start: launch detached; stop: terminate; status: probe; run: foreground (internal).",
+    )
+    daemon_parser.add_argument("--state-dir", default="", help="Daemon state directory.")
+    daemon_parser.add_argument("--poll-interval", type=int, default=60, help="Cron poll interval in seconds.")
     live_presence_parser = sub.add_parser(
         "live-presence", help="Manage live meetings, interviews, and delegated presence"
     )
@@ -709,6 +722,9 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "conversation":
         return _run_conversation_cli(args)
+
+    if args.command == "daemon":
+        return _run_daemon_cli(args)
 
     if args.command == "live-presence":
         return _run_live_presence_cli(args)
@@ -1260,6 +1276,81 @@ def _run_remote_cli(args: argparse.Namespace) -> int:
         return 0 if payload.get("ok") else 1
 
     return 2
+
+
+def _run_daemon_cli(args: argparse.Namespace) -> int:
+    from ..chimera_pilot.always_on.daemon import Daemon
+
+    state_dir = args.state_dir or str(GhostChimeraConfig.from_env().state_dir)
+
+    if args.action == "run":
+        # Foreground mode: used by `daemon start`'s detached child.
+        Daemon(state_dir=state_dir, poll_interval=args.poll_interval).run_forever()
+        return 0
+
+    if args.action == "start":
+        import subprocess
+
+        pid = Daemon.read_pid(state_dir)
+        if pid is not None and Daemon.pid_alive(pid):
+            print(json.dumps({"ok": False, "error": f"daemon already running (pid {pid})"}, indent=2))
+            return 1
+        cmd = [
+            sys.executable,
+            "-m",
+            "ghostchimera",
+            "daemon",
+            "run",
+            "--state-dir",
+            state_dir,
+            "--poll-interval",
+            str(args.poll_interval),
+        ]
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            cwd=str(Path.home()),
+        )
+        # The child writes its own PID file on start; wait briefly for it.
+        child_pid = None
+        for _ in range(50):
+            time.sleep(0.1)
+            child_pid = Daemon.read_pid(state_dir)
+            if child_pid is not None:
+                break
+        print(
+            json.dumps(
+                {"ok": child_pid is not None, "pid": child_pid, "launcher_pid": proc.pid},
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0 if child_pid is not None else 1
+
+    if args.action == "stop":
+        import signal as _signal
+
+        pid = Daemon.read_pid(state_dir)
+        if pid is None or not Daemon.pid_alive(pid):
+            print(json.dumps({"ok": True, "stopped": False, "reason": "not running"}, indent=2))
+            return 0
+        os.kill(pid, _signal.SIGTERM)
+        for _ in range(100):
+            time.sleep(0.1)
+            if not Daemon.pid_alive(pid) or Daemon.read_pid(state_dir) is None:
+                break
+        stopped = not Daemon.pid_alive(pid)
+        print(json.dumps({"ok": True, "stopped": stopped, "pid": pid}, indent=2, sort_keys=True))
+        return 0 if stopped else 1
+
+    # status
+    pid = Daemon.read_pid(state_dir)
+    alive = pid is not None and Daemon.pid_alive(pid)
+    print(json.dumps({"ok": True, "running": alive, "pid": pid}, indent=2, sort_keys=True))
+    return 0
 
 
 def _run_conversation_cli(args: argparse.Namespace) -> int:
