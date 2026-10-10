@@ -9,14 +9,35 @@ snapshot for the console's Agent Status tab.
 from __future__ import annotations
 
 import json
+import sys
+import types
 import urllib.request
 from dataclasses import replace
 from pathlib import Path
 
-from ghostchimera.chimera_pilot.gateway_server import GatewayServer
-from ghostchimera.config import GhostChimeraConfig
-from ghostchimera.connectors.console_routes import register_connector_routes
-from ghostchimera.trust_runtime import TrustRuntimeStore
+# croniter is a hard dependency of cron_scheduler but is not installed in
+# this sandbox (no PyPI egress; CI installs it). Shim it for tests.
+_croniter_mod = types.ModuleType("croniter")
+
+
+class _FakeCroniter:
+    def __init__(self, expr: str, start: float) -> None:
+        self.expr = expr
+        self.start = start
+
+    def get_next(self) -> float:
+        if self.expr.strip() == "* * * * *":
+            return self.start + 60 - (self.start % 60)
+        return self.start + 3600
+
+
+_croniter_mod.croniter = _FakeCroniter
+sys.modules.setdefault("croniter", _croniter_mod)
+
+from ghostchimera.chimera_pilot.gateway_server import GatewayServer  # noqa: E402
+from ghostchimera.config import GhostChimeraConfig  # noqa: E402
+from ghostchimera.connectors.console_routes import register_connector_routes  # noqa: E402
+from ghostchimera.trust_runtime import TrustRuntimeStore  # noqa: E402
 
 _PORT = [19373]
 

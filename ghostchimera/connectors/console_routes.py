@@ -1316,7 +1316,6 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         auth_usage_summary handlers. A failing section reports its error in
         place instead of failing the whole snapshot.
         """
-        from ..chimera_pilot.cron_scheduler import CronScheduler
         from ..trust_runtime import TrustRuntimeStore
 
         def _section(name: str, fn: Any) -> None:
@@ -1334,6 +1333,10 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             return TrustRuntimeStore(base).list_sessions(limit=20)
 
         def _schedules() -> dict[str, Any]:
+            # Import here (not at handler top) so a missing croniter only
+            # fails this section, not the whole snapshot.
+            from ..chimera_pilot.cron_scheduler import CronScheduler
+
             return CronScheduler(state_dir=base).status()
 
         def _approvals() -> dict[str, Any]:
