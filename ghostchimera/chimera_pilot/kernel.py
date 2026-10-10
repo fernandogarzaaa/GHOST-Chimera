@@ -77,6 +77,7 @@ class ChimeraPilotKernel:
         cls,
         *,
         include_deterministic_backend: bool = False,
+        deterministic_fulfill: bool = False,
         include_model_provider_backend: bool = True,
         include_quantum_backend: bool = False,
         cwd: str | None = None,
@@ -170,7 +171,7 @@ class ChimeraPilotKernel:
         if include_quantum_backend and PyQPanda3Backend.is_available():
             kernel.registry.register(PyQPanda3Backend())
         if include_deterministic_backend:
-            kernel.registry.register(DeterministicBackend())
+            kernel.registry.register(DeterministicBackend(fulfill=deterministic_fulfill))
         return kernel
 
     def register_backend(self, backend: Any) -> None:
