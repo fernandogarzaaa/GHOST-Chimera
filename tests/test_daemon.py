@@ -356,15 +356,17 @@ class RestartDurabilityTests(unittest.TestCase):
             finally:
                 d2.stop()
 
-    def test_snapshot_is_noop_without_session_api(self) -> None:
-        # On main (before PR #111), the store has no save_session: the
-        # daemon must degrade silently, not crash.
+    def test_snapshot_persists_via_session_api(self) -> None:
+        # With PR #111 merged, the store always has save_session: the
+        # daemon must persist the snapshot, not silently skip it.
         with tempfile.TemporaryDirectory(prefix="ghost-restart-") as tmp:
             state_dir = str(Path(tmp) / "state")
             d = Daemon(state_dir=state_dir, hook_secret="s")
             try:
-                self.assertFalse(callable(getattr(d.store, "save_session", None)))
+                self.assertTrue(callable(getattr(d.store, "save_session", None)))
                 d._persist_session_snapshot("webhook:test", "do thing", "done")  # must not raise
+                stored = d.store.get_session("daemon-" + __import__("hashlib").sha256(b"webhook:test").hexdigest()[:12])
+                self.assertIsNotNone(stored)
             finally:
                 d.stop()
 
