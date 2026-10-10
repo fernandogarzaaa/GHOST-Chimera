@@ -952,7 +952,11 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
     config = load_config() or {}
     persisted_autonomy = get_autonomy_config(config)
     autonomy_level = str(persisted_autonomy.get("level") or "supervised")
-    kernel = ChimeraPilotKernel.default(include_deterministic_backend=True, autonomy_level=autonomy_level)
+    kernel = ChimeraPilotKernel.default(
+        include_deterministic_backend=True,
+        deterministic_fulfill=True,
+        autonomy_level=autonomy_level,
+    )
     try:
         executions = kernel.run(objective)
     except PermissionError as exc:
