@@ -22,6 +22,7 @@ def test_legacy_placeholder_behavior_unchanged() -> None:
     result = backend.execute(_task("do anything"))
     assert result.ok is True
     assert result.output == "ok"
+    assert result.metrics == {"deterministic": True}
 
 
 def test_fulfill_disabled_with_custom_output() -> None:
@@ -29,6 +30,43 @@ def test_fulfill_disabled_with_custom_output() -> None:
     result = backend.execute(_task("do anything"))
     assert result.ok is True
     assert result.output == "custom"
+
+
+def test_init_health_and_capabilities() -> None:
+    backend = DeterministicBackend()
+    health = backend.probe()
+    assert health.available is True
+    assert health.reliability == 1.0
+    assert health.latency_ms == 1
+    assert health.estimated_cost_usd == 0.0
+    caps = backend.capabilities
+    assert caps.supports_offline is True
+    assert caps.supports_streaming is False
+    assert caps.supports_gpu is False
+    assert TaskKind.REASONING in caps.kinds
+
+
+def test_fulfill_metrics_on_success() -> None:
+    backend = DeterministicBackend(fulfill=True)
+    result = backend.execute(_task("what is 1 + 1"))
+    assert result.ok is True
+    assert result.metrics == {"deterministic": True, "fulfilled": True}
+    assert result.error == ""
+
+
+def test_fulfill_metrics_on_failure() -> None:
+    backend = DeterministicBackend(fulfill=True)
+    result = backend.execute(_task("write a poem"))
+    assert result.ok is False
+    assert result.metrics == {"deterministic": True, "fulfilled": False}
+    assert result.output == ""
+
+
+def test_fail_flag_metrics() -> None:
+    backend = DeterministicBackend(fail=True)
+    result = backend.execute(_task("anything"))
+    assert result.ok is False
+    assert result.metrics == {"deterministic": True}
 
 
 def test_fulfill_file_listing(tmp_path) -> None:
