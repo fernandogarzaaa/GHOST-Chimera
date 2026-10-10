@@ -228,7 +228,7 @@
     ["connect", "Connect", ["connections", "integrations", "github", "mcp", "remote"]],
     ["operate", "Operate", ["run", "tools", "jobs", "workspace", "memory", "minimind",
       "rag-builder", "skills", "browser", "activity", "thinking", "live-presence", "latency",
-      "stealth", "cloud", "conversation"]],
+      "stealth", "cloud", "conversation", "agent-status"]],
     ["advanced", "Advanced", ["trust", "evolution", "cognition", "capability-pack", "sandbox",
       "security", "schedules", "review", "capabilities"]],
   ];
@@ -4342,6 +4342,7 @@
       await Promise.allSettled([
         refreshJobs(),
         refreshSchedules(),
+        refreshAgentStatus(),
         refreshWorkspace(),
         refreshMemory(),
         refreshPersonalMiniMind(),
@@ -5553,6 +5554,119 @@
     } catch (_) { empty("#securityEvents", "Security monitor unavailable."); }
   }
   $("#refreshSecurity").addEventListener("click", refreshSecurity);
+
+  // ── Agent Status (unified) ────────────────────────────────────────────────
+  function fmtTs(ts) {
+    var n = Number(ts);
+    if (!n) return "never";
+    return new Date(n * 1000).toLocaleString();
+  }
+  function renderAgentStatusAgents(data) {
+    var list = $("#agentStatusAgents");
+    var runs = (data && data.agents && data.agents.runs) || [];
+    $("#agentStatusAgentCount").textContent = runs.length ? "(" + runs.length + " recent)" : "";
+    if (!runs.length) { empty("#agentStatusAgents", "No agent runs recorded yet."); return; }
+    list.innerHTML = "";
+    runs.forEach(function(r) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "name" }, (r.agent_name || "agent") + ": " + (r.objective || "").slice(0, 80)));
+      item.appendChild(el("span", { class: "badge " + (r.status === "failed" ? "error" : "ok") }, r.status || "unknown"));
+      item.appendChild(el("span", { class: "meta" }, (r.model_provider || "") + (r.model_name ? "/" + r.model_name : "")));
+      item.appendChild(el("span", { class: "meta" }, "updated " + fmtTs(r.updated_at)));
+      list.appendChild(item);
+    });
+  }
+  function renderAgentStatusSessions(data) {
+    var list = $("#agentStatusSessions");
+    var sessions = (data && data.sessions && data.sessions.sessions) || [];
+    $("#agentStatusSessionCount").textContent = sessions.length ? "(" + sessions.length + " recent)" : "";
+    if (!sessions.length) { empty("#agentStatusSessions", "No sessions yet."); return; }
+    list.innerHTML = "";
+    sessions.forEach(function(s) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "name" }, s.session_id || "session"));
+      item.appendChild(el("span", { class: "meta" }, (s.message_count || 0) + " msgs"));
+      item.appendChild(el("span", { class: "meta" }, (s.total_tokens || 0) + " tokens"));
+      item.appendChild(el("span", { class: "meta" }, "active " + fmtTs(s.last_active || s.updated_at)));
+      list.appendChild(item);
+    });
+  }
+  function renderAgentStatusSchedules(data) {
+    var list = $("#agentStatusSchedules");
+    var sched = data && data.schedules;
+    var jobs = (sched && sched.jobs) || [];
+    $("#agentStatusScheduleCount").textContent = jobs.length ? "(" + jobs.length + ", " + (sched.enabled_count || 0) + " enabled)" : "";
+    if (!jobs.length) { empty("#agentStatusSchedules", "No scheduled jobs."); return; }
+    list.innerHTML = "";
+    jobs.forEach(function(j) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "name" }, j.name || j.id));
+      item.appendChild(el("span", { class: "badge " + (j.enabled ? "ok" : "warn") }, j.enabled ? "enabled" : "disabled"));
+      item.appendChild(el("span", { class: "meta" }, j.cron_expression || ""));
+      item.appendChild(el("span", { class: "meta" }, "runs: " + (j.run_count || 0)));
+      item.appendChild(el("span", { class: "meta" }, "last " + fmtTs(j.last_run) + " / next " + fmtTs(j.next_run)));
+      list.appendChild(item);
+    });
+  }
+  function renderAgentStatusApprovals(data) {
+    var list = $("#agentStatusApprovals");
+    var approvals = (data && data.approvals && data.approvals.approvals) || [];
+    $("#agentStatusApprovalCount").textContent = approvals.length ? "(" + approvals.length + " pending)" : "";
+    if (!approvals.length) { empty("#agentStatusApprovals", "No pending approvals."); return; }
+    list.innerHTML = "";
+    approvals.forEach(function(a) {
+      var item = el("div", { class: "list-item" });
+      item.appendChild(el("span", { class: "name" }, a.action || a.kind || a.id || "approval"));
+      item.appendChild(el("span", { class: "badge warn" }, "pending"));
+      item.appendChild(el("span", { class: "meta" }, a.source || ""));
+      item.appendChild(el("span", { class: "meta" }, (a.entity_id || "") + " " + fmtTs(a.requested_at || a.created_at)));
+      list.appendChild(item);
+    });
+  }
+  function renderAgentStatusUsage(data) {
+    var grid = $("#agentStatusUsage");
+    var usage = (data && data.usage) || {};
+    grid.innerHTML = "";
+    function card(label, value) {
+      var c = el("div", { class: "card" });
+      c.appendChild(el("h3", null, label));
+      c.appendChild(el("div", { class: "value" }, value));
+      grid.appendChild(c);
+    }
+    if (usage.error) { empty("#agentStatusUsage", "Usage unavailable: " + usage.error); return; }
+    card("Total spend (USD)", "$" + Number(usage.total_usd || 0).toFixed(4));
+    var daily = usage.daily || {};
+    card("Today spend (USD)", "$" + Number(daily.spend_usd || 0).toFixed(4));
+    card("Today tokens", String(daily.tokens || 0));
+    var providers = usage.providers || {};
+    Object.keys(providers).forEach(function(p) {
+      var info = providers[p] || {};
+      card(p, "$" + Number(info.spend_usd || 0).toFixed(4) + " / " + (info.tokens || 0) + " tok");
+    });
+  }
+  function renderAgentStatusErrors(data) {
+    ["agents", "sessions", "schedules", "approvals", "usage"].forEach(function(key) {
+      var section = data && data[key];
+      if (section && section.error && !section.ok) {
+        toast("Agent status: " + key + " failed: " + section.error, "warn");
+      }
+    });
+  }
+  async function refreshAgentStatus() {
+    try {
+      var data = await api("/api/auth/agent-status", { method: "POST", body: {} });
+      renderAgentStatusAgents(data);
+      renderAgentStatusSessions(data);
+      renderAgentStatusSchedules(data);
+      renderAgentStatusApprovals(data);
+      renderAgentStatusUsage(data);
+      renderAgentStatusErrors(data);
+      $("#agentStatusUpdated").textContent = "updated " + new Date().toLocaleTimeString();
+    } catch (e) {
+      toast("Agent status refresh failed: " + e.message, "error");
+    }
+  }
+  $("#refreshAgentStatus").addEventListener("click", refreshAgentStatus);
 
   // ── Schedules ─────────────────────────────────────────────────────────────
   async function refreshSchedules() {
