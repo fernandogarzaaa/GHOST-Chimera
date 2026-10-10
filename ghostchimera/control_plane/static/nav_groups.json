@@ -41,7 +41,8 @@
         "latency",
         "stealth",
         "cloud",
-        "conversation"
+        "conversation",
+        "agent-status"
       ]
     },
     {

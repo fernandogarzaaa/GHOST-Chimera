@@ -1304,6 +1304,52 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             "free_tiers_live": quota_health,
         }
 
+    def agent_status_summary(ctx: dict[str, Any]) -> dict[str, Any]:
+        """Unified agent status: agents, sessions, schedules, approvals, usage.
+
+        Aggregates the five status surfaces into one snapshot so the Ghost
+        Console "Agent Status" view needs a single request. Every section is
+        sourced from the same stores and handlers as the dedicated endpoints:
+        durable runs and sessions come from TrustRuntimeStore, schedules are
+        read from the persisted CronScheduler state (no scheduler thread is
+        started), and approvals/usage reuse the auth_approval_pending and
+        auth_usage_summary handlers. A failing section reports its error in
+        place instead of failing the whole snapshot.
+        """
+        from ..chimera_pilot.cron_scheduler import CronScheduler
+        from ..trust_runtime import TrustRuntimeStore
+
+        def _section(name: str, fn: Any) -> None:
+            try:
+                payload[name] = fn()
+            except Exception as exc:
+                payload[name] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+        payload: dict[str, Any] = {"ok": True}
+
+        def _runs() -> dict[str, Any]:
+            return TrustRuntimeStore(base).list_runs(limit=20)
+
+        def _sessions() -> dict[str, Any]:
+            return TrustRuntimeStore(base).list_sessions(limit=20)
+
+        def _schedules() -> dict[str, Any]:
+            return CronScheduler(state_dir=base).status()
+
+        def _approvals() -> dict[str, Any]:
+            result = auth_approval_pending(ctx)
+            return {"ok": True, "approvals": result.get("approvals", [])}
+
+        def _usage() -> dict[str, Any]:
+            return auth_usage_summary(ctx)
+
+        _section("agents", _runs)
+        _section("sessions", _sessions)
+        _section("schedules", _schedules)
+        _section("approvals", _approvals)
+        _section("usage", _usage)
+        return payload
+
     def auth_evals_run(ctx: dict[str, Any]) -> dict[str, Any]:
         """Run the named eval suite and return its outcome and timestamp.
 
@@ -1845,6 +1891,14 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         auth=auth,
         token=token,
         description="Token meter, daily cost, latency, free quotas",
+    )
+    server.routes.register(
+        "/api/auth/agent-status",
+        agent_status_summary,
+        method="POST",
+        auth=auth,
+        token=token,
+        description="Unified agent status: agents, sessions, schedules, approvals, usage",
     )
     server.routes.register(
         "/api/auth/evals/run",
