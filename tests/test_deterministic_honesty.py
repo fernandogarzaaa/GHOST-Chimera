@@ -79,6 +79,26 @@ def test_fulfill_arithmetic_parens() -> None:
     assert result.output == "20"
 
 
+def test_fulfill_arithmetic_invalid_expression() -> None:
+    """Expression matching the regex but failing safe eval is honestly rejected."""
+    backend = DeterministicBackend(fulfill=True)
+    result = backend.execute(_task("what is ("))
+    assert result.ok is False
+    assert UNFULFILLED_ERROR in result.error
+
+
+def test_fulfill_list_oserror() -> None:
+    """OSError (e.g. permission denied) during listing is honestly reported."""
+    from unittest.mock import patch
+
+    backend = DeterministicBackend(fulfill=True)
+    with patch("os.listdir", side_effect=OSError("permission denied")):
+        result = backend.execute(_task("list the files in /some/dir"))
+    assert result.ok is False
+    assert UNFULFILLED_ERROR in result.error
+    assert "cannot list directory" in result.error
+
+
 def test_fulfill_unfulfillable_is_honest() -> None:
     backend = DeterministicBackend(fulfill=True)
     result = backend.execute(_task("write a poem about the ocean"))
