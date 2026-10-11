@@ -192,6 +192,17 @@ outage can never break the traced call.
   always-on use
 - [API Reference](docs/api-reference.md) — generated API docs
 
+## Testing
+
+Run the test suite with pytest:
+
+```bash
+python -m pytest tests/
+```
+
+See [CLAUDE.md](CLAUDE.md) for the full contributor command reference
+(compile check, single-file runs, eval suites).
+
 ## Production & SaaS pointers
 
 - Daily Production Maintenance refreshes the compatible model catalog and
