@@ -250,6 +250,30 @@ class OpenClawAdapter(HostAdapter):
 
         return shutil.which("openclaw") is not None
 
+    def install(self) -> dict[str, Any]:
+        return {
+            "host": self.id,
+            "installed": True,
+            "context_engine_snippet": {
+                "lifecycle_hooks": {
+                    "ingest": {"command": "ghost-hook openclaw-ingest"},
+                    "assemble": {"command": "ghost-hook openclaw-assemble"},
+                    "after-turn": {"command": "ghost-hook openclaw-after-turn"},
+                }
+            },
+            "capabilities": {
+                "observes_session": True,
+                "observes_outcome": True,
+                "injects_context": True,
+                "learns": True,
+            },
+            "note": (
+                "Register under OpenClaw's context-engine lifecycle hooks; "
+                "ghost-hook maps ingest->observe_session, assemble->context injection, "
+                "after-turn->observe_outcome."
+            ),
+        }
+
     def assemble(self, session: dict[str, Any]) -> dict[str, Any]:
         """Context-engine `assemble` hook: observe + return prepared context."""
         self.observe_session({"kind": "prompt", **session})
