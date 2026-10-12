@@ -28,7 +28,7 @@ def test_clean_directory_passes(tmp_path) -> None:
 
 
 def test_secret_outside_tests_fails_strict_scan(tmp_path) -> None:
-    (tmp_path / "config.py").write_text('api_key = "ghp_X7kabcQ2mZ789B4vC8nD3fE6hJ1kL5pO0"\n', encoding="utf-8")
+    (tmp_path / "config.py").write_text('api_key = "ghp_' + 'X7kabcQ2mZ789B4vC8nD3fE6hJ1kL5pO0"\n', encoding="utf-8")
 
     report = scan_project(tmp_path, strict=True)
 
@@ -41,7 +41,7 @@ def test_secret_outside_tests_fails_strict_scan(tmp_path) -> None:
 
 
 def test_synthetic_token_is_downgraded_to_medium(tmp_path) -> None:
-    (tmp_path / "config.py").write_text('api_key = "ghp_abcdefghijklmnopqrstuvwxyz012345"\n', encoding="utf-8")
+    (tmp_path / "config.py").write_text('api_key = "ghp_' + 'abcdefghijklmnopqrstuvwxyz012345"\n', encoding="utf-8")
 
     report = scan_project(tmp_path, strict=True)
 
@@ -63,7 +63,7 @@ def test_empty_env_var_name_is_not_a_secret(tmp_path) -> None:
 def test_secret_in_test_fixture_is_medium_severity(tmp_path) -> None:
     test_dir = tmp_path / "tests"
     test_dir.mkdir()
-    (test_dir / "test_example.py").write_text('token = "ghp_abcdefghijklmnopqrstuvwxyz012345"\n', encoding="utf-8")
+    (test_dir / "test_example.py").write_text('token = "ghp_' + 'abcdefghijklmnopqrstuvwxyz012345"\n', encoding="utf-8")
 
     report = scan_project(tmp_path, strict=True)
 

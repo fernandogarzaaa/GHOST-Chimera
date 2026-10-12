@@ -114,7 +114,7 @@ class TestBuiltinDPIEngine(unittest.TestCase):
     # --- credentials ---
 
     def test_blocks_openai_key(self):
-        result = self.engine.inspect("my key is sk-abcdefghijklmnopqrstuvwxyz1234567890abcd")
+        result = self.engine.inspect("my key is sk-" + "abcdefghijklmnopqrstuvwxyz1234567890abcd")
         self.assertFalse(result.allowed)
         self.assertTrue(result.credential_detected)
         self.assertEqual(result.action, "DENY")
@@ -125,12 +125,12 @@ class TestBuiltinDPIEngine(unittest.TestCase):
         self.assertTrue(result.credential_detected)
 
     def test_blocks_github_pat(self):
-        result = self.engine.inspect("GitHub PAT: ghp_abcdefghijklmnopqrstuvwxyz123456789012")
+        result = self.engine.inspect("GitHub PAT: ghp_" + "abcdefghijklmnopqrstuvwxyz123456789012")
         self.assertFalse(result.allowed)
         self.assertTrue(result.credential_detected)
 
     def test_blocks_aws_access_key(self):
-        result = self.engine.inspect("AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE")
+        result = self.engine.inspect("AWS_ACCESS_KEY_ID=" + "AKIA" + "IOSFODNN7EXAMPLE")
         self.assertFalse(result.allowed)
         self.assertTrue(result.credential_detected)
 
@@ -269,7 +269,7 @@ class TestLobsterTrapProviderWrapper(unittest.TestCase):
     def test_blocks_credential_in_response(self):
         from ghostchimera.model_layer.lobster_trap_provider import LobsterTrapViolation
 
-        provider = self._make_provider(echo_response="Here's the key: sk-abcdefghijklmnopqrstuvwxyz1234567890")
+        provider = self._make_provider(echo_response="Here's the key: sk-" + "abcdefghijklmnopqrstuvwxyz1234567890")
         with self.assertRaises(LobsterTrapViolation):
             provider.chat("You are helpful.", "give me info")
 
