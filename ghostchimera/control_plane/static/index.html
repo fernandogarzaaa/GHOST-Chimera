@@ -37,6 +37,7 @@
   <nav class="tab-bar" id="tabBar">
     <button class="tab active" data-tab="operator">Home</button>
     <button class="tab" data-tab="status">Status</button>
+    <button class="tab" data-tab="agent-status">Agent Status</button>
     <button class="tab" data-tab="config">Config</button>
     <button class="tab" data-tab="connections">Connections</button>
     <button class="tab" data-tab="integrations">Integrations</button>
@@ -1046,6 +1047,27 @@
 
     <div class="section-hdr" style="margin-top:24px;">Registered Backends</div>
     <div id="backendList"></div>
+  </div>
+
+  <!-- ── AGENT STATUS ──────────────────────────────────────────────────── -->
+  <div class="tab-content" id="tab-agent-status">
+    <div class="section-hdr" style="margin-top:0;">Agent Status
+      <span class="hint" style="margin-left:8px;">one snapshot: agents, sessions, schedules, approvals, usage</span>
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="refreshAgentStatus" class="primary">Refresh</button>
+      <span class="hint" id="agentStatusUpdated"></span>
+    </div>
+    <div class="section-hdr">Agents <span class="hint" id="agentStatusAgentCount"></span></div>
+    <div id="agentStatusAgents"></div>
+    <div class="section-hdr" style="margin-top:24px;">Sessions <span class="hint" id="agentStatusSessionCount"></span></div>
+    <div id="agentStatusSessions"></div>
+    <div class="section-hdr" style="margin-top:24px;">Scheduled Jobs <span class="hint" id="agentStatusScheduleCount"></span></div>
+    <div id="agentStatusSchedules"></div>
+    <div class="section-hdr" style="margin-top:24px;">Pending Approvals <span class="hint" id="agentStatusApprovalCount"></span></div>
+    <div id="agentStatusApprovals"></div>
+    <div class="section-hdr" style="margin-top:24px;">Token Usage &amp; Spend</div>
+    <div class="grid" id="agentStatusUsage"></div>
   </div>
 
   <!-- ── RUN ───────────────────────────────────────────────────────────── -->
