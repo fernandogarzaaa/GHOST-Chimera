@@ -83,7 +83,7 @@ class SuperiorityScorecardTests(unittest.TestCase):
         self.assertTrue(payload["secret_policy"]["secrets_are_write_only"])
         self.assertFalse(payload["secret_policy"]["raw_secret_values_returned"])
         self.assertFalse(contains_secret_like_text(serialized))
-        self.assertTrue(contains_secret_like_text("raw token ghp_abcdefghijklmnopqrstuvwxyz1234567890"))
+        self.assertTrue(contains_secret_like_text("raw token ghp_" + "abcdefghijklmnopqrstuvwxyz1234567890"))
 
     def test_local_operator_summary_uses_real_config_and_state_without_secrets(self) -> None:
         from ghostchimera.control_plane.config import save_config
