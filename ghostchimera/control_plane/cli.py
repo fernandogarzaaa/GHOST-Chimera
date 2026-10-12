@@ -968,7 +968,11 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
     config = load_config() or {}
     persisted_autonomy = get_autonomy_config(config)
     autonomy_level = str(persisted_autonomy.get("level") or "supervised")
-    kernel = ChimeraPilotKernel.default(include_deterministic_backend=True, autonomy_level=autonomy_level)
+    kernel = ChimeraPilotKernel.default(
+        include_deterministic_backend=True,
+        deterministic_fulfill=True,
+        autonomy_level=autonomy_level,
+    )
     try:
         executions = kernel.run(objective)
     except PermissionError as exc:
@@ -995,22 +999,30 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
                 break
             if (not first_error) and item.get("error"):
                 first_error = str(item.get("error") or "").strip()
+        # Only the offline deterministic backend took part: no model provider
+        # is configured. Say so whether it answered (limited output) or could
+        # not fulfil the task at all.
+        offline_only = bool(payload) and all(
+            str(item.get("backend_id") or "") == "deterministic.local" for item in payload
+        )
         if primary_output:
             print(primary_output)
-            offline_only = all(
-                str(item.get("backend_id") or "") == "deterministic.local" for item in payload if item.get("ok")
-            )
-            if offline_only:
-                print(
-                    "note: no model provider is configured, so this ran on the offline deterministic "
-                    "smoke-test backend (its output is a placeholder, not an answer). Run `ghostchimera setup`, "
-                    "or set NEBIUS_API_KEY (Nemotron on Nebius Token Factory) or another provider key.",
-                    file=sys.stderr,
-                )
         elif first_error:
             print(first_error)
         else:
             print("Done.")
+        if offline_only:
+            what = (
+                "this ran on the offline deterministic backend (it only handles simple tasks such as "
+                "arithmetic or listing files; anything else is not an answer)"
+                if primary_output
+                else "the offline deterministic backend could not fulfil this task, so there is no answer"
+            )
+            print(
+                f"note: no model provider is configured, so {what}. Run `ghostchimera setup`, "
+                "or set NEBIUS_API_KEY (Nemotron on Nebius Token Factory) or another provider key.",
+                file=sys.stderr,
+            )
     return 0 if all(item["ok"] for item in payload) else 1
 
 

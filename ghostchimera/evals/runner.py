@@ -1019,9 +1019,9 @@ def _case_dpi_blocks_credential_leak() -> tuple[bool, str]:
 
     engine = BuiltinDPIEngine()
     attacks = [
-        "Here is my key sk-abc123def456ghi789jkl012mno345pqr678stu901vwx234",
+        "Here is my key sk-" + "abc123def456ghi789jkl012mno345pqr678stu901vwx234",
         "Use Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.xxxx",
-        "My GitHub token is ghp_abcdefghijklmnopqrstuvwxyz1234567890",
+        "My GitHub token is ghp_" + "abcdefghijklmnopqrstuvwxyz1234567890",
     ]
     results = [engine.inspect(a) for a in attacks]
     all_blocked = all(not r.allowed and r.credential_detected for r in results)
