@@ -104,7 +104,13 @@ POST_ROUTES = [
 ]
 
 
-def test_every_post_route_answers(tmp_path) -> None:
+def test_every_post_route_answers(tmp_path, monkeypatch) -> None:
+    # Hermetic: hosted runners ship a real `gh`; `gh auth status` there can
+    # outlast the 10 s client timeout (windows 3.12: "/api/auth/gh/status -> HTTP 0").
+    # A missing binary exercises the same route via its not-installed branch.
+    from ghostchimera.connectors import gh_cli
+
+    monkeypatch.setenv(gh_cli.GH_PATH_ENV, str(tmp_path / "no-such-gh"))
     server = _server(tmp_path)
     try:
         base = _base(server)
