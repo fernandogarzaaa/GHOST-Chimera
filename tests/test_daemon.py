@@ -784,10 +784,34 @@ class DaemonHardeningTests(_FakeAgentMixin, unittest.TestCase):
             self.assertFalse(Daemon.pid_alive(999999))
         self.assertTrue(Daemon.pid_alive(os.getpid()))
 
+    @unittest.skipIf(os.name == "nt", "POSIX probe path")
     def test_pid_alive_uses_signal_zero(self) -> None:
         with patch.object(daemon_mod.os, "kill", return_value=None) as mock_kill:
             Daemon.pid_alive(1234)
         mock_kill.assert_called_once_with(1234, 0)
+
+    def test_pid_alive_never_signals_on_windows(self) -> None:
+        # On Windows signal 0 is CTRL_C_EVENT: os.kill(pid, 0) would interrupt
+        # the caller's console group. The Windows path must not call os.kill.
+        with (
+            patch.object(daemon_mod.os, "name", "nt"),
+            patch.object(daemon_mod, "_windows_pid_alive", return_value=True) as mock_win,
+            patch.object(daemon_mod.os, "kill") as mock_kill,
+        ):
+            self.assertTrue(Daemon.pid_alive(4321))
+        mock_kill.assert_not_called()
+        mock_win.assert_called_once_with(4321)
+
+    def test_pid_alive_rejects_non_positive_pids(self) -> None:
+        with patch.object(daemon_mod.os, "kill") as mock_kill:
+            self.assertFalse(Daemon.pid_alive(0))
+            self.assertFalse(Daemon.pid_alive(-1))
+        mock_kill.assert_not_called()
+
+    @unittest.skipIf(os.name == "nt", "POSIX probe path")
+    def test_pid_alive_permission_error_means_alive(self) -> None:
+        with patch.object(daemon_mod.os, "kill", side_effect=PermissionError("other user")):
+            self.assertTrue(Daemon.pid_alive(1))
 
     def test_stop_shuts_down_executor_and_sets_flag(self) -> None:
         d = Daemon(state_dir=self.state_dir, hook_secret="s")

@@ -69,6 +69,27 @@ atexit.register(_shutdown_all_executors)
 # ---------------------------------------------------------------------------
 
 
+def _windows_pid_alive(pid: int) -> bool:
+    """Windows liveness check via OpenProcess/GetExitCodeProcess (no signals)."""
+    import ctypes  # local: Windows-only path
+    from ctypes import wintypes
+
+    process_query_limited_information = 0x1000
+    still_active = 259
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    if not handle:
+        # ERROR_ACCESS_DENIED (5): the process exists but belongs to someone else.
+        return ctypes.get_last_error() == 5  # type: ignore[attr-defined]
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == still_active
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def load_daemon_identity(state_dir: str | Path) -> dict[str, Any]:
     """Load the persistent agent identity for the daemon.
 
@@ -253,8 +274,22 @@ class Daemon(BackgroundService):
 
     @staticmethod
     def pid_alive(pid: int) -> bool:
+        """Whether a process with this PID is running.
+
+        POSIX: ``os.kill(pid, 0)`` probes without signalling. Windows must
+        NOT use that: there ``0`` is ``signal.CTRL_C_EVENT``, so the "probe"
+        sends Ctrl+C to the console process group (including the caller,
+        which is how the test run was interrupted on Windows CI). Query the
+        process handle instead.
+        """
+        if pid <= 0:
+            return False
+        if os.name == "nt":
+            return _windows_pid_alive(pid)
         try:
             os.kill(pid, 0)
+        except PermissionError:
+            return True  # exists, owned by another user
         except OSError:
             return False
         return True
