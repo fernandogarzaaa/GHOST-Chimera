@@ -25,6 +25,7 @@ class _FakeCroniter:
 _croniter_mod.croniter = _FakeCroniter
 sys.modules.setdefault("croniter", _croniter_mod)
 
+import contextlib  # noqa: E402
 import json  # noqa: E402
 import os  # noqa: E402
 import tempfile  # noqa: E402
@@ -33,7 +34,7 @@ import time  # noqa: E402
 import unittest  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Any  # noqa: E402
-from unittest.mock import patch  # noqa: E402
+from unittest.mock import MagicMock, patch  # noqa: E402
 
 from ghostchimera.chimera_pilot.always_on import daemon as daemon_mod  # noqa: E402
 from ghostchimera.chimera_pilot.always_on.daemon import (  # noqa: E402
@@ -42,6 +43,28 @@ from ghostchimera.chimera_pilot.always_on.daemon import (  # noqa: E402
     load_daemon_identity,
 )
 from ghostchimera.trust_runtime import TrustRuntimeStore  # noqa: E402
+
+
+@contextlib.contextmanager
+def patch_sleep_this_thread():
+    """Patch time.sleep, recording only calls made on the current thread.
+
+    time.sleep is process-global; daemon/scheduler threads still winding down
+    from other tests call it too, which made exact call-count assertions flaky
+    on CI (seen: 46577 != 100 on macOS 3.12).
+    """
+    real_sleep = time.sleep
+    owner = threading.current_thread()
+    recorder = MagicMock()
+
+    def _sleep(seconds: float) -> None:
+        if threading.current_thread() is owner:
+            recorder(seconds)
+        else:
+            real_sleep(seconds)
+
+    with patch("time.sleep", _sleep):
+        yield recorder
 
 
 class FakeAIAgent:
@@ -506,7 +529,7 @@ class CliTests(unittest.TestCase):
             with (
                 patch("subprocess.Popen", return_value=fake_proc),
                 patch.object(daemon_mod.Daemon, "read_pid", return_value=None),
-                patch("time.sleep") as mock_sleep,
+                patch_sleep_this_thread() as mock_sleep,
                 patch("builtins.print") as mock_print,
             ):
                 code = _run_daemon_cli(args)
@@ -543,7 +566,7 @@ class CliTests(unittest.TestCase):
                 patch.object(daemon_mod.Daemon, "read_pid", return_value=4242),
                 patch.object(daemon_mod.Daemon, "pid_alive", side_effect=[True, False, False]),
                 patch("os.kill") as mock_kill,
-                patch("time.sleep") as mock_sleep,
+                patch_sleep_this_thread() as mock_sleep,
                 patch("builtins.print") as mock_print,
             ):
                 code = _run_daemon_cli(args)
@@ -562,7 +585,7 @@ class CliTests(unittest.TestCase):
                 patch.object(daemon_mod.Daemon, "read_pid", return_value=4242),
                 patch.object(daemon_mod.Daemon, "pid_alive", return_value=True),
                 patch("os.kill"),
-                patch("time.sleep") as mock_sleep,
+                patch_sleep_this_thread() as mock_sleep,
                 patch("builtins.print") as mock_print,
             ):
                 code = _run_daemon_cli(args)
