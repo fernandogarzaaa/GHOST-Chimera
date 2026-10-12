@@ -287,9 +287,11 @@ def test_replay_run_output_truncation_and_counts(state_dir: Path) -> None:
     # Journaled output is truncated to 2000 chars (capture via mocked record_step).
     captured = []
     orig_record = store.record_step
+
     def _capture(run_id, **kwargs):
         captured.append(kwargs)
         return orig_record(run_id, **kwargs)
+
     store.record_step = _capture
     store.replay_run(
         run["run_id"],
