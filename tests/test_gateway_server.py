@@ -167,6 +167,7 @@ class GatewayServerTests(unittest.TestCase):
         self.assertEqual(server.port, 0)
         self.assertEqual(server.http_port, 0)
 
+    @retry_on_port_assertion
     def test_port_resolution_keeps_concrete_ports_when_free(self) -> None:
         # Sanity: a concrete, free port is left untouched; HTTP stays WS+1.
         # Claimed first: shared runners may hold any fixed number.

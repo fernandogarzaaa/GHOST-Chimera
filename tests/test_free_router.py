@@ -434,8 +434,22 @@ def test_chat_backs_off_once_on_retryable_error(tmp_path, monkeypatch) -> None:
             "note": "",
         },
     )
+    import threading
+    import time as _time
+
+    # time.sleep is process-global: background threads left by other tests
+    # (seen on Windows CI: 4045 foreign calls) must not hit the mock.
+    real_sleep = _time.sleep
+    test_thread = threading.current_thread()
     sleep_mock = mock.Mock()
-    monkeypatch.setattr("time.sleep", sleep_mock)
+
+    def _sleep(seconds: float) -> None:
+        if threading.current_thread() is test_thread:
+            sleep_mock(seconds)
+        else:
+            real_sleep(seconds)
+
+    monkeypatch.setattr("time.sleep", _sleep)
     random.seed(20261010)
     expected_jitter = random.Random(20261010).uniform(0, 1.0)
     out = router.chat("sys", "hi", tiers=["tiny-a", "tiny-b"])
