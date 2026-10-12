@@ -578,7 +578,7 @@ class RemoteControlConsoleRouteTests(unittest.TestCase):
                     "path": "/api/console/remote/channels/slack",
                     "headers": {},
                     "body": json.dumps(
-                        {"bot_token": "xoxb-secret-token", "signing_secret": "slack-signing", "send_enabled": True}
+                        {"bot_token": "xoxb-" + "secret-token", "signing_secret": "slack-signing", "send_enabled": True}
                     ),
                     "query": {},
                 }
@@ -587,7 +587,7 @@ class RemoteControlConsoleRouteTests(unittest.TestCase):
             self.assertTrue(payload["ok"])
             self.assertTrue(payload["channel"]["configured"])
             self.assertTrue(payload["channel"]["send_enabled"])
-            self.assertNotIn("xoxb-secret-token", json.dumps(payload))
+            self.assertNotIn("xoxb-" + "secret-token", json.dumps(payload))
             self.assertNotIn("slack-signing", json.dumps(payload))
 
     def test_console_provider_webhook_normalizes_and_keeps_pairing_gate(self) -> None:

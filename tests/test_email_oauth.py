@@ -126,14 +126,21 @@ class EmailOAuthTests(unittest.TestCase):
 
         calls: list[dict[str, object]] = []
 
+        target = "https://oauth2.googleapis.com/device/code"
+
         def fake_urlopen(request: object, *, timeout: float, context: object | None = None) -> FakeResponse:
+            # urlopen is patched process-wide; a background thread left running
+            # by another test (seen on windows-latest / 3.11) can call it while
+            # this patch is active. Only count this test's request.
+            if getattr(request, "full_url", None) != target:
+                return FakeResponse()
             calls.append({"request": request, "timeout": timeout, "context": context})
             if len(calls) == 1:
                 raise urllib.error.URLError(ssl.SSLCertVerificationError("certificate verify failed"))
             return FakeResponse()
 
         with mock.patch.object(email_oauth.urllib.request, "urlopen", side_effect=fake_urlopen):
-            payload = email_oauth._form_post("https://oauth2.googleapis.com/device/code", {"client_id": "client"})
+            payload = email_oauth._form_post(target, {"client_id": "client"})
 
         self.assertEqual(payload, {"ok": True})
         self.assertEqual(len(calls), 2)

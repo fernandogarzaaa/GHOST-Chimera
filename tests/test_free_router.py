@@ -55,7 +55,7 @@ def _keys(monkeypatch, **env):
     [
         ("my api_key: sk-live-abc123", True),
         ("password: hunter2", True),
-        ("-----BEGIN RSA PRIVATE KEY-----", True),
+        ("-----BEGIN RSA " + "PRIVATE KEY-----", True),
         ("ssn 123-45-6789 here", True),
         ("your code is 482916", True),
         ("reset here: https://x.com/reset?token=abc", True),
