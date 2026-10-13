@@ -120,6 +120,28 @@ class GhostClientTests(unittest.TestCase):
             status = client.training_status()
             self.assertGreaterEqual(status["dataset_count"], 2)
 
+    def test_taught_pair_is_searchable_and_counted(self) -> None:
+        # Regression: teach() wrote only the MiniMind JSONL, so search() and
+        # memory_count() (ghost_search / ghost_memory_status) never saw it.
+        with tempfile.TemporaryDirectory(prefix="gc-sdk-test-") as tmp:
+            client = self._client(tmp)
+            self.assertEqual(client.memory_count(), 0)
+            client.teach("What is the capital of Freedonia?", "Fredville is the capital.")
+            hits = client.search("Freedonia")
+            self.assertTrue(hits, "taught content should be searchable")
+            self.assertEqual(hits[0]["source"], "ghost-teach")
+            self.assertIn("Fredville", hits[0]["content"])
+            self.assertEqual(client.memory_count(), 1)
+            # A fresh client on the same state dir sees it too (persisted).
+            self.assertEqual(self._client(tmp).search("Fredville")[0]["source"], "ghost-teach")
+
+    def test_teaching_same_pair_twice_indexes_once(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="gc-sdk-test-") as tmp:
+            client = self._client(tmp)
+            client.teach("Q1?", "A1 unique-token")
+            client.teach("Q1?", "A1 unique-token")
+            self.assertEqual(client.memory_count(), 1)
+
     def test_training_status_returns_dict(self) -> None:
         with tempfile.TemporaryDirectory(prefix="gc-sdk-test-") as tmp:
             client = self._client(tmp)

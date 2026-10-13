@@ -103,6 +103,15 @@ def mmr_select(
     return selected
 
 
+TEACH_SOURCE = "ghost-teach"
+"""Source label for prompt/response pairs taught to Ghost (SDK teach, console training/teach)."""
+
+
+def teach_document(prompt: str, response: str) -> str:
+    """Render a taught prompt/response pair as a searchable memory document."""
+    return f"Q: {str(prompt).strip()}\nA: {str(response).strip()}"
+
+
 class MemoryStore:
     """Persist and search local memory documents."""
 

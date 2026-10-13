@@ -1566,6 +1566,13 @@ class ConsoleRouteTests(unittest.TestCase):
             )
             self.assertTrue(r3["ok"])
             self.assertGreaterEqual(r3["dataset_count"], 1)
+            # Taught pair is visible to memory search/status (same store).
+            hits = MemoryStore(config.memory_db).search("local-first agent")
+            self.assertIn("ghost-teach", [h["source"] for h in hits])
+            status = server.routes.find("GET", "/api/console/memory/status").handler(
+                {"method": "GET", "path": "/api/console/memory/status", "headers": {}, "body": "", "query": {}}
+            )
+            self.assertGreaterEqual(status["count"], 3)
 
             # Training status
             r4 = train_status_route.handler(
