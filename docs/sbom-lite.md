@@ -1,7 +1,7 @@
 # SBOM-lite
 
 Project: `ghostchimera`
-Version: `0.4.0-beta`
+Version: `0.4.0-beta.1`
 Components: 21
 
 ## Components

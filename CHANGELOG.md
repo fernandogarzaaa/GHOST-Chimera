@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0-beta.1 - 2026-10-13
+
+### Fixed
+
+- `ghost_teach` / `GhostClient.teach()` and the console `POST /api/console/training/teach` now also index the taught prompt/response pair in personal memory (source `ghost-teach`, deduplicated), so `ghost_search`, `ghost_memory_status`, `GhostClient.search()/memory_count()` and `/api/console/memory/status` see taught facts. Previously they were written only to the MiniMind JSONL dataset and were invisible to search. (#121)
+- The `ghostchimera` CLI (doctor, setup wizard, model picker) honours `NO_COLOR`, `FORCE_COLOR` and `TERM=dumb`, and emits no ANSI escape codes when stdout is not a terminal (pipes, CI logs). (#120)
+
 ## 0.4.0-beta - 2026-05-13
 
 ### Added
