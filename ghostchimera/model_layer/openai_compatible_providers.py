@@ -52,6 +52,7 @@ import ssl
 from typing import TYPE_CHECKING, Any
 from urllib import request as urllib_request
 
+from ..http_identity import ensure_user_agent
 from ..logging_config import get_logger
 from .base_provider import BaseProvider
 
@@ -142,7 +143,7 @@ class OpenAICompatibleProvider(BaseProvider):
             headers=self._build_headers(),
             method="POST",
         )
-        with urllib_request.urlopen(req, context=context, timeout=timeout) as resp:
+        with urllib_request.urlopen(ensure_user_agent(req), context=context, timeout=timeout) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"{self.name} API returned HTTP {resp.status}")
             response_json = json.loads(resp.read().decode("utf-8"))
@@ -363,7 +364,7 @@ class OllamaProvider(BaseProvider):
             context = ssl.create_default_context()
             tags_url = f"{self._base_url}/api/tags"
             req = urllib_request.Request(tags_url, method="GET")
-            with urllib_request.urlopen(req, context=context, timeout=2):
+            with urllib_request.urlopen(ensure_user_agent(req), context=context, timeout=2):
                 pass
         except Exception as exc:
             notes.append(
@@ -398,7 +399,7 @@ class OllamaProvider(BaseProvider):
             method="POST",
         )
         try:
-            with urllib_request.urlopen(req, context=context) as resp:
+            with urllib_request.urlopen(ensure_user_agent(req), context=context) as resp:
                 if resp.status != 200:
                     raise RuntimeError(f"Ollama API returned HTTP {resp.status}")
                 response_json = json.loads(resp.read().decode("utf-8"))
@@ -481,7 +482,7 @@ class CohereProvider(BaseProvider):
         }
         context = ssl.create_default_context()
         req = urllib_request.Request(self._API_URL, data=data, headers=headers, method="POST")
-        with urllib_request.urlopen(req, context=context) as resp:
+        with urllib_request.urlopen(ensure_user_agent(req), context=context) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"Cohere API returned HTTP {resp.status}")
             response_json = json.loads(resp.read().decode("utf-8"))
@@ -938,7 +939,7 @@ class LMStudioProvider(BaseProvider):
         try:
             context = ssl.create_default_context()
             req = urllib_request.Request(f"{self._base_url}/v1/models", method="GET")
-            with urllib_request.urlopen(req, context=context, timeout=2):
+            with urllib_request.urlopen(ensure_user_agent(req), context=context, timeout=2):
                 pass
         except Exception as exc:
             notes.append(
@@ -973,7 +974,7 @@ class LMStudioProvider(BaseProvider):
             method="POST",
         )
         try:
-            with urllib_request.urlopen(req, context=context) as resp:
+            with urllib_request.urlopen(ensure_user_agent(req), context=context) as resp:
                 if resp.status != 200:
                     raise RuntimeError(f"LM Studio API returned HTTP {resp.status}")
                 response_json = json.loads(resp.read().decode("utf-8"))
@@ -1054,7 +1055,7 @@ class PollinationsProvider(BaseProvider):
             url += "?model=" + urllib.parse.quote(self.model, safe="")
         req = urllib_request.Request(url, method="GET")
         context = ssl.create_default_context()
-        with urllib_request.urlopen(req, context=context, timeout=self._REQUEST_TIMEOUT_S) as resp:
+        with urllib_request.urlopen(ensure_user_agent(req), context=context, timeout=self._REQUEST_TIMEOUT_S) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"{self.name} API returned HTTP {resp.status}")
             return resp.read().decode("utf-8", "replace").strip()
