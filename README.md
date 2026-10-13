@@ -1,9 +1,9 @@
 # Ghost Chimera
 
-![Version](https://img.shields.io/badge/version-0.4.0--beta-blueviolet)
+[![CI](https://github.com/fernandogarzaaa/GHOST-Chimera/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fernandogarzaaa/GHOST-Chimera/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/ghostchimera?include_prereleases&label=pypi)](https://pypi.org/project/ghostchimera/)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![CI](https://img.shields.io/badge/CI-ubuntu%20%7C%20windows%20%7C%20macos-brightgreen)
 
 **Ghost Chimera is local-first background AI for your workflow.** Its Stealth Loop
 watches events (issues, files, agent prompts), learns how you work, and quietly

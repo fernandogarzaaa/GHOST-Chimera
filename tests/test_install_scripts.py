@@ -44,3 +44,13 @@ def test_readme_top_block_points_judges_at_demo_and_overview() -> None:
     assert "ghost demo" in readme
     assert "DEMO_VIDEO_URL" in readme
     assert "docs/OVERVIEW.md" in readme
+
+
+def test_readme_badges_are_live() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    # Live workflow status, not a static "brightgreen" image.
+    assert "actions/workflows/ci.yml/badge.svg" in readme
+    assert "img.shields.io/badge/CI-" not in readme
+    # Version comes from PyPI, so it cannot drift from the published release.
+    assert "img.shields.io/pypi/v/ghostchimera" in readme
+    assert "img.shields.io/badge/version-" not in readme
