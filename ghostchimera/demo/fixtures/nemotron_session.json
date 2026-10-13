@@ -1,0 +1,44 @@
+{
+  "format": "ghostchimera.demo.session/v1",
+  "title": "Bug triage: a failing /login after deploy",
+  "provenance": "illustrative",
+  "provenance_note": "Representative replies in the exact shape NemotronReasoner parses (illustrative fixture shipped with the package). Re-record a live session with `NEBIUS_API_KEY=... ghost demo --record session.json` and replay it with `ghost demo --session session.json`.",
+  "models": {
+    "understand": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+    "predict": "nvidia/nemotron-3-super-120b-a12b"
+  },
+  "session_id": "demo-session",
+  "events": [
+    {
+      "event_type": "agent.session_started",
+      "source": "claude-code",
+      "payload": {"host": "claude-code", "project": "acme-web", "summary": "Coding agent session opened in acme-web"},
+      "understand": "{\"intent\": \"start-coding-session\", \"confidence\": 0.74, \"suggested_workflow\": \"project-context-injection\", \"risk_flags\": [], \"rationale\": \"A coding agent opened on acme-web; injecting standing project context is cheap and useful.\"}"
+    },
+    {
+      "event_type": "github.issue_created",
+      "source": "github",
+      "payload": {"repo": "acme/acme-web", "number": 412, "title": "Login returns 500 after Friday deploy", "labels": ["bug", "p1"]},
+      "understand": "{\"intent\": \"bug-triage\", \"confidence\": 0.88, \"suggested_workflow\": \"incident-fix\", \"risk_flags\": [\"production-impact\"], \"rationale\": \"A P1 bug on the login path right after a deploy points to a regression worth triaging now.\"}"
+    },
+    {
+      "event_type": "agent.prompt_submitted",
+      "source": "claude-code",
+      "payload": {"prompt": "why is /login returning 500 since the last deploy?"},
+      "understand": "{\"intent\": \"root-cause-analysis\", \"confidence\": 0.9, \"suggested_workflow\": \"incident-fix\", \"risk_flags\": [], \"rationale\": \"The user is asking the agent to diagnose the same regression reported in issue #412.\"}"
+    },
+    {
+      "event_type": "file.modified",
+      "source": "fs",
+      "payload": {"path": "acme_web/auth/session.py", "lines_changed": 6},
+      "understand": "{\"intent\": \"apply-fix\", \"confidence\": 0.83, \"suggested_workflow\": \"incident-fix\", \"risk_flags\": [\"auth-code-change\"], \"rationale\": \"Editing the session module matches the likely cookie/session regression; auth changes deserve a test run before shipping.\"}"
+    },
+    {
+      "event_type": "agent.tool_called",
+      "source": "claude-code",
+      "payload": {"tool": "bash", "command": "pytest tests/auth -q", "exit_code": 0},
+      "understand": "{\"intent\": \"verify-fix\", \"confidence\": 0.86, \"suggested_workflow\": \"incident-fix\", \"risk_flags\": [], \"rationale\": \"Auth tests pass after the session change, so the fix looks ready for review.\"}"
+    }
+  ],
+  "predict": "[{\"action\": \"github.pull_request_opened\", \"probability\": 0.71, \"rationale\": \"Tests pass on the auth fix, so opening a PR that references #412 is the natural next step.\"}, {\"action\": \"github.issue_updated\", \"probability\": 0.18, \"rationale\": \"The reporter on #412 will want a status update linking the fix.\"}, {\"action\": \"agent.prompt_submitted\", \"probability\": 0.11, \"rationale\": \"The user may ask the agent to draft the PR description or a regression test.\"}]"
+}
