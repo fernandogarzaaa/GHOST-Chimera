@@ -4,7 +4,7 @@ The demo drives the real :class:`~ghostchimera.stealth.StealthLoop` and the
 real :class:`~ghostchimera.stealth.nemotron_reasoning.NemotronReasoner`, but
 swaps the Nebius Token Factory HTTP provider for a *replay* provider that
 answers from a session fixture shipped inside the package. No API keys are
-read and every outbound socket connection is refused while it runs, so it
+read and every outbound (non-loopback) socket connection is refused while it runs, so it
 works on a plane.
 
 ``ghost demo --record out.json`` does the opposite: with ``NEBIUS_API_KEY``
@@ -15,6 +15,7 @@ replies as a new session file that ``ghost demo --session out.json`` replays.
 from __future__ import annotations
 
 import contextlib
+import ipaddress
 import json
 import os
 import re
@@ -112,19 +113,57 @@ class RecordingProvider:
 # ---------------------------------------------------------------------------
 
 
+def _is_loopback(address: Any) -> bool:
+    """True for local-only endpoints (loopback IPs, ``localhost``, AF_UNIX paths)."""
+    if isinstance(address, (str, bytes)):
+        return True  # AF_UNIX socket path: never leaves the machine
+    if not isinstance(address, tuple) or not address:
+        return False
+    host = address[0]
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "ignore")
+    host = str(host).split("%", 1)[0]  # strip an IPv6 zone id
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 @contextlib.contextmanager
 def no_network() -> Iterator[None]:
-    """Refuse every outbound socket connection for the duration of the block."""
+    """Refuse every outbound (non-loopback) socket connection for the block.
 
-    def _refuse(*_args: Any, **_kwargs: Any) -> Any:
-        raise OfflineNetworkError("ghost demo runs offline; network access is disabled")
-
+    Loopback stays open on purpose: on Windows ``socket.socketpair()`` (used by
+    asyncio's self-pipe) is emulated with a connect to 127.0.0.1, and blocking
+    that would break the loop without protecting anything.
+    """
     original_connect = socket.socket.connect
     original_connect_ex = socket.socket.connect_ex
     original_create_connection = socket.create_connection
-    socket.socket.connect = _refuse  # type: ignore[method-assign]
-    socket.socket.connect_ex = _refuse  # type: ignore[method-assign]
-    socket.create_connection = _refuse  # type: ignore[assignment]
+
+    def _refuse() -> OfflineNetworkError:
+        return OfflineNetworkError("ghost demo runs offline; network access is disabled")
+
+    def _connect(self: socket.socket, address: Any) -> Any:
+        if not _is_loopback(address):
+            raise _refuse()
+        return original_connect(self, address)
+
+    def _connect_ex(self: socket.socket, address: Any) -> Any:
+        if not _is_loopback(address):
+            raise _refuse()
+        return original_connect_ex(self, address)
+
+    def _create_connection(address: Any, *args: Any, **kwargs: Any) -> Any:
+        if not _is_loopback(address):
+            raise _refuse()
+        return original_create_connection(address, *args, **kwargs)
+
+    socket.socket.connect = _connect  # type: ignore[method-assign]
+    socket.socket.connect_ex = _connect_ex  # type: ignore[method-assign]
+    socket.create_connection = _create_connection  # type: ignore[assignment]
     try:
         yield
     finally:
