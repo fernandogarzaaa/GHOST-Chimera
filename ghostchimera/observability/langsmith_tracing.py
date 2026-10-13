@@ -18,8 +18,10 @@ Environment:
                         (e.g. self-hosted). Default: https://api.smith.langchain.com
 
 Tracing never raises and never logs or transmits API keys: instrumentation
-points wrap all network calls in try/except, and run payloads carry only
-event names, models, queries, and result counts.
+points wrap all network calls in try/except, and every run's inputs,
+outputs, metadata and error text pass through
+:func:`ghostchimera.redaction.redact_for_egress` (secrets and PII) before
+they are sent.
 """
 
 from __future__ import annotations
@@ -37,6 +39,22 @@ from urllib import request as urllib_request
 
 DEFAULT_ENDPOINT = "https://api.smith.langchain.com"
 DEFAULT_PROJECT = "ghost-chimera-hackathon"
+
+
+# Run fields that can carry user/event data. Structural fields (id, name,
+# run_type, timestamps, tags) are left alone.
+_SCRUBBED_FIELDS = ("inputs", "outputs", "error", "metadata", "extra")
+
+
+def _scrub_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Redact secrets and PII from run data before it leaves for LangSmith."""
+    from ..redaction import redact_for_egress
+
+    scrubbed = dict(payload)
+    for field in _SCRUBBED_FIELDS:
+        if field in scrubbed:
+            scrubbed[field] = redact_for_egress(scrubbed[field])
+    return scrubbed
 
 
 def _utc_now() -> str:
@@ -92,7 +110,7 @@ class LangSmithTracer:
     def _post_json(self, path: str, payload: dict[str, Any], method: str = "POST") -> None:
         if not self.enabled:
             return
-        data = json.dumps(payload).encode("utf-8")
+        data = json.dumps(_scrub_payload(payload), default=str).encode("utf-8")
         req = urllib_request.Request(f"{self.config.endpoint}{path}", data=data, headers=self._headers(), method=method)
         try:
             with urllib_request.urlopen(req, timeout=10.0, context=ssl.create_default_context()):

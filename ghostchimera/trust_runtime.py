@@ -193,7 +193,7 @@ def trust_run_scope(run_id: str) -> Iterator[str]:
 
 def _stable_id(*parts: object, length: int = 16) -> str:
     raw = "|".join(str(part) for part in parts if part is not None)
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:length]
+    return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:length]
 
 
 def _canonical_json(value: Any) -> str:

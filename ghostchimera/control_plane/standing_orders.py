@@ -25,7 +25,7 @@ def _events_path(state_dir: str | Path) -> Path:
 
 def _stable_order_id(title: str, scope: str, created_at: float) -> str:
     raw = f"{title.strip().lower()}|{scope.strip().lower()}|{created_at:.6f}"
-    return hashlib.sha1(raw.encode()).hexdigest()[:16]
+    return hashlib.sha1(raw.encode(), usedforsecurity=False).hexdigest()[:16]
 
 
 def _clean_list(value: Any, *, limit: int = 20) -> list[str]:
