@@ -30,6 +30,14 @@ def offline(monkeypatch):
     return attempts
 
 
+def _recorded_intent(index: int) -> str:
+    return json.loads(load_session()["events"][index]["understand"])["intent"]
+
+
+def _recorded_first_prediction() -> str:
+    return json.loads(load_session()["predict"])[0]["action"]
+
+
 def test_bundled_session_is_package_data() -> None:
     session = load_session()
     assert session["events"]
@@ -37,14 +45,21 @@ def test_bundled_session_is_package_data() -> None:
     assert session["models"]["predict"].startswith("nvidia/nemotron-3-super")
 
 
+def test_bundled_session_is_a_real_recording() -> None:
+    session = load_session()
+    assert session["provenance"] == "recorded"
+    assert "illustrative" not in json.dumps(session).lower()
+    assert all(event["understand"] for event in session["events"])
+
+
 def test_cli_demo_runs_offline_without_keys(offline, capsys) -> None:
     rc = cli._main(["demo"])
     out = capsys.readouterr().out
     assert rc == 0
     assert offline == []  # nothing even tried to open a socket
-    assert "UNDERSTAND -> intent=bug-triage" in out
+    assert f"UNDERSTAND -> intent={_recorded_intent(0)}" in out
     assert "PREDICT (Nemotron 3 Super" in out
-    assert "github.pull_request_opened" in out
+    assert _recorded_first_prediction() in out
     assert "network disabled" in out
 
 
@@ -61,7 +76,7 @@ def test_replay_goes_through_real_reasoner_and_loop() -> None:
     result = replay()
     # The loop attached the parsed Nemotron insight to its own trace.
     assert result.steps[1].understand["provider"] == "nebius"
-    assert result.steps[1].understand["intent"] == "bug-triage"
+    assert result.steps[1].understand["intent"] == _recorded_intent(1)
     assert result.predictions and result.predictions[0]["provider"] == "nebius"
 
 

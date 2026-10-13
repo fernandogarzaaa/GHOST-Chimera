@@ -1,8 +1,8 @@
 {
   "format": "ghostchimera.demo.session/v1",
   "title": "Bug triage: a failing /login after deploy",
-  "provenance": "illustrative",
-  "provenance_note": "Representative replies in the exact shape NemotronReasoner parses (illustrative fixture shipped with the package). Re-record a live session with `NEBIUS_API_KEY=... ghost demo --record session.json` and replay it with `ghost demo --session session.json`.",
+  "provenance": "recorded",
+  "provenance_note": "Recorded live from Nebius Token Factory on 2026-10-13 19:36:25 UTC with `ghost demo --record`.",
   "models": {
     "understand": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
     "predict": "nvidia/nemotron-3-super-120b-a12b"
@@ -12,33 +12,54 @@
     {
       "event_type": "agent.session_started",
       "source": "claude-code",
-      "payload": {"host": "claude-code", "project": "acme-web", "summary": "Coding agent session opened in acme-web"},
-      "understand": "{\"intent\": \"start-coding-session\", \"confidence\": 0.74, \"suggested_workflow\": \"project-context-injection\", \"risk_flags\": [], \"rationale\": \"A coding agent opened on acme-web; injecting standing project context is cheap and useful.\"}"
+      "payload": {
+        "host": "claude-code",
+        "project": "acme-web",
+        "summary": "Coding agent session opened in acme-web"
+      },
+      "understand": "{\n  \"intent\": \"session_started\",\n  \"confidence\": 0.96,\n  \"suggested_workflow\": \"initialize_agent\",\n  \"risk_flags\": [\"high_cpu_load\", \"network_latency\"],\n  \"rationale\": \"A coding agent session has been opened for the acme-web project, indicating the start of an automated development workflow.\"\n}"
     },
     {
       "event_type": "github.issue_created",
       "source": "github",
-      "payload": {"repo": "acme/acme-web", "number": 412, "title": "Login returns 500 after Friday deploy", "labels": ["bug", "p1"]},
-      "understand": "{\"intent\": \"bug-triage\", \"confidence\": 0.88, \"suggested_workflow\": \"incident-fix\", \"risk_flags\": [\"production-impact\"], \"rationale\": \"A P1 bug on the login path right after a deploy points to a regression worth triaging now.\"}"
+      "payload": {
+        "repo": "acme/acme-web",
+        "number": 412,
+        "title": "Login returns 500 after Friday deploy",
+        "labels": [
+          "bug",
+          "p1"
+        ]
+      },
+      "understand": "{\n  \"intent\": \"bug_report\",\n  \"confidence\": 0.96,\n  \"suggested_workflow\": \"triage_bug\",\n  \"risk_flags\": [\"p1\", \"high_sev\"],\n  \"rationale\": \"A critical P1 bug was opened in the main repo after a recent deploy, indicating a likely regression that needs immediate attention.\"\n}"
     },
     {
       "event_type": "agent.prompt_submitted",
       "source": "claude-code",
-      "payload": {"prompt": "why is /login returning 500 since the last deploy?"},
-      "understand": "{\"intent\": \"root-cause-analysis\", \"confidence\": 0.9, \"suggested_workflow\": \"incident-fix\", \"risk_flags\": [], \"rationale\": \"The user is asking the agent to diagnose the same regression reported in issue #412.\"}"
+      "payload": {
+        "prompt": "why is /login returning 500 since the last deploy?"
+      },
+      "understand": "{\n  \"intent\": \"debug_error\",\n  \"confidence\": 0.93,\n  \"suggested_workflow\": \"triage\",\n  \"risk_flags\": [\"service_outage\", \"code_regression\"],\n  \"rationale\": \"The prompt seeks the cause of a 500 error after a deploy, indicating a likely regression or service issue.\"\n}"
     },
     {
       "event_type": "file.modified",
       "source": "fs",
-      "payload": {"path": "acme_web/auth/session.py", "lines_changed": 6},
-      "understand": "{\"intent\": \"apply-fix\", \"confidence\": 0.83, \"suggested_workflow\": \"incident-fix\", \"risk_flags\": [\"auth-code-change\"], \"rationale\": \"Editing the session module matches the likely cookie/session regression; auth changes deserve a test run before shipping.\"}"
+      "payload": {
+        "path": "acme_web/auth/session.py",
+        "lines_changed": 6
+      },
+      "understand": "{\n  \"intent\": \"code_change_triggered_workflow\",\n  \"confidence\": 0.85,\n  \"suggested_workflow\": \"session_start\",\n  \"risk_flags\": [\"auth_logic_modification\", \"potential_secret_leak\"],\n  \"rationale\": \"The modification to session.py likely triggered session initialization, issue creation, and prompt submission, indicating a code change that may affect authentication flow.\"\n}"
     },
     {
       "event_type": "agent.tool_called",
       "source": "claude-code",
-      "payload": {"tool": "bash", "command": "pytest tests/auth -q", "exit_code": 0},
-      "understand": "{\"intent\": \"verify-fix\", \"confidence\": 0.86, \"suggested_workflow\": \"incident-fix\", \"risk_flags\": [], \"rationale\": \"Auth tests pass after the session change, so the fix looks ready for review.\"}"
+      "payload": {
+        "tool": "bash",
+        "command": "pytest tests/auth -q",
+        "exit_code": 0
+      },
+      "understand": "{\n  \"intent\": \"run_tests\",\n  \"confidence\": 0.96,\n  \"suggested_workflow\": \"test_execution\",\n  \"risk_flags\": [\"test_failure\"],\n  \"rationale\": \"The agent successfully executed the auth test suite via a bash command, confirming a test run was triggered.\"\n}"
     }
   ],
-  "predict": "[{\"action\": \"github.pull_request_opened\", \"probability\": 0.71, \"rationale\": \"Tests pass on the auth fix, so opening a PR that references #412 is the natural next step.\"}, {\"action\": \"github.issue_updated\", \"probability\": 0.18, \"rationale\": \"The reporter on #412 will want a status update linking the fix.\"}, {\"action\": \"agent.prompt_submitted\", \"probability\": 0.11, \"rationale\": \"The user may ask the agent to draft the PR description or a regression test.\"}]"
+  "predict": "[{\"action\":\"agent.response_received\",\"probability\":0.45,\"rationale\":\"After submitting a prompt and invoking a tool, the system typically returns a response to the user.\"},{\"action\":\"file.saved\",\"probability\":0.3,\"rationale\":\"The file was recently modified, so the next logical step is to save those changes.\"},{\"action\":\"github.issue_updated\",\"probability\":0.2,\"rationale\":\"Users often update the newly created issue with results or feedback from the tool execution.\"}]"
 }

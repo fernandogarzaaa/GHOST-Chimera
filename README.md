@@ -21,8 +21,9 @@ ghost demo                     # replays a Nemotron session offline: no keys, no
 > `pipx install git+https://github.com/fernandogarzaaa/GHOST-Chimera`
 
 `ghost demo` runs the real Stealth Loop and Nemotron reasoner against a session
-file bundled with the package (UNDERSTAND with Nemotron 3 Nano, PREDICT with
-Nemotron 3 Super). To go live, set `NEBIUS_API_KEY`
+recorded live on Nebius Token Factory and bundled with the package (UNDERSTAND
+with Nemotron 3 Nano, PREDICT with Nemotron 3 Super); the replies are the
+models' raw output, unedited. To go live, set `NEBIUS_API_KEY`
 ([console.nebius.com](https://console.nebius.com), Token Factory → API keys) and
 record your own session with `ghost demo --record session.json`.
 
