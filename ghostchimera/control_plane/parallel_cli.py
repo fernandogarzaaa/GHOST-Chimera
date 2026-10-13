@@ -140,7 +140,7 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.pilot_status or args.pilot_run:
-        from ..chimera_pilot import ChimeraPilotKernel
+        from ..chimera_pilot import ChimeraPilotKernel, NoBackendAvailableError
 
         kernel = ChimeraPilotKernel.default(
             include_deterministic_backend=args.pilot_status,
@@ -154,6 +154,11 @@ def _main(argv: list[str] | None = None) -> int:
             return 0
         try:
             executions = kernel.run(args.pilot_run)
+        except NoBackendAvailableError as exc:
+            from .provider_hint import print_no_provider
+
+            print_no_provider(args.pilot_run, str(exc))
+            return 2
         except PermissionError as exc:
             print(
                 json.dumps(
