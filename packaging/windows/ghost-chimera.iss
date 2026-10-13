@@ -1,6 +1,6 @@
 ; Ghost Chimera — Inno Setup 6 script (Windows installer).
 ; Build from the repo root after packaging/windows/build-windows.ps1:
-;   iscc packaging/windows/ghost-chimera.iss /DAppVersion=0.4.0-beta
+;   iscc packaging/windows/ghost-chimera.iss /DAppVersion=0.4.0-beta.1
 ; Paths below are relative to this file's directory.
 
 ; Allow /DAppVersion=<version> on the ISCC command line to override the default.
