@@ -30,6 +30,7 @@ from typing import Any
 from urllib import request as urllib_request
 from urllib.error import HTTPError, URLError
 
+from ..http_identity import ensure_user_agent
 from ..logging_config import get_logger
 
 logger = get_logger("mcp_protocol")
@@ -86,7 +87,7 @@ class StreamableHttpTransport:
         req = urllib_request.Request(self.url, data=body, headers=self._request_headers(), method="POST")
         context = ssl.create_default_context()
         try:
-            with urllib_request.urlopen(req, context=context, timeout=self.timeout) as resp:
+            with urllib_request.urlopen(ensure_user_agent(req), context=context, timeout=self.timeout) as resp:
                 status = resp.status
                 session_id = resp.headers.get("mcp-session-id")
                 if session_id:

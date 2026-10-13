@@ -14,6 +14,7 @@ from urllib import error as urllib_error
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
+from ..http_identity import ensure_user_agent
 from .providers import TEXT_PROVIDERS
 
 FetchJson = Callable[[str, dict[str, str], float], dict[str, Any] | list[Any]]
@@ -543,7 +544,7 @@ def _huggingface_model(item: dict[str, Any], *, has_api_key: bool, timestamp: fl
 def _default_fetch_json(url: str, headers: dict[str, str], timeout: float) -> dict[str, Any] | list[Any]:
     req = urllib_request.Request(url, headers={"Accept": "application/json", **headers}, method="GET")
     context = _discovery_ssl_context()
-    with urllib_request.urlopen(req, timeout=timeout, context=context) as resp:
+    with urllib_request.urlopen(ensure_user_agent(req), timeout=timeout, context=context) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 

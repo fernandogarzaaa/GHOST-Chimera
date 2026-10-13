@@ -51,6 +51,7 @@ from typing import Any
 from urllib import request as urllib_request
 from urllib.error import HTTPError, URLError
 
+from ..http_identity import ensure_user_agent
 from ..logging_config import get_logger
 from ..mcp.mcp_protocol import McpClient, McpError, StdioTransport, StreamableHttpTransport
 
@@ -362,7 +363,7 @@ class TavilyGrounding:
         )
         context = ssl.create_default_context()
         try:
-            with urllib_request.urlopen(req, context=context, timeout=self._timeout) as resp:
+            with urllib_request.urlopen(ensure_user_agent(req), context=context, timeout=self._timeout) as resp:
                 if resp.status != 200:
                     raise TavilyError(f"Tavily REST API returned HTTP {resp.status}")
                 return json.loads(resp.read().decode("utf-8"))

@@ -19,6 +19,8 @@ import urllib.request
 from contextlib import suppress
 from typing import Any
 
+from ..http_identity import ensure_user_agent
+
 
 class CdpError(RuntimeError):
     """Raised when the browser endpoint is unreachable or reports an error."""
@@ -29,7 +31,7 @@ def list_targets(host: str = "127.0.0.1", port: int = 9222, *, timeout: float = 
 
     url = f"http://{host}:{port}/json/list"
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        with urllib.request.urlopen(ensure_user_agent(url), timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except Exception as exc:
         raise CdpError(f"Chrome DevTools endpoint unreachable at {url}: {exc}") from exc
@@ -70,7 +72,7 @@ def browser_websocket_url(host: str = "127.0.0.1", port: int = 9222, *, timeout:
 
     url = f"http://{host}:{port}/json/version"
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        with urllib.request.urlopen(ensure_user_agent(url), timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except Exception as exc:
         raise CdpError(f"Chrome DevTools endpoint unreachable at {url}: {exc}") from exc
