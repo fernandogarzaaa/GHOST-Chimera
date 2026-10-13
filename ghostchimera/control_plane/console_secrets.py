@@ -5,6 +5,10 @@ token is generated and stored owner-only (0600 on POSIX) in
 ``<state_dir>/console_secrets.json`` (``~/.ghostchimera`` unless
 ``GHOSTCHIMERA_STATE_DIR`` / ``--state-dir`` says otherwise). ``--auth-token``
 still overrides the stored token for a run.
+
+The same file holds this install's random host-execution arming phrase,
+which replaces the public ``I ACCEPT HOST EXECUTION RISK`` constant for the
+console, so arming cannot be scripted from a phrase published in the source.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 SECRETS_FILENAME = "console_secrets.json"
+ARMING_PHRASE_PREFIX = "I ACCEPT HOST EXECUTION RISK"
 _MIN_TOKEN_LENGTH = 16
 
 
@@ -28,6 +33,7 @@ class ConsoleSecrets:
     token: str
     path: Path
     created: bool = False
+    arming_phrase: str = ""
 
 
 def secrets_path(state_dir: str | Path) -> Path:
@@ -36,6 +42,12 @@ def secrets_path(state_dir: str | Path) -> Path:
 
 def generate_token() -> str:
     return secrets.token_urlsafe(32)
+
+
+def generate_arming_phrase() -> str:
+    """A typeable phrase with a 32-bit random suffix, e.g. ``... RISK 7F3A-C21B``."""
+    code = secrets.token_hex(4).upper()
+    return f"{ARMING_PHRASE_PREFIX} {code[:4]}-{code[4:]}"
 
 
 def _chmod_private(path: Path, mode: int) -> None:
@@ -85,9 +97,21 @@ def load_or_create_console_secrets(state_dir: str | Path) -> ConsoleSecrets:
     if len(token) < _MIN_TOKEN_LENGTH:
         token = generate_token()
         created = True
+    phrase = str(data.get("arming_phrase") or "").strip()
+    if not phrase.startswith(ARMING_PHRASE_PREFIX + " ") or len(phrase) < len(ARMING_PHRASE_PREFIX) + 8:
+        phrase = generate_arming_phrase()
+        created = True
     if created:
-        _write_private_json(path, {**data, "token": token})
-    return ConsoleSecrets(token=token, path=path, created=created)
+        _write_private_json(path, {**data, "token": token, "arming_phrase": phrase})
+    return ConsoleSecrets(token=token, path=path, created=created, arming_phrase=phrase)
 
 
-__all__ = ["SECRETS_FILENAME", "ConsoleSecrets", "generate_token", "load_or_create_console_secrets", "secrets_path"]
+__all__ = [
+    "ARMING_PHRASE_PREFIX",
+    "SECRETS_FILENAME",
+    "ConsoleSecrets",
+    "generate_arming_phrase",
+    "generate_token",
+    "load_or_create_console_secrets",
+    "secrets_path",
+]

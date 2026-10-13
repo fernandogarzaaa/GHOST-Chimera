@@ -230,6 +230,7 @@ class LiveConsoleSecurityTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
         self.assertIn(self.server.console_token, self.stdout.getvalue())
         self.assertIn("#token=", self.stdout.getvalue())
+        self.assertIn(stored["arming_phrase"], self.stdout.getvalue())
         again = load_or_create_console_secrets(self.state_dir)
         self.assertFalse(again.created)
         self.assertEqual(again.token, self.server.console_token)
@@ -244,6 +245,40 @@ class LiveConsoleSecurityTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("consumeTokenFromHash", payload["raw"])
         self.assertNotIn(self.server.console_token, payload["raw"])
+
+    def test_public_arming_phrase_no_longer_arms_host_mode(self) -> None:
+        # Even an authenticated same-origin request cannot arm with the published constant.
+        status, payload = self.request("POST", SETTINGS_PATH, body=ARM_BODY, headers=self.json_post_headers())
+        self.assertEqual(status, 200, payload)
+        self.assertFalse(payload["ok"])
+        self.assert_not_armed()
+
+    def test_per_install_arming_phrase_arms_and_is_never_served(self) -> None:
+        phrase = json.loads((self.state_dir / "console_secrets.json").read_text(encoding="utf-8"))["arming_phrase"]
+        self.assertRegex(phrase, r"^I ACCEPT HOST EXECUTION RISK [0-9A-F]{4}-[0-9A-F]{4}$")
+        status, payload = self.request("GET", SETTINGS_PATH, headers=self.auth_headers())
+        self.assertNotIn(phrase, json.dumps(payload))
+        self.assertNotIn("confirmation_phrase", payload)
+        wrong = {**ARM_BODY, "confirmation_phrase": phrase[:-1] + ("0" if phrase[-1] != "0" else "1")}
+        status, payload = self.request("POST", SETTINGS_PATH, body=wrong, headers=self.json_post_headers())
+        self.assertFalse(payload["ok"])
+        self.assertNotIn(phrase, json.dumps(payload))
+        try:
+            status, payload = self.request(
+                "POST",
+                SETTINGS_PATH,
+                body={**ARM_BODY, "confirmation_phrase": phrase},
+                headers=self.json_post_headers(),
+            )
+            self.assertEqual(status, 200, payload)
+            self.assertTrue(payload["ok"], payload)
+            self.assertTrue(payload["settings"]["unrestricted_host_mode"])
+            self.assertNotIn(phrase, json.dumps(payload))
+        finally:
+            self.request(
+                "POST", SETTINGS_PATH, body={"unrestricted_host_mode": False}, headers=self.json_post_headers()
+            )
+        self.assert_not_armed()
 
 
 class TokenOverrideTests(unittest.TestCase):
@@ -268,6 +303,14 @@ class TokenOverrideTests(unittest.TestCase):
             finally:
                 server.stop()
 
+    def test_arming_phrase_is_random_per_install(self) -> None:
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            first, second = load_or_create_console_secrets(a), load_or_create_console_secrets(b)
+            self.assertNotEqual(first.arming_phrase, second.arming_phrase)
+            self.assertNotEqual(first.token, second.token)
+            self.assertNotEqual(first.arming_phrase, "I ACCEPT HOST EXECUTION RISK")
+            self.assertEqual(load_or_create_console_secrets(a).arming_phrase, first.arming_phrase)
+
     def test_second_run_does_not_print_token(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             first = load_or_create_console_secrets(tmp)
@@ -280,6 +323,7 @@ class TokenOverrideTests(unittest.TestCase):
             try:
                 self.assertEqual(server.console_token, first.token)
                 self.assertNotIn(first.token, out.getvalue())
+                self.assertNotIn(first.arming_phrase, out.getvalue())
                 self.assertIn("console_secrets.json", out.getvalue())
             finally:
                 server.stop()

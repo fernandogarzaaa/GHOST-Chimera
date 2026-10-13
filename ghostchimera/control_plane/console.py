@@ -93,7 +93,7 @@ from .evolution import (
     set_source_consent,
     upsert_candidate,
 )
-from .host_execution import CONFIRMATION_PHRASE, HostExecutionStore
+from .host_execution import HostExecutionStore
 from .latency import latency_summary, record_latency_event
 from .live_presence import LivePresenceStore
 from .local_voice import LocalVoiceTranscriber
@@ -914,6 +914,7 @@ def register_console_routes(
     cron_scheduler: Any | None = None,
     operator_workspace: OperatorWorkspaceStore | None = None,
     console_token: str = "",
+    host_arming_phrase: str = "",
     config_path: str | Path | None = None,
 ) -> None:
     """Register browser console routes on an existing GatewayServer."""
@@ -938,7 +939,21 @@ def register_console_routes(
     admission_store = CapabilityAdmissionStore(console_state_dir)
     conversation_store = ConversationStore(console_state_dir)
     live_presence_store = LivePresenceStore(console_state_dir, trust_store=trust_store)
-    host_execution_store = HostExecutionStore(console_state_dir)
+
+    def _host_arming_phrase() -> str:
+        # Per-install random phrase (never the public constant); loaded lazily
+        # so merely registering routes does not touch the secrets file.
+        if host_arming_phrase:
+            return host_arming_phrase
+        from .console_secrets import load_or_create_console_secrets
+
+        return load_or_create_console_secrets(console_state_dir).arming_phrase
+
+    host_execution_store = HostExecutionStore(
+        console_state_dir,
+        confirmation_phrase=_host_arming_phrase,
+        phrase_hint=f"It is the arming_phrase in {console_state_dir / 'console_secrets.json'}.",
+    )
     local_voice = LocalVoiceTranscriber(console_state_dir / "local_voice")
     conversation_controller = ConversationalLoopController(
         state_dir=console_state_dir,
@@ -2408,7 +2423,8 @@ def register_console_routes(
             payload = {
                 "ok": True,
                 "settings": host_execution_store.settings(),
-                "confirmation_phrase": CONFIRMATION_PHRASE,
+                # The per-install phrase itself is never served over HTTP.
+                "confirmation_phrase_hint": host_execution_store.phrase_hint,
             }
             payload["warning"] = (
                 "Unrestricted host mode runs commands and applies source patches on the local machine. "
@@ -5972,6 +5988,7 @@ def run_console(
         server,
         state_dir=state_dir or config.state_dir,
         console_token=auth_token,
+        host_arming_phrase=console_secrets.arming_phrase,
         config_path=Path(state_dir) / "config.json" if state_dir else None,
     )
     try:
@@ -6016,6 +6033,9 @@ def run_console(
         # Shown exactly once, when the per-install token is first generated.
         print(f"New console token (stored owner-only in {console_secrets.path}): {auth_token}")
         print(f"Open the console with: {token_url}")
+        print(
+            f"Host-execution arming phrase (only needed to arm unrestricted host mode): {console_secrets.arming_phrase}"
+        )
     else:
         # Otherwise the value is never printed: it would leak into terminal
         # scrollback, Docker logs, CI logs, and support captures.
