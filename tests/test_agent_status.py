@@ -26,20 +26,16 @@ from ghostchimera.config import GhostChimeraConfig  # noqa: E402
 from ghostchimera.connectors.console_routes import register_connector_routes  # noqa: E402
 from ghostchimera.trust_runtime import TrustRuntimeStore  # noqa: E402
 
-_PORT = [19373]
-
 
 def _server(tmp_path: Path) -> GatewayServer:
-    _PORT[0] += 2
-    ws_port, http_port = _PORT[0], _PORT[0] + 1
     config = GhostChimeraConfig.from_env()
     config = replace(config, state_dir=tmp_path, memory_db=tmp_path / "m.sqlite3", audit_file=tmp_path / "a.json")
-    server = GatewayServer(host="127.0.0.1", port=ws_port, http_port=http_port, config=config)
+    server = GatewayServer(host="127.0.0.1", port=0, http_port=0, config=config)
     register_connector_routes(server, tmp_path, auth="open", token="")
     server.start()
     # start() may bump ports when the preferred ones are occupied; always use
     # the bound ports rather than the requested ones.
-    server._test_http_port = server.http_port  # type: ignore[attr-defined]
+    server._test_http_port = server._http_server.server_address[1]  # type: ignore[attr-defined,union-attr]
     return server
 
 

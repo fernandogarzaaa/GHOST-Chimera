@@ -81,13 +81,14 @@ def test_pipeline_propagates_transcriber_failure(tmp_path) -> None:
     assert result["ok"] is False and result["text"] == ""
 
 
-def _live_console(tmp_path, port_base: int = 18771):
+def _live_console(tmp_path):
     from ghostchimera.control_plane.console import run_console
 
+    # Ephemeral ports: the OS picks free ones, so parallel runs never collide.
     return run_console(
         host="127.0.0.1",
-        port=port_base,
-        http_port=port_base + 1,
+        port=0,
+        http_port=0,
         state_dir=str(tmp_path),
         open_browser=False,
         block=False,
@@ -107,7 +108,7 @@ def test_console_flow_routes_contract(tmp_path) -> None:
     """Routes respond with well-formed envelopes even with no STT installed."""
     server = _live_console(tmp_path)
     try:
-        base = "http://127.0.0.1:18772"
+        base = f"http://127.0.0.1:{server._http_server.server_address[1]}"
         status = _api("GET", base + "/api/console/conversation/local-voice/status")
         assert status["ok"] is True and "providers" in status
         flow = _api("POST", base + "/api/console/voice/flow", {"audio_base64": "", "profile": "dictation"})
