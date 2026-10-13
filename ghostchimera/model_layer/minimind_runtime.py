@@ -210,18 +210,45 @@ class MiniMindRuntimeInspection:
         }
 
 
+#: Opt-in for executing Python code shipped inside a model directory.
+TRUST_REMOTE_CODE_ENV_VAR = "GHOSTCHIMERA_MINIMIND_TRUST_REMOTE_CODE"
+
+
+def minimind_trust_remote_code(explicit: bool | None = None) -> bool:
+    """Resolve whether Transformers may run model-supplied code (default: no).
+
+    ``trust_remote_code=True`` makes Transformers import and execute the
+    ``*.py`` files in the model directory. That is arbitrary code execution
+    for whoever controls the model files, so it stays off unless the operator
+    opts in explicitly, either by passing ``trust_remote_code=True`` or by
+    setting ``GHOSTCHIMERA_MINIMIND_TRUST_REMOTE_CODE=1``.
+    """
+    if explicit is not None:
+        return bool(explicit)
+    return os.environ.get(TRUST_REMOTE_CODE_ENV_VAR, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 class MiniMindTransformersRuntime:
     """Chat adapter for a local Transformers-format MiniMind model directory."""
 
-    def __init__(self, model_path: str | Path) -> None:
+    def __init__(self, model_path: str | Path, *, trust_remote_code: bool | None = None) -> None:
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         self.torch = torch
         self.model_path = str(Path(model_path).expanduser())
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_path, trust_remote_code=True)
-        self.model = AutoModelForCausalLM.from_pretrained(self.model_path, trust_remote_code=True)
+        self.trust_remote_code = minimind_trust_remote_code(trust_remote_code)
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_path, trust_remote_code=self.trust_remote_code)
+            self.model = AutoModelForCausalLM.from_pretrained(self.model_path, trust_remote_code=self.trust_remote_code)
+        except ValueError as exc:
+            if not self.trust_remote_code and "trust_remote_code" in str(exc):
+                raise RuntimeError(
+                    f"MiniMind model at {self.model_path} ships custom code that Transformers would execute. "
+                    f"Review it, then opt in with {TRUST_REMOTE_CODE_ENV_VAR}=1 if you trust its source."
+                ) from exc
+            raise
         self.model.eval().to(self.device)
 
     def chat(self, messages: list[dict[str, str]], *, max_context_tokens: int = 8192) -> str:
@@ -882,6 +909,8 @@ __all__ = [
     "MiniMindNeuralAdapterRuntime",
     "MiniMindRuntimeInspection",
     "MiniMindTransformersRuntime",
+    "TRUST_REMOTE_CODE_ENV_VAR",
+    "minimind_trust_remote_code",
     "get_minimind_architecture",
     "infer_from_dataset_adapter",
     "infer_from_neural_adapter",
