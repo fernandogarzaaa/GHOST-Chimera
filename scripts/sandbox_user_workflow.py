@@ -75,6 +75,10 @@ def run_sandbox(*, hold_for_eve: bool = False, eve_steps: int | None = None) -> 
         try:
             http_port = server._http_server.server_address[1] if server._http_server else server.http_port
             base = f"http://127.0.0.1:{http_port}"
+            # The console API is token-protected by default; send it on every call.
+            _opener = urllib.request.build_opener()
+            _opener.addheaders = [("X-Gateway-Token", server.console_token)]
+            urllib.request.install_opener(_opener)
             time.sleep(0.4)
 
             # 1. Landing page renders.

@@ -8,14 +8,19 @@ the public phrase) and then ``/api/console/host-execution/run`` (``id``).
 
 from __future__ import annotations
 
+import contextlib
 import http.client
+import io
 import json
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
 
 from ghostchimera.control_plane.console import run_console
+from ghostchimera.control_plane.console_secrets import load_or_create_console_secrets
 from ghostchimera.control_plane.console_security import (
     ConsoleRequestGuard,
     is_loopback_host_header,
@@ -76,9 +81,11 @@ class LiveConsoleSecurityTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls._tmp = tempfile.TemporaryDirectory()
         cls.state_dir = Path(cls._tmp.name)
-        cls.server = run_console(
-            host="127.0.0.1", port=0, http_port=0, state_dir=cls.state_dir, open_browser=False, block=False
-        )
+        cls.stdout = io.StringIO()
+        with contextlib.redirect_stdout(cls.stdout):
+            cls.server = run_console(
+                host="127.0.0.1", port=0, http_port=0, state_dir=cls.state_dir, open_browser=False, block=False
+            )
         cls.port = int(cls.server._http_server.server_address[1])
         cls.origin = f"http://127.0.0.1:{cls.port}"
 
@@ -88,7 +95,7 @@ class LiveConsoleSecurityTests(unittest.TestCase):
         cls._tmp.cleanup()
 
     def auth_headers(self) -> dict[str, str]:
-        return {}
+        return {"X-Gateway-Token": self.server.console_token}
 
     def request(
         self,
@@ -192,6 +199,90 @@ class LiveConsoleSecurityTests(unittest.TestCase):
         headers = {"Content-Type": "application/json", **self.auth_headers()}
         status, payload = self.request("POST", SETTINGS_PATH, body={"unrestricted_host_mode": False}, headers=headers)
         self.assertEqual(status, 200, payload)
+
+    def test_missing_token_is_rejected(self) -> None:
+        # No --auth-token was passed, yet the API is not open.
+        status, _ = self.request("GET", SETTINGS_PATH)
+        self.assertEqual(status, 401)
+        status, _ = self.request(
+            "POST", SETTINGS_PATH, body=ARM_BODY, headers={"Content-Type": "application/json", "Origin": self.origin}
+        )
+        self.assertEqual(status, 401)
+        status, _ = self.request(
+            "POST", SETTINGS_PATH, body=ARM_BODY, headers=self.json_post_headers(**{"X-Gateway-Token": "wrong-token"})
+        )
+        self.assertEqual(status, 401)
+        self.assert_not_armed()
+
+    def test_bearer_token_is_accepted(self) -> None:
+        status, payload = self.request(
+            "GET", "/api/console/status", headers={"Authorization": f"Bearer {self.server.console_token}"}
+        )
+        self.assertEqual(status, 200, payload)
+
+    def test_token_generated_once_stored_private_and_printed_once(self) -> None:
+        path = self.state_dir / "console_secrets.json"
+        self.assertTrue(path.is_file())
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(stored["token"], self.server.console_token)
+        self.assertGreaterEqual(len(stored["token"]), 32)
+        if os.name == "posix":
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertIn(self.server.console_token, self.stdout.getvalue())
+        self.assertIn("#token=", self.stdout.getvalue())
+        again = load_or_create_console_secrets(self.state_dir)
+        self.assertFalse(again.created)
+        self.assertEqual(again.token, self.server.console_token)
+
+    def test_open_metadata_and_ui_still_load_without_token(self) -> None:
+        status, payload = self.request("GET", "/api/console/token")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["auth_enabled"])
+        status, _ = self.request("GET", "/")
+        self.assertEqual(status, 200)
+        status, payload = self.request("GET", "/static/app.js")
+        self.assertEqual(status, 200)
+        self.assertIn("consumeTokenFromHash", payload["raw"])
+        self.assertNotIn(self.server.console_token, payload["raw"])
+
+
+class TokenOverrideTests(unittest.TestCase):
+    def test_auth_token_override_wins_and_is_not_printed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                server = run_console(
+                    host="127.0.0.1",
+                    port=0,
+                    http_port=0,
+                    state_dir=tmp,
+                    open_browser=False,
+                    block=False,
+                    auth_token="operator-chosen-token-123",
+                )
+            try:
+                self.assertEqual(server.console_token, "operator-chosen-token-123")
+                self.assertNotIn("operator-chosen-token-123", out.getvalue())
+                route = server.routes.find("GET", "/api/console/status")
+                self.assertEqual((route.auth, route.token), ("token", "operator-chosen-token-123"))
+            finally:
+                server.stop()
+
+    def test_second_run_does_not_print_token(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            first = load_or_create_console_secrets(tmp)
+            self.assertTrue(first.created)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                server = run_console(
+                    host="127.0.0.1", port=0, http_port=0, state_dir=tmp, open_browser=False, block=False
+                )
+            try:
+                self.assertEqual(server.console_token, first.token)
+                self.assertNotIn(first.token, out.getvalue())
+                self.assertIn("console_secrets.json", out.getvalue())
+            finally:
+                server.stop()
 
 
 if __name__ == "__main__":

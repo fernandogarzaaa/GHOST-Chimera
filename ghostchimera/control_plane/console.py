@@ -5934,7 +5934,9 @@ def run_console(
         state_dir (str | Path | None): Optional directory for persistent state (overrides environment config); used for workspace, queue, and scheduler storage.
         open_browser (bool): If True, attempt to open the console URL in the user's default web browser after the server starts.
         block (bool): If True, block the current thread until interrupted; on KeyboardInterrupt the server is stopped before returning.
-        auth_token (str): When non-empty, all /api/* routes require this bearer token via the X-Gateway-Token header.
+        auth_token (str): Console token override for this run. When empty, the per-install token stored owner-only
+            in ``<state_dir>/console_secrets.json`` is used (generated and printed once on first run). The API is
+            never open: every /api/* route requires the token via ``X-Gateway-Token`` or ``Authorization: Bearer``.
         allowed_hosts (Iterable[str] | None): Extra ``Host`` header values accepted besides loopback names and the
             bind host (also read from ``GHOSTCHIMERA_CONSOLE_ALLOWED_HOSTS``). Every request is checked against this
             allow-list (DNS rebinding), and state-changing requests must be same-origin and ``application/json``.
@@ -5950,9 +5952,16 @@ def run_console(
         config = replace(
             config, state_dir=resolved, memory_db=resolved / "memory.sqlite3", audit_file=resolved / "audit.json"
         )
+    from .console_secrets import load_or_create_console_secrets
+
+    # Token required by default: a missing --auth-token no longer means an
+    # open API. The per-install token lives owner-only next to the state.
+    console_secrets = load_or_create_console_secrets(state_dir or config.state_dir)
+    auth_token = str(auth_token or "").strip() or console_secrets.token
     server = GatewayServer(
-        host=host, port=port, http_port=_resolve_http_port(http_port), config=config, auth_token=auth_token or ""
+        host=host, port=port, http_port=_resolve_http_port(http_port), config=config, auth_token=auth_token
     )
+    server.console_token = auth_token  # in-process harnesses (tests, E2E scripts) read it here
     from .console_security import ConsoleRequestGuard, allowed_hosts_from_env
 
     # Host / Origin / Content-Type gate in front of every console route.
@@ -5962,7 +5971,7 @@ def run_console(
     register_console_routes(
         server,
         state_dir=state_dir or config.state_dir,
-        console_token=auth_token or "",
+        console_token=auth_token,
         config_path=Path(state_dir) / "config.json" if state_dir else None,
     )
     try:
@@ -5971,8 +5980,8 @@ def run_console(
         register_connector_routes(
             server,
             state_dir or config.state_dir,
-            auth="token" if auth_token else "open",
-            token=auth_token or "",
+            auth="token",
+            token=auth_token,
         )
     except Exception as exc:  # connectors must never break console startup
         try:
@@ -5998,14 +6007,22 @@ def run_console(
     server.start()
     _warn_oauth_origin_mismatch(server)
     url = _console_url(server)
+    # The token rides in the URL fragment: browsers never send fragments to
+    # the server, so it stays out of request logs and Referer headers. The UI
+    # moves it into sessionStorage and strips it from the address bar.
+    token_url = f"{url}#token={urllib.parse.quote(auth_token, safe='')}"
     print(f"Ghost Console: {url}")
-    if auth_token:
-        # The value itself is never printed: it would leak into terminal
-        # scrollback, Docker logs, CI logs, and support captures. The
-        # operator already holds it (argument, file, or environment).
-        print("Auth token required — set the X-Gateway-Token header (or Authorization: Bearer).")
+    if console_secrets.created and auth_token == console_secrets.token:
+        # Shown exactly once, when the per-install token is first generated.
+        print(f"New console token (stored owner-only in {console_secrets.path}): {auth_token}")
+        print(f"Open the console with: {token_url}")
+    else:
+        # Otherwise the value is never printed: it would leak into terminal
+        # scrollback, Docker logs, CI logs, and support captures.
+        source = "the --auth-token value" if auth_token != console_secrets.token else str(console_secrets.path)
+        print(f"Console token required (X-Gateway-Token or Authorization: Bearer); it is in {source}.")
     if open_browser:
-        webbrowser.open(url)
+        webbrowser.open(token_url)
     if block:
         try:
             while True:
