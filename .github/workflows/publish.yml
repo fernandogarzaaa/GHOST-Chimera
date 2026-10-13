@@ -7,7 +7,8 @@ name: Publish to PyPI
 #   Repository name:   GHOST-Chimera
 #   Workflow name:     publish.yml
 #   Environment name:  (leave empty)
-# Then: draft a Release (tag vX.Y.Z) -> this workflow builds + uploads.
+# Then: draft a Release (tag vX.Y.Z) -> this workflow builds + uploads to PyPI
+# and attaches the same dist/* (wheel + sdist) to that GitHub Release.
 
 on:
   release:
@@ -18,7 +19,7 @@ jobs:
   pypi-publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write  # attach dist/* to the GitHub Release
       id-token: write
     steps:
       - uses: actions/checkout@v7
@@ -26,8 +27,18 @@ jobs:
         with:
           python-version: "3.12"
       - name: Build distributions
+        id: build
         run: |
           python -m pip install --upgrade pip build
           python -m build
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Attach distributions to the GitHub Release
+        # Only for real releases (not manual dispatches); runs even if the PyPI
+        # step failed so the release still carries installable files.
+        if: ${{ always() && github.event_name == 'release' && steps.build.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        # Wheel + sdist only (the PyPI action may also leave attestation files in dist/).
+        run: gh release upload "$TAG" dist/*.whl dist/*.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
