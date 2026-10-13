@@ -26,7 +26,8 @@ def test_install_scripts_default_to_lean_runtime_profile() -> None:
 
 
 def test_readme_documents_one_line_install_and_specs() -> None:
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    # The long-form install/specs content moved from README.md to docs/OVERVIEW.md.
+    readme = (ROOT / "docs" / "OVERVIEW.md").read_text(encoding="utf-8")
 
     assert "## One-Line Install" in readme
     assert "scripts/install.ps1" in readme
@@ -35,3 +36,11 @@ def test_readme_documents_one_line_install_and_specs() -> None:
     assert "Python | 3.11" in readme
     assert "GHOSTCHIMERA_EXTRAS" in readme
     assert "full Ghost Chimera runtime" in readme
+
+
+def test_readme_top_block_points_judges_at_demo_and_overview() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "pip install ghostchimera" in readme
+    assert "ghost demo" in readme
+    assert "DEMO_VIDEO_URL" in readme
+    assert "docs/OVERVIEW.md" in readme
