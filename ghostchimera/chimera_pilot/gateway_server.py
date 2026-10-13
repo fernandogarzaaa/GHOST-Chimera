@@ -168,6 +168,11 @@ class HttpRouteRegistry:
         self._routes: list[HttpRoute] = []
         self._lock = threading.Lock()
         self._gateway_token: str = os.environ.get("GHOSTCHIMERA_GATEWAY_TOKEN", "")
+        # Optional pre-routing gate ``(method, path, headers) -> rejection | None``.
+        # A rejection exposes ``status`` and ``payload()``. The console
+        # installs a Host/Origin/Content-Type guard here (see
+        # ``ghostchimera.control_plane.console_security``).
+        self.request_guard: Callable[[str, str, dict[str, str]], Any] | None = None
 
     def register(
         self,
@@ -228,6 +233,10 @@ class HttpRouteRegistry:
         if route.auth == "open":
             return True
         token_header = headers.get("x-gateway-token", "").strip()
+        if not token_header:
+            bearer = headers.get("authorization", "").strip()
+            if bearer.lower().startswith("bearer "):
+                token_header = bearer[7:].strip()
         if route.auth == "gateway":
             return bool(self._gateway_token) and token_header == self._gateway_token
         if route.auth == "token":
@@ -850,6 +859,17 @@ class GatewayServer(BackgroundService):
                             query[urllib.parse.unquote(k)] = urllib.parse.unquote(v)
 
                 headers = {k.lower(): v for k, v in self.headers.items()}
+                guard = registry.request_guard
+                if guard is not None:
+                    try:
+                        rejection = guard(method, path, headers)
+                    except Exception:
+                        logger.exception("Request guard failed; rejecting %s %s", method, path)
+                        self._respond(403, {"ok": False, "error": "forbidden"})
+                        return
+                    if rejection is not None:
+                        self._respond(int(rejection.status), rejection.payload())
+                        return
                 route = registry.find(method, path)
 
                 if route is None:

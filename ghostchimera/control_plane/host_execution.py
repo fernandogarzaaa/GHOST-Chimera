@@ -10,14 +10,19 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
+import secrets
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 from ..redaction import BASE_MARKERS, scrubbed_environ
 
+# Library default only. The Ghost Console never uses this public constant: it
+# passes a random per-install phrase from ``console_secrets`` so a forged
+# request cannot arm host mode with a phrase anyone can read in the source.
 CONFIRMATION_PHRASE = "I ACCEPT HOST EXECUTION RISK"
 SECRET_MARKERS = tuple(marker for marker in BASE_MARKERS if marker != "bearer") + ("confirmation",)
 
@@ -72,8 +77,21 @@ def _is_under(path: Path, root: Path) -> bool:
 class HostExecutionStore:
     """Local JSON-backed host execution store."""
 
-    def __init__(self, state_dir: str | Path) -> None:
+    def __init__(
+        self,
+        state_dir: str | Path,
+        *,
+        confirmation_phrase: str | Callable[[], str] = CONFIRMATION_PHRASE,
+        phrase_hint: str = "",
+    ) -> None:
         self.state_dir = Path(state_dir).expanduser()
+        self._confirmation_phrase = confirmation_phrase
+        self.phrase_hint = phrase_hint
+
+    @property
+    def confirmation_phrase(self) -> str:
+        phrase = self._confirmation_phrase
+        return str(phrase() if callable(phrase) else phrase)
 
     def _default_settings(self) -> HostExecutionSettings:
         root = Path.cwd().resolve()
@@ -100,11 +118,17 @@ class HostExecutionStore:
         current = {**asdict(self._default_settings()), **self._raw_settings()}
         confirmation = str(payload.get("confirmation_phrase") or "").strip()
         wants_unrestricted = bool(payload.get("unrestricted_host_mode", current.get("unrestricted_host_mode", False)))
-        if wants_unrestricted and confirmation != CONFIRMATION_PHRASE:
-            return {
-                "ok": False,
-                "error": f"Type the exact confirmation phrase to arm host execution: {CONFIRMATION_PHRASE}",
-            }
+        if wants_unrestricted:
+            expected = self.confirmation_phrase
+            if not (expected and secrets.compare_digest(confirmation.encode("utf-8"), expected.encode("utf-8"))):
+                if expected == CONFIRMATION_PHRASE:
+                    error = f"Type the exact confirmation phrase to arm host execution: {CONFIRMATION_PHRASE}"
+                else:
+                    # Never echo a per-install phrase back over the API.
+                    error = "Type this install's host-execution arming phrase to arm host execution. " + (
+                        self.phrase_hint or "It was printed when the console first created it."
+                    )
+                return {"ok": False, "error": error}
         for key in (
             "unrestricted_host_mode",
             "allow_network_commands",

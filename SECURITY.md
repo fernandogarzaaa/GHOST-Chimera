@@ -32,6 +32,13 @@ The AgentCore tool path also requires an `ExecutionPolicy` before shell, filesys
 
 The `SSRFPolicy` layer blocks requests to private IP ranges and cloud metadata endpoints by default. The `BuiltinDPIEngine` (LobsterTrap) scans inputs for prompt injection, credential leaks, PII, and data exfiltration instructions before they reach the execution layer.
 
+The Ghost Console HTTP API (`ghostchimera console` / `start`) is never open by default:
+
+- a random console token is generated on first run, stored owner-only (0600) in `~/.ghostchimera/console_secrets.json` (or `<state-dir>/console_secrets.json`), printed once, and required on every `/api/*` route and the WebSocket (`X-Gateway-Token` or `Authorization: Bearer`); `--auth-token` overrides it for a run;
+- every request must carry a `Host` of `localhost`, `127.0.0.1` or `[::1]` (any port), the concrete bind host, or a host allowed with `--allow-host` / `GHOSTCHIMERA_CONSOLE_ALLOWED_HOSTS` (DNS-rebinding defence);
+- POST/PUT/PATCH/DELETE requests with a foreign or `null` `Origin`, or `Sec-Fetch-Site: cross-site`, are refused, and must be `Content-Type: application/json` (signed `/api/webhooks/` deliveries excepted);
+- unrestricted host execution is armed only with this install's random arming phrase, stored in the same file and never returned by the API.
+
 ## Required hardening for production deployments
 
 Before using Ghost Chimera for unattended production automation, add deployment-level controls:

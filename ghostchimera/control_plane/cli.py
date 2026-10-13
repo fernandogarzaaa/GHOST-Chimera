@@ -167,6 +167,14 @@ def _main(argv: list[str] | None = None) -> int:
     start_parser.add_argument(
         "--auth-token", default="", help="Require this bearer token on all /api/* routes (X-Gateway-Token header)."
     )
+    start_parser.add_argument(
+        "--allow-host",
+        action="append",
+        default=[],
+        metavar="HOST",
+        help="Extra Host header value the console accepts besides localhost/127.0.0.1/[::1] (repeatable; "
+        "also GHOSTCHIMERA_CONSOLE_ALLOWED_HOSTS). Needed when serving behind a hostname or LAN IP.",
+    )
     console_parser = sub.add_parser("console", help="Open the browser-based Ghost Console")
     console_parser.add_argument("--host", default="127.0.0.1", help="Gateway bind host for the console.")
     console_parser.add_argument("--port", type=int, default=8765, help="Gateway WebSocket port.")
@@ -179,6 +187,14 @@ def _main(argv: list[str] | None = None) -> int:
     )
     console_parser.add_argument(
         "--auth-token", default="", help="Require this bearer token on all /api/* routes (X-Gateway-Token header)."
+    )
+    console_parser.add_argument(
+        "--allow-host",
+        action="append",
+        default=[],
+        metavar="HOST",
+        help="Extra Host header value the console accepts besides localhost/127.0.0.1/[::1] (repeatable; "
+        "also GHOSTCHIMERA_CONSOLE_ALLOWED_HOSTS). Needed when serving behind a hostname or LAN IP.",
     )
     doctor_parser = sub.add_parser("doctor", help="Run health checks and report status")
     doctor_parser.add_argument("--production", action="store_true", help="Require production deployment guardrails.")
@@ -706,6 +722,7 @@ def _main(argv: list[str] | None = None) -> int:
             open_browser=not args.no_open,
             block=True,
             auth_token=args.auth_token or "",
+            allowed_hosts=list(getattr(args, "allow_host", None) or []),
         )
         return 0
 
@@ -896,6 +913,7 @@ def _main(argv: list[str] | None = None) -> int:
         args.no_open = getattr(args, "no_open", False)
         args.skip_setup = getattr(args, "skip_setup", False)
         args.auth_token = getattr(args, "auth_token", "")
+        args.allow_host = getattr(args, "allow_host", [])
         return _run_start_cli(args)
 
     run_cli()
@@ -969,6 +987,7 @@ def _run_start_cli(args: argparse.Namespace) -> int:
         open_browser=not args.no_open,
         block=True,
         auth_token=args.auth_token or "",
+        allowed_hosts=list(getattr(args, "allow_host", None) or []),
     )
     return 0
 

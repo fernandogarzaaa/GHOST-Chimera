@@ -148,6 +148,24 @@
     try { sessionStorage.removeItem(TOKEN_KEY); } catch (_) {}
     try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
   }
+  // `ghostchimera console` opens http://127.0.0.1:<port>/#token=<token>.
+  // Fragments are never sent to the server; move the token into
+  // sessionStorage and strip it from the address bar and history at once.
+  function consumeTokenFromHash() {
+    var hash = "";
+    try { hash = window.location.hash || ""; } catch (_) { return; }
+    var match = /^#token=([^&]*)/.exec(hash);
+    if (!match) return;
+    var t = "";
+    try { t = decodeURIComponent(match[1]).trim(); } catch (_) { t = ""; }
+    if (t) { state.token = t; writeStoredToken(t); }
+    try {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    } catch (_) {
+      try { window.location.hash = ""; } catch (_e) {}
+    }
+  }
+  consumeTokenFromHash();
   function showTokenOverlay() { $("#tokenOverlay").style.display = "flex"; }
   function hideTokenOverlay() { $("#tokenOverlay").style.display = "none"; }
   $("#tokenSubmit").addEventListener("click", function() {
@@ -164,7 +182,7 @@
     try {
       var meta = await fetch("/api/console/token").then(function(r) { return r.json(); });
       if (meta && meta.auth_enabled) {
-        var stored = readStoredToken();
+        var stored = state.token || readStoredToken();
         if (stored) { state.token = stored; } else { showTokenOverlay(); }
       }
     } catch (_) {}
