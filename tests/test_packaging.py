@@ -34,9 +34,13 @@ def test_brew_formula_shape() -> None:
     formula = (REPO_ROOT / "homebrew" / "ghostchimera.rb").read_text(encoding="utf-8")
     assert "class Ghostchimera < Formula" in formula
     assert 'depends_on "python@3.12"' in formula
-    assert "virtualenv_install_with_resources" in formula
+    assert "include Language::Python::Virtualenv" in formula
+    assert "virtualenv_create" in formula
     assert 'bin/"ghostchimera", "doctor"' in formula
-    assert "REPLACE_WITH_RELEASE_TARBALL_SHA256" in formula  # filled per release
+    # Released formula: a real PyPI sdist URL and a 64-hex sha256, no placeholder.
+    assert re.search(r'url "https://files\.pythonhosted\.org/\S+/ghostchimera-[^"]+\.tar\.gz"', formula)
+    assert re.search(r'sha256 "[0-9a-f]{64}"', formula)
+    assert "REPLACE_WITH" not in formula
     assert (REPO_ROOT / "homebrew" / "README.tap.md").exists()
 
 
