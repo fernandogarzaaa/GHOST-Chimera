@@ -635,7 +635,7 @@ def _tokenize(text: str) -> set[str]:
 
 
 def _record_id(prompt: str, response: str) -> str:
-    return hashlib.sha1(f"{prompt}\n{response}".encode()).hexdigest()[:16]
+    return hashlib.sha1(f"{prompt}\n{response}".encode(), usedforsecurity=False).hexdigest()[:16]
 
 
 def _read_dataset_records(dataset_path: str | Path) -> list[dict[str, Any]]:

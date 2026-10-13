@@ -1041,7 +1041,7 @@ def register_console_routes(
         slug = re.sub(r"_+", "_", slug).strip("_")
         if slug:
             return slug
-        return f"github_skill_{hashlib.sha1(name.encode('utf-8')).hexdigest()[:8]}"
+        return f"github_skill_{hashlib.sha1(name.encode('utf-8'), usedforsecurity=False).hexdigest()[:8]}"
 
     def _skill_class_name(slug: str) -> str:
         parts = [part for part in slug.split("_") if part]

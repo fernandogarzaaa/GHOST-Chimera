@@ -89,7 +89,7 @@ def _now() -> float:
 
 def _stable_id(*parts: object, length: int = 16) -> str:
     raw = "|".join(str(part) for part in parts if part is not None)
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:length]
+    return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:length]
 
 
 def classify_conversation_intent(message: str) -> dict[str, Any]:
