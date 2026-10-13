@@ -10,7 +10,6 @@ import unittest
 from contextlib import redirect_stdout
 from unittest import mock
 
-from ghostchimera.control_plane import colors
 from ghostchimera.control_plane.colors import Colors, color, color_enabled, print_success
 
 
@@ -65,7 +64,10 @@ class ColorEnabledTests(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if k not in {"NO_COLOR", "FORCE_COLOR"}}
         proc = subprocess.run(
             [sys.executable, "-m", "ghostchimera.control_plane.cli", "doctor"],
-            capture_output=True, text=True, timeout=120, env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=env,
         )
         self.assertNotIn("\033[", proc.stdout + proc.stderr)
 
