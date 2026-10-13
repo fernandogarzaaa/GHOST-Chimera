@@ -16,7 +16,7 @@ import threading
 import time
 import urllib.parse
 import webbrowser
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -5918,6 +5918,7 @@ def run_console(
     open_browser: bool = True,
     block: bool = True,
     auth_token: str = "",
+    allowed_hosts: Iterable[str] | None = None,
 ) -> GatewayServer:
     """
     Start and run a GatewayServer hosting the Ghost Console UI, API routes, and optional static assets.
@@ -5934,6 +5935,9 @@ def run_console(
         open_browser (bool): If True, attempt to open the console URL in the user's default web browser after the server starts.
         block (bool): If True, block the current thread until interrupted; on KeyboardInterrupt the server is stopped before returning.
         auth_token (str): When non-empty, all /api/* routes require this bearer token via the X-Gateway-Token header.
+        allowed_hosts (Iterable[str] | None): Extra ``Host`` header values accepted besides loopback names and the
+            bind host (also read from ``GHOSTCHIMERA_CONSOLE_ALLOWED_HOSTS``). Every request is checked against this
+            allow-list (DNS rebinding), and state-changing requests must be same-origin and ``application/json``.
 
     Returns:
         GatewayServer: The started gateway server instance.
@@ -5949,6 +5953,11 @@ def run_console(
     server = GatewayServer(
         host=host, port=port, http_port=_resolve_http_port(http_port), config=config, auth_token=auth_token or ""
     )
+    from .console_security import ConsoleRequestGuard, allowed_hosts_from_env
+
+    # Host / Origin / Content-Type gate in front of every console route.
+    request_guard = ConsoleRequestGuard(bind_host=host, extra_hosts=[*allowed_hosts_from_env(), *(allowed_hosts or [])])
+    server.routes.request_guard = request_guard.check
     _register_static_routes(server)
     register_console_routes(
         server,
