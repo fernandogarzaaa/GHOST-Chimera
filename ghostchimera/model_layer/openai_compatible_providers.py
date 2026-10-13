@@ -55,6 +55,7 @@ from urllib import request as urllib_request
 from ..http_identity import ensure_user_agent
 from ..logging_config import get_logger
 from .base_provider import BaseProvider
+from .reasoning_output import DEFAULT_MAX_TOKENS, extract_answer, resolve_max_tokens
 
 if TYPE_CHECKING:
     from .auth_profiles import AuthProfile
@@ -83,6 +84,12 @@ class OpenAICompatibleProvider(BaseProvider):
     # Bounded network wait so one stalled provider cannot wedge failover
     # chains (e.g. FreeRouter); override per class or via env.
     _REQUEST_TIMEOUT_S: float = 90.0
+    # Always send max_tokens: reasoning models (Nemotron, R1, Qwen3) spend
+    # tokens on a trace first, and without a budget some servers stop before
+    # the answer. Override with ``_MAX_TOKENS_ENV_VAR`` or
+    # GHOSTCHIMERA_MAX_TOKENS.
+    _DEFAULT_MAX_TOKENS: int = DEFAULT_MAX_TOKENS
+    _MAX_TOKENS_ENV_VAR: str = ""
 
     def __init__(self, profile: AuthProfile | None = None) -> None:
         if profile is not None:
@@ -118,6 +125,11 @@ class OpenAICompatibleProvider(BaseProvider):
             "Authorization": f"Bearer {self.api_key}",
         }
 
+    @property
+    def max_tokens(self) -> int:
+        """Completion budget sent with every request (env-configurable)."""
+        return resolve_max_tokens(self._MAX_TOKENS_ENV_VAR, self._DEFAULT_MAX_TOKENS)
+
     def chat(self, system_message: str, user_message: str) -> str:
         if not self.available:
             raise RuntimeError(
@@ -130,6 +142,7 @@ class OpenAICompatibleProvider(BaseProvider):
                 {"role": "user", "content": user_message},
             ],
             "temperature": 0.0,
+            "max_tokens": self.max_tokens,
         }
         data = json.dumps(body).encode("utf-8")
         context = ssl.create_default_context()
@@ -147,10 +160,7 @@ class OpenAICompatibleProvider(BaseProvider):
             if resp.status != 200:
                 raise RuntimeError(f"{self.name} API returned HTTP {resp.status}")
             response_json = json.loads(resp.read().decode("utf-8"))
-        choices = response_json.get("choices")
-        if not choices:
-            raise RuntimeError(f"{self.name} response missing choices")
-        return choices[0]["message"]["content"].strip()
+        return extract_answer(response_json, self.name)
 
 
 # ---------------------------------------------------------------------------
@@ -389,6 +399,7 @@ class OllamaProvider(BaseProvider):
                 {"role": "user", "content": user_message},
             ],
             "temperature": 0.0,
+            "max_tokens": resolve_max_tokens(),
         }
         data = json.dumps(body).encode("utf-8")
         context = ssl.create_default_context()
@@ -408,10 +419,7 @@ class OllamaProvider(BaseProvider):
                 f"OllamaProvider could not reach {self._chat_url}. "
                 "Ensure Ollama is running (`ollama serve`) and the model is pulled."
             ) from exc
-        choices = response_json.get("choices")
-        if not choices:
-            raise RuntimeError("Ollama response missing choices")
-        return choices[0]["message"]["content"].strip()
+        return extract_answer(response_json, "Ollama")
 
 
 # ---------------------------------------------------------------------------
@@ -639,6 +647,8 @@ class NvidiaProvider(OpenAICompatibleProvider):
     _DEFAULT_MODEL = "meta/llama-3.1-70b-instruct"
     _KEY_ENV_VAR = "NVIDIA_API_KEY"
     _MODEL_ENV_VAR = "NVIDIA_MODEL"
+    _DEFAULT_MAX_TOKENS = 4096
+    _MAX_TOKENS_ENV_VAR = "NVIDIA_MAX_TOKENS"
 
 
 class NebiusProvider(OpenAICompatibleProvider):
@@ -663,6 +673,9 @@ class NebiusProvider(OpenAICompatibleProvider):
     _DEFAULT_MODEL = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
     _KEY_ENV_VAR = "NEBIUS_API_KEY"
     _MODEL_ENV_VAR = "NEBIUS_MODEL"
+    # Nemotron 3 emits a reasoning trace before the answer; leave room for both.
+    _DEFAULT_MAX_TOKENS = 4096
+    _MAX_TOKENS_ENV_VAR = "NEBIUS_MAX_TOKENS"
 
     def chat(self, system_message: str, user_message: str) -> str:
         """Chat via Token Factory, with optional LangSmith tracing.
@@ -964,6 +977,7 @@ class LMStudioProvider(BaseProvider):
                 {"role": "user", "content": user_message},
             ],
             "temperature": 0.0,
+            "max_tokens": resolve_max_tokens(),
         }
         data = json.dumps(body).encode("utf-8")
         context = ssl.create_default_context()
@@ -983,10 +997,7 @@ class LMStudioProvider(BaseProvider):
                 f"LMStudioProvider could not reach {self._chat_url}. "
                 "Ensure LM Studio is running with the local server enabled."
             ) from exc
-        choices = response_json.get("choices")
-        if not choices:
-            raise RuntimeError("LM Studio response missing choices")
-        return choices[0]["message"]["content"].strip()
+        return extract_answer(response_json, "LM Studio")
 
 
 class GeminiOpenAIProvider(OpenAICompatibleProvider):
