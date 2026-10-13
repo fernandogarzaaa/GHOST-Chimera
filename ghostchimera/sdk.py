@@ -41,7 +41,7 @@ from typing import Any
 
 from .chimera_pilot.executor import PilotExecution
 from .chimera_pilot.kernel import ChimeraPilotKernel
-from .memory_layer.store import MemoryStore
+from .memory_layer.store import TEACH_SOURCE, MemoryStore, teach_document
 from .model_layer.minimind_lifecycle import MiniMindLifecycle
 from .model_layer.minimind_personal_agent import MiniMindPersonalAgent
 from .personalization.context_provider import PersonalContextProvider
@@ -230,7 +230,9 @@ class GhostClient:
 
         Calling this repeatedly builds a personal JSONL dataset that can
         be used to fine-tune a local MiniMind model on your specific domain.
-        The dataset is appended (not overwritten) on every call.
+        The dataset is appended (not overwritten) on every call. The pair is
+        also indexed (once) in personal memory under source ``"ghost-teach"``
+        so :meth:`search` and :meth:`memory_count` reflect it.
 
         Args:
             prompt: The user instruction or question.
@@ -241,10 +243,20 @@ class GhostClient:
             Path to the dataset file.
         """
         lifecycle = MiniMindLifecycle(state_dir=self._state_dir)
-        return lifecycle.generate_dataset(
+        path = lifecycle.generate_dataset(
             [{"prompt": prompt, "response": response}],
             output_path=output_path,
         )
+        # Also index the pair in personal memory so search()/memory_count()
+        # (and the ghost_search / ghost_memory_status MCP tools) see what was
+        # taught. Without this, taught facts lived only in the JSONL dataset.
+        if str(prompt).strip() or str(response).strip():
+            self._memory.add_document_once(
+                TEACH_SOURCE,
+                teach_document(prompt, response),
+                metadata={"kind": "teach", "dataset_path": str(path)},
+            )
+        return path
 
     def training_status(self) -> dict[str, Any]:
         """Return status of the local MiniMind training setup.

@@ -50,7 +50,7 @@ from ..integrations.remote_control import (
     verify_whatsapp_webhook_challenge,
 )
 from ..memory_layer.maintenance import run_memory_consolidation
-from ..memory_layer.store import MemoryStore
+from ..memory_layer.store import TEACH_SOURCE, MemoryStore, teach_document
 from ..memory_layer.temporal_graph import TemporalGraphStore
 from ..model_layer.auth_profiles import AuthProfile
 from ..model_layer.codex_cli_provider import codex_login_command, get_codex_cli_status, launch_codex_login_flow
@@ -2754,6 +2754,12 @@ def register_console_routes(
         profile_name = str(autonomy_cfg.get("local_model_profile") or "tiny")
         lifecycle = MiniMindLifecycle(profile_name=profile_name, state_dir=server.config.state_dir)
         path = lifecycle.generate_dataset([{"prompt": prompt, "response": response}])
+        # Index the pair in personal memory too, so memory search/status see it.
+        MemoryStore(server.config.memory_db).add_document_once(
+            TEACH_SOURCE,
+            teach_document(prompt, response),
+            metadata={"kind": "teach", "dataset_path": str(path)},
+        )
         dataset_count = 0
         with contextlib.suppress(Exception):
             dataset_count = sum(1 for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip())
