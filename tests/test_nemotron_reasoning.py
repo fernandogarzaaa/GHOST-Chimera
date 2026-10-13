@@ -6,7 +6,7 @@ import json
 import os
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from ghostchimera.stealth.nemotron_reasoning import (
     NANO_MODEL,
@@ -229,6 +229,124 @@ class TestLoopIntegration(unittest.TestCase):
         result = loop.last_result
         self.assertNotIn("nemotron", result.trace)
         self.assertNotIn("web_grounding", result.trace)
+
+
+class TestLoopPredictWiring(unittest.TestCase):
+    """The PREDICT phase actually calls Nemotron 3 Super (predict_next)."""
+
+    _PRED = [{"action": "github.pull_request_opened", "probability": 0.7, "rationale": "tests pass"}]
+
+    def _loop(self, reasoner, **attrs):
+        from ghostchimera.stealth import StealthLoop, new_event
+
+        loop = StealthLoop(reasoner=reasoner, own_runtime=False)
+        self.addCleanup(loop.close)
+        for key, value in attrs.items():
+            setattr(loop, key, value)
+        return loop, new_event
+
+    def _reasoner(self, predict_reply=None, side_effect=None):
+        reasoner = MagicMock()
+        reasoner.available = True
+        reasoner.understand.return_value = {"intent": "triage"}
+        if side_effect is not None:
+            reasoner.predict_next.side_effect = side_effect
+        else:
+            reasoner.predict_next.return_value = predict_reply if predict_reply is not None else list(self._PRED)
+        return reasoner
+
+    def test_predict_next_is_invoked_and_lands_in_trace(self):
+        reasoner = self._reasoner()
+        loop, new_event = self._loop(reasoner)
+        loop.emit(new_event("github.issue_created", source="github", session_id="s1", payload={"title": "500"}))
+        reasoner.predict_next.assert_called_once()
+        history, kwargs = reasoner.predict_next.call_args.args[0], reasoner.predict_next.call_args.kwargs
+        self.assertIn("github.issue_created", history)
+        self.assertIn("hypothesis", kwargs)
+        self.assertEqual(loop.last_result.trace["nemotron_predictions"], self._PRED)
+
+    def test_real_reasoner_calls_super_model_from_loop(self):
+        super_provider = FakeProvider(reply=json.dumps(self._PRED), model="nvidia/nemotron-3-super-120b-a12b")
+        reasoner = NemotronReasoner(provider=FakeProvider(reply=_UNDERSTAND_JSON))
+        reasoner._reasoning_provider = super_provider
+        loop, new_event = self._loop(reasoner)
+        loop.emit(new_event("agent.prompt_submitted", source="claude-code", session_id="s1", payload={"p": "why"}))
+        self.assertEqual(len(super_provider.calls), 1)
+        system, _user = super_provider.calls[0]
+        self.assertIn("predict the user's most likely next actions", system)
+        preds = loop.last_result.trace["nemotron_predictions"]
+        self.assertEqual(preds[0]["action"], "github.pull_request_opened")
+        self.assertEqual(preds[0]["model"], "nvidia/nemotron-3-super-120b-a12b")
+
+    def test_rate_limited_per_stream(self):
+        reasoner = self._reasoner()
+        loop, new_event = self._loop(reasoner, nemotron_predict_interval_s=30.0)
+        loop.predictions.predict = lambda *a, **k: []  # always "unsure", so only the interval gates
+        loop.emit(new_event("file.modified", source="fs", session_id="s1", timestamp=1000.0))
+        loop.emit(new_event("file.modified", source="fs", session_id="s1", timestamp=1010.0))
+        self.assertEqual(reasoner.predict_next.call_count, 1)
+        self.assertNotIn("nemotron_predictions", loop.last_result.trace)
+        loop.emit(new_event("file.modified", source="fs", session_id="s1", timestamp=1031.0))
+        self.assertEqual(reasoner.predict_next.call_count, 2)
+        # A different stream has its own budget.
+        loop.emit(new_event("file.modified", source="fs", session_id="s2", timestamp=1032.0))
+        self.assertEqual(reasoner.predict_next.call_count, 3)
+
+    def test_skipped_when_local_prediction_is_confident(self):
+        from ghostchimera.stealth.prediction import Prediction
+
+        reasoner = self._reasoner()
+        loop, new_event = self._loop(reasoner)
+        loop.predictions.predict = lambda *a, **k: [Prediction("event:file.modified", 0.95, "workflow")]
+        loop.emit(new_event("file.modified", source="fs", session_id="s1"))
+        reasoner.predict_next.assert_not_called()
+        self.assertNotIn("nemotron_predictions", loop.last_result.trace)
+
+    def test_consulted_when_only_base_rate_guesses(self):
+        # A high normalized base-rate probability is not learned evidence.
+        from ghostchimera.stealth.prediction import Prediction
+
+        reasoner = self._reasoner()
+        loop, new_event = self._loop(reasoner)
+        loop.predictions.predict = lambda *a, **k: [
+            Prediction("event:file.modified", 0.9, "base_rate"),
+            Prediction("event:github.commit", 0.1, "experience"),
+        ]
+        loop.emit(new_event("file.modified", source="fs", session_id="s1"))
+        reasoner.predict_next.assert_called_once()
+
+    def test_secret_events_never_reach_predict(self):
+        reasoner = self._reasoner()
+        loop, new_event = self._loop(reasoner)
+        loop.emit(new_event("file.modified", source="fs", session_id="s1", privacy_classification="secret"))
+        reasoner.predict_next.assert_not_called()
+
+    def test_predict_failure_degrades_silently(self):
+        reasoner = self._reasoner(side_effect=RuntimeError("nebius down"))
+        loop, new_event = self._loop(reasoner)
+        loop.emit(new_event("file.modified", source="fs", session_id="s1"))
+        reasoner.predict_next.assert_called_once()
+        self.assertIsNotNone(loop.last_result)
+        self.assertNotIn("nemotron_predictions", loop.last_result.trace)
+        self.assertIn("nemotron", loop.last_result.trace)
+
+    def test_predictions_do_not_change_the_decision(self):
+        from ghostchimera.stealth import new_event
+
+        baseline_loop, _ = self._loop(None)
+        wired_loop, _ = self._loop(self._reasoner())
+        for loop in (baseline_loop, wired_loop):
+            loop.emit(new_event("file.modified", source="fs", session_id="s1", timestamp=5.0, confidence=0.2))
+        self.assertEqual(baseline_loop.last_result.decision, wired_loop.last_result.decision)
+
+    def test_interval_env_override(self):
+        with patch.dict(os.environ, {"GHOSTCHIMERA_NEMOTRON_PREDICT_INTERVAL_S": "0"}):
+            reasoner = self._reasoner()
+            loop, new_event = self._loop(reasoner)
+        loop.predictions.predict = lambda *a, **k: []
+        loop.emit(new_event("file.modified", source="fs", session_id="s1", timestamp=1.0))
+        loop.emit(new_event("file.modified", source="fs", session_id="s1", timestamp=1.0))
+        self.assertEqual(reasoner.predict_next.call_count, 2)
 
 
 if __name__ == "__main__":

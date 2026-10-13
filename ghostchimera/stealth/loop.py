@@ -9,6 +9,7 @@ high-value inference leaves the hot path (via BackgroundRuntime).
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 import uuid
 from collections import deque
@@ -61,6 +62,17 @@ from .workflow_learner import WorkflowLearner
 from .world_state import WorldState
 
 logger = get_logger("stealth_loop")
+
+# PREDICT-phase Nemotron 3 Super gating (see StealthLoop._consult_nemotron_predict).
+NEMOTRON_PREDICT_CONFIDENCE_THRESHOLD = 0.6
+NEMOTRON_PREDICT_MIN_INTERVAL_S = 30.0
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return max(0.0, float(os.environ.get(name, "") or default))
+    except ValueError:
+        return default
 
 
 @dataclass
@@ -133,6 +145,14 @@ class StealthLoop:
         # attaches them (see stealth.nemotron_reasoning.build_cloud_enhancements).
         self._reasoner = reasoner
         self._grounding = grounding
+        # PREDICT-phase Nemotron 3 Super consultation is gated: only when the
+        # local Prediction Engine is unsure, and at most once per interval per
+        # stream (Super is the heavy 120B model, so never per event).
+        self.nemotron_predict_threshold = NEMOTRON_PREDICT_CONFIDENCE_THRESHOLD
+        self.nemotron_predict_interval_s = _env_float(
+            "GHOSTCHIMERA_NEMOTRON_PREDICT_INTERVAL_S", NEMOTRON_PREDICT_MIN_INTERVAL_S
+        )
+        self._nemotron_predict_last: dict[str, float] = {}
 
         self._experience: ExperienceState | None = None
         self._experience_stream: Any = None
@@ -200,6 +220,8 @@ class StealthLoop:
         preds = self.predictions.predict(list(history), hypothesis)
         # UNDERSTAND-phase cloud enrichment (best-effort; never blocks the loop).
         nemotron_insight = self._consult_nemotron_reasoner(event, hypothesis, preds)
+        # PREDICT-phase cloud enrichment via Nemotron 3 Super (best-effort, gated).
+        nemotron_predictions = self._consult_nemotron_predict(event, stream, list(history), hypothesis, preds)
         web_context = self._consult_web_grounding(event)
         friction = self.friction_detector.observe(event, predicted_actions=[pred.action for pred in preds])
         self.attention.update_friction(friction.score)
@@ -238,6 +260,8 @@ class StealthLoop:
         trace = {**trace, "governance": governed.to_dict()}
         if nemotron_insight:
             trace["nemotron"] = nemotron_insight
+        if nemotron_predictions:
+            trace["nemotron_predictions"] = nemotron_predictions
         if web_context:
             trace["web_grounding"] = web_context
         requested_action = event.payload.get("computer_action")
@@ -350,6 +374,59 @@ class StealthLoop:
             logger.warning("Nemotron reasoner failed: %s", exc)
             return None
         return insight if isinstance(insight, dict) else None
+
+    def _consult_nemotron_predict(
+        self,
+        event: Event,
+        stream: str,
+        history: list[str],
+        hypothesis: Any,
+        preds: Any,
+    ) -> list[dict[str, Any]] | None:
+        """PREDICT via Nemotron 3 Super on Nebius Token Factory (best-effort).
+
+        Consulted only when a reasoner is attached and available, the event is
+        not ``secret``, the local Prediction Engine is unsure (no workflow- or
+        experience-based prediction at ``nemotron_predict_threshold`` or above;
+        base-rate guesses do not count), and the stream has not been consulted
+        within ``nemotron_predict_interval_s``. Results are advisory: they land
+        in the trace and never change the decision.
+        """
+        reasoner = self._reasoner
+        if reasoner is None or not getattr(reasoner, "available", False):
+            return None
+        predict_next = getattr(reasoner, "predict_next", None)
+        if not callable(predict_next):
+            return None
+        if event.privacy_classification == "secret":
+            return None
+        # Base-rate guesses are a weak prior (the engine normalizes them, so a
+        # single observed event type looks "confident"); only learned evidence
+        # from a matched workflow or the experience graph counts as confident.
+        learned_top = max(
+            (
+                float(getattr(p, "probability", 0.0) or 0.0)
+                for p in (preds or [])
+                if getattr(p, "basis", "") in ("workflow", "experience")
+            ),
+            default=0.0,
+        )
+        if learned_top >= self.nemotron_predict_threshold:
+            return None
+        now = float(event.timestamp or time.time())
+        last = self._nemotron_predict_last.get(stream)
+        if last is not None and now - last < self.nemotron_predict_interval_s:
+            return None
+        self._nemotron_predict_last[stream] = now
+        workflow = getattr(hypothesis, "name", "") if hypothesis is not None else ""
+        try:
+            result = predict_next("\n".join(history[-20:]), hypothesis=str(workflow or ""))
+        except Exception as exc:
+            logger.warning("Nemotron predict failed: %s", exc)
+            return None
+        if not isinstance(result, list) or not result:
+            return None
+        return [dict(item) for item in result if isinstance(item, dict)] or None
 
     def _consult_web_grounding(self, event: Event) -> dict[str, Any] | None:
         """UNDERSTAND-phase Tavily web grounding (best-effort).
