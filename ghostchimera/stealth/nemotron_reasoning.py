@@ -8,7 +8,8 @@ handles the heavier reasoning.
 
 Everything here is best-effort: failures return ``None`` and the
 deterministic loop carries on unchanged. Events classified ``"secret"``
-are never sent to the cloud.
+are never sent to the cloud; everything else is passed through
+:func:`ghostchimera.redaction.redact_for_egress` (secrets and PII) first.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import os
 from typing import Any
 
 from ..logging_config import get_logger
+from ..redaction import redact_for_egress
 from .tavily_grounding import TavilyGrounding
 
 logger = get_logger("nemotron_reasoning")
@@ -134,7 +136,8 @@ class NemotronReasoner:
         if provider is None:
             return None
         user_message = (
-            f"Workflow hypothesis: {hypothesis}\nRecent history:\n{history_summary[:2000]}"
+            f"Workflow hypothesis: {redact_for_egress(str(hypothesis))}\n"
+            f"Recent history:\n{redact_for_egress(str(history_summary))[:2000]}"
             "\n\nRespond with strict JSON only."
         )
         try:
@@ -184,21 +187,23 @@ class NemotronReasoner:
     # -- helpers -----------------------------------------------------------
 
     def _event_summary(self, event: Any, hypothesis: Any, predictions: Any) -> str:
-        payload = getattr(event, "payload", None) or {}
+        # Event data leaves the host here (Nebius Token Factory): scrub
+        # secrets and PII first, then truncate.
+        payload = redact_for_egress(getattr(event, "payload", None) or {})
         try:
             payload_text = json.dumps(payload, default=str)[:1500]
         except Exception:
-            payload_text = str(payload)[:1500]
+            payload_text = redact_for_egress(str(payload))[:1500]
         lines = [
-            f"event_type: {getattr(event, 'event_type', '')}",
-            f"source: {getattr(event, 'source', '')}",
+            f"event_type: {redact_for_egress(str(getattr(event, 'event_type', '')))}",
+            f"source: {redact_for_egress(str(getattr(event, 'source', '')))}",
             f"payload: {payload_text}",
         ]
         if hypothesis is not None:
-            lines.append(f"local_hypothesis: {getattr(hypothesis, 'name', hypothesis)}")
+            lines.append(f"local_hypothesis: {redact_for_egress(str(getattr(hypothesis, 'name', hypothesis)))}")
         if predictions:
             try:
-                top = [getattr(p, "action", p) for p in list(predictions)[:3]]
+                top = [redact_for_egress(str(getattr(p, "action", p))) for p in list(predictions)[:3]]
                 lines.append(f"local_predictions: {top}")
             except Exception:
                 pass
