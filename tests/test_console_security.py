@@ -79,7 +79,7 @@ class LiveConsoleSecurityTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls._tmp = tempfile.TemporaryDirectory()
+        cls._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         cls.state_dir = Path(cls._tmp.name)
         cls.stdout = io.StringIO()
         with contextlib.redirect_stdout(cls.stdout):
@@ -283,7 +283,7 @@ class LiveConsoleSecurityTests(unittest.TestCase):
 
 class TokenOverrideTests(unittest.TestCase):
     def test_auth_token_override_wins_and_is_not_printed(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 server = run_console(
@@ -304,7 +304,10 @@ class TokenOverrideTests(unittest.TestCase):
                 server.stop()
 
     def test_arming_phrase_is_random_per_install(self) -> None:
-        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+        with (
+            tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as a,
+            tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as b,
+        ):
             first, second = load_or_create_console_secrets(a), load_or_create_console_secrets(b)
             self.assertNotEqual(first.arming_phrase, second.arming_phrase)
             self.assertNotEqual(first.token, second.token)
@@ -312,7 +315,7 @@ class TokenOverrideTests(unittest.TestCase):
             self.assertEqual(load_or_create_console_secrets(a).arming_phrase, first.arming_phrase)
 
     def test_second_run_does_not_print_token(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             first = load_or_create_console_secrets(tmp)
             self.assertTrue(first.created)
             out = io.StringIO()
