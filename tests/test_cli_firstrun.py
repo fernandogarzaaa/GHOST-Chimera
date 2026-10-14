@@ -236,3 +236,56 @@ def test_grouped_help_does_not_change_subcommand_parsing(monkeypatch, capsys) ->
     with pytest.raises(SystemExit):
         cli._main(["demo", "--help"])
     assert "usage: ghost demo" in capsys.readouterr().out
+
+
+# --- newcomer P2-3: ghost model picker ---
+
+
+def _picker_env(tmp_path, monkeypatch):
+    from ghostchimera.control_plane import config as cfg
+    from ghostchimera.control_plane import model_picker
+
+    monkeypatch.setattr(model_picker, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(model_picker, "load_config", lambda: {})
+    saved = {}
+    monkeypatch.setattr(model_picker, "save_config", lambda c: saved.update(c))
+    monkeypatch.setattr(cfg, "CONFIG_FILE", tmp_path / "config.json")
+    return model_picker, saved
+
+
+def test_model_picker_without_tty_lists_and_exits_cleanly(tmp_path, monkeypatch, capsys) -> None:
+    import io
+
+    model_picker, saved = _picker_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))  # not a TTY, immediate EOF
+    assert model_picker.run_model_picker() == 0
+    out = capsys.readouterr().out
+    assert "1) Nebius Token Factory" in out
+    assert "2) OpenAI" in out
+    assert "OpenCode CLI" in out
+    assert "Openai" not in out and "Opencode Cli" not in out
+    assert "nothing was changed" in out
+    assert saved == {}
+
+
+def test_model_picker_numbered_selection_switches_provider(tmp_path, monkeypatch, capsys) -> None:
+    model_picker, saved = _picker_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(model_picker, "_stdin_is_tty", lambda: True)
+    answers = iter(["1", "2"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+    assert model_picker.run_model_picker() == 0
+    assert saved["model"]["provider"] == "nebius"
+    assert saved["model"]["model"] == "nvidia/nemotron-3-super-120b-a12b"
+
+
+def test_model_picker_eof_on_tty_cancels_without_traceback(tmp_path, monkeypatch, capsys) -> None:
+    model_picker, saved = _picker_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(model_picker, "_stdin_is_tty", lambda: True)
+
+    def _eof(_prompt=""):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", _eof)
+    assert model_picker.run_model_picker() == 1
+    assert "Cancelled" in capsys.readouterr().out
+    assert saved == {}

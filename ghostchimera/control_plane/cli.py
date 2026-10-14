@@ -937,8 +937,7 @@ def _run_main(argv: list[str] | None = None) -> int:
     if args.command == "model":
         from .model_picker import run_model_picker
 
-        run_model_picker()
-        return 0
+        return int(run_model_picker() or 0)
 
     if args.command == "policy":
         from .cli_policy import _main as _policy_main
