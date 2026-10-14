@@ -13,7 +13,7 @@ from .backends.base import ExecutionResult
 from .hooks import HookName, HookRegistry
 from .policy import PilotPolicy
 from .result_envelope import ResultEnvelope
-from .scheduler import ChimeraScheduler, ScheduleDecision
+from .scheduler import ChimeraScheduler, NoBackendAvailableError, ScheduleDecision
 from .schema import validate_task
 from .semantic_verifier import SemanticVerifier
 from .task_ir import TaskSpec
@@ -314,7 +314,7 @@ class ChimeraPilotExecutor:
             selected_strategy = self.policy.autonomy_profile.cap_strategy(selected_strategy)
         ranked = self.scheduler.rank_backends(task)
         if not ranked:
-            raise RuntimeError(f"No available backend can run task {task.id}: {task.kind.value}")
+            raise NoBackendAvailableError(task.id, task.kind.value)
 
         transitions: list[StateTransition] = [
             StateTransition(PilotRunState.PLANNED, now(), f"task accepted strategy={selected_strategy}")

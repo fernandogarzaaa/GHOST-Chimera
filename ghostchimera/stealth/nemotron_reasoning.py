@@ -64,11 +64,14 @@ class NemotronReasoner:
         provider: Any | None = None,
         grounding: TavilyGrounding | None = None,
         reasoning_model: str = SUPER_MODEL,
+        reasoning_provider: Any | None = None,
     ) -> None:
         self._provider = provider if provider is not None else self._default_provider()
         self._grounding = grounding
         self._reasoning_model = reasoning_model
-        self._reasoning_provider: Any | None = None
+        # Optional explicit provider for the PREDICT (Nemotron 3 Super) calls;
+        # when omitted it is derived lazily from the Nebius key.
+        self._reasoning_provider: Any | None = reasoning_provider
 
     @staticmethod
     def _default_provider() -> Any | None:

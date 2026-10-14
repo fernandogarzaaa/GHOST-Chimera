@@ -12,6 +12,15 @@ from .backends.base import BackendHealth, ChimeraBackend
 from .task_ir import TaskSpec
 
 
+class NoBackendAvailableError(RuntimeError):
+    """Raised when no registered backend can run a task (e.g. no model provider configured)."""
+
+    def __init__(self, task_id: str, task_kind: str) -> None:
+        super().__init__(f"No available backend can run task {task_id}: {task_kind}")
+        self.task_id = task_id
+        self.task_kind = task_kind
+
+
 @dataclass(frozen=True)
 class ScheduleDecision:
     backend: ChimeraBackend
@@ -191,7 +200,7 @@ class ChimeraScheduler:
     def select_backend(self, task: TaskSpec) -> ScheduleDecision:
         ranked = self.rank_backends(task)
         if not ranked:
-            raise RuntimeError(f"No available backend can run task {task.id}: {task.kind.value}")
+            raise NoBackendAvailableError(task.id, task.kind.value)
         return ranked[0]
 
     def select_strategy(
