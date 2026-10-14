@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,7 +43,9 @@ def test_readme_top_block_points_judges_at_demo_and_overview() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "pip install ghostchimera" in readme
     assert "ghost demo" in readme
-    assert "DEMO_VIDEO_URL" in readme
+    # The video placeholder was replaced by a real link; keep it a real URL.
+    assert "DEMO_VIDEO_URL" not in readme
+    assert re.search(r"\*\*Demo video:\*\* \[[^\]]+\]\(https://[^)\s]+\)", readme)
     assert "docs/OVERVIEW.md" in readme
 
 
