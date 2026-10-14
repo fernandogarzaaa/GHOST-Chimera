@@ -8,7 +8,6 @@ artifacts for every command or source mutation.
 from __future__ import annotations
 
 import difflib
-import hashlib
 import json
 import secrets
 import subprocess
@@ -18,6 +17,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..ids import stable_id
 from ..redaction import BASE_MARKERS, scrubbed_environ
 
 # Library default only. The Ghost Console never uses this public constant: it
@@ -48,8 +48,7 @@ def _now() -> float:
 
 
 def _stable_id(*parts: object, length: int = 16) -> str:
-    raw = "|".join(str(part) for part in parts if part is not None)
-    return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:length]
+    return stable_id(*parts, length=length)
 
 
 def _redact_value(value: Any) -> Any:

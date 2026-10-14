@@ -18,20 +18,17 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 from typing import Any
 
+from .. import paths
 from .consolidation import MemoryConsolidator
 from .store import MemoryStore
 from .temporal_graph import TemporalGraphStore
 
-DEFAULT_MEMORY_DB = "~/.ghostchimera/memory.sqlite3"
-DEFAULT_TEMPORAL_GRAPH_DB = "~/.ghostchimera/temporal_graph.sqlite3"
 
-
-def _resolve(path: str | Path | None, env_var: str, default: str) -> Path:
-    return Path(path or os.environ.get(env_var, default)).expanduser()
+def _resolve(path: str | Path | None, default: Path) -> Path:
+    return Path(path).expanduser() if path else default
 
 
 def run_memory_consolidation(
@@ -44,8 +41,8 @@ def run_memory_consolidation(
 ) -> dict[str, Any]:
     """Run one consolidation pass and return a JSON-serializable report."""
 
-    episodic = MemoryStore(_resolve(memory_db, "GHOSTCHIMERA_MEMORY_DB", DEFAULT_MEMORY_DB))
-    semantic = TemporalGraphStore(_resolve(graph_db, "GHOSTCHIMERA_TEMPORAL_GRAPH_DB", DEFAULT_TEMPORAL_GRAPH_DB))
+    episodic = MemoryStore(_resolve(memory_db, paths.memory_db_path()))
+    semantic = TemporalGraphStore(_resolve(graph_db, paths.temporal_graph_db_path()))
     consolidator = MemoryConsolidator(
         episodic,
         semantic,

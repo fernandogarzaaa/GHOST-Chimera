@@ -17,9 +17,10 @@ Lite-class model call elsewhere; this module never calls models itself.
 from __future__ import annotations
 
 import email.utils
-import json
 from pathlib import Path
 from typing import Any
+
+from .. import state_io
 
 ACT_NOW_MIN = 70
 TODAY_MIN = 40
@@ -178,12 +179,11 @@ def _vip_path(state_dir: str | Path) -> Path:
 
 def load_vip_senders(state_dir: str | Path) -> list[str]:
     """Load up to 100 explicit VIP senders; return [] if state is unreadable."""
-    try:
-        data = json.loads(_vip_path(state_dir).read_text(encoding="utf-8"))
-        senders = data.get("vip_senders", []) if isinstance(data, dict) else []
-        return [str(s).strip() for s in senders if str(s).strip()][:100]
-    except (OSError, ValueError):
+    data = state_io.read_json(_vip_path(state_dir), {}, expect=dict)
+    senders = data.get("vip_senders", []) if isinstance(data, dict) else []
+    if not isinstance(senders, list):
         return []
+    return [str(s).strip() for s in senders if str(s).strip()][:100]
 
 
 def save_vip_senders(state_dir: str | Path, senders: list[str]) -> list[str]:
@@ -200,8 +200,8 @@ def save_vip_senders(state_dir: str | Path, senders: list[str]) -> list[str]:
     cleaned = cleaned[:100]
     path = _vip_path(state_dir)
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"vip_senders": cleaned}), encoding="utf-8")
+        with state_io.locked(path):
+            state_io.atomic_write_json(path, {"vip_senders": cleaned}, indent=None)
     except OSError as exc:
         raise ValueError(f"cannot save VIP list: {exc}") from exc
     return cleaned

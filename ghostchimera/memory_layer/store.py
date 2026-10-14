@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ..state_io import make_private
+
 _DEFAULT_FRESHNESS_HALF_LIFE_DAYS: float = 30.0
 
 
@@ -119,6 +121,12 @@ class MemoryStore:
         self.db_path = Path(db_path).expanduser()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_schema()
+        # Personal memory: owner-only regardless of umask. Only the files
+        # are tightened; the parent may be a user-chosen shared directory.
+        for suffix in ("", "-wal", "-shm"):
+            candidate = self.db_path.with_name(self.db_path.name + suffix)
+            if candidate.exists():
+                make_private(candidate)
 
     def add_document(
         self,

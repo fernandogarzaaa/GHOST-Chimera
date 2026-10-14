@@ -1048,8 +1048,9 @@ def register_console_routes(
         return GitHubClient(auth=GitHubAuth.discover())
 
     def _workspace_skills_dir() -> Path:
-        root = os.environ.get("GHOSTCHIMERA_SKILLS_DIR") or str(Path.home() / ".ghostchimera" / "skills")
-        return Path(root).expanduser().resolve()
+        from ..paths import skills_dir
+
+        return skills_dir().resolve()
 
     def _skill_slug(name: str) -> str:
         slug = re.sub(r"[^a-z0-9_]+", "_", name.lower())

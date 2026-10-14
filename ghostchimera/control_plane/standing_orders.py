@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .. import state_io
+
 StandingObjectiveRunner = Any
 
 
@@ -70,27 +72,23 @@ class StandingOrderStore:
         self.path = _state_path(self.state_dir)
 
     def _load(self) -> dict[str, Any]:
-        if not self.path.exists():
-            return _default_state()
-        try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return _default_state()
+        # Corrupt files are quarantined, never silently reset by a save.
+        payload = state_io.read_json(self.path, None, expect=dict)
         if not isinstance(payload, dict):
             return _default_state()
         payload.setdefault("orders", {})
         return payload
 
+    @state_io.locked_method("path")
     def _save(self, data: dict[str, Any]) -> None:
-        self.state_dir.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+        state_io.atomic_write_json(self.path, data)
 
     def _event(self, event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
         event = {"ts": _now(), "event": event_type, **_redact_delivery(payload)}
-        with _events_path(self.state_dir).open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event, sort_keys=True) + "\n")
+        state_io.append_line(_events_path(self.state_dir), json.dumps(event, sort_keys=True))
         return event
 
+    @state_io.locked_method("path")
     def create_order(self, payload: dict[str, Any]) -> dict[str, Any]:
         title = str(payload.get("title") or "").strip()
         scope = str(payload.get("scope") or "general").strip()
@@ -145,6 +143,7 @@ class StandingOrderStore:
     def disable_order(self, order_id: str) -> dict[str, Any]:
         return self._set_status(order_id, "disabled")
 
+    @state_io.locked_method("path")
     def _set_status(self, order_id: str, status: str) -> dict[str, Any]:
         data = self._load()
         order = data["orders"].get(order_id)
@@ -167,15 +166,20 @@ class StandingOrderStore:
         objective = _objective_text(order)
         result = {"ok": True, "preview": True, "objective": objective}
         if objective_runner is not None:
+            # Run outside the store lock: objectives can take minutes.
             result = objective_runner(objective)
-        order["last_run_at"] = _now()
-        order["run_count"] = int(order.get("run_count") or 0) + 1
-        if not result.get("ok", True):
-            order["failure_count"] = int(order.get("failure_count") or 0) + 1
-        order["last_result"] = {"ok": bool(result.get("ok", True)), "preview": bool(result.get("preview", False))}
-        order["updated_at"] = _now()
-        data["orders"][order_id] = order
-        self._save(data)
+        with state_io.locked(self.path):
+            data = self._load()
+            current = data["orders"].get(order_id)
+            order = current if isinstance(current, dict) else order
+            order["last_run_at"] = _now()
+            order["run_count"] = int(order.get("run_count") or 0) + 1
+            if not result.get("ok", True):
+                order["failure_count"] = int(order.get("failure_count") or 0) + 1
+            order["last_result"] = {"ok": bool(result.get("ok", True)), "preview": bool(result.get("preview", False))}
+            order["updated_at"] = _now()
+            data["orders"][order_id] = order
+            self._save(data)
         self._event(
             "standing_order_run",
             {"order_id": order_id, "ok": bool(result.get("ok", True)), "title": order.get("title", "")},
