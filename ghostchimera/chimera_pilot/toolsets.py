@@ -10,9 +10,9 @@ from __future__ import annotations
 import os
 import threading
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
+from .. import paths as _paths
 from .. import state_io
 from ..agent_core.skill_manager import SkillManager
 from ..logging_config import get_logger
@@ -310,9 +310,7 @@ class ToolsetManager:
 
     def _load_active(self) -> None:
         """Load active toolsets from state or defaults."""
-        state_file = (
-            Path(os.environ.get("GHOSTCHIMERA_STATE_DIR", str(Path.home() / ".ghostchimera"))) / "active_toolsets.json"
-        )
+        state_file = _paths.state_path("active_toolsets.json")
         # default: coding + delegation; a corrupt file is quarantined, not wiped
         data = state_io.read_json(state_file, {}, expect=dict)
         active = data.get("active") if isinstance(data, dict) else None
@@ -322,9 +320,7 @@ class ToolsetManager:
             self._active_toolsets = ["coding", "delegation"]
 
     def _save_active(self) -> None:
-        state_file = (
-            Path(os.environ.get("GHOSTCHIMERA_STATE_DIR", str(Path.home() / ".ghostchimera"))) / "active_toolsets.json"
-        )
+        state_file = _paths.state_path("active_toolsets.json")
         try:
             with self._lock:
                 active = list(self._active_toolsets)

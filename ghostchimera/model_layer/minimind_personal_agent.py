@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .. import paths as _paths
 from ..memory_layer.store import MemoryStore
 from ..personalization.context_provider import PersonalContextProvider
 from ..personalization.document_ingester import SUPPORTED_EXTENSIONS
@@ -116,7 +117,7 @@ class MiniMindPersonalAgent:
         memory_db: str | Path | None = None,
         profile_name: str | None = None,
     ) -> None:
-        self.state_dir = Path(state_dir or os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera")).expanduser()
+        self.state_dir = Path(state_dir or _paths.state_dir()).expanduser()
         self.memory_db = Path(
             memory_db or os.environ.get("GHOSTCHIMERA_MEMORY_DB", str(self.state_dir / "memory.sqlite3"))
         ).expanduser()

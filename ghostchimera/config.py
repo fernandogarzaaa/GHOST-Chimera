@@ -25,9 +25,11 @@ class GhostChimeraConfig:
 
     @classmethod
     def from_env(cls) -> GhostChimeraConfig:
-        state_dir = _expand_path(os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera"))
-        memory_db = _expand_path(os.environ.get("GHOSTCHIMERA_MEMORY_DB", str(state_dir / "memory.sqlite3")))
-        audit_file = _expand_path(os.environ.get("GHOSTCHIMERA_AUDIT_FILE", str(state_dir / "audit.json")))
+        from . import paths
+
+        state_dir = paths.state_dir()
+        memory_db = paths.memory_db_path()
+        audit_file = paths.audit_file_path()
         return cls(
             state_dir=state_dir,
             memory_db=memory_db,

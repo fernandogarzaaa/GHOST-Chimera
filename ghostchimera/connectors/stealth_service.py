@@ -169,9 +169,10 @@ def approve_draft(
     sent, detail, results = False, "not sent", []
     connections = connections or {}
     try:
+        from ..paths import state_dir as _default_state_dir
         from .auth_engine import PROVIDERS, CustomAuthEngine, EngineAction
 
-        engine = CustomAuthEngine(Path(state_dir) if state_dir else Path.home() / ".ghostchimera")
+        engine = CustomAuthEngine(Path(state_dir) if state_dir else _default_state_dir())
         try:
             for action in actions:
                 provider = str(action.get("provider", ""))

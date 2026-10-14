@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import sys
-from pathlib import Path
 
 _GHOSTCHIMERA_LOG = logging.getLogger("ghostchimera")
 _INITIALIZED = False
@@ -25,8 +24,9 @@ def _configure() -> None:
     _INITIALIZED = True
 
     log_level = os.environ.get("GHOSTCHIMERA_LOG_LEVEL", "WARNING").upper()
-    state_dir = Path(os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera")).expanduser()
-    state_dir.mkdir(parents=True, exist_ok=True)
+    from .paths import ensure_state_dir
+
+    state_dir = ensure_state_dir()
     log_file = state_dir / "ghostchimera.log"
     fmt_type = os.environ.get("GHOSTCHIMERA_LOG_FORMAT", "text").lower()
 

@@ -2673,7 +2673,9 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         from ..model_layer.minimind_beta_orchestrator import BetaVisionConfig, run_beta_vision
 
         profile = str(args.get("profile") or "").strip() or None
-        memory_db = str(args.get("memory_db") or "").strip() or ".ghostchimera-memory.sqlite3"
+        from ..paths import personal_memory_db
+
+        memory_db = str(personal_memory_db(str(args.get("memory_db") or "")))
         run_jobs = str(args.get("run_autonomy_jobs") or "false").strip().lower() in {"1", "true", "yes"}
         config = BetaVisionConfig(
             memory_db=memory_db,

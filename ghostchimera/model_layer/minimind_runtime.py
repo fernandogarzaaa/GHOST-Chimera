@@ -18,6 +18,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .. import paths as _paths
+
 MINIMIND_SOURCE_URL = "https://github.com/jingyaogong/minimind"
 MINIMIND_SOURCE_COMMIT = "dddedc688121028dd8adab55b95d139ecd87205c"
 MINIMIND_LICENSE = "Apache-2.0"
@@ -370,7 +372,7 @@ def inspect_minimind_runtime(
     root: str | Path | None = None,
     model_path: str | Path | None = None,
 ) -> MiniMindRuntimeInspection:
-    state_path = Path(state_dir or os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera")).expanduser()
+    state_path = Path(state_dir or _paths.state_dir()).expanduser()
     architecture = get_minimind_architecture(profile_name or os.environ.get("MINIMIND_ARCHITECTURE", "minimind-3"))
     errors: list[str] = []
     notes: list[str] = []
@@ -505,7 +507,7 @@ def load_minimind_chat_runtime(
                 notes=inspection.notes,
             )
             return None, failed
-    state_path = Path(state_dir or os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera")).expanduser()
+    state_path = Path(state_dir or _paths.state_dir()).expanduser()
     neural_adapter_path = _neural_adapter_path(state_path)
     if neural_adapter_path.exists():
         return MiniMindNeuralAdapterRuntime(neural_adapter_path), inspection

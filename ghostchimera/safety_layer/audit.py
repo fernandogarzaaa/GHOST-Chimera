@@ -31,10 +31,16 @@ from .. import state_io
 
 logger = logging.getLogger(__name__)
 
-AUDIT_FILE = os.environ.get(
-    "GHOSTCHIMERA_AUDIT_FILE",
-    os.path.expanduser("~/.ghostchimera/audit.json"),
-)
+# Explicit override (tests/embedders may assign it); None means "resolve
+# lazily from GHOSTCHIMERA_AUDIT_FILE / GHOSTCHIMERA_STATE_DIR on each use".
+AUDIT_FILE: str | None = None
+
+
+def default_audit_file() -> str:
+    from ..paths import audit_file_path
+
+    return AUDIT_FILE or str(audit_file_path())
+
 
 _REQUIRED_KEYS = ("action", "details", "chain_hash")
 
@@ -59,12 +65,12 @@ def _load_records(path: str) -> tuple[list[Any], str]:
 
 def _read_audit(audit_file: str | None = None) -> list:
     """Best-effort read (``[]`` when missing/unreadable). Not for verification."""
-    records, _status = _load_records(audit_file or AUDIT_FILE)
+    records, _status = _load_records(audit_file or default_audit_file())
     return records
 
 
 def _write_audit(records: list, audit_file: str | None = None) -> None:
-    path = audit_file or AUDIT_FILE
+    path = audit_file or default_audit_file()
     state_io.atomic_write_json(path, records, ensure_ascii=False, indent=2, sort_keys=False)
 
 
@@ -171,7 +177,7 @@ class AuditLog:
     """HMAC-SHA256 chained audit log."""
 
     def __init__(self, audit_file: str | None = None) -> None:
-        self.audit_file = audit_file or AUDIT_FILE
+        self.audit_file = audit_file or default_audit_file()
         self.key = _resolve_key(self.audit_file)
 
     @property

@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import importlib.util
 import logging
-import os
 import threading
 from pathlib import Path
 
@@ -37,7 +36,7 @@ from .base import Skill
 logger = logging.getLogger(__name__)
 
 # Default workspace root (overridable via env var)
-_DEFAULT_SKILLS_DIR = Path(os.environ.get("GHOSTCHIMERA_SKILLS_DIR", "~/.ghostchimera/skills")).expanduser()
+_DEFAULT_SKILLS_DIR: Path | None = None  # None: resolve via ghostchimera.paths.skills_dir()
 
 
 class SkillRegistry:
@@ -65,7 +64,12 @@ class SkillRegistry:
     ) -> None:
         self._skills: dict[str, Skill] = {}
         self._lock = threading.Lock()
-        self.skills_dir = Path(skills_dir).expanduser() if skills_dir else _DEFAULT_SKILLS_DIR
+        if skills_dir:
+            self.skills_dir = Path(skills_dir).expanduser()
+        else:
+            from ..paths import skills_dir as _resolve_skills_dir
+
+            self.skills_dir = _DEFAULT_SKILLS_DIR or _resolve_skills_dir()
         self._extra_dirs: list[Path] = [Path(d).expanduser() for d in (extra_dirs or [])]
 
         if auto_discover:

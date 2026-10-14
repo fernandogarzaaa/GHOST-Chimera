@@ -22,17 +22,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-DEFAULT_FILE = os.environ.get(
-    "GHOSTCHIMERA_MEMORY_FILE",
-    os.path.expanduser("~/.ghostchimera/memory.json"),
-)
+# Explicit override; None resolves lazily via ghostchimera.paths
+# (GHOSTCHIMERA_MEMORY_FILE, else <GHOSTCHIMERA_STATE_DIR>/memory.json).
+DEFAULT_FILE: str | None = None
 
 
 class MemoryManager:
     """Thread‑safe persistent memory store."""
 
     def __init__(self, file_path: str | None = None) -> None:
-        self.file_path = file_path or DEFAULT_FILE
+        if not file_path:
+            from ..paths import agent_memory_file_path
+
+            file_path = DEFAULT_FILE or str(agent_memory_file_path())
+        self.file_path = file_path
         self._lock = threading.Lock()
         # ensure directory exists
         Path(os.path.dirname(self.file_path)).mkdir(parents=True, exist_ok=True)
