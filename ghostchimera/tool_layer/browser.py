@@ -15,6 +15,7 @@ from typing import Any
 from urllib import request as urllib_request
 from urllib.error import HTTPError, URLError
 
+from ..http_identity import USER_AGENT, ensure_user_agent
 from ..logging_config import get_logger
 from ..safety_layer.gating import ensure_authorized
 
@@ -40,9 +41,9 @@ def http_get(url: str, policy: dict[str, Any] | None = None) -> str:
         raise ValueError(f"Only HTTPS URLs are allowed; got: {url}")
     logger.debug("Fetching HTTPS URL: %s", url[:80])
     context = ssl.create_default_context()
-    req = urllib_request.Request(url, headers={"User-Agent": "GhostChimera/0.2.0"})
+    req = urllib_request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
-        with urllib_request.urlopen(req, context=context, timeout=15) as response:
+        with urllib_request.urlopen(ensure_user_agent(req), context=context, timeout=15) as response:
             charset = response.headers.get_content_charset() or "utf-8"
             return response.read().decode(charset, errors="replace")
     except HTTPError as e:

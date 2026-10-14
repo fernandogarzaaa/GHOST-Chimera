@@ -24,6 +24,7 @@ import ssl
 from typing import TYPE_CHECKING, Any
 from urllib import request as urllib_request
 
+from ..http_identity import ensure_user_agent
 from ..logging_config import get_logger
 from .base_provider import BaseProvider
 from .claude_agent_provider import ClaudeAgentProvider
@@ -134,7 +135,7 @@ class OpenAIProvider(BaseProvider):
         data = json.dumps(body).encode("utf-8")
         context = ssl.create_default_context()
         req = urllib_request.Request(self._base_url, data=data, headers=headers, method="POST")
-        with urllib_request.urlopen(req, context=context) as resp:
+        with urllib_request.urlopen(ensure_user_agent(req), context=context) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"OpenAI API returned HTTP {resp.status}")
             response_json = json.loads(resp.read().decode("utf-8"))
@@ -203,7 +204,7 @@ class AnthropicProvider(BaseProvider):
         data = json.dumps(body).encode("utf-8")
         context = ssl.create_default_context()
         req = urllib_request.Request(self._base_url, data=data, headers=headers, method="POST")
-        with urllib_request.urlopen(req, context=context) as resp:
+        with urllib_request.urlopen(ensure_user_agent(req), context=context) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"Anthropic API returned HTTP {resp.status}")
             response_json = json.loads(resp.read().decode("utf-8"))

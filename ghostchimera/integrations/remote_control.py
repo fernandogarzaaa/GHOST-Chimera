@@ -20,6 +20,7 @@ from typing import Any
 from urllib import request as urllib_request
 from urllib.error import HTTPError, URLError
 
+from ..http_identity import USER_AGENT, ensure_user_agent
 from ..redaction import BASE_MARKERS
 
 RemoteObjectiveRunner = Callable[[str], dict[str, Any]]
@@ -623,7 +624,7 @@ def _channel_setup_steps(channel: str, missing_inbound: list[str], missing_outbo
 
 def _resolve_send_endpoint(reply: RemoteOutboundReply, secrets_data: dict[str, Any]) -> tuple[str, dict[str, str]]:
     channel = reply.channel
-    headers = {"Content-Type": "application/json", "User-Agent": "GhostChimeraRemote/0.4"}
+    headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
     if channel == "telegram":
         token = str(secrets_data.get("bot_token") or secrets_data.get("api_token") or "").strip()
         if not token:
@@ -667,7 +668,7 @@ def _default_send_transport(endpoint: str, headers: dict[str, str], body: dict[s
         method="POST",
     )
     try:
-        with urllib_request.urlopen(request, timeout=15) as response:
+        with urllib_request.urlopen(ensure_user_agent(request), timeout=15) as response:
             payload = response.read().decode("utf-8", errors="replace")[:2000]
             return {"ok": 200 <= int(response.status) < 300, "status": int(response.status), "body_preview": payload}
     except HTTPError as exc:

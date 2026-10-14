@@ -28,6 +28,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..http_identity import with_user_agent
 from ..logging_config import get_logger
 
 logger = get_logger("ssrf")
@@ -290,7 +291,7 @@ class NetworkDispatcher:
             raise SSRFViolation(f"Request to '{url}' blocked: {reason}")
 
         logger.debug("NetworkDispatcher %s %s", method, url)
-        hdrs = headers or {}
+        hdrs = with_user_agent(headers)
         try:
             req = urllib.request.Request(url, data=body, headers=hdrs, method=method.upper())
             ctx = ssl.create_default_context()

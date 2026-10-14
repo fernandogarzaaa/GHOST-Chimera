@@ -35,6 +35,8 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib import request as urllib_request
 
+from ..http_identity import ensure_user_agent
+
 DEFAULT_ENDPOINT = "https://api.smith.langchain.com"
 DEFAULT_PROJECT = "ghost-chimera-hackathon"
 
@@ -95,7 +97,7 @@ class LangSmithTracer:
         data = json.dumps(payload).encode("utf-8")
         req = urllib_request.Request(f"{self.config.endpoint}{path}", data=data, headers=self._headers(), method=method)
         try:
-            with urllib_request.urlopen(req, timeout=10.0, context=ssl.create_default_context()):
+            with urllib_request.urlopen(ensure_user_agent(req), timeout=10.0, context=ssl.create_default_context()):
                 pass
         except Exception:
             # Tracing is observability only; never let it break the caller.

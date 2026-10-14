@@ -48,6 +48,7 @@ from typing import Any
 from urllib import request as urllib_request
 from urllib.error import URLError
 
+from ..http_identity import ensure_user_agent
 from ..logging_config import get_logger
 
 logger = get_logger("lobster_trap")
@@ -428,7 +429,9 @@ class LobsterTrapClient:
         try:
             # ssl.create_default_context() sets CERT_REQUIRED and check_hostname=True by default
             ctx = ssl.create_default_context()
-            with urllib_request.urlopen(req, context=ctx, timeout=self.config.timeout_seconds) as resp:
+            with urllib_request.urlopen(
+                ensure_user_agent(req), context=ctx, timeout=self.config.timeout_seconds
+            ) as resp:
                 raw = json.loads(resp.read().decode("utf-8"))
         except (URLError, OSError, TimeoutError) as exc:
             logger.debug("Lobster Trap proxy unreachable (%s); fail_open=%s", exc, self.config.fail_open)

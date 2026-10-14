@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..http_identity import ensure_user_agent
 from ..memory_layer.store import MemoryStore
 from ..model_layer.minimind_lifecycle import MiniMindLifecycle
 
@@ -217,7 +218,7 @@ try {
 
 def _urlopen_json(req: urllib.request.Request, *, timeout: float) -> dict[str, Any]:
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with urllib.request.urlopen(ensure_user_agent(req), timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.URLError as exc:
         if not _is_certificate_error(exc):
@@ -225,7 +226,7 @@ def _urlopen_json(req: urllib.request.Request, *, timeout: float) -> dict[str, A
         last_error: urllib.error.URLError = exc
         for context in (_certifi_ssl_context(), _windows_ssl_context()):
             try:
-                with urllib.request.urlopen(req, timeout=timeout, context=context) as response:
+                with urllib.request.urlopen(ensure_user_agent(req), timeout=timeout, context=context) as response:
                     return json.loads(response.read().decode("utf-8"))
             except urllib.error.URLError as retry_exc:
                 if not _is_certificate_error(retry_exc):
