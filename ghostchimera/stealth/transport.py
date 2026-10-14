@@ -51,7 +51,10 @@ class GhostTransport:
             def _authed(self) -> bool:
                 if not outer.token:
                     return True
-                return self.headers.get("X-Ghost-Token") == outer.token
+                import hmac
+
+                presented = str(self.headers.get("X-Ghost-Token") or "")
+                return hmac.compare_digest(presented.encode(), str(outer.token).encode())
 
             def _body(self) -> dict[str, Any]:
                 try:
