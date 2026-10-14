@@ -94,6 +94,8 @@ ghost "Summarize my current workspace and tell me the next safest action."
 
 ## Optional next steps
 
+- Uninstall and remove local state (`~/.ghostchimera`): [INSTALL.md](INSTALL.md#uninstall-and-clean-up)
+
 - Personal memory and training setup: [USER_TUTORIAL.md](USER_TUTORIAL.md)
 - GitHub-connected workflow: [GITHUB_CONNECTED_AUTONOMOUS_ENGINEER.md](GITHUB_CONNECTED_AUTONOMOUS_ENGINEER.md)
 - Personal MiniMind privacy and consent: [PERSONAL_MINIMIND_PRIVACY.md](PERSONAL_MINIMIND_PRIVACY.md)

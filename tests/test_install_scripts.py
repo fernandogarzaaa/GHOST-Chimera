@@ -141,3 +141,15 @@ def test_overview_windows_launch_path_matches_install_ps1() -> None:
     assert windows_launch in powershell
     assert windows_launch in overview
     assert "(`scripts/install.ps1` on Windows, `scripts/install.sh` on macOS/Linux)" not in overview
+
+
+def test_install_docs_explain_uninstall_and_state_dir() -> None:
+    """newcomer P2-12: pip uninstall leaves ~/.ghostchimera (keys, prompts, token) behind."""
+    install = (ROOT / "docs" / "INSTALL.md").read_text(encoding="utf-8")
+    assert "## Uninstall and clean up" in install
+    assert "rm -rf ~/.ghostchimera" in install
+    assert "%USERPROFILE%\\.ghostchimera" in install
+    for item in ("console_secrets.json", "memory.sqlite3", "trust_runtime/", "config.json", "ghostchimera.log"):
+        assert item in install, item
+    quick = (ROOT / "docs" / "quick-start.md").read_text(encoding="utf-8")
+    assert "INSTALL.md#uninstall-and-clean-up" in quick
