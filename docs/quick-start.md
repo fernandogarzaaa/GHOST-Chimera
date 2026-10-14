@@ -27,7 +27,7 @@ On Windows PowerShell:
 
 ```powershell
 $env:GHOSTCHIMERA_MODEL_PROVIDER = "nebius"
-$env:NEBIUS_API_KEY = "your-token-factory-key"
+$env:NEBIUS_API_KEY = Read-Host -Prompt "Nebius Token Factory key"
 ghost ask "In one sentence, what is NVIDIA Nemotron?"
 ```
 
