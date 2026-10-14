@@ -114,20 +114,101 @@ class HostExecutionStore:
         merged = {**asdict(self._default_settings()), **data}
         return _redact_value(merged)
 
+    # -- arming-phrase brute-force protection (redteam P1-6) ------------------
+    MAX_FREE_FAILURES = 5
+    MAX_LOCKOUT_SECONDS = 3600.0
+
+    def _lockout_path(self) -> Path:
+        return self.state_dir / "host_execution_lockout.json"
+
+    def _lockout_state(self) -> dict[str, float]:
+        try:
+            data = json.loads(self._lockout_path().read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"failures": 0.0, "locked_until": 0.0}
+        if not isinstance(data, dict):
+            return {"failures": 0.0, "locked_until": 0.0}
+        return {
+            "failures": float(data.get("failures") or 0),
+            "locked_until": float(data.get("locked_until") or 0),
+        }
+
+    def _write_lockout(self, state: dict[str, float]) -> None:
+        path = self._lockout_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state), encoding="utf-8")
+        tmp.replace(path)
+
+    def _check_phrase(self, confirmation: str) -> str | None:
+        """Return an error string, or None when the phrase matches.
+
+        Failures are persisted; after :attr:`MAX_FREE_FAILURES` wrong guesses
+        every further attempt is refused (without comparing) for an
+        exponentially growing window, capped at :attr:`MAX_LOCKOUT_SECONDS`.
+        """
+        state = self._lockout_state()
+        now = _now()
+        if state["locked_until"] > now:
+            wait = int(state["locked_until"] - now) + 1
+            return f"Too many wrong arming-phrase attempts. Host execution settings are locked for {wait}s."
+        expected = self.confirmation_phrase
+        if expected and secrets.compare_digest(confirmation.encode("utf-8"), expected.encode("utf-8")):
+            if state["failures"]:
+                self._write_lockout({"failures": 0.0, "locked_until": 0.0})
+            return None
+        failures = state["failures"] + 1
+        locked_until = 0.0
+        if failures >= self.MAX_FREE_FAILURES:
+            exponent = min(int(failures - self.MAX_FREE_FAILURES), 20)
+            locked_until = now + min(self.MAX_LOCKOUT_SECONDS, 2.0 * (2**exponent))
+        self._write_lockout({"failures": failures, "locked_until": locked_until})
+        self._event("host_execution_phrase_rejected", {"failures": int(failures)})
+        if expected == CONFIRMATION_PHRASE:
+            return f"Type the exact confirmation phrase to arm host execution: {CONFIRMATION_PHRASE}"
+        # Never echo a per-install phrase back over the API.
+        return "Type this install's host-execution arming phrase to arm host execution. " + (
+            self.phrase_hint or "It was printed when the console first created it."
+        )
+
+    @staticmethod
+    def _resolved(value: Any) -> str:
+        return str(Path(str(value)).expanduser().resolve())
+
+    def _scope_changes(self, payload: dict[str, Any], current: dict[str, Any]) -> list[str]:
+        """Fields in *payload* that widen or move host-execution scope."""
+        changed: list[str] = []
+        for key in ("allowed_root", "audit_dir"):
+            if payload.get(key) and self._resolved(payload[key]) != self._resolved(current.get(key) or ""):
+                changed.append(key)
+        for key in ("allow_source_mutation", "allow_network_commands"):
+            if key in payload and bool(payload[key]) and not bool(current.get(key)):
+                changed.append(key)
+        if "max_command_seconds" in payload:
+            try:
+                if int(payload["max_command_seconds"]) > int(current.get("max_command_seconds") or 0):
+                    changed.append("max_command_seconds")
+            except (TypeError, ValueError):
+                pass
+        return changed
+
     def update_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
         current = {**asdict(self._default_settings()), **self._raw_settings()}
         confirmation = str(payload.get("confirmation_phrase") or "").strip()
         wants_unrestricted = bool(payload.get("unrestricted_host_mode", current.get("unrestricted_host_mode", False)))
-        if wants_unrestricted:
-            expected = self.confirmation_phrase
-            if not (expected and secrets.compare_digest(confirmation.encode("utf-8"), expected.encode("utf-8"))):
-                if expected == CONFIRMATION_PHRASE:
-                    error = f"Type the exact confirmation phrase to arm host execution: {CONFIRMATION_PHRASE}"
-                else:
-                    # Never echo a per-install phrase back over the API.
-                    error = "Type this install's host-execution arming phrase to arm host execution. " + (
-                        self.phrase_hint or "It was printed when the console first created it."
-                    )
+        if payload.get("allowed_root"):
+            root = Path(self._resolved(payload["allowed_root"]))
+            if root.parent == root:
+                return {"ok": False, "error": "allowed_root cannot be the filesystem root"}
+        # Arming, staying armed, or widening/moving scope (even while disarmed,
+        # since that scope applies the moment host mode is armed) all need the
+        # per-install phrase.
+        scope_changes = self._scope_changes(payload, current)
+        if wants_unrestricted or scope_changes:
+            error = self._check_phrase(confirmation)
+            if error:
+                if scope_changes and not wants_unrestricted:
+                    error = f"Changing {', '.join(scope_changes)} requires the arming phrase. " + error
                 return {"ok": False, "error": error}
         for key in (
             "unrestricted_host_mode",
@@ -326,6 +407,9 @@ class HostExecutionStore:
             return {"ok": False, "error": "Host execution is not armed. Enable unrestricted host mode first."}
         if require_source_mutation and not settings.get("allow_source_mutation", True):
             return {"ok": False, "error": "Source mutation is disabled in host execution settings."}
+        root = Path(str(settings.get("allowed_root") or "")).expanduser().resolve()
+        if root.parent == root:
+            return {"ok": False, "error": "allowed_root is the filesystem root; set a project directory first."}
         return None
 
 
