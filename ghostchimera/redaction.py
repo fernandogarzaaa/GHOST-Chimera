@@ -24,7 +24,7 @@ SECRET_MARKERS = BASE_MARKERS
 SECRET_PATTERNS = (
     re.compile(r"sk-[A-Za-z0-9_\-]{12,}"),
     re.compile(r"(?:gh[pousr]|github_pat|xoxb|xoxp)_[A-Za-z0-9_\-]{12,}"),
-    # Real Slack tokens use hyphens (xoxb-123-456-abc); GitLab PATs; Stripe live/test keys.
+    # Real Slack tokens use hyphens (xoxb-<team>-<user>-<secret>); GitLab PATs; Stripe live/test keys.
     re.compile(r"\bxox[abposre]-[A-Za-z0-9\-]{10,}"),
     re.compile(r"\bglpat-[A-Za-z0-9_\-]{20,}"),
     re.compile(r"\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{10,}"),
