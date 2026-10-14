@@ -45,12 +45,21 @@ def test_scheduler_ranks_backends(kernel, reasoning_task):
 
 
 def test_policy_blocks_denied_objective(kernel):
-    """Policy should block objectives containing denied fragments."""
+    """Policy should block objectives containing denied fragments.
+
+    Uses a REASONING task (and a policy that permits Python) so the only thing
+    that can reject it is the objective denylist -- the old version compiled a
+    ``python`` task that was rejected by "Python execution is disabled" and so
+    passed even though the denylist never matched (codeaudit F0).
+    """
+    policy = PilotPolicy(allow_python_execution=True)
+    spec = TaskSpec.create(kind=TaskKind.REASONING, objective="please rm -rf / now", inputs={"prompt": "x"})
+    with pytest.raises(PermissionError, match="denied fragment"):
+        policy.validate(spec)
     compiler = RuleBasedTaskCompiler()
-    policy = PilotPolicy()
-    spec = compiler.compile("execute python: rm -rf /")
-    with pytest.raises(PermissionError):
-        policy.validate(spec[0])
+    compiled = compiler.compile("execute python: rm -rf /")
+    with pytest.raises(PermissionError, match="denied fragment"):
+        PilotPolicy(allow_python_execution=True).validate(compiled[0])
 
 
 def test_fallback_on_failure():

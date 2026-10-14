@@ -214,40 +214,69 @@ class PilotPolicy:
         self.production_guardrails.require_ready(surface)
         self.production_guardrails.reject_untrusted_task(task_payload, surface)
 
-    @staticmethod
-    def _normalize_text(value: str) -> str:
-        """Strip Unicode normalisation, zero-width characters, and interspersed whitespace."""
+    # Zero-width, bidi-control, soft-hyphen and combining characters that can be
+    # interleaved into a denied fragment to dodge a substring match. Written with
+    # escapes so the safety regex stays reviewable (no literal invisible chars).
+    _INVISIBLE_CHARS_RE = re.compile("[\\u200b-\\u200f\\u2028-\\u202f\\u2060-\\u2069\\ufeff\\u00ad\\u0300-\\u036f]")
+    # ``curl ... | sh`` / ``wget ... | bash``: a remote script piped into a shell,
+    # with anything (a URL, flags) between the downloader and the pipe.
+    _PIPE_TO_SHELL_RE = re.compile(
+        r"\b(?:curl|wget)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _strip_invisible(cls, value: str) -> str:
         value = unicodedata.normalize("NFKC", value)
-        # Remove zero-width / invisible characters
-        value = re.sub(r"[​-‏ - ⁠-⁩﻿­̀-ͯ]", "", value)
+        return cls._INVISIBLE_CHARS_RE.sub("", value)
+
+    @classmethod
+    def _normalize_text(cls, value: str) -> str:
+        """Strip Unicode normalisation, zero-width characters, and interspersed whitespace."""
+        value = cls._strip_invisible(value)
         # Collapse whitespace so fragments with injected spaces are still caught
         value = re.sub(r"\s+", "", value)
         return value
 
     def _reject_fragments(self, value: str, fragments: tuple[str, ...], field_name: str) -> None:
+        # Both sides are normalised the same way (NFKC, invisible chars removed,
+        # all whitespace removed) so a fragment that itself contains spaces --
+        # every default objective fragment does -- still matches.
+        normalized_fragments = [(fragment, self._normalize_text(fragment).lower()) for fragment in fragments]
+
         # Layer 1: normalise then do a fast substring check
         normed = self._normalize_text(value).lower()
-        for fragment in fragments:
-            if fragment.lower() in normed:
+        for fragment, frag_normed in normalized_fragments:
+            if frag_normed and frag_normed in normed:
                 raise PermissionError(f"Task {field_name} contains denied fragment: {fragment}")
 
         # Layer 2: attempt base64 decode of the entire value and re-check
         try:
-            decoded = base64.b64decode(value, validate=True).decode("utf-8", errors="ignore")
+            decoded = base64.b64decode("".join(value.split()), validate=True).decode("utf-8", errors="ignore")
         except Exception:
             decoded = ""
         if decoded:
             decoded_normed = self._normalize_text(decoded).lower()
-            for fragment in fragments:
-                if fragment.lower() in decoded_normed:
+            for fragment, frag_normed in normalized_fragments:
+                if frag_normed and frag_normed in decoded_normed:
                     raise PermissionError(f"Task {field_name} contains denied fragment (base64): {fragment}")
 
-        # Layer 3: whitespace-tolerant regex for each fragment
+        # Layer 3: whitespace-tolerant regex for each fragment (optional
+        # whitespace between every non-space character of the fragment).
+        stripped = self._strip_invisible(value)
         for fragment in fragments:
-            # Build a regex that allows optional whitespace between every character
-            pattern = re.escape(fragment).join([r"\s*"] * (len(fragment)))
-            if re.search(pattern, value, re.IGNORECASE):
+            chars = [re.escape(c) for c in fragment if not c.isspace()]
+            if not chars:
+                continue
+            pattern = r"\s*".join(chars)
+            if re.search(pattern, stripped, re.IGNORECASE):
                 raise PermissionError(f"Task {field_name} contains denied fragment: {fragment}")
+
+        # Layer 4: a download piped into a shell, when the policy denies that idiom.
+        if any("|" in frag_normed and frag_normed.endswith("sh") for _, frag_normed in normalized_fragments):
+            for candidate in (stripped, decoded):
+                if candidate and self._PIPE_TO_SHELL_RE.search(candidate):
+                    raise PermissionError(f"Task {field_name} pipes a download into a shell")
 
     def _reject_ast_bypass(self, code: str, task_id: str) -> None:
         """AST-based check for getattr/eval/exec/compile bypass patterns."""
