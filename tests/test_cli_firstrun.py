@@ -148,3 +148,47 @@ def test_non_utf8_stdout_does_not_crash_on_model_unicode(tmp_path) -> None:
     assert proc.returncode == 0, proc.stderr.decode("cp1252", "replace")
     assert b"UnicodeEncodeError" not in proc.stderr
     assert proc.stdout.decode("cp1252").startswith("Nemotron says: non?breaking")
+
+
+# --- newcomer P1-7 (brief: P1-9): setup steers judges to Nebius ---
+
+
+def test_setup_wizard_offers_nebius_first_and_by_default() -> None:
+    from ghostchimera.control_plane import setup_wizard as wizard
+
+    assert wizard._PROVIDER_IDS[0] == "nebius"
+    assert wizard._DEFAULT_PROVIDER_INDEX == 0
+    assert "Nebius" in wizard._PROVIDER_CHOICES[0]
+    assert len(wizard._PROVIDER_IDS) == len(wizard._PROVIDER_CHOICES)
+
+
+def test_setup_wizard_default_choice_configures_nebius(monkeypatch) -> None:
+    from ghostchimera.control_plane import setup_wizard as wizard
+
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")  # Enter = default everywhere
+    monkeypatch.setattr(wizard.getpass, "getpass", lambda _prompt="": "")
+    config = {"model": {}}
+    wizard._setup_provider(config)
+    assert config["model"]["provider"] == "nebius"
+    assert config["model"]["model"].startswith("nvidia/")
+
+
+def test_noninteractive_setup_text_leads_with_nebius_and_demo(capsys) -> None:
+    from ghostchimera.control_plane import setup_wizard as wizard
+
+    wizard.print_noninteractive_guidance()
+    out = capsys.readouterr().out
+    assert "GHOSTCHIMERA_MODEL_PROVIDER=nebius" in out
+    assert "NEBIUS_API_KEY" in out
+    assert out.index("nebius") < out.index("OpenRouter")
+    assert "ghost demo" in out
+
+
+def test_quick_start_starts_with_demo_and_nebius() -> None:
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parents[1] / "docs" / "quick-start.md").read_text(encoding="utf-8")
+    assert "ghost demo" in text
+    assert "GHOSTCHIMERA_MODEL_PROVIDER=nebius" in text
+    assert "NEBIUS_API_KEY" in text
+    assert text.index("ghost demo") < text.index("docker compose")
