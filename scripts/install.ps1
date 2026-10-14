@@ -63,15 +63,25 @@ function Invoke-Python {
 }
 
 function Test-RuntimeDependencySurface {
-    param([string]$PythonExe)
-    & $PythonExe -c @"
+    param([string]$PythonExe, [string]$ExtrasList)
+    $checkScript = @"
 import importlib.util
-required = ["certifi", "croniter", "jsonschema", "pyautogui", "websockets"]
+import sys
+
+extras = {item.strip() for item in (sys.argv[1] if len(sys.argv) > 1 else '').split(',') if item.strip()}
+# Import names of pyproject [project].dependencies: present on every install.
+required = ['certifi', 'croniter', 'cryptography', 'jsonschema', 'websockets']
+# Import names checked only when the matching extra was requested.
+extra_modules = {'desktop': ['pyautogui'], 'mcp': ['mcp'], 'all': ['pyautogui', 'mcp']}
+for extra in sorted(extras):
+    required += [name for name in extra_modules.get(extra, []) if name not in required]
 missing = [name for name in required if importlib.util.find_spec(name) is None]
 if missing:
-    raise SystemExit("Missing installed runtime dependencies: " + ", ".join(missing))
-print("runtime dependency surface ok: " + ", ".join(required))
+    raise SystemExit('Missing installed runtime dependencies: ' + ', '.join(missing))
+print('runtime dependency surface ok: ' + ', '.join(required))
 "@
+    # Pass the extras as argv so an empty value still arrives as one argument.
+    & $PythonExe -c $checkScript "$ExtrasList"
     if ($LASTEXITCODE -ne 0) { throw "Runtime dependency verification failed" }
 }
 
@@ -133,7 +143,7 @@ try {
     $venvPython = Join-Path $installPath ".venv\Scripts\python.exe"
     $venvGhost = Join-Path $installPath ".venv\Scripts\ghostchimera.exe"
 
-    Write-Step "Installing full Python runtime dependencies, optional extras, and developer verification tools."
+    Write-Step "Installing Ghost Chimera with extras: $(if ($Extras) { $Extras } else { '<none>' })."
     & $venvPython -m pip install --upgrade pip
     if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
     if ($Extras) {
@@ -144,7 +154,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Ghost Chimera install failed" }
 
     Write-Step "Verifying installed dependency surface."
-    Test-RuntimeDependencySurface -PythonExe $venvPython
+    Test-RuntimeDependencySurface -PythonExe $venvPython -ExtrasList $Extras
     & $venvPython -m pip check
     if ($LASTEXITCODE -ne 0) { throw "Installed package dependency check failed" }
 
@@ -154,8 +164,11 @@ try {
 
     Write-Host ""
     Write-Host "Ghost Chimera installed."
-    Write-Host "Launch Ghost Console:"
+    Write-Host "Try the offline Nemotron demo first:"
     Write-Host "  cd `"$installPath`""
+    Write-Host "  .\.venv\Scripts\ghost.exe demo"
+    Write-Host ""
+    Write-Host "Launch Ghost Console:"
     Write-Host "  .\.venv\Scripts\ghostchimera.exe console"
     Write-Host ""
     Write-Host "Then open: http://127.0.0.1:8766/"
