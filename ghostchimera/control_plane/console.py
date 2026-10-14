@@ -5954,6 +5954,40 @@ def _console_url(server: GatewayServer) -> str:
     return f"http://{server.host}:{http_port}/"
 
 
+def harden_state_permissions(state_dir: str | Path, *, max_entries: int = 5000) -> None:
+    """Set ``umask 077`` for this process and chmod existing state to 0600/0700.
+
+    The console's databases, trust journals, audit logs and logs are only
+    safe while the parent stays 0700; with a shared ``--state-dir`` they were
+    world-readable. POSIX only; best effort (a file we cannot chmod is left).
+    """
+    if os.name != "posix":
+        return
+    os.umask(0o077)
+    root = Path(state_dir).expanduser()
+    if not root.is_dir():
+        return
+    seen = 0
+    with contextlib.suppress(OSError):
+        root.chmod(0o700)
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for name in dirnames:
+            seen += 1
+            with contextlib.suppress(OSError):
+                path = Path(dirpath) / name
+                if not path.is_symlink():
+                    path.chmod(0o700)
+        for name in filenames:
+            seen += 1
+            with contextlib.suppress(OSError):
+                path = Path(dirpath) / name
+                if not path.is_symlink():
+                    # Drop group/other bits only; keep the owner's exec bit.
+                    path.chmod(path.stat().st_mode & 0o700 | 0o600)
+        if seen >= max_entries:
+            break
+
+
 def run_console(
     *,
     host: str = "127.0.0.1",
@@ -5998,6 +6032,10 @@ def run_console(
             config, state_dir=resolved, memory_db=resolved / "memory.sqlite3", audit_file=resolved / "audit.json"
         )
     from .console_secrets import load_or_create_console_secrets
+
+    # Owner-only state (redteam P2-2): every file/dir the console creates from
+    # here on is 0600/0700, and pre-existing state is tightened once.
+    harden_state_permissions(state_dir or config.state_dir)
 
     # Token required by default: a missing --auth-token no longer means an
     # open API. The per-install token lives owner-only next to the state.
