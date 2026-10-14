@@ -81,13 +81,14 @@ def test_pipeline_propagates_transcriber_failure(tmp_path) -> None:
     assert result["ok"] is False and result["text"] == ""
 
 
-def _live_console(tmp_path, port_base: int = 18771):
+def _live_console(tmp_path):
     from ghostchimera.control_plane.console import run_console
 
+    # Ephemeral ports: the OS picks free ones, so parallel runs never collide.
     return run_console(
         host="127.0.0.1",
-        port=port_base,
-        http_port=port_base + 1,
+        port=0,
+        http_port=0,
         state_dir=str(tmp_path),
         open_browser=False,
         block=False,
