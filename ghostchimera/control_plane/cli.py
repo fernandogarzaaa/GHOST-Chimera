@@ -175,6 +175,40 @@ def _normalize_one_liner_args(argv: list[str]) -> list[str]:
     return ["ask", " ".join(token for token in argv if token.strip())]
 
 
+_START_HERE_COMMANDS = ("demo", "ask", "console", "setup")
+_START_HERE_EXAMPLES = {
+    "demo": "demo",
+    "ask": 'ask "In one sentence, what is NVIDIA Nemotron?"',
+    "console": "console",
+    "setup": "setup",
+}
+
+
+def _group_command_help(parser: argparse.ArgumentParser, sub: argparse._SubParsersAction) -> None:
+    """Show the four first-run commands first in ``--help``, then everything else.
+
+    argparse lists subcommands in registration order (``demo`` was 34th of 36),
+    so the per-choice list is replaced by a grouped description shown right
+    under a short usage line. Parsing is unchanged.
+    """
+    prog = parser.prog
+    actions = list(sub._choices_actions)
+    helps = {action.dest: action.help or "" for action in actions}
+    width = max(len(name) for name in helps) + 2
+    lines = ["Start here:"]
+    for name in _START_HERE_COMMANDS:
+        lines.append(f"  {prog} {_START_HERE_EXAMPLES[name]}")
+        lines.append(f"      {helps.get(name, '')}")
+    lines += ["", "All commands:"]
+    ordered = [name for name in _START_HERE_COMMANDS if name in helps]
+    ordered += [name for name in helps if name not in _START_HERE_COMMANDS]
+    lines += [f"  {name.ljust(width)}{helps[name]}" for name in ordered]
+    sub._choices_actions = []
+    parser.usage = '%(prog)s [options] <command> [args]\n       %(prog)s "<plain-language task>"'
+    parser.description = "Ghost Chimera CLI\n\n" + "\n".join(lines)
+    parser.epilog = f"Run '{prog} <command> --help' for a command's options."
+
+
 def run_cli() -> None:
     """Start an interactive command line session with the agent."""
     ensure_configured()
@@ -247,9 +281,13 @@ def _run_main(argv: list[str] | None = None) -> int:
 
     from .. import __version__
 
-    parser = argparse.ArgumentParser(prog=_prog_name(), description="Ghost Chimera CLI")
+    parser = argparse.ArgumentParser(
+        prog=_prog_name(),
+        description="Ghost Chimera CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    sub = parser.add_subparsers(dest="command")
+    sub = parser.add_subparsers(dest="command", metavar="<command>", title="commands")
     sub.add_parser("setup", help="Run interactive setup wizard")
     start_parser = sub.add_parser("start", help="Guided start for non-technical users")
     start_parser.add_argument("--host", default="127.0.0.1", help="Gateway bind host for the console.")
@@ -806,6 +844,7 @@ def _run_main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--config-show", action="store_true", help="Print resolved Ghost Chimera runtime config as JSON and exit."
     )
+    _group_command_help(parser, sub)
     args = parser.parse_args(effective_argv)
     if args.ghost_mode:
         import os

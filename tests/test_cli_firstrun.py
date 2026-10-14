@@ -207,3 +207,32 @@ def test_version_flag_prints_package_version(monkeypatch, capsys) -> None:
     out = capsys.readouterr().out.strip()
     assert out == f"ghost {__version__}"
     assert "usage:" not in out
+
+
+# --- newcomer P2-2: demo/ask/console/setup first in --help, grouped ---
+
+
+def test_help_leads_with_start_here_group(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(sys, "argv", ["ghost", "--help"])
+    with pytest.raises(SystemExit) as exc:
+        cli._main(["--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    head = out[: out.index("options:")]
+    assert "Start here:" in head
+    starts = [head.index(f"ghost {name}") for name in ("demo", "ask", "console", "setup")]
+    assert starts == sorted(starts)
+    # Every subcommand is still documented, after the start-here group.
+    all_commands = head[head.index("All commands:") :]
+    for name in cli._TOP_LEVEL_COMMANDS - cli._PARALLEL_COMMANDS:
+        assert f"  {name} " in all_commands, name
+    assert all_commands.index("  demo ") < all_commands.index("  superiority ")
+    # The usage line no longer dumps 36 choices in braces.
+    assert "{setup,start" not in out
+
+
+def test_grouped_help_does_not_change_subcommand_parsing(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(sys, "argv", ["ghost", "demo", "--help"])
+    with pytest.raises(SystemExit):
+        cli._main(["demo", "--help"])
+    assert "usage: ghost demo" in capsys.readouterr().out
