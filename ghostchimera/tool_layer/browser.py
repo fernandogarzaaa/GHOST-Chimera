@@ -17,7 +17,7 @@ hostnames that resolve to them.
 from email.message import Message
 from typing import Any
 
-from ..http_identity import USER_AGENT, ensure_user_agent
+from ..http_identity import USER_AGENT
 from ..logging_config import get_logger
 from ..safety_layer.gating import ensure_authorized
 from ..safety_layer.ssrf import NetworkDispatcher, SSRFPolicy, SSRFViolation
