@@ -6,7 +6,7 @@ import os
 from typing import Any
 
 from ...logging_config import get_logger
-from ...model_layer.providers import BaseProvider, get_provider
+from ...model_layer.providers import BaseProvider, get_provider, resolve_provider_name
 from ...model_layer.test_time_compute import self_consistency
 from ..task_ir import TaskKind, TaskSpec
 from .base import BackendCapabilities, BackendHealth, ExecutionResult
@@ -23,9 +23,9 @@ class ModelProviderBackend:
     _description = "Configured LLM provider backend for live operator runs"
 
     def __init__(self, provider_name: str | None = None, *, profile: Any | None = None) -> None:
-        self.provider_name = (
-            (provider_name or os.environ.get("GHOSTCHIMERA_MODEL_PROVIDER") or "openai").strip().lower()
-        )
+        # Explicit name > GHOSTCHIMERA_MODEL_PROVIDER > auto-detect from a set
+        # key (NEBIUS_API_KEY -> nebius) > the historic "openai" default.
+        self.provider_name, self.provider_source = resolve_provider_name(provider_name)
         self.provider: BaseProvider | None = get_provider(self.provider_name, profile=profile)
         model = getattr(self.provider, "model", "") if self.provider is not None else ""
         self.model = str(model or os.environ.get("GHOSTCHIMERA_MODEL", "") or "default")

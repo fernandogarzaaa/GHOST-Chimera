@@ -9,7 +9,8 @@ Selecting a provider
 --------------------
 
 By default the provider is selected based on the environment variable
-``GHOSTCHIMERA_MODEL_PROVIDER``.  If not set it defaults to ``openai``.  A
+``GHOSTCHIMERA_MODEL_PROVIDER``.  If not set, a lone ``NEBIUS_API_KEY``
+selects ``nebius`` (NVIDIA Nemotron); otherwise it defaults to ``openai``.  A
 provider name can also be passed explicitly when constructing :class:`LLM`.
 
 If a provider is not available (for example because its dependencies are not
@@ -20,11 +21,10 @@ raised when attempting to call :meth:`chat`.  Callers can check the
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
 
 from ..logging_config import get_logger
-from .providers import PROVIDERS, BaseProvider, get_provider
+from .providers import PROVIDERS, BaseProvider, get_provider, resolve_provider_name
 
 if TYPE_CHECKING:
     from .auth_profiles import AuthProfile
@@ -37,7 +37,7 @@ class LLM:
 
     def __init__(self, provider: str | None = None, profile: AuthProfile | None = None) -> None:
         # Determine provider name either from argument or environment
-        provider_name = provider or os.environ.get("GHOSTCHIMERA_MODEL_PROVIDER", "openai")
+        provider_name, source = resolve_provider_name(provider)
         logger.info("LLM initialized with provider: %s", provider_name)
         if provider_name not in PROVIDERS:
             raise ValueError(f"Unknown provider '{provider_name}'. Available providers: {', '.join(PROVIDERS.keys())}")
@@ -47,9 +47,12 @@ class LLM:
 
         # Surface per-provider config issues as warnings so callers learn early
         # rather than failing silently at chat time.
+        # An implicit "openai" default (nothing chosen, no key set) is not a
+        # misconfiguration the user made, so keep it out of WARNING output.
         config_errors = self.provider.validate_config()
+        log = logger.debug if source == "default" else logger.warning
         for error in config_errors:
-            logger.warning("Provider %s config issue: %s", provider_name, error)
+            log("Provider %s config issue: %s", provider_name, error)
 
     def chat(self, system_message: str, user_message: str) -> str:
         """Delegate a chat request to the underlying provider."""

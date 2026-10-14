@@ -55,7 +55,21 @@ def _provider_status(config: dict[str, object], env: dict[str, str] | None = Non
             return (f"Provider: {provider.name} (config)", provider.available and not errors, hint)
         has_key = "api_key" in model
         return (f"Provider: {provider_name.title()} (model: {model.get('model', '?')})", has_key, "API key not set")
-    return ("Provider", False, "No provider configured - run 'ghostchimera setup' or set GHOSTCHIMERA_MODEL_PROVIDER")
+    from ..model_layer.providers import resolve_provider_name
+
+    auto_name, source = resolve_provider_name(env=active_env)
+    if source.startswith("auto:"):
+        provider = get_provider(auto_name)
+        if provider is not None:
+            errors = provider.validate_config()
+            hint = "; ".join(errors[:2]) if errors else ""
+            key = source.split(":", 1)[1]
+            return (f"Provider: {provider.name} (auto-detected from {key})", provider.available and not errors, hint)
+    return (
+        "Provider",
+        False,
+        "No provider configured - set NEBIUS_API_KEY (Nemotron), run 'ghost setup', or set GHOSTCHIMERA_MODEL_PROVIDER",
+    )
 
 
 def doctor_checks(*, production: bool = False) -> dict[str, Any]:
