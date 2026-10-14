@@ -27,10 +27,10 @@ from .redaction import (
 )
 from .redaction import SECRET_MARKERS as SECRET_MARKERS
 from .redaction import (
-    redact_text as _redact_text,
+    redact_secret_values as _redact_value,
 )
 from .redaction import (
-    redact_value as _redact_value,
+    redact_text as _redact_text,
 )
 
 STATUS_RESUMABLE = {"pending_approval", "retryable_failure", "interrupted"}

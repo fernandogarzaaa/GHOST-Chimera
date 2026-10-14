@@ -7,9 +7,12 @@ JSON — raw tokens and secret keys never leave these routes.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import re
+import threading
 import time
 from contextlib import suppress
 from pathlib import Path
@@ -977,12 +980,60 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         except Exception as exc:
             return {"ok": False, "error": f"could not read: {type(exc).__name__}"}
 
-    def auth_approval_request(ctx: dict[str, Any]) -> dict[str, Any]:
+    # -- approval authority: requester vs decider (redteam P1-3) -------------
+    # The principal is derived from the credential that authenticated the
+    # request, never from body fields. ``GHOSTCHIMERA_AGENT_TOKEN`` is an
+    # optional second credential for agents/tools/MCP servers: it may propose
+    # approvals but never decide them. Self-approval of an agent-originated
+    # request by the same principal is refused unless
+    # ``GHOSTCHIMERA_ALLOW_SELF_APPROVAL=1``.
+    def _presented_token(ctx: dict[str, Any]) -> str:
+        headers = {str(k).lower(): str(v) for k, v in (ctx.get("headers") or {}).items()}
+        value = headers.get("x-gateway-token", "").strip()
+        if not value:
+            bearer = headers.get("authorization", "").strip()
+            if bearer.lower().startswith("bearer "):
+                value = bearer[7:].strip()
+        return value
+
+    def _agent_token() -> str:
+        return os.environ.get("GHOSTCHIMERA_AGENT_TOKEN", "").strip()
+
+    def _principal(ctx: dict[str, Any]) -> str:
+        import secrets as _secrets
+
+        presented = _presented_token(ctx)
+        agent_token = _agent_token()
+        if presented and agent_token and _secrets.compare_digest(presented, agent_token):
+            return "agent-token"
+        if presented and token and _secrets.compare_digest(presented, token):
+            return "operator"
+        # auth="open" (embedded/test servers): one local principal.
+        return "local"
+
+    def _agent_originated(requested_by: str, principal: str) -> bool:
+        if principal == "agent-token":
+            return True
+        label = str(requested_by or "").strip().lower()
+        return label not in {"", "console", "console-user", "operator", "human", "user"}
+
+    def _claimed_actor(data: dict[str, Any]) -> str:
+        raw = str(data.get("actor") or "")
+        return re.sub(r"[^A-Za-z0-9 _.@:-]", "", raw)[:64]
+
+    def auth_approval_request(ctx: dict[str, Any]) -> Any:
         """Propose one connector write for human approval (agent proposes)."""
         from .action_approvals import ActionApprovalError
 
+        principal = _principal(ctx)
+        if auth == "token" and principal == "local":
+            # Registered open so the agent token is accepted; enforce one of the two.
+            from ..chimera_pilot.gateway_server import HttpResponse
+
+            return HttpResponse(json.dumps({"error": "Unauthorized"}), status=401)
         data = _body(ctx)
         engine = _engine()
+        requested_by = str(data.get("requested_by") or ("agent" if principal == "agent-token" else "console"))
         try:
             return engine.request_action_approval(
                 str(data.get("entity_id") or "console-user"),
@@ -992,7 +1043,8 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 data.get("data"),
                 scope=str(data.get("scope") or ""),
                 summary=str(data.get("summary") or ""),
-                requested_by=str(data.get("requested_by") or "console"),
+                requested_by=requested_by[:80],
+                requester_principal=principal,
             )
         except (AuthEngineError, ValueError, ActionApprovalError) as exc:
             return {"ok": False, "error": str(exc)}
@@ -1005,18 +1057,45 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
 
         IDs starting with "apr-" are stealth loop asks: decided through the
         loop queue (which cascades to the durable record); everything else
-        goes straight to the canonical authority.
+        goes straight to the canonical authority. The recorded actor is the
+        server-derived principal; a client ``actor`` is kept only as a
+        sanitized label in the audit detail.
         """
         data = _body(ctx)
         approval_id = str(data.get("id") or "")
         if not approval_id:
             return {"ok": False, "error": "id is required"}
+        decider = _principal(ctx)
+        if decider == "agent-token":
+            return {"ok": False, "error": "the agent credential can propose approvals but never decide them"}
         engine = _engine()
         try:
             if approval_id.startswith("apr-"):
-                return _decide_stealth_approval(base, engine, approval_id, data)
+                return _decide_stealth_approval(base, engine, approval_id, {**data, "actor": decider})
+            record = engine.actions.describe(approval_id)
+            if record is not None:
+                expected_digest = str(data.get("digest") or "").strip()
+                if expected_digest and expected_digest != record.get("digest"):
+                    return {"ok": False, "error": "digest does not match the pending action"}
+                requester = str(record.get("requester_principal") or "")
+                self_approval = (
+                    bool(data.get("approved"))
+                    and requester == decider
+                    and _agent_originated(str(record.get("requested_by") or ""), requester)
+                )
+                if self_approval and os.environ.get("GHOSTCHIMERA_ALLOW_SELF_APPROVAL", "").strip() != "1":
+                    return {
+                        "ok": False,
+                        "error": (
+                            "self-approval refused: this agent-originated request was made with the same"
+                            " credential that is trying to approve it"
+                        ),
+                    }
             return engine.decide_action_approval(
-                approval_id, approved=bool(data.get("approved")), actor=str(data.get("actor") or "console-user")
+                approval_id,
+                approved=bool(data.get("approved")),
+                actor=decider,
+                claimed_actor=_claimed_actor(data),
             )
         except (AuthEngineError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
@@ -1779,7 +1858,9 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         "/api/auth/approvals/request",
         auth_approval_request,
         method="POST",
-        auth=auth,
+        # Accepts the console token *or* GHOSTCHIMERA_AGENT_TOKEN; the handler
+        # enforces one of them (and derives the requester principal).
+        auth="open" if auth == "token" and _agent_token() else auth,
         token=token,
         description="Propose a connector write for approval",
     )
@@ -3194,37 +3275,100 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         description="Run one operator tool",
     )
 
-    def inbound_webhook(ctx: dict[str, Any]) -> dict[str, Any]:
-        import time as _time
-        import uuid as _uuid
+    from . import webhook_auth as _wh
 
-        from .stealth_service import get_service_loop
+    webhook_buckets = _wh.TokenBucket(_wh.default_rate_limit(), 60.0)
+    webhook_failures = _wh.TokenBucket(max(10, _wh.default_rate_limit()), 60.0)
+    webhook_replays = _wh.ReplayCache()
+    webhook_dispatch: dict[str, Any] = {}
+    webhook_lock = threading.Lock()
+
+    def _webhook_dispatcher() -> Any:
+        with webhook_lock:
+            if "d" not in webhook_dispatch:
+                from .stealth_service import get_service_loop
+
+                webhook_dispatch["d"] = _wh.WebhookDispatcher(lambda event: get_service_loop(base).emit(event))
+            return webhook_dispatch["d"]
+
+    def _webhook_reply(status: int, payload: dict[str, Any]) -> Any:
+        from ..chimera_pilot.gateway_server import HttpResponse
+
+        return HttpResponse(json.dumps(payload), status=status)
+
+    def inbound_webhook(ctx: dict[str, Any]) -> Any:
+        """Signed provider deliveries -> 202 + background loop hand-off (redteam P0-1)."""
+        import time as _time
+
         from .webhooks import NORMALIZERS, normalize_webhook
 
         parts = str(ctx.get("path", "")).strip("/").split("/")
         # ["api", "webhooks", source, va_id]
         if len(parts) != 4 or parts[0] != "api" or parts[1] != "webhooks":
-            return {"ok": False, "error": "use POST /api/webhooks/{source}/{va_id}"}
+            return _webhook_reply(404, {"ok": False, "error": "use POST /api/webhooks/{source}/{va_id}"})
         source, va_id = parts[2], parts[3]
         if source not in NORMALIZERS:
-            return {"ok": False, "error": f"unknown source '{source}'"}
-        delivery_id = str(ctx.get("headers", {}).get("x-delivery-id", "") or _uuid.uuid4().hex[:12])
-        event = normalize_webhook(source, delivery_id, va_id, _body(ctx))
+            return _webhook_reply(404, {"ok": False, "error": f"unknown source '{source}'"})
+        if not _wh.VA_ID_RE.match(va_id):
+            return _webhook_reply(400, {"ok": False, "error": "invalid va_id"})
+        headers = {str(k).lower(): str(v) for k, v in (ctx.get("headers") or {}).items()}
+        raw = ctx.get("raw_body")
+        body = raw if isinstance(raw, bytes) else str(ctx.get("body") or "").encode("utf-8")
+        if len(body) > _wh.MAX_BODY_BYTES:
+            return _webhook_reply(413, {"ok": False, "error": "webhook body too large"})
+        fail_key = f"{source}/{va_id}"
+        if not webhook_failures.allow(fail_key + "#probe"):
+            # Too many recent failed deliveries for this endpoint: back off.
+            return _webhook_reply(429, {"ok": False, "error": "too many failed webhook deliveries"})
+
+        now = _time.time()
+        secret = _wh.lookup_secret(source, va_id, base)
+        if source == "slack":
+            rejection = (
+                _wh.verify_slack(secret, headers, body, now)
+                if secret
+                else _wh.WebhookRejection(401, "webhook secret not configured for slack")
+            )
+        elif source == "zendesk":
+            rejection = (
+                _wh.verify_zendesk(secret, headers, body, now)
+                if secret
+                else _wh.WebhookRejection(401, "webhook secret not configured for zendesk")
+            )
+        else:
+            rejection = _wh.verify_gmail(secret, headers, dict(ctx.get("query") or {}), now=now)
+        if rejection is not None:
+            return _webhook_reply(rejection.status, {"ok": False, "error": rejection.error})
+        # Successful verification refunds the failure probe so a legitimate
+        # sender is never locked out by its own volume.
+        webhook_failures.refund(fail_key + "#probe")
+
+        payload = _wh.parse_body(source, headers, body)
+        if isinstance(payload, _wh.WebhookRejection):
+            return _webhook_reply(payload.status, {"ok": False, "error": payload.error})
+        if source == "slack" and payload.get("type") == "url_verification":
+            return {"challenge": str(payload.get("challenge", ""))}
+        if not webhook_buckets.allow(fail_key):
+            return _webhook_reply(429, {"ok": False, "error": "webhook rate limit exceeded"})
+
+        delivery_id = str(
+            payload.get("event_id")
+            or headers.get("x-zendesk-webhook-id")
+            or headers.get("x-delivery-id")
+            or hashlib.sha256(body).hexdigest()[:16]
+        )[:128]
+        event = normalize_webhook(source, delivery_id, va_id, payload)
         if event is None:
-            # Verification pings, bot echoes, empty payloads: ack, don't learn.
+            # Bot echoes, empty payloads: ack, don't learn.
             return {"ok": True, "queued": False, "reason": "ignored (ping/echo/empty)"}
-        loop = get_service_loop(base)
-        delivered = loop.emit(event)
-        result = loop.last_result
-        return {
-            "ok": True,
-            "queued": True,
-            "event_id": event.event_id,
-            "delivered": delivered,
-            "decision": str(result.decision) if result else "none",
-            "intervention_id": result.intervention_id if result else "",
-            "received_at": _time.time(),
-        }
+        if webhook_replays.seen(f"{source}/{va_id}/{event.event_id}"):
+            return {"ok": True, "queued": False, "reason": "duplicate delivery", "event_id": event.event_id}
+        if not _webhook_dispatcher().submit(event):
+            return _webhook_reply(503, {"ok": False, "error": "webhook queue full; retry later"})
+        return _webhook_reply(
+            202,
+            {"ok": True, "queued": True, "event_id": event.event_id, "received_at": now},
+        )
 
     server.routes.register(
         "/api/webhooks/",
@@ -3232,7 +3376,7 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         method="POST",
         prefix=True,
         auth="open",
-        description="Unified inbound webhooks per VA",
+        description="Unified inbound webhooks per VA (provider-signed; 202 + async)",
     )
 
 

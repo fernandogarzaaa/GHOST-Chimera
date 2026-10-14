@@ -94,6 +94,8 @@ from .evolution import (
     upsert_candidate,
 )
 from .host_execution import HostExecutionStore
+from .ingest_guard import IngestPathError, RedactingMemoryStore, check_ingest_path, iter_allowed_files
+from .ingest_guard import allowed_roots as allowed_ingest_roots
 from .latency import latency_summary, record_latency_event
 from .live_presence import LivePresenceStore
 from .local_voice import LocalVoiceTranscriber
@@ -2490,7 +2492,14 @@ def register_console_routes(
         if not url:
             return {"ok": False, "error": "Missing url"}
         try:
-            content = url_fetcher(url)
+            if url_fetcher is http_get:
+                # Token-authenticated operator route: stamp the policy so
+                # http_get's ensure_authorized passes (the SSRF guard and the
+                # https-only rule still apply). Without it every Browser-tab
+                # fetch failed with "requires policy authorization".
+                content = http_get(url, policy={"authorized": True, "source": "console.browser_fetch"})
+            else:
+                content = url_fetcher(url)
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
         return {"ok": True, "url": url, "content": content[:100_000], "truncated": len(content) > 100_000}
@@ -2612,6 +2621,9 @@ def register_console_routes(
         row_id = store.add_document(source, content, metadata=metadata)
         return {"ok": True, "id": row_id, "count": store.count()}
 
+    def _ingest_denied_dirs() -> list[Path]:
+        return [console_state_dir, Path(server.config.state_dir)]
+
     def memory_ingest_email(ctx: dict[str, Any]) -> dict[str, Any]:
         """Ingest email content into personal memory.
 
@@ -2627,12 +2639,15 @@ def register_console_routes(
         path = str(body.get("path") or "").strip()
 
         store = MemoryStore(server.config.memory_db)
-        ingester = EmailIngester(store)
+        ingester = EmailIngester(RedactingMemoryStore(store))  # type: ignore[arg-type]
 
         if raw:
             result = ingester.ingest_raw_email(raw)
         elif path:
-            p = Path(path).expanduser()
+            try:
+                p = check_ingest_path(path, state_dir=_ingest_denied_dirs())
+            except IngestPathError as exc:
+                return {"ok": False, "error": str(exc)}
             if not p.exists():
                 return {"ok": False, "error": f"File not found: {path}"}
             result = ingester.ingest_mbox_file(p) if p.suffix.lower() == ".mbox" else ingester.ingest_eml_file(p)
@@ -2664,15 +2679,29 @@ def register_console_routes(
         if not path:
             return {"ok": False, "error": "Provide a 'path' to a file or directory"}
 
-        p = Path(path).expanduser()
+        try:
+            p = check_ingest_path(path, state_dir=_ingest_denied_dirs())
+        except IngestPathError as exc:
+            return {"ok": False, "error": str(exc)}
         if not p.exists():
             return {"ok": False, "error": f"Path not found: {path}"}
 
         store = MemoryStore(server.config.memory_db)
-        ingester = DocumentIngester(store)
+        ingester = DocumentIngester(RedactingMemoryStore(store))  # type: ignore[arg-type]
 
         if p.is_dir():
-            result = ingester.ingest_directory(p, max_files=max_files)
+            from ..personalization.document_ingester import DocumentIngestResult
+
+            result = DocumentIngestResult()
+            files = iter_allowed_files(
+                p, state_dir=_ingest_denied_dirs(), roots=allowed_ingest_roots(), limit=max(1, min(max_files, 500))
+            )
+            for file_path in files:
+                sub = ingester.ingest_file(file_path, source_prefix=p.name)
+                result.ingested += sub.ingested
+                result.skipped += sub.skipped
+                result.chunks += sub.chunks
+                result.errors.extend(sub.errors)
         else:
             result = ingester.ingest_file(p, source_prefix=source)
 
@@ -5925,6 +5954,47 @@ def _console_url(server: GatewayServer) -> str:
     return f"http://{server.host}:{http_port}/"
 
 
+def harden_state_permissions(state_dir: str | Path, *, max_entries: int = 5000, set_umask: bool = True) -> int | None:
+    """Chmod existing state to 0600/0700 and, by default, set ``umask 077``.
+
+    The console's databases, trust journals, audit logs and logs are only
+    safe while the parent stays 0700; with a shared ``--state-dir`` they were
+    world-readable. POSIX only; best effort (a file we cannot chmod is left).
+
+    ``set_umask`` changes the umask of the *whole process*, so only the
+    process-owning entry point (``run_console(block=True)``: the CLI and the
+    packaged app) should pass it. Embedded/in-process callers pass
+    ``set_umask=False``. Returns the previous umask when it was changed, so
+    a caller can restore it.
+    """
+    if os.name != "posix":
+        return None
+    previous = os.umask(0o077) if set_umask else None
+    root = Path(state_dir).expanduser()
+    if not root.is_dir():
+        return previous
+    seen = 0
+    with contextlib.suppress(OSError):
+        root.chmod(0o700)
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for name in dirnames:
+            seen += 1
+            with contextlib.suppress(OSError):
+                path = Path(dirpath) / name
+                if not path.is_symlink():
+                    path.chmod(0o700)
+        for name in filenames:
+            seen += 1
+            with contextlib.suppress(OSError):
+                path = Path(dirpath) / name
+                if not path.is_symlink():
+                    # Drop group/other bits only; keep the owner's exec bit.
+                    path.chmod(path.stat().st_mode & 0o700 | 0o600)
+        if seen >= max_entries:
+            break
+    return previous
+
+
 def run_console(
     *,
     host: str = "127.0.0.1",
@@ -5970,6 +6040,13 @@ def run_console(
         )
     from .console_secrets import load_or_create_console_secrets
 
+    # Owner-only state (redteam P2-2): pre-existing state is tightened once.
+    # The process-wide umask 077 is only set when this call owns the process
+    # (block=True: CLI / packaged app). An embedded, non-blocking console
+    # (tests, E2E harnesses, the desktop shell) must not change the umask of
+    # its host process; the state files themselves are written owner-only.
+    harden_state_permissions(state_dir or config.state_dir, set_umask=block)
+
     # Token required by default: a missing --auth-token no longer means an
     # open API. The per-install token lives owner-only next to the state.
     console_secrets = load_or_create_console_secrets(state_dir or config.state_dir)
@@ -5984,6 +6061,7 @@ def run_console(
     request_guard = ConsoleRequestGuard(bind_host=host, extra_hosts=[*allowed_hosts_from_env(), *(allowed_hosts or [])])
     server.routes.request_guard = request_guard.check
     _register_static_routes(server)
+    server.routes.html_security_headers = dict(CONSOLE_HTML_SECURITY_HEADERS)
     register_console_routes(
         server,
         state_dir=state_dir or config.state_dir,
@@ -6083,8 +6161,18 @@ CONSOLE_CSP = (
     "connect-src 'self'; "
     "object-src 'none'; "
     "base-uri 'self'; "
-    "frame-ancestors 'self'"
+    "frame-ancestors 'none'"
 )
+
+# Every HTML document the console serves (the shell at / and /console, OAuth
+# landing pages) carries these, so the approve/arm buttons cannot be framed
+# (clickjacking) and CSP backs up esc() if an XSS sink ever appears.
+CONSOLE_HTML_SECURITY_HEADERS = {
+    "Content-Security-Policy": CONSOLE_CSP,
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
 
 
 def _register_static_routes(server: GatewayServer) -> None:
@@ -6125,9 +6213,7 @@ def _register_static_routes(server: GatewayServer) -> None:
             Returns:
                 Callable[[dict[str, Any]], HttpResponse]: A handler that accepts a request context and returns an HttpResponse with `body` set to `data` and `content_type` set to `ct_`.
             """
-            return lambda ctx: HttpResponse(
-                body=data, content_type=ct_, headers={"Content-Security-Policy": CONSOLE_CSP}
-            )
+            return lambda ctx: HttpResponse(body=data, content_type=ct_, headers=dict(CONSOLE_HTML_SECURITY_HEADERS))
 
         # NOTE: "/" and "/console" are intentionally NOT registered here.
         # console_page is the single "/" handler: it checks OAuth callback

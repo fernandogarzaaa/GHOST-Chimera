@@ -105,6 +105,17 @@ def find_free_port(
 # HTTP route registry  (Gap 6)
 # ---------------------------------------------------------------------------
 
+MAX_HTTP_BODY_BYTES_DEFAULT = 8 * 1024 * 1024
+
+
+def max_http_body_bytes() -> int:
+    """Upper bound for one HTTP request body (``GHOSTCHIMERA_MAX_HTTP_BODY_BYTES``, default 8 MiB)."""
+    try:
+        return max(1024, int(os.environ.get("GHOSTCHIMERA_MAX_HTTP_BODY_BYTES", MAX_HTTP_BODY_BYTES_DEFAULT)))
+    except ValueError:
+        return MAX_HTTP_BODY_BYTES_DEFAULT
+
+
 RouteHandler = Callable[[dict[str, Any]], Any]
 """A callable ``(request_context) → response_dict``."""
 
@@ -173,6 +184,9 @@ class HttpRouteRegistry:
         # installs a Host/Origin/Content-Type guard here (see
         # ``ghostchimera.control_plane.console_security``).
         self.request_guard: Callable[[str, str, dict[str, str]], Any] | None = None
+        # Headers added to every text/html HttpResponse that does not set
+        # them itself (the console installs CSP / X-Frame-Options here).
+        self.html_security_headers: dict[str, str] = {}
 
     def register(
         self,
@@ -841,22 +855,37 @@ class GatewayServer(BackgroundService):
                 self._dispatch("GET")
 
             def do_POST(self) -> None:
-                length = int(self.headers.get("Content-Length", 0))
-                body = self.rfile.read(length) if length > 0 else b""
-                self._dispatch("POST", body=body)
+                # The body is read only after the guard, route and auth checks
+                # pass, and never beyond MAX_HTTP_BODY_BYTES (codeaudit F17).
+                self._dispatch("POST", read_body=True)
 
-            def _dispatch(self, method: str, body: bytes = b"") -> None:
+            def _read_body(self) -> bytes | None:
+                """Read the request body; respond 400/413 and return None when unacceptable."""
+                raw = self.headers.get("Content-Length")
+                if raw is None or not str(raw).strip():
+                    return b""
+                try:
+                    length = int(str(raw).strip())
+                except ValueError:
+                    self.close_connection = True
+                    self._respond(400, {"error": "Invalid Content-Length"})
+                    return None
+                if length < 0:
+                    self.close_connection = True
+                    self._respond(400, {"error": "Invalid Content-Length"})
+                    return None
+                if length > max_http_body_bytes():
+                    self.close_connection = True
+                    self._respond(413, {"error": "Request body too large"})
+                    return None
+                return self.rfile.read(length) if length > 0 else b""
+
+            def _dispatch(self, method: str, body: bytes = b"", *, read_body: bool = False) -> None:
                 import urllib.parse
 
                 parsed = urllib.parse.urlparse(self.path)
                 path = parsed.path
-                query_str = parsed.query
-                query: dict[str, str] = {}
-                if query_str:
-                    for part in query_str.split("&"):
-                        if "=" in part:
-                            k, v = part.split("=", 1)
-                            query[urllib.parse.unquote(k)] = urllib.parse.unquote(v)
+                query: dict[str, str] = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
 
                 headers = {k.lower(): v for k, v in self.headers.items()}
                 guard = registry.request_guard
@@ -868,23 +897,34 @@ class GatewayServer(BackgroundService):
                         self._respond(403, {"ok": False, "error": "forbidden"})
                         return
                     if rejection is not None:
+                        self.close_connection = True
                         self._respond(int(rejection.status), rejection.payload())
                         return
                 route = registry.find(method, path)
 
                 if route is None:
+                    self.close_connection = True
                     self._respond(404, {"error": "Not found", "path": path})
                     return
 
                 if not registry.check_auth(route, headers):
+                    self.close_connection = True
                     self._respond(401, {"error": "Unauthorized"})
                     return
+
+                if read_body:
+                    read = self._read_body()
+                    if read is None:
+                        return
+                    body = read
 
                 ctx = {
                     "method": method,
                     "path": path,
                     "headers": headers,
                     "body": body.decode("utf-8", errors="replace"),
+                    # Exact bytes for routes that verify provider signatures.
+                    "raw_body": body,
                     "query": query,
                 }
                 try:
@@ -899,7 +939,13 @@ class GatewayServer(BackgroundService):
                     self.send_response(data.status)
                     self.send_header("Content-Type", data.content_type)
                     self.send_header("Content-Length", str(len(body)))
-                    for name, value in data.headers.items():
+                    headers = dict(data.headers)
+                    if data.content_type.lower().startswith("text/html"):
+                        present = {name.lower() for name in headers}
+                        for name, value in registry.html_security_headers.items():
+                            if name.lower() not in present:
+                                headers[name] = value
+                    for name, value in headers.items():
                         self.send_header(name, value)
                     self.end_headers()
                     self.wfile.write(body)

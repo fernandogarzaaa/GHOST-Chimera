@@ -25,6 +25,25 @@ def pytest_configure(config):
         os.environ[var] = ",".join(existing + [h for h in _LOOPBACK if h not in existing])
 
 
+@pytest.fixture(autouse=True)
+def _restore_process_umask():
+    """Never let one test's umask change leak into the next (redteam P2-2).
+
+    The console's real entry sets ``umask 077`` process-wide; a test that
+    reaches it (or calls ``os.umask``) must not change the file modes every
+    later test sees.
+    """
+    if os.name != "posix":
+        yield
+        return
+    before = os.umask(0o022)
+    os.umask(before)
+    try:
+        yield
+    finally:
+        os.umask(before)
+
+
 @pytest.fixture
 def kernel():
     """Kernel with deterministic backend for reliable integration tests."""

@@ -437,6 +437,11 @@ class StealthLoop:
         grounding = self._grounding
         if grounding is None or not getattr(grounding, "available", False):
             return None
+        from .tavily_grounding import event_allows_egress
+
+        # Secret/sensitive/private events never leave the host, reasoner or not.
+        if not event_allows_egress(event):
+            return None
         reasoner = self._reasoner
         if reasoner is not None and getattr(reasoner, "available", False):
             return None

@@ -19,6 +19,7 @@ Usage::
 from __future__ import annotations
 
 import concurrent.futures
+import http.client
 import ipaddress
 import socket
 import ssl
@@ -36,24 +37,78 @@ logger = get_logger("ssrf")
 _DNS_RESOLVE_TIMEOUT = 5.0  # seconds
 
 
+ALLOWED_SCHEMES = frozenset({"http", "https"})
+
+
 def _is_internal_address(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """True for addresses an outbound fetch must never reach.
 
-    Covers private, loopback, link-local (incl. the 169.254.169.254 cloud
-    metadata service), unspecified (0.0.0.0 / ::), reserved and multicast
-    ranges, and IPv4-mapped IPv6 forms of any of them (::ffff:127.0.0.1).
+    Anything that is not globally routable is internal: private, loopback,
+    link-local (incl. the 169.254.169.254 cloud metadata service),
+    unspecified, reserved, multicast, shared/CGNAT space (100.64.0.0/10, used
+    by Tailscale and carrier NAT), 192.0.0.0/24, benchmarking ranges, and
+    IPv4-mapped / 6to4 / Teredo forms of any of them.
     """
     mapped = getattr(addr, "ipv4_mapped", None)
     if mapped is not None:
         addr = mapped
+    if isinstance(addr, ipaddress.IPv6Address):
+        for embedded in (addr.sixtofour, (addr.teredo or (None, None))[1]):
+            if embedded is not None and _is_internal_address(embedded):
+                return True
     return (
-        addr.is_private
+        not addr.is_global
+        or addr.is_private
         or addr.is_loopback
         or addr.is_link_local
         or addr.is_unspecified
         or addr.is_reserved
         or addr.is_multicast
     )
+
+
+def _getaddrinfo_with_timeout(host: str, port: int | None) -> list[Any]:
+    """``socket.getaddrinfo`` bounded by :data:`_DNS_RESOLVE_TIMEOUT` (fails closed)."""
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        future = pool.submit(socket.getaddrinfo, host, port, 0, socket.SOCK_STREAM)
+        try:
+            return future.result(timeout=_DNS_RESOLVE_TIMEOUT)
+        except concurrent.futures.TimeoutError as exc:
+            raise OSError(f"DNS resolution timed out for {host}") from exc
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def resolve_vetted_addresses(host: str, port: int) -> list[tuple[Any, ...]]:
+    """Resolve *host* once and return only safe ``getaddrinfo`` entries.
+
+    Raises :class:`SSRFViolation` when the host is (or resolves to) any
+    internal address. The caller must connect to exactly these addresses so a
+    second, attacker-controlled DNS answer (rebinding) is never consulted.
+    """
+    try:
+        literal = ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        literal = None
+    if literal is not None:
+        if _is_internal_address(literal):
+            raise SSRFViolation(f"Private/loopback address blocked: {host}")
+        family = socket.AF_INET6 if literal.version == 6 else socket.AF_INET
+        return [(family, socket.SOCK_STREAM, 0, "", (str(literal), port))]
+    infos = _getaddrinfo_with_timeout(host, port)
+    vetted = []
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(str(info[4][0]).split("%", 1)[0])
+        except ValueError:
+            continue
+        if _is_internal_address(addr):
+            raise SSRFViolation(f"Hostname '{host}' resolves to private/loopback/link-local address: {addr}")
+        vetted.append(info)
+    if not vetted:
+        raise SSRFViolation(f"No routable address for hostname: {host}")
+    return vetted
 
 
 # ---------------------------------------------------------------------------
@@ -115,11 +170,17 @@ class SSRFPolicy:
         """
         import fnmatch
 
+        parsed = urllib.parse.urlparse(url)
+        scheme = (parsed.scheme or "").lower()
+        if scheme not in ALLOWED_SCHEMES:
+            # file://, ftp://, gopher://, data: ... are never fetchable (redteam P1-2).
+            return False, f"Scheme '{scheme or '(none)'}' is not allowed; only http and https"
         if self.allow_all:
             return True, "allow_all is set"
 
-        parsed = urllib.parse.urlparse(url)
         hostname = parsed.hostname or ""
+        if not hostname:
+            return False, "URL has no host"
         with self._lock:
             denied = list(self._denied)
             allowed = list(self._allowed)
@@ -243,6 +304,65 @@ class _SSRFRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 # ---------------------------------------------------------------------------
+# Pinned connections (DNS-rebinding defence, redteam P1-1)
+# ---------------------------------------------------------------------------
+
+
+def _connect_vetted(host: str, port: int, timeout: Any, source_address: Any = None) -> socket.socket:
+    """Resolve once, connect only to a vetted address, and re-check the peer."""
+    last_error: OSError | None = None
+    for family, socktype, proto, _canon, sockaddr in resolve_vetted_addresses(host, port):
+        sock = socket.socket(family, socktype, proto)
+        try:
+            if timeout is not None and timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:  # type: ignore[attr-defined]
+                sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            sock.connect(sockaddr)
+            peer = ipaddress.ip_address(str(sock.getpeername()[0]).split("%", 1)[0])
+            if _is_internal_address(peer):
+                raise SSRFViolation(f"Connected peer {peer} for '{host}' is internal")
+            return sock
+        except SSRFViolation:
+            sock.close()
+            raise
+        except OSError as exc:
+            sock.close()
+            last_error = exc
+    raise last_error or OSError(f"could not connect to {host}:{port}")
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    def connect(self) -> None:
+        self.sock = _connect_vetted(self.host, self.port, self.timeout, self.source_address)
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def connect(self) -> None:
+        sock = _connect_vetted(self.host, self.port, self.timeout, self.source_address)
+        # SNI and certificate verification stay bound to the *hostname*.
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)  # type: ignore[attr-defined]
+
+
+class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req: urllib.request.Request) -> Any:
+        if req.has_proxy():  # the operator's proxy resolves the target; nothing to pin locally
+            return super().http_open(req)
+        return self.do_open(_PinnedHTTPConnection, req)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, context: ssl.SSLContext) -> None:
+        super().__init__(context=context)
+        self._pinned_context = context
+
+    def https_open(self, req: urllib.request.Request) -> Any:
+        if req.has_proxy():
+            return super().https_open(req)
+        return self.do_open(_PinnedHTTPSConnection, req, context=self._pinned_context)
+
+
+# ---------------------------------------------------------------------------
 # NetworkDispatcher
 # ---------------------------------------------------------------------------
 
@@ -315,10 +435,19 @@ class NetworkDispatcher:
         try:
             req = urllib.request.Request(url, data=body, headers=hdrs, method=method.upper())
             ctx = ssl.create_default_context()
-            opener = urllib.request.build_opener(
-                urllib.request.HTTPSHandler(context=ctx),
-                _SSRFRedirectHandler(self.policy),
-            )
+            if self.policy.block_private_ranges and not self.policy.allow_all:
+                # Connect only to the address that was vetted at connect time,
+                # for the first request and every redirect hop.
+                opener = urllib.request.build_opener(
+                    _PinnedHTTPHandler(),
+                    _PinnedHTTPSHandler(ctx),
+                    _SSRFRedirectHandler(self.policy),
+                )
+            else:
+                opener = urllib.request.build_opener(
+                    urllib.request.HTTPSHandler(context=ctx),
+                    _SSRFRedirectHandler(self.policy),
+                )
             with opener.open(req, timeout=timeout_seconds) as resp:
                 resp_body = resp.read()
                 resp_headers = {k.lower(): v for k, v in resp.headers.items()}
@@ -365,8 +494,10 @@ def fetch(url: str, **kwargs: Any) -> FetchResult:
 
 
 __all__ = [
+    "ALLOWED_SCHEMES",
     "SSRFPolicy",
     "SSRFViolation",
+    "resolve_vetted_addresses",
     "NetworkDispatcher",
     "FetchResult",
     "get_dispatcher",
