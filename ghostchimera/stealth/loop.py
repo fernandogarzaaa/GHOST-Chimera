@@ -9,7 +9,10 @@ high-value inference leaves the hot path (via BackgroundRuntime).
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
+import threading
 import time
 import uuid
 from collections import deque
@@ -21,6 +24,7 @@ from ..logging_config import get_logger
 from .approvals import ApprovalQueue, ApprovalRequest
 from .attention import AttentionEngine, AttentionSignal
 from .budgets import ATTENTION_BUDGET, PROPOSAL_BUDGET, BudgetTracker
+from .cloud_worker import CloudEnricher
 from .computer import (
     ComputerAction,
     ComputerApproval,
@@ -76,6 +80,28 @@ def _env_float(name: str, default: float) -> float:
 
 
 @dataclass
+class _CloudSlot:
+    """Where an event's cloud results land, whenever they arrive.
+
+    Results that arrive before the event's trace exists (sync mode, cache
+    hits) wait in ``values``; later ones are written straight into ``trace``,
+    which is the same dict the LoopResult and the intervention provenance hold.
+    """
+
+    values: dict[str, Any] = field(default_factory=dict)
+    trace: dict[str, Any] | None = None
+    intervention_id: str = ""
+
+
+def _cloud_key(*parts: Any) -> str:
+    try:
+        text = json.dumps(parts, sort_keys=True, default=str)
+    except Exception:
+        text = repr(parts)
+    return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
+
+
+@dataclass
 class LoopResult:
     event_id: str
     decision: Decision
@@ -104,8 +130,11 @@ class StealthLoop:
         computer_capability: ComputerCapability | None = None,
         reasoner: Any | None = None,
         grounding: Any | None = None,
+        cloud_mode: str | None = None,
     ) -> None:
         self.policy = policy or GhostPolicy.conservative_default()
+        # Serialises event processing and cloud-result attachment.
+        self._lock = threading.RLock()
         self.evaluator = StealthEvaluator(self.policy)
         self.bus = EventBus()
         self.world = WorldState()
@@ -153,6 +182,13 @@ class StealthLoop:
             "GHOSTCHIMERA_NEMOTRON_PREDICT_INTERVAL_S", NEMOTRON_PREDICT_MIN_INTERVAL_S
         )
         self._nemotron_predict_last: dict[str, float] = {}
+        # Cloud calls run off the hot path by default ("async"): emit() returns
+        # after the local stages and Nemotron results are attached to the
+        # event's trace/intervention when they land. "sync" (ghost demo,
+        # deterministic tests) runs them inline. GHOSTCHIMERA_NEMOTRON_MODE
+        # overrides the default.
+        mode = (cloud_mode or os.environ.get("GHOSTCHIMERA_NEMOTRON_MODE", "") or "async").strip().lower()
+        self._cloud = CloudEnricher(mode="sync" if mode == "sync" else "async")
 
         self._experience: ExperienceState | None = None
         self._experience_stream: Any = None
@@ -168,8 +204,17 @@ class StealthLoop:
             self.runtime.register("prepare_context", self._handle_prepare_job)
 
     def close(self) -> None:
+        self._cloud.close()
         if self._own_runtime:
             self.runtime.stop()
+
+    @property
+    def cloud(self) -> CloudEnricher:
+        return self._cloud
+
+    def wait_for_cloud(self, timeout: float | None = 30.0) -> bool:
+        """Block until pending Nemotron calls have landed (tests, recording, shutdown)."""
+        return self._cloud.wait_idle(timeout)
 
     def set_session(self, session_id: str) -> None:
         """Set the active session for experience tracking."""
@@ -218,10 +263,11 @@ class StealthLoop:
         intent_hypotheses = self.intent_engine.update(event, self.graph, self.learner)
         hypothesis = self.learner.match(list(history))
         preds = self.predictions.predict(list(history), hypothesis)
-        # UNDERSTAND-phase cloud enrichment (best-effort; never blocks the loop).
-        nemotron_insight = self._consult_nemotron_reasoner(event, hypothesis, preds)
+        cloud_slot = _CloudSlot()
+        # UNDERSTAND-phase cloud enrichment (best-effort; off the hot path).
+        self._consult_nemotron_reasoner(event, hypothesis, preds, slot=cloud_slot)
         # PREDICT-phase cloud enrichment via Nemotron 3 Super (best-effort, gated).
-        nemotron_predictions = self._consult_nemotron_predict(event, stream, list(history), hypothesis, preds)
+        self._consult_nemotron_predict(event, stream, list(history), hypothesis, preds, slot=cloud_slot)
         web_context = self._consult_web_grounding(event)
         friction = self.friction_detector.observe(event, predicted_actions=[pred.action for pred in preds])
         self.attention.update_friction(friction.score)
@@ -258,10 +304,11 @@ class StealthLoop:
         governed = self.governor.govern(decision, workflow)
         decision = governed.decision
         trace = {**trace, "governance": governed.to_dict()}
-        if nemotron_insight:
-            trace["nemotron"] = nemotron_insight
-        if nemotron_predictions:
-            trace["nemotron_predictions"] = nemotron_predictions
+        with self._lock:
+            # Results already in (sync mode / cache hit) go in now; later
+            # async results are written into this same dict when they land.
+            trace.update(cloud_slot.values)
+            cloud_slot.trace = trace
         if web_context:
             trace["web_grounding"] = web_context
         requested_action = event.payload.get("computer_action")
@@ -284,6 +331,7 @@ class StealthLoop:
                 decision,
             )
             intervention_id = intervention.id
+            cloud_slot.intervention_id = intervention_id
             if decision == Decision.PREPARE and self._own_runtime:
                 self.runtime.submit(
                     "prepare_context",
@@ -363,17 +411,53 @@ class StealthLoop:
             friction=friction.to_dict(),
         )
 
-    def _consult_nemotron_reasoner(self, event: Event, hypothesis: Any, preds: Any) -> dict[str, Any] | None:
-        """UNDERSTAND via Nemotron 3 on Nebius Token Factory (best-effort)."""
+    def _attach_cloud(self, slot: _CloudSlot, key: str, value: Any) -> None:
+        """Attach a cloud result to its event's trace (and intervention) when it lands."""
+        if not value:
+            return
+        with self._lock:
+            slot.values[key] = value
+            if slot.trace is None:
+                return
+            slot.trace[key] = value
+            intervention = self.interventions.get(slot.intervention_id) if slot.intervention_id else None
+        if intervention is not None and self.store is not None:
+            with suppress(Exception):
+                self.store.record_intervention(intervention)
+
+    def _consult_nemotron_reasoner(
+        self, event: Event, hypothesis: Any, preds: Any, *, slot: _CloudSlot | None = None
+    ) -> dict[str, Any] | None:
+        """UNDERSTAND via Nemotron 3 on Nebius Token Factory (best-effort).
+
+        Identical events share one call (cache + in-flight de-dup), calls are
+        budgeted per minute, and in async mode the call runs on the cloud
+        worker so ``emit()`` never waits on the network. Returns the insight
+        when it is available immediately (sync mode or cache hit).
+        """
         reasoner = self._reasoner
         if reasoner is None or not getattr(reasoner, "available", False):
             return None
-        try:
-            insight = reasoner.understand(event, hypothesis=hypothesis, predictions=preds)
-        except Exception as exc:
-            logger.warning("Nemotron reasoner failed: %s", exc)
+        if event.privacy_classification == "secret":
             return None
-        return insight if isinstance(insight, dict) else None
+        slot = slot if slot is not None else _CloudSlot()
+        # Keyed on the event itself: the same event re-emitted (bursts,
+        # retries, polling producers) reuses one interpretation even while
+        # the local hypothesis drifts.
+        key = _cloud_key("understand", event.event_type, event.source, event.privacy_classification, event.payload)
+
+        def call() -> dict[str, Any] | None:
+            insight = reasoner.understand(event, hypothesis=hypothesis, predictions=preds)
+            return insight if isinstance(insight, dict) else None
+
+        def done(insight: Any) -> None:
+            self._attach_cloud(slot, "nemotron", dict(insight) if isinstance(insight, dict) else None)
+
+        status = self._cloud.request(key, call, done)
+        if status == "budget":
+            logger.debug("Nemotron UNDERSTAND skipped: per-minute call budget spent")
+        value = slot.values.get("nemotron")
+        return value if isinstance(value, dict) else None
 
     def _consult_nemotron_predict(
         self,
@@ -382,6 +466,8 @@ class StealthLoop:
         history: list[str],
         hypothesis: Any,
         preds: Any,
+        *,
+        slot: _CloudSlot | None = None,
     ) -> list[dict[str, Any]] | None:
         """PREDICT via Nemotron 3 Super on Nebius Token Factory (best-effort).
 
@@ -390,7 +476,8 @@ class StealthLoop:
         experience-based prediction at ``nemotron_predict_threshold`` or above;
         base-rate guesses do not count), and the stream has not been consulted
         within ``nemotron_predict_interval_s``. Results are advisory: they land
-        in the trace and never change the decision.
+        in the trace and never change the decision. Like UNDERSTAND, the call
+        runs on the cloud worker in async mode.
         """
         reasoner = self._reasoner
         if reasoner is None or not getattr(reasoner, "available", False):
@@ -414,19 +501,27 @@ class StealthLoop:
         if learned_top >= self.nemotron_predict_threshold:
             return None
         now = float(event.timestamp or time.time())
-        last = self._nemotron_predict_last.get(stream)
-        if last is not None and now - last < self.nemotron_predict_interval_s:
-            return None
-        self._nemotron_predict_last[stream] = now
+        with self._lock:
+            last = self._nemotron_predict_last.get(stream)
+            if last is not None and now - last < self.nemotron_predict_interval_s:
+                return None
+            self._nemotron_predict_last[stream] = now
         workflow = getattr(hypothesis, "name", "") if hypothesis is not None else ""
-        try:
-            result = predict_next("\n".join(history[-20:]), hypothesis=str(workflow or ""))
-        except Exception as exc:
-            logger.warning("Nemotron predict failed: %s", exc)
-            return None
-        if not isinstance(result, list) or not result:
-            return None
-        return [dict(item) for item in result if isinstance(item, dict)] or None
+        history_text = "\n".join(history[-20:])
+        slot = slot if slot is not None else _CloudSlot()
+
+        def call() -> list[dict[str, Any]] | None:
+            result = predict_next(history_text, hypothesis=str(workflow or ""))
+            if not isinstance(result, list) or not result:
+                return None
+            return [dict(item) for item in result if isinstance(item, dict)] or None
+
+        def done(result: Any) -> None:
+            self._attach_cloud(slot, "nemotron_predictions", [dict(item) for item in result] if result else None)
+
+        self._cloud.request(_cloud_key("predict", stream, history_text, workflow), call, done)
+        value = slot.values.get("nemotron_predictions")
+        return value if isinstance(value, list) else None
 
     def _consult_web_grounding(self, event: Event) -> dict[str, Any] | None:
         """UNDERSTAND-phase Tavily web grounding (best-effort).

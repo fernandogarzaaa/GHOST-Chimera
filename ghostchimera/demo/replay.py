@@ -217,7 +217,9 @@ class DemoResult:
 def _run_through_loop(session: dict[str, Any], reasoner: Any) -> tuple[list[DemoStep], Any, list[str]]:
     from ..stealth import StealthLoop, new_event
 
-    loop = StealthLoop(reasoner=reasoner, own_runtime=False)
+    # Sync cloud mode: replay must be deterministic and record must capture
+    # every reply in order.
+    loop = StealthLoop(reasoner=reasoner, own_runtime=False, cloud_mode="sync")
     steps: list[DemoStep] = []
     history: list[str] = []
     session_id = str(session.get("session_id") or "demo-session")
