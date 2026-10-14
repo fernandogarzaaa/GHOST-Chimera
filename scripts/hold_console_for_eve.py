@@ -32,7 +32,10 @@ def main() -> int:
             open_browser=False,
             block=False,
         )
-    print(json.dumps({"eve_target": f"http://127.0.0.1:{args.http_port}", "state_dir": str(state_dir)}, sort_keys=True))
+    # Throwaway state dir: the token rides in the URL fragment so the UI
+    # authenticates itself (fragments are never sent to the server).
+    target = f"http://127.0.0.1:{args.http_port}/#token={server.console_token}"
+    print(json.dumps({"eve_target": target, "state_dir": str(state_dir)}, sort_keys=True))
     try:
         while True:
             time.sleep(5)

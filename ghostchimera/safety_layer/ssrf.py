@@ -28,11 +28,32 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..http_identity import with_user_agent
 from ..logging_config import get_logger
 
 logger = get_logger("ssrf")
 
 _DNS_RESOLVE_TIMEOUT = 5.0  # seconds
+
+
+def _is_internal_address(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """True for addresses an outbound fetch must never reach.
+
+    Covers private, loopback, link-local (incl. the 169.254.169.254 cloud
+    metadata service), unspecified (0.0.0.0 / ::), reserved and multicast
+    ranges, and IPv4-mapped IPv6 forms of any of them (::ffff:127.0.0.1).
+    """
+    mapped = getattr(addr, "ipv4_mapped", None)
+    if mapped is not None:
+        addr = mapped
+    return (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_link_local
+        or addr.is_unspecified
+        or addr.is_reserved
+        or addr.is_multicast
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +134,7 @@ class SSRFPolicy:
         if self.block_private_ranges and hostname:
             try:
                 addr = ipaddress.ip_address(hostname)
-                if addr.is_private or addr.is_loopback or addr.is_link_local:
+                if _is_internal_address(addr):
                     return False, f"Private/loopback address blocked: {hostname}"
             except ValueError:
                 # Not a literal IP — resolve the hostname and check all resolved addresses.
@@ -145,7 +166,7 @@ class SSRFPolicy:
                         addr_str = info[4][0]
                         try:
                             addr = ipaddress.ip_address(addr_str)
-                            if addr.is_private or addr.is_loopback or addr.is_link_local:
+                            if _is_internal_address(addr):
                                 return False, (
                                     f"Hostname '{hostname}' resolves to private/loopback/link-local address: {addr_str}"
                                 )
@@ -290,7 +311,7 @@ class NetworkDispatcher:
             raise SSRFViolation(f"Request to '{url}' blocked: {reason}")
 
         logger.debug("NetworkDispatcher %s %s", method, url)
-        hdrs = headers or {}
+        hdrs = with_user_agent(headers)
         try:
             req = urllib.request.Request(url, data=body, headers=hdrs, method=method.upper())
             ctx = ssl.create_default_context()

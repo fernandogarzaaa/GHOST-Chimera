@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..http_identity import ensure_user_agent
+
 
 @dataclass(frozen=True)
 class OAuthLaunchResult:
@@ -87,7 +89,7 @@ def _json_post(url: str, payload: dict[str, Any], *, timeout: float = 20.0) -> d
         headers={"Content-Type": "application/json", "Accept": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as response:
+    with urllib.request.urlopen(ensure_user_agent(req), timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -99,7 +101,7 @@ def _form_post(url: str, payload: dict[str, str], *, timeout: float = 20.0) -> d
         headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as response:
+    with urllib.request.urlopen(ensure_user_agent(req), timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
 

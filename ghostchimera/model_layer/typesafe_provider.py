@@ -32,6 +32,7 @@ import ssl
 from typing import Any
 from urllib import request as urllib_request
 
+from ..http_identity import ensure_user_agent
 from ..logging_config import get_logger
 
 logger = get_logger("typesafe_provider")
@@ -122,7 +123,7 @@ class TypeSafeJudge:
         context = ssl.create_default_context()
         req = urllib_request.Request(self.base_url, data=body, headers=headers, method="POST")
         try:
-            with urllib_request.urlopen(req, context=context, timeout=self.timeout_seconds) as resp:
+            with urllib_request.urlopen(ensure_user_agent(req), context=context, timeout=self.timeout_seconds) as resp:
                 response_json = json.loads(resp.read().decode("utf-8"))
         except Exception as exc:
             raise RuntimeError(f"TypeSafe API call failed: {exc}") from exc

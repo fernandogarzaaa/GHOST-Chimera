@@ -62,6 +62,7 @@ _TOP_LEVEL_COMMANDS = {
     "runtime-warmup",
     "ux-audit",
     "ask",
+    "demo",
     "run",
     "batch",
     "standing-orders",
@@ -167,6 +168,14 @@ def _main(argv: list[str] | None = None) -> int:
     start_parser.add_argument(
         "--auth-token", default="", help="Require this bearer token on all /api/* routes (X-Gateway-Token header)."
     )
+    start_parser.add_argument(
+        "--allow-host",
+        action="append",
+        default=[],
+        metavar="HOST",
+        help="Extra Host header value the console accepts besides localhost/127.0.0.1/[::1] (repeatable; "
+        "also GHOSTCHIMERA_CONSOLE_ALLOWED_HOSTS). Needed when serving behind a hostname or LAN IP.",
+    )
     console_parser = sub.add_parser("console", help="Open the browser-based Ghost Console")
     console_parser.add_argument("--host", default="127.0.0.1", help="Gateway bind host for the console.")
     console_parser.add_argument("--port", type=int, default=8765, help="Gateway WebSocket port.")
@@ -179,6 +188,14 @@ def _main(argv: list[str] | None = None) -> int:
     )
     console_parser.add_argument(
         "--auth-token", default="", help="Require this bearer token on all /api/* routes (X-Gateway-Token header)."
+    )
+    console_parser.add_argument(
+        "--allow-host",
+        action="append",
+        default=[],
+        metavar="HOST",
+        help="Extra Host header value the console accepts besides localhost/127.0.0.1/[::1] (repeatable; "
+        "also GHOSTCHIMERA_CONSOLE_ALLOWED_HOSTS). Needed when serving behind a hostname or LAN IP.",
     )
     doctor_parser = sub.add_parser("doctor", help="Run health checks and report status")
     doctor_parser.add_argument("--production", action="store_true", help="Require production deployment guardrails.")
@@ -592,6 +609,15 @@ def _main(argv: list[str] | None = None) -> int:
     ask_parser = sub.add_parser("ask", help="Run one plain-language objective from terminal")
     ask_parser.add_argument("objective", nargs="+", help="Objective to execute, in plain language.")
     ask_parser.add_argument("--json", action="store_true", help="Output full JSON execution payload.")
+    demo_parser = sub.add_parser("demo", help="Replay a recorded Nemotron session offline (no API keys, no network)")
+    demo_parser.add_argument("--session", default="", help="Replay this session file instead of the bundled one.")
+    demo_parser.add_argument("--json", action="store_true", help="Output the replay as JSON.")
+    demo_parser.add_argument(
+        "--record",
+        default="",
+        metavar="PATH",
+        help="Record a new session from live Nemotron (needs NEBIUS_API_KEY) and save it to PATH.",
+    )
     ux_audit_parser = sub.add_parser("ux-audit", help="Audit UX readiness and suggest upgrades")
     ux_audit_parser.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format.")
     orders_parser = sub.add_parser("standing-orders", help="Manage Standing Orders (reusable autonomy programs)")
@@ -706,6 +732,7 @@ def _main(argv: list[str] | None = None) -> int:
             open_browser=not args.no_open,
             block=True,
             auth_token=args.auth_token or "",
+            allowed_hosts=list(getattr(args, "allow_host", None) or []),
         )
         return 0
 
@@ -834,6 +861,10 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "ask":
         return _run_ask_cli(args)
+    if args.command == "demo":
+        from ..demo import run_demo_cli
+
+        return run_demo_cli(session=args.session, as_json=args.json, record_to=args.record)
     if args.command == "ux-audit":
         return _run_ux_audit_cli(args)
 
@@ -842,7 +873,7 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.pilot_status or args.pilot_run:
-        from ..chimera_pilot import ChimeraPilotKernel
+        from ..chimera_pilot import ChimeraPilotKernel, NoBackendAvailableError
 
         config = load_config() or {}
         persisted_autonomy = get_autonomy_config(config)
@@ -877,6 +908,11 @@ def _main(argv: list[str] | None = None) -> int:
             return 0
         try:
             executions = kernel.run(args.pilot_run)
+        except NoBackendAvailableError as exc:
+            from .provider_hint import print_no_provider
+
+            print_no_provider(args.pilot_run, str(exc))
+            return 2
         except PermissionError as exc:
             print(
                 json.dumps(
@@ -896,6 +932,7 @@ def _main(argv: list[str] | None = None) -> int:
         args.no_open = getattr(args, "no_open", False)
         args.skip_setup = getattr(args, "skip_setup", False)
         args.auth_token = getattr(args, "auth_token", "")
+        args.allow_host = getattr(args, "allow_host", [])
         return _run_start_cli(args)
 
     run_cli()
@@ -969,6 +1006,7 @@ def _run_start_cli(args: argparse.Namespace) -> int:
         open_browser=not args.no_open,
         block=True,
         auth_token=args.auth_token or "",
+        allowed_hosts=list(getattr(args, "allow_host", None) or []),
     )
     return 0
 

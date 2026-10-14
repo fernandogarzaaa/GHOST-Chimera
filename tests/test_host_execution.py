@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ghostchimera.chimera_pilot.gateway_server import GatewayServer
 from ghostchimera.control_plane.console import register_console_routes
+from ghostchimera.control_plane.console_secrets import load_or_create_console_secrets
 from ghostchimera.control_plane.host_execution import HostExecutionStore
 
 
@@ -93,6 +94,8 @@ class HostExecutionConsoleRouteTests(unittest.TestCase):
             (root / "demo.txt").write_text("one\n", encoding="utf-8")
             server = GatewayServer()
             register_console_routes(server, state_dir=tmp)
+            # The console arms only with this install's random phrase, never the public constant.
+            phrase = load_or_create_console_secrets(tmp).arming_phrase
 
             settings_route = server.routes.find("POST", "/api/console/host-execution/settings")
             edit_route = server.routes.find("POST", "/api/console/host-execution/self-edit")
@@ -107,7 +110,7 @@ class HostExecutionConsoleRouteTests(unittest.TestCase):
                     "body": json.dumps(
                         {
                             "unrestricted_host_mode": True,
-                            "confirmation_phrase": "I ACCEPT HOST EXECUTION RISK",
+                            "confirmation_phrase": phrase,
                             "allowed_root": tmp,
                         }
                     ),

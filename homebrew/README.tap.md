@@ -24,11 +24,12 @@ ghostchimera doctor
 
 ## Per release
 
-1. Tag `vX.Y.Z` in GHOST-Chimera.
-2. Update `url` + `sha256` in `Formula/ghostchimera.rb`
-   (`shasum -a 256 vX.Y.Z.tar.gz` from the release page).
+1. Publish the GitHub Release (`publish.yml` uploads the sdist + wheel to PyPI
+   and attaches them to the release).
+2. Point `url` in `Formula/ghostchimera.rb` at the new PyPI sdist and update
+   `sha256` (`curl -sL <url> | shasum -a 256`).
 3. `brew audit --new ghostchimera && brew test ghostchimera`, then push.
 
-Optional extras after install: `$(brew --prefix)/opt/...` venvs are isolated;
-add backends with the venv's pip, e.g.
-`.../libexec/bin/pip install "ghostchimera[desktop,mcp]"`.
+Optional extras after install: the formula's venv is isolated; add backends with
+its Python, pinned to the installed version, e.g.
+`$(brew --prefix)/opt/ghostchimera/libexec/bin/python -m pip install "ghostchimera[desktop,mcp]==0.4.0b1"`.

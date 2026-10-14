@@ -172,14 +172,15 @@ def test_ghost_write_route_honest_without_model(tmp_path) -> None:
         memory_db=tmp_path / "m.sqlite3",
         audit_file=tmp_path / "a.json",
     )
-    server = GatewayServer(host="127.0.0.1", port=19173, http_port=19174, config=config)
+    server = GatewayServer(host="127.0.0.1", port=0, http_port=0, config=config)
     register_connector_routes(server, tmp_path)
     server.start()
+    http_port = server._http_server.server_address[1]  # type: ignore[union-attr]
     try:
 
         def post(path, payload):
             req = urllib.request.Request(
-                f"http://127.0.0.1:19174{path}",
+                f"http://127.0.0.1:{http_port}{path}",
                 data=json.dumps(payload).encode(),
                 headers={"Content-Type": "application/json"},
             )
@@ -232,12 +233,13 @@ def test_ghost_write_route_uses_model_when_present(tmp_path, monkeypatch) -> Non
         memory_db=tmp_path / "m.sqlite3",
         audit_file=tmp_path / "a.json",
     )
-    server = GatewayServer(host="127.0.0.1", port=19175, http_port=19176, config=config)
+    server = GatewayServer(host="127.0.0.1", port=0, http_port=0, config=config)
     register_connector_routes(server, tmp_path)
     server.start()
+    http_port = server._http_server.server_address[1]  # type: ignore[union-attr]
     try:
         req = urllib.request.Request(
-            "http://127.0.0.1:19176/api/stealth/ghost-write",
+            f"http://127.0.0.1:{http_port}/api/stealth/ghost-write",
             data=json.dumps({"prompt_context": "The customer cannot connect."}).encode(),
             headers={"Content-Type": "application/json"},
         )

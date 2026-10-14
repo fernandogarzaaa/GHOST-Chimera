@@ -16,7 +16,7 @@ import threading
 import time
 import urllib.parse
 import webbrowser
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -93,7 +93,7 @@ from .evolution import (
     set_source_consent,
     upsert_candidate,
 )
-from .host_execution import CONFIRMATION_PHRASE, HostExecutionStore
+from .host_execution import HostExecutionStore
 from .latency import latency_summary, record_latency_event
 from .live_presence import LivePresenceStore
 from .local_voice import LocalVoiceTranscriber
@@ -914,6 +914,7 @@ def register_console_routes(
     cron_scheduler: Any | None = None,
     operator_workspace: OperatorWorkspaceStore | None = None,
     console_token: str = "",
+    host_arming_phrase: str = "",
     config_path: str | Path | None = None,
 ) -> None:
     """Register browser console routes on an existing GatewayServer."""
@@ -938,7 +939,21 @@ def register_console_routes(
     admission_store = CapabilityAdmissionStore(console_state_dir)
     conversation_store = ConversationStore(console_state_dir)
     live_presence_store = LivePresenceStore(console_state_dir, trust_store=trust_store)
-    host_execution_store = HostExecutionStore(console_state_dir)
+
+    def _host_arming_phrase() -> str:
+        # Per-install random phrase (never the public constant); loaded lazily
+        # so merely registering routes does not touch the secrets file.
+        if host_arming_phrase:
+            return host_arming_phrase
+        from .console_secrets import load_or_create_console_secrets
+
+        return load_or_create_console_secrets(console_state_dir).arming_phrase
+
+    host_execution_store = HostExecutionStore(
+        console_state_dir,
+        confirmation_phrase=_host_arming_phrase,
+        phrase_hint=f"It is the arming_phrase in {console_state_dir / 'console_secrets.json'}.",
+    )
     local_voice = LocalVoiceTranscriber(console_state_dir / "local_voice")
     conversation_controller = ConversationalLoopController(
         state_dir=console_state_dir,
@@ -1041,7 +1056,7 @@ def register_console_routes(
         slug = re.sub(r"_+", "_", slug).strip("_")
         if slug:
             return slug
-        return f"github_skill_{hashlib.sha1(name.encode('utf-8')).hexdigest()[:8]}"
+        return f"github_skill_{hashlib.sha1(name.encode('utf-8'), usedforsecurity=False).hexdigest()[:8]}"
 
     def _skill_class_name(slug: str) -> str:
         parts = [part for part in slug.split("_") if part]
@@ -2408,7 +2423,8 @@ def register_console_routes(
             payload = {
                 "ok": True,
                 "settings": host_execution_store.settings(),
-                "confirmation_phrase": CONFIRMATION_PHRASE,
+                # The per-install phrase itself is never served over HTTP.
+                "confirmation_phrase_hint": host_execution_store.phrase_hint,
             }
             payload["warning"] = (
                 "Unrestricted host mode runs commands and applies source patches on the local machine. "
@@ -5918,6 +5934,7 @@ def run_console(
     open_browser: bool = True,
     block: bool = True,
     auth_token: str = "",
+    allowed_hosts: Iterable[str] | None = None,
 ) -> GatewayServer:
     """
     Start and run a GatewayServer hosting the Ghost Console UI, API routes, and optional static assets.
@@ -5933,7 +5950,12 @@ def run_console(
         state_dir (str | Path | None): Optional directory for persistent state (overrides environment config); used for workspace, queue, and scheduler storage.
         open_browser (bool): If True, attempt to open the console URL in the user's default web browser after the server starts.
         block (bool): If True, block the current thread until interrupted; on KeyboardInterrupt the server is stopped before returning.
-        auth_token (str): When non-empty, all /api/* routes require this bearer token via the X-Gateway-Token header.
+        auth_token (str): Console token override for this run. When empty, the per-install token stored owner-only
+            in ``<state_dir>/console_secrets.json`` is used (generated and printed once on first run). The API is
+            never open: every /api/* route requires the token via ``X-Gateway-Token`` or ``Authorization: Bearer``.
+        allowed_hosts (Iterable[str] | None): Extra ``Host`` header values accepted besides loopback names and the
+            bind host (also read from ``GHOSTCHIMERA_CONSOLE_ALLOWED_HOSTS``). Every request is checked against this
+            allow-list (DNS rebinding), and state-changing requests must be same-origin and ``application/json``.
 
     Returns:
         GatewayServer: The started gateway server instance.
@@ -5946,14 +5968,27 @@ def run_console(
         config = replace(
             config, state_dir=resolved, memory_db=resolved / "memory.sqlite3", audit_file=resolved / "audit.json"
         )
+    from .console_secrets import load_or_create_console_secrets
+
+    # Token required by default: a missing --auth-token no longer means an
+    # open API. The per-install token lives owner-only next to the state.
+    console_secrets = load_or_create_console_secrets(state_dir or config.state_dir)
+    auth_token = str(auth_token or "").strip() or console_secrets.token
     server = GatewayServer(
-        host=host, port=port, http_port=_resolve_http_port(http_port), config=config, auth_token=auth_token or ""
+        host=host, port=port, http_port=_resolve_http_port(http_port), config=config, auth_token=auth_token
     )
+    server.console_token = auth_token  # in-process harnesses (tests, E2E scripts) read it here
+    from .console_security import ConsoleRequestGuard, allowed_hosts_from_env
+
+    # Host / Origin / Content-Type gate in front of every console route.
+    request_guard = ConsoleRequestGuard(bind_host=host, extra_hosts=[*allowed_hosts_from_env(), *(allowed_hosts or [])])
+    server.routes.request_guard = request_guard.check
     _register_static_routes(server)
     register_console_routes(
         server,
         state_dir=state_dir or config.state_dir,
-        console_token=auth_token or "",
+        console_token=auth_token,
+        host_arming_phrase=console_secrets.arming_phrase,
         config_path=Path(state_dir) / "config.json" if state_dir else None,
     )
     try:
@@ -5962,8 +5997,8 @@ def run_console(
         register_connector_routes(
             server,
             state_dir or config.state_dir,
-            auth="token" if auth_token else "open",
-            token=auth_token or "",
+            auth="token",
+            token=auth_token,
         )
     except Exception as exc:  # connectors must never break console startup
         try:
@@ -5989,14 +6024,25 @@ def run_console(
     server.start()
     _warn_oauth_origin_mismatch(server)
     url = _console_url(server)
+    # The token rides in the URL fragment: browsers never send fragments to
+    # the server, so it stays out of request logs and Referer headers. The UI
+    # moves it into sessionStorage and strips it from the address bar.
+    token_url = f"{url}#token={urllib.parse.quote(auth_token, safe='')}"
     print(f"Ghost Console: {url}")
-    if auth_token:
-        # The value itself is never printed: it would leak into terminal
-        # scrollback, Docker logs, CI logs, and support captures. The
-        # operator already holds it (argument, file, or environment).
-        print("Auth token required — set the X-Gateway-Token header (or Authorization: Bearer).")
+    if console_secrets.created and auth_token == console_secrets.token:
+        # Shown exactly once, when the per-install token is first generated.
+        print(f"New console token (stored owner-only in {console_secrets.path}): {auth_token}")
+        print(f"Open the console with: {token_url}")
+        print(
+            f"Host-execution arming phrase (only needed to arm unrestricted host mode): {console_secrets.arming_phrase}"
+        )
+    else:
+        # Otherwise the value is never printed: it would leak into terminal
+        # scrollback, Docker logs, CI logs, and support captures.
+        source = "the --auth-token value" if auth_token != console_secrets.token else str(console_secrets.path)
+        print(f"Console token required (X-Gateway-Token or Authorization: Bearer); it is in {source}.")
     if open_browser:
-        webbrowser.open(url)
+        webbrowser.open(token_url)
     if block:
         try:
             while True:

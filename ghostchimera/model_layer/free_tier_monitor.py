@@ -24,6 +24,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from ..http_identity import USER_AGENT, ensure_user_agent
+
 CHECK_INTERVAL_S = 24 * 3600
 STARTUP_JITTER_S = 300.0
 PROBE_TIMEOUT_S = 15.0
@@ -70,11 +72,11 @@ _PROVIDER_PROBES: tuple[dict[str, Any], ...] = (
 
 
 def _fetch_json(url: str, *, api_key: str = "", timeout: float = PROBE_TIMEOUT_S) -> Any:
-    headers = {"Accept": "application/json", "User-Agent": "ghostchimera/0.4"}
+    headers = {"Accept": "application/json", "User-Agent": USER_AGENT}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     req = urllib.request.Request(url, headers=headers, method="GET")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urllib.request.urlopen(ensure_user_agent(req), timeout=timeout) as resp:
         if resp.status != 200:
             raise ValueError(f"HTTP {resp.status}")
         return json.loads(resp.read().decode("utf-8", "replace"))

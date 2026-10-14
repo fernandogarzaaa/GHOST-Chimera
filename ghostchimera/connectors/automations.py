@@ -27,6 +27,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from ..http_identity import ensure_user_agent
+
 POLL_INTERVAL_S = 60.0
 EMAIL_CHECK_MIN_GAP_S = 300.0
 MAX_SEEN_UIDS = 200
@@ -288,7 +290,7 @@ class AutomationsEngine:
                 method="POST",
             )
             try:
-                with urllib.request.urlopen(req, timeout=20.0) as resp:
+                with urllib.request.urlopen(ensure_user_agent(req), timeout=20.0) as resp:
                     body = resp.read().decode("utf-8", "replace")[:500]
                 return {
                     "summary": f"webhook POSTed (HTTP {resp.status})",

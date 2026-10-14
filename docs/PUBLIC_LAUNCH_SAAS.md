@@ -1,5 +1,7 @@
 # Public Launch SaaS Mode
 
+> **Experimental.** The SaaS / multi-tenant launch path is early scaffolding, not part of the hackathon submission. See [docs/experimental](experimental/README.md) for what that means.
+
 Ghost Chimera's public branch adds an Enterprise SaaS launch path while keeping
 the local-first runtime intact.
 
