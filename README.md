@@ -27,7 +27,7 @@ models' raw output, unedited. To go live, set `NEBIUS_API_KEY`
 ([console.nebius.com](https://console.nebius.com), Token Factory → API keys) and
 record your own session with `ghost demo --record session.json`.
 
-**Demo video:** _coming soon_ <!-- DEMO_VIDEO_URL: replace with the YouTube/Loom link -->
+**Demo video:** [Watch the 3-minute demo on YouTube](https://youtu.be/m1jGOAfMZsg): real Linux screen capture showing `ghost demo`, a live Nemotron Stealth Loop pass on Nebius, and the console.
 
 ## Learn more
 
