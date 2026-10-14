@@ -52,6 +52,7 @@ import json
 import os
 import random
 import ssl
+import threading
 import time
 from typing import TYPE_CHECKING, Any
 from urllib import error as urllib_error
@@ -156,6 +157,66 @@ def _error_detail(body: str) -> str:
     if text.lstrip().startswith("<"):
         return "non-JSON (HTML) error page"
     return " ".join(text.split())[:_ERROR_BODY_CHARS]
+
+
+# ---------------------------------------------------------------------------
+# Token usage accounting
+# ---------------------------------------------------------------------------
+
+_USAGE_KEYS = ("prompt_tokens", "completion_tokens", "reasoning_tokens", "cached_tokens", "total_tokens")
+_usage_lock = threading.Lock()
+_usage_totals: dict[str, dict[str, int]] = {}
+
+
+def parse_usage(response_json: Any) -> dict[str, int]:
+    """Normalize an OpenAI/Nebius ``usage`` block (reasoning + cached tokens included)."""
+    usage = response_json.get("usage") if isinstance(response_json, dict) else None
+    if not isinstance(usage, dict):
+        return {}
+
+    def _int(value: Any) -> int:
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    completion_details = usage.get("completion_tokens_details") or {}
+    prompt_details = usage.get("prompt_tokens_details") or {}
+    out = {
+        "prompt_tokens": _int(usage.get("prompt_tokens")),
+        "completion_tokens": _int(usage.get("completion_tokens")),
+        "reasoning_tokens": _int(
+            usage.get("reasoning_tokens")
+            or (completion_details.get("reasoning_tokens") if isinstance(completion_details, dict) else 0)
+        ),
+        "cached_tokens": _int(prompt_details.get("cached_tokens") if isinstance(prompt_details, dict) else 0),
+        "total_tokens": _int(usage.get("total_tokens")),
+    }
+    if not out["total_tokens"]:
+        out["total_tokens"] = out["prompt_tokens"] + out["completion_tokens"]
+    return out
+
+
+def record_usage(provider: str, model: str, usage: dict[str, int]) -> None:
+    if not usage:
+        return
+    key = f"{provider}:{model}"
+    with _usage_lock:
+        totals = _usage_totals.setdefault(key, {name: 0 for name in (*_USAGE_KEYS, "calls")})
+        for name in _USAGE_KEYS:
+            totals[name] += int(usage.get(name, 0) or 0)
+        totals["calls"] += 1
+
+
+def get_usage_totals() -> dict[str, dict[str, int]]:
+    """Process-wide token totals per ``provider:model`` since start (or reset)."""
+    with _usage_lock:
+        return {key: dict(value) for key, value in _usage_totals.items()}
+
+
+def reset_usage_totals() -> None:
+    with _usage_lock:
+        _usage_totals.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +329,21 @@ class OpenAICompatibleProvider(BaseProvider):
             body.update(extra_body)
         data = json.dumps(body).encode("utf-8")
         response_json = self._post_with_retry(data, self._resolve_timeout(timeout))
+        usage = parse_usage(response_json)
+        self._usage_tls().last = usage
+        record_usage(self.name, self.model, usage)
         return extract_answer(response_json, self.name)
+
+    def _usage_tls(self) -> threading.local:
+        tls = self.__dict__.get("_usage_local")
+        if tls is None:
+            tls = self.__dict__.setdefault("_usage_local", threading.local())
+        return tls
+
+    @property
+    def last_usage(self) -> dict[str, int]:
+        """Token usage of the last call made *on this thread* (empty if none)."""
+        return dict(getattr(self._usage_tls(), "last", {}) or {})
 
     # -- transport ---------------------------------------------------------
 
@@ -1343,6 +1418,9 @@ class CloudflareProvider(OpenAICompatibleProvider):
 
 
 __all__ = [
+    "get_usage_totals",
+    "parse_usage",
+    "reset_usage_totals",
     "ProviderConnectionError",
     "ProviderHTTPError",
     "RETRY_STATUSES",

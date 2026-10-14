@@ -373,6 +373,8 @@ class NemotronReasoner:
             breaker_cooldown_s or _env_number("GHOSTCHIMERA_NEMOTRON_BREAKER_COOLDOWN_S", 30.0)
         )
         self._breakers: dict[str, CircuitBreaker] = {}
+        self._call_local = threading.local()
+        self._usage: dict[str, dict[str, int]] = {}
         self._fallback_providers: dict[str, Any] = {}
         self._resilience_lock = threading.Lock()
         # Optional explicit provider for the PREDICT (Nemotron 3 Super) calls;
@@ -422,6 +424,7 @@ class NemotronReasoner:
             logger.debug("Skipping cloud reasoning for event with an empty payload")
             return None
 
+        self._call_local.last = {}
         summary = self._event_summary(event, hypothesis, predictions)
         web_block = self._grounding_block(event)
         user_message = summary + web_block + "\n\nRespond with strict JSON only."
@@ -441,6 +444,12 @@ class NemotronReasoner:
         data["model"] = (
             used_model if used_model in self.fallback_models else getattr(self._provider, "model", NANO_MODEL)
         )
+        call_info = self.last_call()
+        if call_info.get("usage"):
+            # Only real providers report usage; replay/test doubles keep the
+            # insight exactly as recorded.
+            data["usage"] = call_info["usage"]
+            data["latency_ms"] = call_info.get("latency_ms", 0)
         if web_block:
             data["grounded_with_web"] = True
         return data
@@ -449,6 +458,7 @@ class NemotronReasoner:
 
     def predict_next(self, history_summary: str, hypothesis: str = "") -> list[dict[str, Any]] | None:
         """Sharpen next-action predictions via Nemotron 3 Super (or None on any failure)."""
+        self._call_local.last = {}
         try:
             provider = self._reasoning_provider_instance()
             if provider is None:
@@ -547,6 +557,7 @@ class NemotronReasoner:
                 provider = self._fallback_provider(model)
                 if provider is None:
                     continue
+            started = time.perf_counter()
             try:
                 reply = call_provider(provider, system, user, **options)
             except Exception as exc:
@@ -560,10 +571,35 @@ class NemotronReasoner:
                     )
                 continue
             breaker.success()
+            self._note_usage(model, getattr(provider, "last_usage", None), time.perf_counter() - started)
             if model != primary_model:
                 logger.info("Nemotron fallback model %s answered (primary %s failed)", model, primary_model)
             return reply, model
         raise last_error or CircuitOpenError("no Nemotron model available")
+
+    def _note_usage(self, model: str, usage: Any, elapsed_s: float) -> None:
+        clean: dict[str, int] = {}
+        if isinstance(usage, dict):
+            for key, value in usage.items():
+                try:
+                    clean[str(key)] = int(value or 0)
+                except (TypeError, ValueError):
+                    continue
+        self._call_local.last = {"model": model, "usage": clean, "latency_ms": int(elapsed_s * 1000)}
+        with self._resilience_lock:
+            totals = self._usage.setdefault(model, {"calls": 0})
+            totals["calls"] += 1
+            for key, value in clean.items():
+                totals[key] = totals.get(key, 0) + value
+
+    def last_call(self) -> dict[str, Any]:
+        """``{model, usage, latency_ms}`` of the last successful call on this thread."""
+        return dict(getattr(self._call_local, "last", {}) or {})
+
+    def usage_totals(self) -> dict[str, dict[str, int]]:
+        """Token usage per model for this reasoner (reasoning tokens included)."""
+        with self._resilience_lock:
+            return {model: dict(totals) for model, totals in self._usage.items()}
 
     def resilience_status(self) -> dict[str, Any]:
         with self._resilience_lock:

@@ -23,7 +23,7 @@ from typing import Any
 from ..logging_config import get_logger
 from .approvals import ApprovalQueue, ApprovalRequest
 from .attention import AttentionEngine, AttentionSignal
-from .budgets import ATTENTION_BUDGET, PROPOSAL_BUDGET, BudgetTracker
+from .budgets import ATTENTION_BUDGET, COST_BUDGET, PROPOSAL_BUDGET, BudgetTracker
 from .cloud_worker import CloudEnricher
 from .computer import (
     ComputerAction,
@@ -209,6 +209,11 @@ class StealthLoop:
         # overrides the default.
         mode = (cloud_mode or os.environ.get("GHOSTCHIMERA_NEMOTRON_MODE", "") or "async").strip().lower()
         self._cloud = CloudEnricher(mode="sync" if mode == "sync" else "async")
+        self._cloud_tokens = 0
+        # Token budget for cloud calls (COST_BUDGET is metered in tokens/hour).
+        token_cap = _env_float("GHOSTCHIMERA_NEMOTRON_TOKENS_PER_HOUR", 0.0)
+        if token_cap > 0:
+            self.budgets.define(COST_BUDGET, token_cap, window_s=3600.0, unit="tokens/hour")
 
         self._experience: ExperienceState | None = None
         self._experience_stream: Any = None
@@ -501,6 +506,49 @@ class StealthLoop:
             with suppress(Exception):
                 self.store.record_intervention(intervention)
 
+    def _cloud_budget_ok(self) -> bool:
+        """False once Nemotron token spend exhausted COST_BUDGET (tokens/hour)."""
+        with self._lock:
+            return self.budgets.check(COST_BUDGET, 1.0)
+
+    def _meter_cloud_call(self, reasoner: Any) -> None:
+        """Charge the last call's tokens (reasoning included) to COST_BUDGET."""
+        last_call = getattr(reasoner, "last_call", None)
+        info = last_call() if callable(last_call) else {}
+        usage = info.get("usage") if isinstance(info, dict) else None
+        if not isinstance(usage, dict):
+            return
+        tokens = float(usage.get("total_tokens") or 0)
+        if tokens <= 0:
+            return
+        with self._lock:
+            self.budgets.record(COST_BUDGET, tokens)
+            self._cloud_tokens += int(tokens)
+
+    def cloud_status(self) -> dict[str, Any]:
+        """Nemotron worker, token usage, cost budget and breaker state for status views."""
+        reasoner = self._reasoner
+        status: dict[str, Any] = {
+            "enabled": bool(reasoner is not None and getattr(reasoner, "available", False)),
+            "worker": self._cloud.snapshot(),
+            "tokens_metered": self._cloud_tokens,
+        }
+        with self._lock:
+            budget = self.budgets.get(COST_BUDGET)
+            if budget is not None:
+                status["cost_budget"] = {
+                    "unit": "tokens/hour",
+                    "limit": budget.limit,
+                    "spent": round(budget.spent(), 1),
+                    "remaining": round(budget.remaining(), 1),
+                }
+        for name in ("usage_totals", "resilience_status"):
+            fn = getattr(reasoner, name, None)
+            if callable(fn):
+                with suppress(Exception):
+                    status[name.replace("_totals", "")] = fn()
+        return status
+
     def _consult_nemotron_reasoner(
         self, event: Event, hypothesis: Any, preds: Any, *, slot: _CloudSlot | None = None
     ) -> dict[str, Any] | None:
@@ -523,7 +571,11 @@ class StealthLoop:
         key = _cloud_key("understand", event.event_type, event.source, event.privacy_classification, event.payload)
 
         def call() -> dict[str, Any] | None:
+            if not self._cloud_budget_ok():
+                logger.debug("Nemotron UNDERSTAND skipped: COST_BUDGET exhausted")
+                return None
             insight = reasoner.understand(event, hypothesis=hypothesis, predictions=preds)
+            self._meter_cloud_call(reasoner)
             return insight if isinstance(insight, dict) else None
 
         def done(insight: Any) -> None:
@@ -590,7 +642,11 @@ class StealthLoop:
         slot = slot if slot is not None else _CloudSlot()
 
         def call() -> list[dict[str, Any]] | None:
+            if not self._cloud_budget_ok():
+                logger.debug("Nemotron PREDICT skipped: COST_BUDGET exhausted")
+                return None
             result = predict_next(history_text, hypothesis=str(workflow or ""))
+            self._meter_cloud_call(reasoner)
             if not isinstance(result, list) or not result:
                 return None
             return [dict(item) for item in result if isinstance(item, dict)] or None

@@ -1991,6 +1991,16 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
     )
 
     # -- Stealth activity monitor + pre-fill drafts (STE-checked) ----------
+    def _cloud_status(loop: Any) -> dict[str, Any] | None:
+        status_fn = getattr(loop, "cloud_status", None)
+        if not callable(status_fn):
+            return None
+        try:
+            return status_fn()
+        except Exception as exc:
+            logger.warning("stealth cloud status failed: %s", exc)
+            return None
+
     def stealth_activity(_ctx: dict[str, Any]) -> dict[str, Any]:
         from .stealth_service import draft_actions, get_service_loop
 
@@ -2032,6 +2042,7 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         return {
             "ok": True,
             "events_processed": getattr(loop, "events_processed", loop.bus.processed),
+            "nemotron": _cloud_status(loop),
             "recent_events": recent,
             "recent_events_error": store_error,
             "interventions": interventions,
