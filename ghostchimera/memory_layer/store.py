@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -13,6 +14,33 @@ from typing import Any
 from ..state_io import make_private
 
 _DEFAULT_FRESHNESS_HALF_LIFE_DAYS: float = 30.0
+_WAL_SWITCH_TIMEOUT_S: float = 30.0
+
+
+def _enable_wal(conn: sqlite3.Connection, *, timeout: float = _WAL_SWITCH_TIMEOUT_S) -> None:
+    """Put the database in WAL mode, retrying while another process holds it.
+
+    SQLite does not run the busy handler for the journal-mode switch, so two
+    processes opening a fresh DB at once (batch workers, cron + console) got
+    an immediate "database is locked" from ``PRAGMA journal_mode=WAL`` even
+    with ``busy_timeout`` set. WAL is persistent, so once any opener has
+    switched it, later openers see "wal" and skip the switch entirely.
+    """
+    deadline = time.monotonic() + timeout
+    delay = 0.005
+    while True:
+        try:
+            row = conn.execute("PRAGMA journal_mode").fetchone()
+            if row is not None and str(row[0]).lower() == "wal":
+                return
+            conn.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            if ("locked" not in message and "busy" not in message) or time.monotonic() >= deadline:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.25)
 
 
 def _freshness_score(created_at: str, *, half_life_days: float = _DEFAULT_FRESHNESS_HALF_LIFE_DAYS) -> float:
@@ -388,8 +416,8 @@ class MemoryStore:
         # crashes into bounded waits instead.
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=30000")
+        _enable_wal(conn)
         try:
             yield conn
             conn.commit()
