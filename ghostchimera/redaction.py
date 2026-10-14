@@ -335,6 +335,31 @@ def redact_for_egress(value: Any, *, _depth: int = 0) -> Any:
     return value
 
 
+def redact_secret_values(value: Any, *, markers: tuple[str, ...] = SECRET_MARKERS, _depth: int = 0) -> Any:
+    """Like :func:`redact_value` but strings get the full credential scrub (PII kept).
+
+    For local persistence that must not hold credentials (run journals,
+    exports): secret-marked keys are blanked and every string passes through
+    :func:`redact_secrets_text`. Depth is capped like :func:`redact_for_egress`.
+    """
+    if _depth > EGRESS_MAX_DEPTH:
+        return "[redacted:depth]"
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            lowered = str(key).lower()
+            if any(marker in lowered for marker in markers):
+                out[str(key)] = "[redacted]" if item else ""
+            else:
+                out[str(key)] = redact_secret_values(item, markers=markers, _depth=_depth + 1)
+        return out
+    if isinstance(value, (list, tuple)):
+        return [redact_secret_values(item, markers=markers, _depth=_depth + 1) for item in value]
+    if isinstance(value, str):
+        return redact_secrets_text(value)
+    return value
+
+
 def is_secret_env_key(key: str, *, markers: tuple[str, ...] = SECRET_MARKERS) -> bool:
     """True when an environment variable name looks like it holds a secret."""
     lowered = str(key).lower()
@@ -370,6 +395,7 @@ __all__ = [
     "redact_egress_text",
     "redact_for_egress",
     "redact_pii_text",
+    "redact_secret_values",
     "redact_secrets_text",
     "redact_text",
     "redact_value",
