@@ -15,7 +15,7 @@ import os
 import threading
 import time
 import uuid
-from collections import deque
+from collections import OrderedDict, deque
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
@@ -149,6 +149,12 @@ class StealthLoop:
         self.policy = policy or GhostPolicy.conservative_default()
         # Serialises event processing and cloud-result attachment.
         self._lock = threading.RLock()
+        # last_result is per emitting thread (the bus delivers synchronously
+        # on the emitter's thread), so concurrent callers each read their own
+        # event's result; _results maps recent event ids to their results.
+        self._tls = threading.local()
+        self._results: OrderedDict[str, LoopResult] = OrderedDict()
+        self._results_max = 256
         self.evaluator = StealthEvaluator(self.policy)
         self.bus = EventBus()
         self.world = WorldState()
@@ -244,10 +250,43 @@ class StealthLoop:
     def emit(self, event: Event) -> bool:
         return self.bus.emit(event)
 
+    def emit_and_get(self, event: Event) -> LoopResult | None:
+        """Emit ``event`` and return the LoopResult for *that* event.
+
+        Safe under concurrency: unlike reading the shared ``last_result``
+        after ``emit()``, another thread's event can never be returned.
+        Returns None when the bus dropped the event as a duplicate.
+        """
+        with self._lock:
+            delivered = self.bus.emit(event)
+            return self._results.get(event.event_id) if delivered else None
+
+    def result_for(self, event_id: str) -> LoopResult | None:
+        with self._lock:
+            return self._results.get(event_id)
+
+    def _set_last(self, result: LoopResult | None) -> None:
+        self._last = result
+        self._tls.last = result
+
+    def _set_last_result(self, event_id: str, result: LoopResult) -> None:
+        with self._lock:
+            self._set_last(result)
+            self._results[event_id] = result
+            while len(self._results) > self._results_max:
+                self._results.popitem(last=False)
+
     def _on_event(self, event: Event) -> None:
+        # One event at a time: the learners, engines and per-session dicts
+        # below are not thread-safe, and the console calls emit() from
+        # concurrent HTTP threads. Cloud calls run outside this lock (async).
+        with self._lock:
+            self._process_event(event)
+
+    def _process_event(self, event: Event) -> None:
         # Never leave last_result pointing at a previous event: if anything
         # below raises, readers see None rather than the wrong decision.
-        self._last = None
+        self._set_last(None)
         attention_signal = self.attention.evaluate(event)
         self.attention.update_perception(attention_signal.level)
 
@@ -364,20 +403,23 @@ class StealthLoop:
             friction,
             perception_result,
         )
-        self._last = LoopResult(
-            event_id=event.event_id,
-            decision=decision,
-            intervention_id=intervention_id,
-            predictions=[{"action": p.action, "p": p.probability} for p in preds[:3]],
-            trace=trace,
-            experience_id=self._experience.experience_id if self._experience else "",
-            attention={
-                "should_attend": attention_signal.should_attend,
-                "level": attention_signal.level.value,
-                "reason": attention_signal.reason,
-            },
-            intent=self.intent_engine.to_dict(),
-            friction=friction.to_dict(),
+        self._set_last_result(
+            event.event_id,
+            LoopResult(
+                event_id=event.event_id,
+                decision=decision,
+                intervention_id=intervention_id,
+                predictions=[{"action": p.action, "p": p.probability} for p in preds[:3]],
+                trace=trace,
+                experience_id=self._experience.experience_id if self._experience else "",
+                attention={
+                    "should_attend": attention_signal.should_attend,
+                    "level": attention_signal.level.value,
+                    "reason": attention_signal.reason,
+                },
+                intent=self.intent_engine.to_dict(),
+                friction=friction.to_dict(),
+            ),
         )
 
     def _minimal_update(self, event: Event, attention_signal: AttentionSignal) -> None:
@@ -411,20 +453,23 @@ class StealthLoop:
             friction,
             None,
         )
-        self._last = LoopResult(
-            event_id=event.event_id,
-            decision=Decision.NONE,
-            intervention_id="",
-            predictions=[],
-            trace={},
-            experience_id=self._experience.experience_id if self._experience else "",
-            attention={
-                "should_attend": attention_signal.should_attend,
-                "level": attention_signal.level.value,
-                "reason": attention_signal.reason,
-            },
-            intent=self.intent_engine.to_dict(),
-            friction=friction.to_dict(),
+        self._set_last_result(
+            event.event_id,
+            LoopResult(
+                event_id=event.event_id,
+                decision=Decision.NONE,
+                intervention_id="",
+                predictions=[],
+                trace={},
+                experience_id=self._experience.experience_id if self._experience else "",
+                attention={
+                    "should_attend": attention_signal.should_attend,
+                    "level": attention_signal.level.value,
+                    "reason": attention_signal.reason,
+                },
+                intent=self.intent_engine.to_dict(),
+                friction=friction.to_dict(),
+            ),
         )
 
     def _attach_cloud(self, slot: _CloudSlot, key: str, value: Any) -> None:
@@ -880,6 +925,10 @@ class StealthLoop:
 
     @property
     def last_result(self) -> LoopResult | None:
+        """Result of the last event emitted on the calling thread (else the last overall)."""
+        tls = getattr(self, "_tls", None)
+        if tls is not None and hasattr(tls, "last"):
+            return tls.last
         return getattr(self, "_last", None)
 
     def get_standing_context(self, *, host: str = "", task: str = "", max_chars: int = 2000) -> str:

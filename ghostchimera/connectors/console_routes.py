@@ -2117,8 +2117,15 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             event = Event.from_dict(data.get("event") if "event" in data else data)
         except (KeyError, TypeError, ValueError) as exc:
             return {"ok": False, "error": f"bad event: {exc}"}
-        delivered = loop.emit(event)
-        result = loop.last_result
+        # emit_and_get returns this request's own result, never one from a
+        # concurrent request on the shared service loop.
+        emit_and_get = getattr(loop, "emit_and_get", None)
+        if callable(emit_and_get):
+            result = emit_and_get(event)
+            delivered = result is not None
+        else:
+            delivered = loop.emit(event)
+            result = loop.last_result
         return {
             "ok": True,
             "delivered": delivered,

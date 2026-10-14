@@ -78,7 +78,8 @@ class WorkflowLearner:
     # -- hypotheses ------------------------------------------------------
     def hypotheses(self) -> list[WorkflowHypothesis]:
         learned: list[WorkflowHypothesis] = []
-        for pattern, support in self._counts.items():
+        # Snapshot: observe() may insert from another thread mid-iteration.
+        for pattern, support in list(self._counts.items()):
             if support < self.min_support:
                 continue
             name = "learned:" + "→".join(pattern)
