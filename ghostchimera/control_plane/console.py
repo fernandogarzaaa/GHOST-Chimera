@@ -5954,16 +5954,22 @@ def _console_url(server: GatewayServer) -> str:
     return f"http://{server.host}:{http_port}/"
 
 
-def harden_state_permissions(state_dir: str | Path, *, max_entries: int = 5000) -> None:
-    """Set ``umask 077`` for this process and chmod existing state to 0600/0700.
+def harden_state_permissions(state_dir: str | Path, *, max_entries: int = 5000, set_umask: bool = True) -> int | None:
+    """Chmod existing state to 0600/0700 and, by default, set ``umask 077``.
 
     The console's databases, trust journals, audit logs and logs are only
     safe while the parent stays 0700; with a shared ``--state-dir`` they were
     world-readable. POSIX only; best effort (a file we cannot chmod is left).
+
+    ``set_umask`` changes the umask of the *whole process*, so only the
+    process-owning entry point (``run_console(block=True)``: the CLI and the
+    packaged app) should pass it. Embedded/in-process callers pass
+    ``set_umask=False``. Returns the previous umask when it was changed, so
+    a caller can restore it.
     """
     if os.name != "posix":
-        return
-    os.umask(0o077)
+        return None
+    previous = os.umask(0o077) if set_umask else None
     root = Path(state_dir).expanduser()
     if not root.is_dir():
         return
@@ -5986,6 +5992,7 @@ def harden_state_permissions(state_dir: str | Path, *, max_entries: int = 5000) 
                     path.chmod(path.stat().st_mode & 0o700 | 0o600)
         if seen >= max_entries:
             break
+    return previous
 
 
 def run_console(
@@ -6033,9 +6040,12 @@ def run_console(
         )
     from .console_secrets import load_or_create_console_secrets
 
-    # Owner-only state (redteam P2-2): every file/dir the console creates from
-    # here on is 0600/0700, and pre-existing state is tightened once.
-    harden_state_permissions(state_dir or config.state_dir)
+    # Owner-only state (redteam P2-2): pre-existing state is tightened once.
+    # The process-wide umask 077 is only set when this call owns the process
+    # (block=True: CLI / packaged app). An embedded, non-blocking console
+    # (tests, E2E harnesses, the desktop shell) must not change the umask of
+    # its host process; the state files themselves are written owner-only.
+    harden_state_permissions(state_dir or config.state_dir, set_umask=block)
 
     # Token required by default: a missing --auth-token no longer means an
     # open API. The per-install token lives owner-only next to the state.
