@@ -5972,7 +5972,7 @@ def harden_state_permissions(state_dir: str | Path, *, max_entries: int = 5000, 
     previous = os.umask(0o077) if set_umask else None
     root = Path(state_dir).expanduser()
     if not root.is_dir():
-        return
+        return previous
     seen = 0
     with contextlib.suppress(OSError):
         root.chmod(0o700)

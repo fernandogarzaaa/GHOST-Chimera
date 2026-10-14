@@ -6,6 +6,8 @@ import contextlib
 import io
 import os
 import stat
+import threading
+import time
 from unittest import mock
 
 import pytest
@@ -65,6 +67,8 @@ def test_set_umask_false_tightens_files_without_touching_process_umask(tmp_path)
         assert stat.S_IMODE(db.stat().st_mode) == 0o600
         assert harden_state_permissions(state) == 0o022  # returns the previous umask
         assert _current_umask() == 0o077
+        os.umask(0o022)
+        assert harden_state_permissions(tmp_path / "missing") == 0o022  # even with no state dir yet
     finally:
         os.umask(old)
 
@@ -88,8 +92,14 @@ def test_embedded_non_blocking_console_does_not_change_host_umask(tmp_path) -> N
 def test_blocking_console_entry_sets_owner_only_umask(tmp_path) -> None:
     old = os.umask(0o022)
     seen: list[int] = []
+    real_sleep = time.sleep
 
-    def _interrupt(_seconds: float) -> None:
+    def _interrupt(seconds: float) -> None:
+        # ``time`` is shared: only the console's own blocking loop (main
+        # thread) is interrupted; background threads keep sleeping normally.
+        if threading.current_thread() is not threading.main_thread():
+            real_sleep(seconds)
+            return
         seen.append(_current_umask())
         raise KeyboardInterrupt
 
