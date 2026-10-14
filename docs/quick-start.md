@@ -17,19 +17,24 @@ Nebius Token Factory and bundled with the package.
 Get a key at [console.nebius.com](https://console.nebius.com) (Token Factory → API keys), then:
 
 ```bash
-export GHOSTCHIMERA_MODEL_PROVIDER=nebius
 export NEBIUS_API_KEY=your-token-factory-key
+ghost doctor                       # shows "Provider: nebius (auto-detected from NEBIUS_API_KEY)"
 ghost ask "In one sentence, what is NVIDIA Nemotron?"
-ghost demo --record session.json   # record your own live Nemotron session
+ghost demo --record session.json   # live Nemotron session, one progress line per event
 ```
 
 On Windows PowerShell:
 
 ```powershell
-$env:GHOSTCHIMERA_MODEL_PROVIDER = "nebius"
 $env:NEBIUS_API_KEY = "your-token-factory-key"
 ghost ask "In one sentence, what is NVIDIA Nemotron?"
 ```
+
+No `GHOSTCHIMERA_MODEL_PROVIDER` is needed: a lone `NEBIUS_API_KEY` selects Nebius. To pin
+it explicitly, set `GHOSTCHIMERA_MODEL_PROVIDER=nebius` (PowerShell:
+`$env:GHOSTCHIMERA_MODEL_PROVIDER = "nebius"`); `GHOSTCHIMERA_MODEL_PROVIDER` always wins, so
+set it to another value only to pick a different provider. Change the model with
+`NEBIUS_MODEL` (default `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`).
 
 `ghost setup` offers Nebius Token Factory as the first (default) provider and can save the
 key to your config instead. Without any provider configured, `ghost ask` only has the

@@ -1049,9 +1049,9 @@ def _run_main(argv: list[str] | None = None) -> int:
         try:
             executions = kernel.run(args.pilot_run)
         except NoBackendAvailableError as exc:
-            from .provider_hint import print_no_provider
+            from .provider_hint import print_no_backend
 
-            print_no_provider(args.pilot_run, str(exc))
+            print_no_backend(args.pilot_run, str(getattr(exc, "task_kind", "") or ""), str(exc))
             return 2
         except PermissionError as exc:
             print(
@@ -1243,11 +1243,22 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
                 if primary_output
                 else "the offline deterministic backend could not fulfil this task, so there is no answer"
             )
-            print(
-                f"note: no model provider is configured, so {what}. Run `ghostchimera setup`, "
-                "or set NEBIUS_API_KEY (Nemotron on Nebius Token Factory) or another provider key.",
-                file=sys.stderr,
-            )
+            from .provider_hint import _keys_already_set
+
+            already = _keys_already_set()
+            if already:
+                print(
+                    f"note: {', '.join(already)} is set but no model provider came up, so {what}. "
+                    "Check GHOSTCHIMERA_MODEL_PROVIDER (e.g. `export GHOSTCHIMERA_MODEL_PROVIDER=nebius`) "
+                    "and run `ghost doctor`.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"note: no model provider is configured, so {what}. Run `ghostchimera setup`, "
+                    "or set NEBIUS_API_KEY (Nemotron on Nebius Token Factory) or another provider key.",
+                    file=sys.stderr,
+                )
     return 0 if all(item["ok"] for item in payload) else 1
 
 

@@ -99,7 +99,8 @@ class GhostTransport:
                     self._send(
                         {
                             "ok": True,
-                            "events_processed": loop.bus.processed,
+                            "events_processed": getattr(loop, "events_processed", loop.bus.processed),
+                            "nemotron": loop.cloud_status() if hasattr(loop, "cloud_status") else None,
                             "interventions": len(loop.interventions),
                             "workflows": len(loop.learner.hypotheses()),
                             "experience": loop.graph.snapshot(),

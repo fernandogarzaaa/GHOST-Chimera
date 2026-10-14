@@ -44,6 +44,19 @@ def _restore_process_umask():
         os.umask(before)
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_provider_keys(monkeypatch):
+    """Keep a developer's real NEBIUS_API_KEY out of the default test run.
+
+    A lone NEBIUS_API_KEY auto-selects the Nebius provider and turns on the
+    Stealth Loop's Nemotron reasoner, so tests that build a default kernel or
+    loop would make paid network calls. Tests that need the key set it
+    explicitly; set GHOSTCHIMERA_LIVE_TESTS=1 to keep the real one.
+    """
+    if os.environ.get("GHOSTCHIMERA_LIVE_TESTS") != "1":
+        monkeypatch.delenv("NEBIUS_API_KEY", raising=False)
+
+
 @pytest.fixture
 def kernel():
     """Kernel with deterministic backend for reliable integration tests."""

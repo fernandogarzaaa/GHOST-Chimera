@@ -8,6 +8,7 @@ so tool decisions are always scheduled through the Chimera Pilot pipeline.
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -196,6 +197,62 @@ class Classification:
     requires_action: str | None = None
     message: str = ""
 
+    @property
+    def is_recoverable(self) -> bool:
+        """Alias matching ``error_classifier.AutoRecoveryPlan.is_recoverable``."""
+        return self.recoverable
+
+
+# HTTP status -> classification key. Real provider errors carry the status
+# ("HTTP Error 429: Too Many Requests", "Error code: 429 - {...}",
+# "nebius API returned HTTP 503: ..."), so match on it first.
+_STATUS_KEYS: dict[int, str] = {
+    401: "authentication",
+    403: "authentication",
+    404: "model_not_found",
+    408: "overloaded",
+    413: "context_length",
+    429: "rate_limit",
+    500: "overloaded",
+    502: "overloaded",
+    503: "overloaded",
+    504: "overloaded",
+    529: "overloaded",
+}
+
+_STATUS_RE = re.compile(
+    r"(?:http(?:\s+error)?|status(?:\s+code)?|error\s+code|returned\s+http|code)\s*[:=]?\s*(\d{3})\b"
+    r"|^\s*(\d{3})\s+[a-z]",
+    re.IGNORECASE,
+)
+
+# Ordered: quota before rate limit (OpenAI sends quota errors as 429 too),
+# context length before generic 400s. Patterns match the real Nebius/OpenAI
+# error text, not only snake_case codes.
+_TEXT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("insufficient_quota", re.compile(r"insufficient[_ ]quota|exceeded your current quota|billing|out of credits")),
+    (
+        "context_length",
+        re.compile(
+            r"context[_ ]length|maximum context|context window|too many tokens|prompt is too long"
+            r"|reduce the length|max_tokens.*exceed|input is too long"
+        ),
+    ),
+    ("authentication", re.compile(r"unauthori[sz]ed|invalid api key|incorrect api key|authenticat|forbidden")),
+    ("rate_limit", re.compile(r"rate[_ ]?limit|too many requests|requests per minute|throttl")),
+    (
+        "model_not_found",
+        re.compile(r"model[_ ]not[_ ]found|model .*(?:does not exist|not found)|no such model|unknown model"),
+    ),
+    (
+        "overloaded",
+        re.compile(
+            r"overloaded|service unavailable|bad gateway|gateway time-?out|temporarily unavailable"
+            r"|server error|timed out|timeout|connection (?:reset|refused|aborted)|remote end closed"
+        ),
+    ),
+]
+
 
 class ErrorClassifier:
     """Classify LLM/provider errors and recommend recovery strategies."""
@@ -241,14 +298,51 @@ class ErrorClassifier:
     ]
 
     @classmethod
-    def classify(cls, error_msg: str, error_type: str | None = None) -> Classification:
-        full_text = f"{error_type or ''} {error_msg}".lower()
-        for keyword, classification in cls.CLASSIFICATIONS:
-            if keyword == "default":
-                continue
-            if keyword in full_text:
+    def _by_key(cls, key: str) -> Classification:
+        for name, classification in cls.CLASSIFICATIONS:
+            if name == key:
                 return classification
+        return cls.CLASSIFICATIONS[-1][1]
+
+    @staticmethod
+    def status_of(error_msg: str) -> int | None:
+        """Extract an HTTP status code from provider error text, if present."""
+        for match in _STATUS_RE.finditer(error_msg or ""):
+            code = match.group(1) or match.group(2)
+            if code:
+                value = int(code)
+                if 400 <= value <= 599:
+                    return value
+        return None
+
+    @classmethod
+    def classify(cls, error_msg: str, error_type: str | None = None, status: int | None = None) -> Classification:
+        full_text = f"{error_type or ''} {error_msg}".lower()
+        # Text that names the cause precisely (quota, context length) beats the
+        # status: OpenAI reports insufficient_quota as a 429.
+        for key, pattern in _TEXT_PATTERNS[:2]:
+            if pattern.search(full_text):
+                return cls._by_key(key)
+        code = status if status is not None else cls.status_of(str(error_msg))
+        if code is not None and code in _STATUS_KEYS:
+            return cls._by_key(_STATUS_KEYS[code])
+        for key, pattern in _TEXT_PATTERNS[2:]:
+            if pattern.search(full_text):
+                return cls._by_key(key)
+        if code is not None and code >= 500:
+            return cls._by_key("overloaded")
         return cls.CLASSIFICATIONS[-1][1]  # default
+
+    @classmethod
+    def classify_exception(cls, exc: BaseException) -> Classification:
+        """Classify an exception, using its ``status``/``code`` attribute when set."""
+        status: int | None = None
+        for attr in ("status", "status_code", "code", "http_status"):
+            value = getattr(exc, attr, None)
+            if isinstance(value, int) and 400 <= value <= 599:
+                status = value
+                break
+        return cls.classify(str(exc), type(exc).__name__, status=status)
 
 
 # ---------------------------------------------------------------------------
@@ -396,7 +490,7 @@ class AIAgent:
             try:
                 response = self._call_model(tools=tools)
             except Exception as exc:
-                classification = self.error_classifier.classify(str(exc))
+                classification = self.error_classifier.classify_exception(exc)
                 recovery = self._recover(exc, classification)
                 if not recovery:
                     raise
@@ -514,12 +608,7 @@ class AIAgent:
 
                 # Use kernel if available for structured routing
                 if self.router:
-                    response = self.router.complete(
-                        model=model,
-                        messages=messages,
-                        tools=tools or [],
-                        max_tokens=self.max_tokens,
-                    )
+                    response = self._router_complete(model, messages, tools)
                     if response:
                         self.kernel.hooks.fire(
                             HookName.LLM_OUTPUT,
@@ -554,6 +643,34 @@ class AIAgent:
                 continue
 
         raise RuntimeError(f"All models in fallback chain failed: {last_exception}")
+
+    def _router_complete(
+        self, model: str, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None
+    ) -> dict[str, Any] | None:
+        """Call the router, adapting the real ``ModelRouter`` (``route()`` only).
+
+        Routers that implement ``complete(**kw) -> dict`` (tool-calling capable)
+        are used directly; :class:`ModelRouter` only exposes
+        ``route(system, user) -> str``, so flatten the transcript for it and
+        wrap the text answer as a plain (tool-less) response.
+        """
+        router = self.router
+        complete = getattr(router, "complete", None)
+        if callable(complete):
+            return complete(model=model, messages=messages, tools=tools or [], max_tokens=self.max_tokens)
+        route = getattr(router, "route", None)
+        if not callable(route):
+            raise TypeError(f"router {type(router).__name__} has neither complete() nor route()")
+        system_parts = [str(m.get("content") or "") for m in messages if m.get("role") == "system"]
+        convo = [m for m in messages if m.get("role") != "system"]
+        if len(convo) == 1:
+            user_text = str(convo[0].get("content") or "")
+        else:
+            user_text = "\n\n".join(f"{m.get('role', 'user')}: {m.get('content') or ''}" for m in convo)
+        text = route("\n\n".join(p for p in system_parts if p) or self.system_prompt, user_text)
+        if not text:
+            return None
+        return {"content": str(text), "finish_reason": "stop"}
 
     def _execute_tool_calls(
         self,
@@ -749,7 +866,7 @@ class AIAgent:
     def _recover(self, exc: Exception, classification: Classification) -> bool:
         """Attempt error recovery. Returns True if recovered."""
         logger.info("Error recovery: %s", classification.message)
-        if not classification.is_recoverable:
+        if not getattr(classification, "is_recoverable", getattr(classification, "recoverable", False)):
             return False
         if classification.retry and classification.backoff_seconds > 0:
             time.sleep(classification.backoff_seconds)
