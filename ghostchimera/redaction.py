@@ -71,6 +71,11 @@ def redact_text(
     return redacted
 
 
+def redact_secrets_text(text: str) -> str:
+    """Scrub every known credential shape (local + egress patterns), keep PII."""
+    return redact_text(str(text), patterns=SECRET_PATTERNS + EGRESS_SECRET_PATTERNS)
+
+
 def redact_value(
     value: Any,
     *,
@@ -209,6 +214,7 @@ __all__ = [
     "is_secret_env_key",
     "redact_for_egress",
     "redact_pii_text",
+    "redact_secrets_text",
     "redact_text",
     "redact_value",
     "scrubbed_environ",

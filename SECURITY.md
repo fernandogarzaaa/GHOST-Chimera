@@ -39,6 +39,10 @@ The Ghost Console HTTP API (`ghostchimera console` / `start`) is never open by d
 - POST/PUT/PATCH/DELETE requests with a foreign or `null` `Origin`, or `Sec-Fetch-Site: cross-site`, are refused, and must be `Content-Type: application/json` (signed `/api/webhooks/` deliveries excepted, see below);
 - unrestricted host execution is armed only with this install's random arming phrase, stored in the same file and never returned by the API.
 
+### Memory file ingest
+
+`POST /api/console/memory/ingest-file` and the `path` form of `ingest-email` only read files under the directory the console was started in, plus directories listed in `GHOSTCHIMERA_INGEST_ROOTS` (`os.pathsep`-separated; `/` is never accepted). Paths are resolved (symlinks followed) before the check. The Ghost state directory (including `console_secrets.json`), dotfiles and dot-directories (`.ssh`, `.env`, `.git`, ...) and secret-looking names (`*.pem`, `id_rsa`, `credentials`, `*secret*`, ...) are refused, and every stored chunk is scrubbed of credentials and the host-execution arming phrase.
+
 ### Inbound provider webhooks
 
 `POST /api/webhooks/{slack,gmail,zendesk}/{va_id}` cannot carry the console token, so each delivery must prove it came from the provider. Nothing is accepted until a secret is configured (fail closed):

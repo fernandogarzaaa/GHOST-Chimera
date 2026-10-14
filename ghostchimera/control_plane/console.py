@@ -94,6 +94,8 @@ from .evolution import (
     upsert_candidate,
 )
 from .host_execution import HostExecutionStore
+from .ingest_guard import IngestPathError, RedactingMemoryStore, check_ingest_path, iter_allowed_files
+from .ingest_guard import allowed_roots as allowed_ingest_roots
 from .latency import latency_summary, record_latency_event
 from .live_presence import LivePresenceStore
 from .local_voice import LocalVoiceTranscriber
@@ -2612,6 +2614,9 @@ def register_console_routes(
         row_id = store.add_document(source, content, metadata=metadata)
         return {"ok": True, "id": row_id, "count": store.count()}
 
+    def _ingest_denied_dirs() -> list[Path]:
+        return [console_state_dir, Path(server.config.state_dir)]
+
     def memory_ingest_email(ctx: dict[str, Any]) -> dict[str, Any]:
         """Ingest email content into personal memory.
 
@@ -2627,12 +2632,15 @@ def register_console_routes(
         path = str(body.get("path") or "").strip()
 
         store = MemoryStore(server.config.memory_db)
-        ingester = EmailIngester(store)
+        ingester = EmailIngester(RedactingMemoryStore(store))  # type: ignore[arg-type]
 
         if raw:
             result = ingester.ingest_raw_email(raw)
         elif path:
-            p = Path(path).expanduser()
+            try:
+                p = check_ingest_path(path, state_dir=_ingest_denied_dirs())
+            except IngestPathError as exc:
+                return {"ok": False, "error": str(exc)}
             if not p.exists():
                 return {"ok": False, "error": f"File not found: {path}"}
             result = ingester.ingest_mbox_file(p) if p.suffix.lower() == ".mbox" else ingester.ingest_eml_file(p)
@@ -2664,15 +2672,29 @@ def register_console_routes(
         if not path:
             return {"ok": False, "error": "Provide a 'path' to a file or directory"}
 
-        p = Path(path).expanduser()
+        try:
+            p = check_ingest_path(path, state_dir=_ingest_denied_dirs())
+        except IngestPathError as exc:
+            return {"ok": False, "error": str(exc)}
         if not p.exists():
             return {"ok": False, "error": f"Path not found: {path}"}
 
         store = MemoryStore(server.config.memory_db)
-        ingester = DocumentIngester(store)
+        ingester = DocumentIngester(RedactingMemoryStore(store))  # type: ignore[arg-type]
 
         if p.is_dir():
-            result = ingester.ingest_directory(p, max_files=max_files)
+            from ..personalization.document_ingester import DocumentIngestResult
+
+            result = DocumentIngestResult()
+            files = iter_allowed_files(
+                p, state_dir=_ingest_denied_dirs(), roots=allowed_ingest_roots(), limit=max(1, min(max_files, 500))
+            )
+            for file_path in files:
+                sub = ingester.ingest_file(file_path, source_prefix=p.name)
+                result.ingested += sub.ingested
+                result.skipped += sub.skipped
+                result.chunks += sub.chunks
+                result.errors.extend(sub.errors)
         else:
             result = ingester.ingest_file(p, source_prefix=source)
 

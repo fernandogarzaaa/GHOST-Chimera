@@ -1539,9 +1539,15 @@ class ConsoleRouteTests(unittest.TestCase):
             self.assertTrue(r["ok"])
             self.assertEqual(r["ingested"], 1)
 
-            # Ingest a text file
-            txt = base / "notes.txt"
+            # Ingest a text file. Ingest is confined to allowed roots and never
+            # the state dir (redteam P0-2), so the doc lives in its own workspace.
+            docs = Path(tempfile.mkdtemp(prefix="ghostchimera-ingest-docs-"))
+            self.addCleanup(lambda: __import__("shutil").rmtree(docs, ignore_errors=True))
+            txt = docs / "notes.txt"
             txt.write_text("Ghost is local-first.", encoding="utf-8")
+            roots_env = patch.dict("os.environ", {"GHOSTCHIMERA_INGEST_ROOTS": str(docs)})
+            roots_env.start()
+            self.addCleanup(roots_env.stop)
             r2 = file_route.handler(
                 {
                     "method": "POST",
