@@ -15,6 +15,7 @@ from ..model_layer.providers import get_provider
 from ..safety_layer.production import ProductionGuardrails
 from .colors import Colors, color, print_error, print_header, print_info, print_success, print_warning
 from .config import CONFIG_FILE, config_to_env_vars, ensure_state_dir, load_config
+from .prog_name import prog_name
 
 
 def _check(label: str, ok: bool, hint: str = "") -> None:
@@ -107,7 +108,7 @@ def doctor_checks(*, production: bool = False) -> dict[str, Any]:
         record(f"Config exists at {CONFIG_FILE}", True)
         passed += 1
     else:
-        record("Config file", False, "Run 'ghostchimera setup' to configure")
+        record("Config file", False, f"Run '{prog_name()} setup' to configure")
         warned += 1
 
     # Provider status
@@ -227,7 +228,7 @@ def run_doctor(*, production: bool = False) -> int:
     print(f"  Result: {payload['passed']} passed, {payload['warned']} warnings, {payload['errors']} errors")
     print()
     if payload["errors"] > 0:
-        print_info("Run 'ghostchimera setup' to fix configuration issues.")
+        print_info(f"Run '{prog_name()} setup' to fix configuration issues.")
     print()
     return 0 if payload["errors"] == 0 else 1
 

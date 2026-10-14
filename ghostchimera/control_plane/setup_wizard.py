@@ -28,6 +28,7 @@ from .config import (
     load_config,
     save_config,
 )
+from .prog_name import prog_name
 
 _LOCAL_PROFILES = ["tiny", "balanced", "stronger"]
 
@@ -53,7 +54,7 @@ def print_noninteractive_guidance() -> None:
     print("Configure Ghost Chimera using environment variables:")
     print()
     print("  # Try it first with no key at all (replays a recorded Nemotron session):")
-    print("  ghost demo")
+    print(f"  {prog_name()} demo")
     print()
     print("  # Nebius Token Factory — NVIDIA Nemotron (recommended):")
     print("  # key: https://console.nebius.com  (Token Factory -> API keys)")
@@ -80,7 +81,7 @@ def print_noninteractive_guidance() -> None:
     print("  export GHOSTCHIMERA_MODEL_PROVIDER=minimind")
     print("  export MINIMIND_MODEL_PROFILE=tiny")
     print()
-    print("  # Or run 'ghostchimera setup' in an interactive terminal.")
+    print(f"  # Or run '{prog_name()} setup' in an interactive terminal.")
     print()
 
 
@@ -565,10 +566,10 @@ def _show_summary(config: dict) -> None:
     print_info(f"  Config saved to: {CONFIG_FILE}")
     print()
     print_info("  To start chatting:")
-    print_info("    ghostchimera")
+    print_info(f"    {prog_name()}")
     print()
     print_info("  To check your setup:")
-    print_info("    ghostchimera doctor")
+    print_info(f"    {prog_name()} doctor")
     print()
 
 
@@ -583,7 +584,7 @@ def run_setup_wizard() -> None:
     print(color("═" * 50, Colors.DIM))
     print()
     print_info("This wizard will configure Ghost Chimera step by step.")
-    print_info("You can always re-run 'ghostchimera setup' later to change anything.")
+    print_info(f"You can always re-run '{prog_name()} setup' later to change anything.")
     print()
 
     ensure_state_dir()

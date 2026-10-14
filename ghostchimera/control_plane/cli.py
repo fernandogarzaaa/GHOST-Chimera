@@ -112,13 +112,9 @@ def _first_command_token(argv: list[str]) -> str:
 
 def _prog_name() -> str:
     """The command name the user actually typed (``ghost`` or ``ghostchimera``)."""
-    name = Path(sys.argv[0] or "").name if sys.argv else ""
-    for suffix in (".exe", ".py"):
-        if name.lower().endswith(suffix):
-            name = name[: -len(suffix)]
-    if name in {"ghost", "ghostchimera"}:
-        return name
-    return "ghost"
+    from .prog_name import prog_name
+
+    return prog_name()
 
 
 def _edit_distance(a: str, b: str) -> int:
@@ -1189,7 +1185,7 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
         payload = {
             "ok": False,
             "error": str(exc),
-            "tip": "Run `ghostchimera setup` to tune permissions and model setup.",
+            "tip": f"Run `{_prog_name()} setup` to tune permissions and model setup.",
         }
         if args.json:
             print(json.dumps(payload, indent=2, sort_keys=True))

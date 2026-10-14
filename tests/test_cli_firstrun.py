@@ -289,3 +289,47 @@ def test_model_picker_eof_on_tty_cancels_without_traceback(tmp_path, monkeypatch
     assert model_picker.run_model_picker() == 1
     assert "Cancelled" in capsys.readouterr().out
     assert saved == {}
+
+
+# --- newcomer P2-13: hints use the command name the user typed ---
+
+
+@pytest.mark.parametrize(
+    ("argv0", "expected"),
+    [
+        ("/usr/local/bin/ghost", "ghost"),
+        ("/home/u/.venv/bin/ghostchimera", "ghostchimera"),
+        ("C:\\venv\\Scripts\\ghostchimera.exe", "ghostchimera"),
+        ("ghost-script.py", "ghost"),
+        ("/x/ghostchimera/__main__.py", "ghost"),
+        ("", "ghost"),
+    ],
+)
+def test_prog_name_follows_argv0(argv0, expected) -> None:
+    from ghostchimera.control_plane.prog_name import prog_name
+
+    if "\\" in argv0 and sys.platform != "win32":
+        argv0 = argv0.split("\\")[-1]
+    assert prog_name(argv0) == expected
+
+
+@pytest.mark.parametrize("typed", ["ghost", "ghostchimera"])
+def test_setup_hints_echo_the_typed_command(typed, monkeypatch, capsys) -> None:
+    from ghostchimera.control_plane import setup_wizard as wizard
+
+    monkeypatch.setattr(sys, "argv", [f"/venv/bin/{typed}", "setup"])
+    wizard.print_noninteractive_guidance()
+    out = capsys.readouterr().out
+    assert f"run '{typed} setup'" in out
+    assert f"  {typed} demo" in out
+    other = "ghostchimera" if typed == "ghost" else "ghost"
+    assert f"'{other} setup'" not in out
+
+
+def test_doctor_config_hint_echoes_the_typed_command(monkeypatch, capsys) -> None:
+    from ghostchimera.control_plane import doctor
+
+    monkeypatch.setattr(sys, "argv", ["/venv/bin/ghost", "doctor"])
+    monkeypatch.setattr(doctor, "load_config", lambda: {})
+    checks = {item["label"]: item for item in doctor.doctor_checks()["checks"]}
+    assert checks["Config file"]["hint"] == "Run 'ghost setup' to configure"

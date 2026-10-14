@@ -9,6 +9,7 @@ import sys
 
 from .colors import Colors, color, print_error, print_header, print_info, print_success, print_warning
 from .config import CONFIG_FILE, load_config, save_config
+from .prog_name import prog_name
 
 _MODEL_LISTS: dict[str, list[tuple[str, str]]] = {
     "openai": [
@@ -119,7 +120,7 @@ def run_model_picker() -> int:
 
     if not _stdin_is_tty():
         print_warning("No interactive terminal, so nothing was changed.")
-        print_info("  To switch, run 'ghost model' in a terminal, or set for example:")
+        print_info(f"  To switch, run '{prog_name()} model' in a terminal, or set for example:")
         print_info("    GHOSTCHIMERA_MODEL_PROVIDER=nebius  NEBIUS_API_KEY=...")
         return 0
 
