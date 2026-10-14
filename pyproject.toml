@@ -106,6 +106,7 @@ ghostchimera = [
   "control_plane/static/*.html",
   "control_plane/static/*.js",
   "control_plane/static/*.css",
+  "demo/fixtures/*.json",
 ]
 
 [tool.ruff]
