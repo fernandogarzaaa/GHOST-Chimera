@@ -109,6 +109,9 @@ def get_service_loop(state_dir: str | Path) -> Any:
                 reasoner=reasoner,
                 grounding=grounding,
             )
+            # Pending drafts/approvals and counters survive a console restart.
+            with suppress(Exception):
+                loop.restore_from_store()
             _loops[key] = loop
         queue = getattr(loop, "approvals", None)
         if queue is not None and getattr(queue, "_authority", None) is None:

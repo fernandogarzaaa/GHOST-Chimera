@@ -2031,7 +2031,7 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 store_error = "recent-events-unavailable"
         return {
             "ok": True,
-            "events_processed": loop.bus.processed,
+            "events_processed": getattr(loop, "events_processed", loop.bus.processed),
             "recent_events": recent,
             "recent_events_error": store_error,
             "interventions": interventions,

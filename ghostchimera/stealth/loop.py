@@ -922,6 +922,65 @@ class StealthLoop:
             except Exception:
                 pass
 
+    # Interventions still in flight; terminal ones (outcome/expired) stay in
+    # the journal only.
+    RESTORABLE_STATES: tuple[str, ...] = (
+        "created",
+        "queued",
+        "preparing",
+        "ready",
+        "injected",
+        "executed",
+        "consumed",
+    )
+
+    def restore_from_store(self) -> dict[str, int]:
+        """Rehydrate non-terminal interventions, workflows and counters from the journal.
+
+        Called once at service start so pending drafts/approvals and the
+        events-processed counter survive a console restart.
+        """
+        restored = {"interventions": 0, "workflows": 0, "events": 0}
+        if self.store is None:
+            return restored
+        with self._lock:
+            try:
+                rows = self.store.load_interventions(self.RESTORABLE_STATES)
+            except Exception as exc:
+                logger.warning("Could not reload interventions from the journal: %s", exc)
+                rows = []
+            for row in rows:
+                if row.get("id") in self.interventions:
+                    continue
+                try:
+                    intervention = Intervention.from_row(row)
+                except Exception:
+                    continue
+                self.interventions[intervention.id] = intervention
+                restored["interventions"] += 1
+            try:
+                for wf in self.store.load_workflows():
+                    self.learner.restore(
+                        str(wf["name"]),
+                        list(wf.get("pattern") or []),
+                        int(wf.get("support") or 0),
+                        explicit=bool(wf.get("explicit")),
+                    )
+                    restored["workflows"] += 1
+            except Exception as exc:
+                logger.warning("Could not reload workflows from the journal: %s", exc)
+            try:
+                self._journaled_events = int(self.store.count_events())
+            except Exception:
+                self._journaled_events = 0
+            restored["events"] = self._journaled_events
+        return restored
+
+    @property
+    def events_processed(self) -> int:
+        """Events handled by this process plus those journaled before it started."""
+        return int(getattr(self, "_journaled_events", 0)) + self.bus.processed
+
     def sync_workflows(self) -> int:
         """Persist learned hypotheses (consolidation pass; call periodically)."""
         if self.store is None:
