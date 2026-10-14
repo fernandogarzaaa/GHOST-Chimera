@@ -71,3 +71,52 @@ def test_objectives_that_are_not_typos_still_run_as_ask(argv, monkeypatch) -> No
     monkeypatch.setattr(sys, "argv", ["ghost", *argv])
     assert cli._main(argv) == 0
     assert ran == [" ".join(argv)]
+
+
+# --- newcomer P1-5 (brief: P1-7): Ctrl-C prints one line, exit 130 ---
+
+
+def test_keyboard_interrupt_exits_130_with_one_line(monkeypatch, capsys) -> None:
+    def _interrupt(args):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "_run_ask_cli", _interrupt)
+    monkeypatch.setattr(sys, "argv", ["ghost", "summarize", "my", "workspace"])
+    assert cli._main(["summarize", "my", "workspace"]) == 130
+    captured = capsys.readouterr()
+    assert captured.err.strip() == "Interrupted."
+    assert "Traceback" not in captured.err + captured.out
+
+
+def test_sigint_in_a_real_process_exits_130_without_traceback(tmp_path) -> None:
+    import signal
+    import subprocess
+    import time
+
+    if sys.platform == "win32":
+        pytest.skip("POSIX signal delivery")
+    script = (
+        "import sys, time\n"
+        "from ghostchimera.control_plane import cli\n"
+        "def _slow(args):\n"
+        "    print('ready', flush=True)\n"
+        "    time.sleep(30)\n"
+        "    return 0\n"
+        "cli._run_ask_cli = _slow\n"
+        "sys.exit(cli._main(['summarize', 'this']))\n"
+    )
+    env = {**__import__("os").environ, "HOME": str(tmp_path), "GHOSTCHIMERA_STATE_DIR": str(tmp_path / ".gc")}
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env
+    )
+    try:
+        assert proc.stdout.readline().strip() == "ready"
+        time.sleep(0.2)
+        proc.send_signal(signal.SIGINT)
+        _out, err = proc.communicate(timeout=20)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    assert proc.returncode == 130
+    assert "Traceback" not in err
+    assert err.strip().splitlines()[-1] == "Interrupted."

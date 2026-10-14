@@ -12,6 +12,7 @@ and processes user input in a loop until the user types ``exit`` or
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -198,6 +199,17 @@ def run_cli() -> None:
 
 
 def _main(argv: list[str] | None = None) -> int:
+    """Console entry point: run the CLI, turning Ctrl-C into one line and exit 130."""
+    try:
+        return _run_main(argv)
+    except KeyboardInterrupt:
+        with contextlib.suppress(Exception):  # stdout may already be closed
+            sys.stdout.flush()
+        print("\nInterrupted.", file=sys.stderr)
+        return 130
+
+
+def _run_main(argv: list[str] | None = None) -> int:
     # If parallel flags are present, delegate to parallel_cli
     effective_argv = list(sys.argv[1:] if argv is None else argv)
     if _first_command_token(effective_argv) in _PARALLEL_COMMANDS:
