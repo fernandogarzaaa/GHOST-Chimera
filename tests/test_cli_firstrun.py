@@ -95,8 +95,11 @@ def test_sigint_in_a_real_process_exits_130_without_traceback(tmp_path) -> None:
 
     if sys.platform == "win32":
         pytest.skip("POSIX signal delivery")
+    # A background runner (nohup, `&`, some CI shells) starts children with
+    # SIGINT ignored; restore the interactive-terminal default first.
     script = (
-        "import sys, time\n"
+        "import signal, sys, time\n"
+        "signal.signal(signal.SIGINT, signal.default_int_handler)\n"
         "from ghostchimera.control_plane import cli\n"
         "def _slow(args):\n"
         "    print('ready', flush=True)\n"
