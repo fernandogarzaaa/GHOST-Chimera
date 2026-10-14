@@ -79,6 +79,20 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _payload_unit(payload: Any, key: str, default: Any) -> float:
+    """Producer-supplied score coerced to [0, 1].
+
+    ``"high"``, ``None`` or garbage must not abort the event (it used to raise
+    after the paid cloud call and leave ``last_result`` on the previous event).
+    """
+    from .nemotron_reasoning import coerce_unit
+
+    fallback = coerce_unit(default, default=0.0)
+    if not isinstance(payload, dict) or payload.get(key) is None:
+        return fallback
+    return coerce_unit(payload.get(key), default=fallback)
+
+
 @dataclass
 class _CloudSlot:
     """Where an event's cloud results land, whenever they arrive.
@@ -231,6 +245,9 @@ class StealthLoop:
         return self.bus.emit(event)
 
     def _on_event(self, event: Event) -> None:
+        # Never leave last_result pointing at a previous event: if anything
+        # below raises, readers see None rather than the wrong decision.
+        self._last = None
         attention_signal = self.attention.evaluate(event)
         self.attention.update_perception(attention_signal.level)
 
@@ -278,21 +295,20 @@ class StealthLoop:
             self._interventions_1h.popleft()
 
         primary_intent = self.intent_engine.get_primary()
-        base_confidence = float(
-            event.payload.get(
-                "confidence",
-                hypothesis.confidence if hypothesis else event.confidence,
-            )
+        base_confidence = _payload_unit(
+            event.payload,
+            "confidence",
+            hypothesis.confidence if hypothesis else event.confidence,
         )
         if base_confidence >= 0.31 and primary_intent and primary_intent.confidence > 0.7:
             base_confidence = max(base_confidence, primary_intent.confidence * 0.9)
 
         signals = EvaluationSignals(
-            relevance=float(event.payload.get("relevance", 0.5 if hypothesis else 0.2)),
+            relevance=_payload_unit(event.payload, "relevance", 0.5 if hypothesis else 0.2),
             confidence=base_confidence,
-            user_benefit=float(event.payload.get("benefit", 0.5)),
-            cost=float(event.payload.get("cost", 0.2)),
-            risk=float(event.payload.get("risk", 0.1)),
+            user_benefit=_payload_unit(event.payload, "benefit", 0.5),
+            cost=_payload_unit(event.payload, "cost", 0.2),
+            risk=_payload_unit(event.payload, "risk", 0.1),
             external_side_effect=False,
             privacy_ok=event.privacy_classification != "secret",
             intervention_count_1h=len(self._interventions_1h),

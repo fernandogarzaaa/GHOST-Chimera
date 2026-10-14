@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import inspect
 import json
+import math
 import os
+import re
 from typing import Any
 
 from ..logging_config import get_logger
@@ -117,6 +119,164 @@ def _strip_fences(text: str) -> str:
     return text
 
 
+_FENCE_RE = re.compile(r"```[a-zA-Z0-9_-]*\s*\n?(.*?)```", re.DOTALL)
+_DECODER = json.JSONDecoder()
+
+
+def extract_json(text: Any) -> Any:
+    """Pull the first JSON object/array out of a model reply.
+
+    Accepts a bare JSON reply, a fenced block anywhere in the reply (with
+    prose or "Hope this helps!" after it), and JSON preceded by prose
+    ("Sure! Here is the JSON: {...}"). Raises ``ValueError`` when none parses.
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        raise ValueError("empty reply")
+    candidates = [_strip_fences(raw)]
+    candidates.extend(match.group(1).strip() for match in _FENCE_RE.finditer(raw))
+    candidates.append(raw)
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            return json.loads(candidate)
+        except ValueError:
+            pass
+        for index, char in enumerate(candidate):
+            if char not in "{[":
+                continue
+            try:
+                value, _end = _DECODER.raw_decode(candidate, index)
+            except ValueError:
+                continue
+            if isinstance(value, (dict, list)):
+                return value
+    raise ValueError("no JSON object or array found in reply")
+
+
+_CONFIDENCE_WORDS = {
+    "very high": 0.9,
+    "high": 0.8,
+    "medium": 0.5,
+    "moderate": 0.5,
+    "low": 0.2,
+    "very low": 0.1,
+    "none": 0.0,
+}
+
+
+def coerce_unit(value: Any, default: float = 0.0) -> float:
+    """Coerce a model/producer number to a float in [0, 1].
+
+    Strings ("0.9", "85%", "high"), None and garbage never raise: unknown
+    values fall back to ``default``; out-of-range numbers are clamped.
+    """
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    number: float | None = None
+    if isinstance(value, (int, float)):
+        number = float(value)
+    elif isinstance(value, str):
+        text = value.strip().lower()
+        if text in _CONFIDENCE_WORDS:
+            return _CONFIDENCE_WORDS[text]
+        percent = text.endswith("%")
+        try:
+            number = float(text.rstrip("%").strip())
+        except ValueError:
+            number = None
+        if number is not None and percent:
+            number /= 100.0
+    if number is None or math.isnan(number):
+        return default
+    return min(1.0, max(0.0, number))
+
+
+def _as_str_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        if not text or text.lower() in {"none", "n/a", "null", "[]"}:
+            return []
+        return [part.strip() for part in text.split(",") if part.strip()]
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if item is not None and str(item).strip()]
+    return [str(value)]
+
+
+def _has_signal(value: Any) -> bool:
+    """True when a payload carries at least one non-empty field."""
+    if isinstance(value, dict):
+        return any(_has_signal(v) for v in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return any(_has_signal(v) for v in value)
+    if isinstance(value, str):
+        return bool(value.strip())
+    return value is not None and value is not False
+
+
+def _normalize_understand(data: Any) -> dict[str, Any] | None:
+    if not isinstance(data, dict):
+        return None
+    intent = data.get("intent")
+    if not isinstance(intent, str) or not intent.strip():
+        return None
+    cleaned = dict(data)
+    cleaned["intent"] = intent.strip()
+    cleaned["confidence"] = coerce_unit(data.get("confidence"), default=0.5)
+    cleaned["risk_flags"] = _as_str_list(data.get("risk_flags"))
+    workflow = data.get("suggested_workflow")
+    cleaned["suggested_workflow"] = "" if workflow is None else str(workflow)
+    rationale = data.get("rationale")
+    cleaned["rationale"] = "" if rationale is None else str(rationale)
+    return cleaned
+
+
+def _prediction_items(data: Any) -> list[Any] | None:
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ("predictions", "actions", "next_actions", "items", "results"):
+            if isinstance(data.get(key), list):
+                return data[key]
+        lists = [v for v in data.values() if isinstance(v, list)]
+        if len(lists) == 1:
+            return lists[0]
+        if "action" in data:
+            return [data]
+    return None
+
+
+def normalize_predictions(items: list[Any], *, model: str = "") -> list[dict[str, Any]]:
+    """Validate, clamp and (when they over-sum) renormalize predictions."""
+    cleaned: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        action = item.get("action")
+        if action is None or not str(action).strip():
+            continue
+        cleaned.append(
+            {
+                "action": str(action).strip(),
+                "probability": coerce_unit(item.get("probability"), default=0.0),
+                "rationale": "" if item.get("rationale") is None else str(item.get("rationale")),
+                "provider": NEBIUS_PROVIDER_ID,
+                "model": model,
+            }
+        )
+        if len(cleaned) == 3:
+            break
+    total = sum(entry["probability"] for entry in cleaned)
+    if total > 1.0:
+        for entry in cleaned:
+            entry["probability"] = round(entry["probability"] / total, 4)
+    cleaned.sort(key=lambda entry: entry["probability"], reverse=True)
+    return cleaned
+
+
 class NemotronReasoner:
     """Consult Nemotron 3 on Nebius Token Factory from the Stealth Loop."""
 
@@ -188,17 +348,23 @@ class NemotronReasoner:
             logger.debug("Skipping cloud reasoning for secret-classified event")
             return None
 
+        if not _has_signal(getattr(event, "payload", None) or {}):
+            # Nothing to interpret: an empty payload only invites the model
+            # to fabricate a confident intent, and costs a paid call.
+            logger.debug("Skipping cloud reasoning for event with an empty payload")
+            return None
+
         summary = self._event_summary(event, hypothesis, predictions)
         web_block = self._grounding_block(event)
         user_message = summary + web_block + "\n\nRespond with strict JSON only."
 
         try:
             raw = call_provider(self._provider, _UNDERSTAND_SYSTEM, user_message, **self._understand_options())
-            data = json.loads(_strip_fences(raw))
+            data = _normalize_understand(extract_json(raw))
         except Exception as exc:
             logger.warning("Nemotron understand call failed: %s", exc)
             return None
-        if not isinstance(data, dict) or "intent" not in data:
+        if data is None:
             logger.warning("Nemotron understand returned unusable payload")
             return None
         data["provider"] = NEBIUS_PROVIDER_ID
@@ -210,36 +376,25 @@ class NemotronReasoner:
     # -- PREDICT -----------------------------------------------------------
 
     def predict_next(self, history_summary: str, hypothesis: str = "") -> list[dict[str, Any]] | None:
-        """Sharpen next-action predictions via Nemotron 3 Super (or None)."""
-        provider = self._reasoning_provider_instance()
-        if provider is None:
-            return None
-        user_message = (
-            f"Workflow hypothesis: {redact_for_egress(str(hypothesis))}\n"
-            f"Recent history:\n{redact_for_egress(str(history_summary))[:2000]}"
-            "\n\nRespond with strict JSON only."
-        )
+        """Sharpen next-action predictions via Nemotron 3 Super (or None on any failure)."""
         try:
+            provider = self._reasoning_provider_instance()
+            if provider is None:
+                return None
+            user_message = (
+                f"Workflow hypothesis: {redact_for_egress(str(hypothesis))}\n"
+                f"Recent history:\n{redact_for_egress(str(history_summary))[:2000]}"
+                "\n\nRespond with strict JSON only."
+            )
             raw = call_provider(provider, _PREDICT_SYSTEM, user_message, **self._predict_options())
-            data = json.loads(_strip_fences(raw))
+            items = _prediction_items(extract_json(raw))
+            if items is None:
+                logger.warning("Nemotron predict returned unusable payload")
+                return None
+            return normalize_predictions(items, model=self._reasoning_model) or None
         except Exception as exc:
             logger.warning("Nemotron predict call failed: %s", exc)
             return None
-        if not isinstance(data, list):
-            return None
-        cleaned = []
-        for item in data[:3]:
-            if isinstance(item, dict) and "action" in item:
-                cleaned.append(
-                    {
-                        "action": str(item.get("action", "")),
-                        "probability": float(item.get("probability", 0.0) or 0.0),
-                        "rationale": str(item.get("rationale", "")),
-                        "provider": NEBIUS_PROVIDER_ID,
-                        "model": self._reasoning_model,
-                    }
-                )
-        return cleaned or None
 
     def _reasoning_provider_instance(self) -> Any | None:
         if self._reasoning_provider is not None:
@@ -293,8 +448,13 @@ class NemotronReasoner:
             lines.append(f"local_hypothesis: {redact_for_egress(str(getattr(hypothesis, 'name', hypothesis)))}")
         if predictions:
             try:
-                top = [redact_for_egress(str(getattr(p, "action", p))) for p in list(predictions)[:3]]
-                lines.append(f"local_predictions: {top}")
+                top = [
+                    redact_for_egress(action)
+                    for action in (str(getattr(p, "action", p)) for p in list(predictions)[:3])
+                    if action and action not in {"event:none", "none"}
+                ]
+                if top:
+                    lines.append(f"local_predictions: {top}")
             except Exception:
                 pass
         return "\n".join(lines)
@@ -364,6 +524,9 @@ def build_cloud_enhancements(
 
 __all__ = [
     "NemotronReasoner",
+    "coerce_unit",
+    "extract_json",
+    "normalize_predictions",
     "build_cloud_enhancements",
     "NANO_MODEL",
     "SUPER_MODEL",

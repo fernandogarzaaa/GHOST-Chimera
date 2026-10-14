@@ -113,7 +113,8 @@ class TestUnderstand(unittest.TestCase):
     def test_fenced_json_is_stripped(self):
         provider = FakeProvider(reply="```json\n" + _UNDERSTAND_JSON + "\n```")
         r = NemotronReasoner(provider=provider)
-        out = r.understand(_event())
+        # A non-empty payload: empty events are no longer sent to the cloud.
+        out = r.understand(_event({"summary": "pricing research"}))
         self.assertEqual(out["intent"], "research")
 
 
