@@ -333,3 +333,50 @@ def test_doctor_config_hint_echoes_the_typed_command(monkeypatch, capsys) -> Non
     monkeypatch.setattr(doctor, "load_config", lambda: {})
     checks = {item["label"]: item for item in doctor.doctor_checks()["checks"]}
     assert checks["Config file"]["hint"] == "Run 'ghost setup' to configure"
+
+
+# --- poweruser F19: `ghost daemon stop` reported stopped:false for a daemon that stopped ---
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX SIGTERM semantics")
+def test_daemon_stop_waits_for_the_process_not_the_pid_file(tmp_path, capsys) -> None:
+    import argparse
+    import json
+    import subprocess
+    import threading
+    import time
+
+    from ghostchimera.chimera_pilot.always_on.daemon import PID_FILE
+
+    state = tmp_path / "state"
+    state.mkdir()
+    pid_file = state / PID_FILE
+    # A real process that behaves like the daemon on SIGTERM: it removes its
+    # PID file first and only exits after finishing shutdown work.
+    script = (
+        "import os, signal, sys, time\n"
+        f"pid_file = {str(pid_file)!r}\n"
+        "def _term(*_):\n"
+        "    os.unlink(pid_file)\n"
+        "    time.sleep(0.8)\n"
+        "    sys.exit(0)\n"
+        "signal.signal(signal.SIGTERM, _term)\n"
+        "open(pid_file, 'w').write(str(os.getpid()))\n"
+        "while True:\n"
+        "    time.sleep(0.05)\n"
+    )
+    proc = subprocess.Popen([sys.executable, "-c", script])
+    reaper = threading.Thread(target=proc.wait, daemon=True)  # no zombie lingering as "alive"
+    reaper.start()
+    try:
+        deadline = time.monotonic() + 20
+        while not pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert pid_file.exists()
+        args = argparse.Namespace(action="stop", state_dir=str(state), poll_interval=60)
+        assert cli._run_daemon_cli(args) == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload == {"ok": True, "stopped": True, "pid": proc.pid}
+    finally:
+        if proc.poll() is None:
+            proc.kill()

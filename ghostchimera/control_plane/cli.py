@@ -1573,12 +1573,16 @@ def _run_daemon_cli(args: argparse.Namespace) -> int:
             print(json.dumps({"ok": True, "stopped": False, "reason": "not running"}, indent=2))
             return 0
         os.kill(pid, _signal.SIGTERM)
+        # Poll the process itself, not the PID file: the daemon removes its
+        # PID file during shutdown, before the process has actually exited, so
+        # stopping at the file reported "stopped": false for a daemon that was
+        # gone a moment later (poweruser F19).
         for _ in range(100):
             time.sleep(0.1)
-            if not Daemon.pid_alive(pid) or Daemon.read_pid(state_dir) is None:
+            if not Daemon.pid_alive(pid):
                 break
         stopped = not Daemon.pid_alive(pid)
-        print(json.dumps({"ok": True, "stopped": stopped, "pid": pid}, indent=2, sort_keys=True))
+        print(json.dumps({"ok": stopped, "stopped": stopped, "pid": pid}, indent=2, sort_keys=True))
         return 0 if stopped else 1
 
     # status
