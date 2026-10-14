@@ -7,7 +7,6 @@ hidden reasoning.
 
 from __future__ import annotations
 
-import hashlib
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -15,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import state_io
+from ..ids import stable_id
 from ..redaction import SECRET_MARKERS as SECRET_MARKERS
 from ..redaction import SECRET_PATTERNS as SECRET_PATTERNS
 from ..redaction import redact_text as _redact_text
@@ -88,8 +88,7 @@ def _now() -> float:
 
 
 def _stable_id(*parts: object, length: int = 16) -> str:
-    raw = "|".join(str(part) for part in parts if part is not None)
-    return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:length]
+    return stable_id(*parts, length=length)
 
 
 def classify_conversation_intent(message: str) -> dict[str, Any]:

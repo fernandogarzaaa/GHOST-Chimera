@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from . import state_io
+from .ids import stable_id, unique_id
 from .redaction import (
     POISON_PATTERNS,
     RISK_ORDER,
@@ -192,8 +193,7 @@ def trust_run_scope(run_id: str) -> Iterator[str]:
 
 
 def _stable_id(*parts: object, length: int = 16) -> str:
-    raw = "|".join(str(part) for part in parts if part is not None)
-    return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:length]
+    return stable_id(*parts, length=length)
 
 
 _F = TypeVar("_F", bound=Callable[..., Any])
@@ -340,7 +340,7 @@ class TrustRuntimeStore:
         model_name: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        run_id = _stable_id(source, objective, _now(), length=20)
+        run_id = unique_id(source, objective, length=20)
         run = DurableRun(
             run_id=run_id,
             objective=objective,
@@ -462,7 +462,9 @@ class TrustRuntimeStore:
         authority_id: str = "",
     ) -> dict[str, Any]:
         summary = summary or reason
-        approval_id = _stable_id(run_id, step_id, summary or _now(), length=18)
+        # Unique per request: a re-request for the same step+summary (after a
+        # deny, or a retried tool) must never overwrite a resolved checkpoint.
+        approval_id = unique_id(run_id, step_id, summary, length=18)
         checkpoint = ApprovalCheckpoint(
             approval_id=approval_id,
             run_id=run_id,
@@ -570,7 +572,7 @@ class TrustRuntimeStore:
             run_id=run_id,
             resume_from_step=str(last_step.get("step_id") or "start"),
             reason=status or str(last_step.get("status") or "manual"),
-            token=_stable_id(run_id, last_step.get("step_id"), _now(), length=32),
+            token=unique_id(run_id, last_step.get("step_id"), length=32),
         )
         self.record_step(
             run_id,

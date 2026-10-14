@@ -7,7 +7,6 @@ steal browser credentials, or secretly record participants.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import time
@@ -16,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import state_io
+from ..ids import stable_id
 from ..trust_runtime import TrustRuntimeStore
 from .conversation import _redact_value
 
@@ -87,8 +87,7 @@ def _now() -> float:
 
 
 def _stable_id(*parts: object, length: int = 16) -> str:
-    raw = "|".join(str(part) for part in parts if part is not None)
-    return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:length]
+    return stable_id(*parts, length=length)
 
 
 def _default_disclosure_text(session_type: str) -> str:

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..ids import stable_id
 from ..redaction import BASE_MARKERS
 
 LEARNING_SOURCE_TYPES = {
@@ -84,9 +84,9 @@ def _now() -> float:
     return time.time()
 
 
-def _stable_id(*parts: str) -> str:
-    raw = "|".join(part.strip().lower() for part in parts if part is not None)
-    return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
+def _stable_id(*parts: object) -> str:
+    # str() first: the old copy called part.strip() and crashed on non-str.
+    return stable_id(*parts, length=16, normalize=True)
 
 
 def _redact_value(value: Any) -> Any:

@@ -22,6 +22,7 @@ from urllib.error import HTTPError, URLError
 
 from .. import state_io
 from ..http_identity import USER_AGENT, ensure_user_agent
+from ..ids import stable_id, unique_id
 from ..redaction import BASE_MARKERS
 
 RemoteObjectiveRunner = Callable[[str], dict[str, Any]]
@@ -136,9 +137,8 @@ def _now() -> float:
     return time.time()
 
 
-def _stable_id(*parts: str) -> str:
-    raw = "|".join(str(part).strip().lower() for part in parts if part is not None)
-    return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
+def _stable_id(*parts: object) -> str:
+    return stable_id(*parts, length=16, normalize=True)
 
 
 def _hash_code(code: str) -> str:
@@ -1329,7 +1329,7 @@ class RemoteControlStore:
                 "Remote objective executed." if result.get("ok", True) else "Remote objective failed.",
             )
         approval = RemoteApproval(
-            id=_stable_id(str(peer.get("id")), command, objective, str(_now())),
+            id=unique_id(str(peer.get("id")), command, objective),
             channel=str(peer.get("channel") or ""),
             peer_id=str(peer.get("peer_id") or ""),
             command=command,
