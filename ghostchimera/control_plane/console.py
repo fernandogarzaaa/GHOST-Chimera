@@ -2492,7 +2492,14 @@ def register_console_routes(
         if not url:
             return {"ok": False, "error": "Missing url"}
         try:
-            content = url_fetcher(url)
+            if url_fetcher is http_get:
+                # Token-authenticated operator route: stamp the policy so
+                # http_get's ensure_authorized passes (the SSRF guard and the
+                # https-only rule still apply). Without it every Browser-tab
+                # fetch failed with "requires policy authorization".
+                content = http_get(url, policy={"authorized": True, "source": "console.browser_fetch"})
+            else:
+                content = url_fetcher(url)
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
         return {"ok": True, "url": url, "content": content[:100_000], "truncated": len(content) > 100_000}
