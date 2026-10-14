@@ -27,6 +27,25 @@ models' raw output, unedited. To go live, set `NEBIUS_API_KEY`
 ([console.nebius.com](https://console.nebius.com), Token Factory → API keys) and
 record your own session with `ghost demo --record session.json`.
 
+### Environment variables
+
+Setting `NEBIUS_API_KEY` alone is enough: with `GHOSTCHIMERA_MODEL_PROVIDER` unset,
+`ghost ask`, `ghost --pilot-run`, `ghost doctor` and the Stealth Loop auto-select Nebius
+(Nemotron). An explicit `GHOSTCHIMERA_MODEL_PROVIDER` always wins.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `NEBIUS_API_KEY` | unset | Turns on Nemotron (auto-selects the `nebius` provider). |
+| `NEBIUS_MODEL` | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` | Model for `ask`/pilot and Stealth Loop UNDERSTAND. |
+| `NEBIUS_FALLBACK_MODELS` | unset | Comma list tried when the primary errors, e.g. `nvidia/Nemotron-3_5-Lightning`. |
+| `GHOSTCHIMERA_NEMOTRON_MODE` | `async` | `async`: Nemotron runs off the `emit()` hot path; `sync`: inline. |
+| `GHOSTCHIMERA_NEMOTRON_TIMEOUT_S` | `20` | Per-call timeout for Stealth Loop Nemotron calls. |
+| `GHOSTCHIMERA_NEMOTRON_CALLS_PER_MIN` | `30` | Cloud call budget per minute (0 = unlimited). |
+| `GHOSTCHIMERA_NEMOTRON_TOKENS_PER_HOUR` | `100000` | Token budget (reasoning tokens included); calls stop when spent. |
+| `GHOSTCHIMERA_NEMOTRON_UNDERSTAND_THINKING` | `0` | `1` turns Nemotron's reasoning trace back on for UNDERSTAND (slower). |
+| `GHOSTCHIMERA_PROVIDER_RETRIES` | `2` | Retries on 429/5xx, honouring `Retry-After`. |
+| `GHOSTCHIMERA_BUS_LOG_MAX` | `5000` | Events kept in the in-memory replay log. |
+
 **Demo video:** [Watch the 3-minute demo on YouTube](https://youtu.be/m1jGOAfMZsg): real Linux screen capture showing `ghost demo`, a live Nemotron Stealth Loop pass on Nebius, and the console.
 
 ## Learn more

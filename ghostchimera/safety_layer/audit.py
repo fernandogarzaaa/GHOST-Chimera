@@ -2,44 +2,76 @@
 Audit Log
 =========
 
-Provides a simple audit mechanism for recording high impact operations.  The
-audit log is written to a JSON file distinct from the memory to ease
-inspection and compliance.  Each record contains the task, timestamp and
-result.
+Records high impact operations in an HMAC-SHA256 hash-chained JSON file,
+kept apart from memory to ease inspection and compliance.
+
+There is one record shape. The legacy module-level :func:`record` (used by
+``AgentCore``'s executor) writes a proper chained record through
+:class:`AuditLog`, so the two writers can share a file without breaking
+the chain. Integrity is fail-closed: a missing, unreadable, truncated or
+rolled-back log is reported as *not* intact. Truncation is detected with
+a keyed head anchor (``<audit file>.head``: record count + latest chain
+hash, HMAC-signed) updated on every append.
 """
 
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import hmac
 import json
+import logging
 import os
 import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-AUDIT_FILE = os.environ.get(
-    "GHOSTCHIMERA_AUDIT_FILE",
-    os.path.expanduser("~/.ghostchimera/audit.json"),
-)
+from .. import state_io
+
+logger = logging.getLogger(__name__)
+
+# Explicit override (tests/embedders may assign it); None means "resolve
+# lazily from GHOSTCHIMERA_AUDIT_FILE / GHOSTCHIMERA_STATE_DIR on each use".
+AUDIT_FILE: str | None = None
+
+
+def default_audit_file() -> str:
+    from ..paths import audit_file_path
+
+    return AUDIT_FILE or str(audit_file_path())
+
+
+_REQUIRED_KEYS = ("action", "details", "chain_hash")
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _load_records(path: str) -> tuple[list[Any], str]:
+    """Return (records, status) where status is ok | missing | unreadable."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except FileNotFoundError:
+        return [], "missing"
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return [], "unreadable"
+    if not isinstance(data, list):
+        return [], "unreadable"
+    return data, "ok"
 
 
 def _read_audit(audit_file: str | None = None) -> list:
-    path = audit_file or AUDIT_FILE
-    if not os.path.exists(path):
-        return []
-    with open(path, encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except Exception:
-            return []
+    """Best-effort read (``[]`` when missing/unreadable). Not for verification."""
+    records, _status = _load_records(audit_file or default_audit_file())
+    return records
 
 
 def _write_audit(records: list, audit_file: str | None = None) -> None:
-    path = audit_file or AUDIT_FILE
-    Path(os.path.dirname(path)).mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(records, f, ensure_ascii=False, indent=2)
+    path = audit_file or default_audit_file()
+    state_io.atomic_write_json(path, records, ensure_ascii=False, indent=2, sort_keys=False)
 
 
 def _key_file_mode_ok(key_path: str) -> bool:
@@ -122,56 +154,150 @@ def _resolve_key(audit_file: str) -> bytes:
     return generated
 
 
+def _jsonable(value: Any) -> Any:
+    """Round-trip through JSON so the hashed form equals the stored form."""
+    return json.loads(json.dumps(value, default=str))
+
+
 def record(task: dict[str, Any], result: Any) -> None:
-    """Append a record to the audit log."""
-    entry = {
-        "task": task,
-        "result": result,
-        "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-    }
-    records = _read_audit()
-    records.append(entry)
-    _write_audit(records)
+    """Append a chained record for an AgentCore task (legacy API).
+
+    The entry is a normal :class:`AuditLog` record (``action`` = the task's
+    action, ``details`` = task + result) and keeps the historical top-level
+    ``task``/``result`` fields as read-only mirrors, which verification
+    checks against the signed ``details``.
+    """
+    task = _jsonable(task)
+    result = _jsonable(result)
+    action = str(task.get("action") or "task") if isinstance(task, dict) else "task"
+    AuditLog().record(action, {"task": task, "result": result}, _mirror={"task": task, "result": result})
 
 
 class AuditLog:
     """HMAC-SHA256 chained audit log."""
 
     def __init__(self, audit_file: str | None = None) -> None:
-        self.audit_file = audit_file or AUDIT_FILE
+        self.audit_file = audit_file or default_audit_file()
         self.key = _resolve_key(self.audit_file)
 
+    @property
+    def head_file(self) -> str:
+        return self.audit_file + ".head"
+
     def _hmac(self, data: str) -> str:
-        import hashlib as _hashlib
-        import hmac as _hmac
+        return hmac.new(self.key, data.encode("utf-8"), hashlib.sha256).hexdigest()
 
-        return _hmac.new(self.key, data.encode("utf-8"), _hashlib.sha256).hexdigest()
+    def _link(self, prev_hash: str, action: str, details: Any) -> str:
+        return self._hmac(f"{prev_hash}{action}{json.dumps(details, sort_keys=True)}")
 
-    def record(self, action: str, details: dict[str, Any]) -> dict[str, Any]:
-        """Record an audit entry with chain hash."""
-        records = _read_audit(self.audit_file)
-        prev_hash = records[-1]["chain_hash"] if records else "genesis"
-        entry = {
-            "action": action,
-            "details": details,
-            "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-            "chain_hash": self._hmac(f"{prev_hash}{action}{json.dumps(details, sort_keys=True)}"),
-        }
-        records.append(entry)
-        _write_audit(records, self.audit_file)
+    # -- head anchor -------------------------------------------------------
+    def _anchor_mac(self, count: int, chain_hash: str) -> str:
+        return self._hmac(f"audit-head|{count}|{chain_hash}")
+
+    def _read_anchor(self) -> dict[str, Any] | None:
+        data = state_io.read_json(self.head_file, None, expect=dict, quarantine=False)
+        return data if isinstance(data, dict) else None
+
+    def _write_anchor(self, count: int, chain_hash: str) -> None:
+        state_io.atomic_write_json(
+            self.head_file,
+            {"count": count, "chain_hash": chain_hash, "mac": self._anchor_mac(count, chain_hash)},
+        )
+
+    def _anchor_problem(self, records: list[Any], status: str) -> str:
+        """Describe how the file disagrees with the signed head anchor."""
+        anchor = self._read_anchor()
+        if anchor is None:
+            return ""
+        try:
+            count = int(anchor.get("count", -1))
+        except (TypeError, ValueError):
+            count = -1
+        head = str(anchor.get("chain_hash") or "")
+        if not hmac.compare_digest(str(anchor.get("mac") or ""), self._anchor_mac(count, head)):
+            return "audit head anchor is invalid (forged or written with another key)"
+        if status == "missing":
+            return f"audit log is missing (head anchor expects {count} records)"
+        last = records[-1].get("chain_hash") if records and isinstance(records[-1], dict) else ""
+        if len(records) != count or (count and last != head):
+            return f"audit log truncated or rolled back: {len(records)} records, head anchor expects {count}"
+        return ""
+
+    # -- write ---------------------------------------------------------------
+    def record(self, action: str, details: dict[str, Any], *, _mirror: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Record an audit entry with chain hash (locked, atomic)."""
+        with state_io.locked(self.audit_file):
+            records, status = _load_records(self.audit_file)
+            problem = ""
+            if status == "unreadable":
+                problem = "previous audit log was unreadable"
+            elif records and not all(isinstance(r, dict) and all(k in r for k in _REQUIRED_KEYS) for r in records):
+                problem = "previous audit log contained unchained (legacy or foreign) records"
+            if problem:
+                # Never overwrite evidence: move it aside and start a new
+                # chain whose first, signed entry says why.
+                backup = state_io.quarantine_corrupt(self.audit_file)
+                anchor = self._read_anchor() or {}
+                records = []
+                reset = {
+                    "reason": problem,
+                    "preserved_as": backup.name if backup else "",
+                    "previous_anchor_count": anchor.get("count"),
+                }
+                records.append(self._entry("audit.reset", reset, "genesis"))
+            else:
+                mismatch = self._anchor_problem(records, status)
+                if mismatch and status != "missing":
+                    prev = records[-1]["chain_hash"] if records else "genesis"
+                    records.append(self._entry("audit.anchor_mismatch", {"reason": mismatch}, prev))
+                elif mismatch:
+                    records.append(self._entry("audit.reset", {"reason": mismatch}, "genesis"))
+            prev_hash = records[-1]["chain_hash"] if records else "genesis"
+            entry = self._entry(action, details, prev_hash)
+            if _mirror:
+                entry.update(_mirror)
+            records.append(entry)
+            _write_audit(records, self.audit_file)
+            self._write_anchor(len(records), entry["chain_hash"])
         return entry
 
+    def _entry(self, action: str, details: dict[str, Any], prev_hash: str) -> dict[str, Any]:
+        return {
+            "action": action,
+            "details": details,
+            "timestamp": _now_iso(),
+            "chain_hash": self._link(prev_hash, action, details),
+        }
+
+    # -- verify --------------------------------------------------------------
     def verify_integrity(self) -> tuple[bool, str]:
-        """Verify the audit chain integrity. Returns (ok, error_msg)."""
-        records = _read_audit(self.audit_file)
-        if not records:
-            return True, "No records to verify"
+        """Verify the audit chain. Returns (ok, message); fail-closed."""
+        records, status = _load_records(self.audit_file)
+        if status == "unreadable":
+            return False, "Audit log unreadable (corrupt or not a JSON list)"
         prev_hash = "genesis"
         for i, entry in enumerate(records):
-            expected = self._hmac(f"{prev_hash}{entry['action']}{json.dumps(entry['details'], sort_keys=True)}")
-            if entry.get("chain_hash") != expected:
+            if not isinstance(entry, dict) or not all(key in entry for key in _REQUIRED_KEYS):
+                return False, f"Chain broken at entry {i}: not a chained audit record"
+            try:
+                expected = self._link(prev_hash, str(entry["action"]), entry["details"])
+            except (TypeError, ValueError):
+                return False, f"Chain broken at entry {i}: details not serialisable"
+            if not hmac.compare_digest(str(entry.get("chain_hash")), expected):
                 return False, f"Chain broken at entry {i}"
+            details = entry["details"] if isinstance(entry["details"], dict) else {}
+            for mirror in ("task", "result"):
+                if mirror in entry and entry[mirror] != details.get(mirror):
+                    return False, f"Chain broken at entry {i}: unsigned '{mirror}' field altered"
             prev_hash = entry["chain_hash"]
+        problem = self._anchor_problem(records, status)
+        if problem:
+            return False, problem
+        if not records:
+            return True, "No records to verify"
+        events = sum(1 for entry in records if entry.get("action") in {"audit.reset", "audit.anchor_mismatch"})
+        if events:
+            return True, f"Chain intact ({events} signed reset/anchor-mismatch event(s) recorded; review them)"
         return True, "Chain intact"
 
     def get_entries(self) -> list[dict[str, Any]]:
@@ -184,9 +310,6 @@ class AuditLog:
     ) -> bool:
         """Verify a single chain link. Key must be explicit or configured —
         there is no test-key fallback."""
-        import hashlib as _hashlib
-        import hmac as _hmac
-
         resolved = key
         if resolved is None:
             resolved = os.environ.get("GHOSTCHIMERA_AUDIT_KEY", "").strip().encode("utf-8")
@@ -194,5 +317,5 @@ class AuditLog:
             raise ValueError("audit HMAC key required: pass key= or set GHOSTCHIMERA_AUDIT_KEY")
         prev_hash = prev_entry["chain_hash"] if prev_entry else "genesis"
         data = f"{prev_hash}{entry['action']}{json.dumps(entry['details'], sort_keys=True)}"
-        expected = _hmac.new(resolved, data.encode("utf-8"), _hashlib.sha256).hexdigest()
+        expected = hmac.new(resolved, data.encode("utf-8"), hashlib.sha256).hexdigest()
         return entry.get("chain_hash") == expected

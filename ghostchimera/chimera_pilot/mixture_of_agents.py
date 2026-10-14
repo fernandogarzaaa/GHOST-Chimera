@@ -125,6 +125,9 @@ class MixtureOfAgents:
         self._context_engine = get_context_engine()
         self._lock = threading.Lock()
         self._run_count = 0
+        # session_id -> SessionState of each spawned agent, so a re-vote can
+        # continue the same conversation instead of starting from nothing.
+        self._sessions: dict[str, SessionState] = {}
 
     def vote(self, query: str, reasoning_prompts: list[str] | None = None) -> MoAResult:
         """Run the full MoA pipeline for a single query."""
@@ -133,6 +136,8 @@ class MixtureOfAgents:
 
         # Ensure we don't request more prompts than available
         n_agents = min(self.config.num_agents, len(prompts))
+        with self._lock:
+            self._sessions.clear()  # only the current vote's agents can be re-voted
         agents = self._spawn_agents(query, prompts[:n_agents])
 
         # Run in parallel (each agent now produces ResultEnvelope)
@@ -208,11 +213,14 @@ class MixtureOfAgents:
                 revised = self._revote_agent(v, new_prompt)
                 revised_results.append(revised)
 
-            # Merge revised results and re-score
+            # Merge revised results and re-score: each disagreeing vote is
+            # replaced by its own revision (extending the whole list per vote
+            # duplicated revisions when more than one agent disagreed).
+            revised_iter = iter(revised_results)
             updated_votes = []
             for v in current_result.votes:
                 if not v.get("agrees_with_consensus", False):
-                    updated_votes.extend(revised_results)
+                    updated_votes.append(next(revised_iter))
                 else:
                     updated_votes.append(v)
 
@@ -279,7 +287,9 @@ class MixtureOfAgents:
                     "Include specific details: numbers, names, dates where applicable.\n"
                 ),
             )
-            agent = AIAgent(system_prompt=session.system_prompt, session=session)
+            agent = AIAgent(system_prompt=session.system_prompt, session=session, router=self.router)
+            with self._lock:
+                self._sessions[session.session_id] = session
             agents.append(
                 {
                     "index": i,
@@ -331,6 +341,7 @@ class MixtureOfAgents:
                 "success": True,
                 "tokens": agent.session.total_tokens,
                 "duration": duration,
+                "session_id": agent.session.session_id,
             }
         except Exception as exc:
             duration = time.time() - start
@@ -340,18 +351,23 @@ class MixtureOfAgents:
                 "error": str(exc),
                 "tokens": agent.session.total_tokens,
                 "duration": duration,
+                "session_id": agent.session.session_id,
             }
 
     def _revote_agent(self, old_vote: dict, new_prompt: str) -> dict:
         """Run a revised reasoning for a disagreeing agent."""
         start = time.time()
         try:
-            # Get the original agent
-            agent = AIAgent(
-                system_prompt=new_prompt,
-            )
-            # Use the agent's original session for continuity
-            agent.session = old_vote.get("session") or SessionState(session_id="moa-revote")
+            # Continue the original agent's session when we have it. AIAgent.session
+            # is a read-only property, so it must go through the constructor
+            # (assigning it raised AttributeError and every re-vote failed).
+            session = old_vote.get("session")
+            if not isinstance(session, SessionState):
+                with self._lock:
+                    session = self._sessions.get(str(old_vote.get("session_id") or ""))
+            if session is None:
+                session = SessionState(session_id=f"moa-revote-{int(time.time() * 1000)}", system_prompt=new_prompt)
+            agent = AIAgent(system_prompt=new_prompt, session=session, router=self.router)
             output = agent.run(new_prompt)
             duration = time.time() - start
             return {
@@ -360,6 +376,9 @@ class MixtureOfAgents:
                 "tokens": agent.session.total_tokens,
                 "duration": duration,
                 "is_revote": True,
+                "session_id": agent.session.session_id,
+                "prompt_style": old_vote.get("prompt_style", ""),
+                "agent_index": old_vote.get("agent_index"),
             }
         except Exception as exc:
             return {

@@ -40,7 +40,7 @@ def test_token_prefers_session_storage() -> None:
 def test_csp_covers_console_assets() -> None:
     assert "script-src 'self'" in CONSOLE_CSP
     assert "object-src 'none'" in CONSOLE_CSP
-    assert "frame-ancestors 'self'" in CONSOLE_CSP
+    assert "frame-ancestors 'none'" in CONSOLE_CSP
     # No inline scripts exist, so script-src needs no 'unsafe-inline'.
     # Both scripts are first-party assets (transport must load before app).
     html = (STATIC / "index.html").read_text(encoding="utf-8")

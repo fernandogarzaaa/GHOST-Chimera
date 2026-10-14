@@ -25,9 +25,11 @@ class GhostChimeraConfig:
 
     @classmethod
     def from_env(cls) -> GhostChimeraConfig:
-        state_dir = _expand_path(os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera"))
-        memory_db = _expand_path(os.environ.get("GHOSTCHIMERA_MEMORY_DB", str(state_dir / "memory.sqlite3")))
-        audit_file = _expand_path(os.environ.get("GHOSTCHIMERA_AUDIT_FILE", str(state_dir / "audit.json")))
+        from . import paths
+
+        state_dir = paths.state_dir()
+        memory_db = paths.memory_db_path()
+        audit_file = paths.audit_file_path()
         return cls(
             state_dir=state_dir,
             memory_db=memory_db,
@@ -40,9 +42,15 @@ class GhostChimeraConfig:
         )
 
     def ensure_state_dirs(self) -> None:
-        self.state_dir.mkdir(parents=True, exist_ok=True)
-        self.memory_db.parent.mkdir(parents=True, exist_ok=True)
-        self.audit_file.parent.mkdir(parents=True, exist_ok=True)
+        """Create the state dir owner-only (0700), independent of umask."""
+        from .state_io import ensure_private_dir
+
+        ensure_private_dir(self.state_dir)
+        for parent in (self.memory_db.parent, self.audit_file.parent):
+            if parent == self.state_dir or self.state_dir in parent.parents:
+                ensure_private_dir(parent)
+            else:  # an explicit override elsewhere: create, but don't chmod it
+                parent.mkdir(parents=True, exist_ok=True)
 
     def to_dict(self) -> dict[str, Any]:
         return {

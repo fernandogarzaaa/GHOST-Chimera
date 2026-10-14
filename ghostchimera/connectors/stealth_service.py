@@ -109,6 +109,9 @@ def get_service_loop(state_dir: str | Path) -> Any:
                 reasoner=reasoner,
                 grounding=grounding,
             )
+            # Pending drafts/approvals and counters survive a console restart.
+            with suppress(Exception):
+                loop.restore_from_store()
             _loops[key] = loop
         queue = getattr(loop, "approvals", None)
         if queue is not None and getattr(queue, "_authority", None) is None:
@@ -169,9 +172,10 @@ def approve_draft(
     sent, detail, results = False, "not sent", []
     connections = connections or {}
     try:
+        from ..paths import state_dir as _default_state_dir
         from .auth_engine import PROVIDERS, CustomAuthEngine, EngineAction
 
-        engine = CustomAuthEngine(Path(state_dir) if state_dir else Path.home() / ".ghostchimera")
+        engine = CustomAuthEngine(Path(state_dir) if state_dir else _default_state_dir())
         try:
             for action in actions:
                 provider = str(action.get("provider", ""))

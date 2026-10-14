@@ -75,10 +75,24 @@ class WorkflowLearner:
         if len(history) > 200:
             del history[: len(history) - 200]
 
+    def restore(self, name: str, pattern: list[str], support: int, *, explicit: bool = False) -> None:
+        """Re-seed a journaled hypothesis after a restart."""
+        if explicit:
+            self.register_explicit(name, list(pattern))
+            return
+        key = tuple(str(part) for part in pattern)
+        if len(key) >= 2:
+            self._counts[key] = max(self._counts.get(key, 0), int(support))
+
+    def forget_stream(self, stream: str) -> None:
+        """Drop a stream's recent window (learned n-gram counts are kept)."""
+        self._sequences.pop(stream, None)
+
     # -- hypotheses ------------------------------------------------------
     def hypotheses(self) -> list[WorkflowHypothesis]:
         learned: list[WorkflowHypothesis] = []
-        for pattern, support in self._counts.items():
+        # Snapshot: observe() may insert from another thread mid-iteration.
+        for pattern, support in list(self._counts.items()):
             if support < self.min_support:
                 continue
             name = "learned:" + "→".join(pattern)

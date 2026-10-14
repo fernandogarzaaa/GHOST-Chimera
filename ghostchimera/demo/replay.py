@@ -95,12 +95,21 @@ class RecordingProvider:
         self._inner = inner
         self.replies: list[str] = []
         self.by_event_type: dict[str, str] = {}
+        self.errors: list[str] = []
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
 
-    def chat(self, system: str, user: str) -> str:
-        reply = self._inner.chat(system, user)
+    def chat(self, system: str, user: str, **options: Any) -> str:
+        from ..stealth.nemotron_reasoning import call_provider
+
+        # Forward per-call options (thinking off, max_tokens, timeout) so a
+        # recording exercises the same request shape as the live loop.
+        try:
+            reply = call_provider(self._inner, system, user, **options)
+        except Exception as exc:
+            self.errors.append(f"{type(exc).__name__}: {exc}")
+            raise
         self.replies.append(reply)
         match = _EVENT_TYPE_RE.search(user)
         if match:
@@ -210,10 +219,14 @@ class DemoResult:
         }
 
 
-def _run_through_loop(session: dict[str, Any], reasoner: Any) -> tuple[list[DemoStep], Any, list[str]]:
+def _run_through_loop(
+    session: dict[str, Any], reasoner: Any, progress: Any | None = None
+) -> tuple[list[DemoStep], Any, list[str]]:
     from ..stealth import StealthLoop, new_event
 
-    loop = StealthLoop(reasoner=reasoner, own_runtime=False)
+    # Sync cloud mode: replay must be deterministic and record must capture
+    # every reply in order.
+    loop = StealthLoop(reasoner=reasoner, own_runtime=False, cloud_mode="sync")
     steps: list[DemoStep] = []
     history: list[str] = []
     session_id = str(session.get("session_id") or "demo-session")
@@ -226,8 +239,12 @@ def _run_through_loop(session: dict[str, Any], reasoner: Any) -> tuple[list[Demo
                 session_id=session_id,
             )
             history.append(event.event_type)
+            started = time.perf_counter()
             loop.emit(event)
             result = loop.last_result
+            if progress is not None:
+                trace = result.trace if result is not None else {}
+                progress(len(history), len(session["events"]), event.event_type, time.perf_counter() - started, trace)
             trace = result.trace if result is not None else {}
             steps.append(
                 DemoStep(
@@ -280,12 +297,40 @@ def replay(session_path: str | Path | None = None) -> DemoResult:
     )
 
 
-def record(output: str | Path, session_path: str | Path | None = None) -> Path:
-    """Run the session's events against live Nemotron and save the replies."""
+def _check_output_path(output: str | Path) -> Path:
+    """Fail before any paid call if the recording cannot be written."""
+    out = Path(output).expanduser()
+    if out.exists() and out.is_dir():
+        raise OSError(f"--record path {out} is a directory; give a file name such as session.json")
+    parent = out.parent if str(out.parent) else Path(".")
+    if not parent.exists():
+        raise OSError(f"--record directory {parent} does not exist")
+    if not os.access(parent, os.W_OK):
+        raise OSError(f"--record directory {parent} is not writable")
+    return out
+
+
+def _stderr_progress(index: int, total: int, event_type: str, elapsed: float, trace: dict[str, Any]) -> None:
+    status = "ok" if isinstance(trace, dict) and trace.get("nemotron") else "no reply"
+    print(f"  [{index}/{total}] UNDERSTAND {event_type}  {elapsed:.1f}s  {status}", file=sys.stderr, flush=True)
+
+
+def record(
+    output: str | Path,
+    session_path: str | Path | None = None,
+    *,
+    progress: Any | None = None,
+) -> Path:
+    """Run the session's events against live Nemotron and save the replies.
+
+    Raises ``RuntimeError`` (and writes nothing) when any live call failed,
+    so a recording never silently replays as "no cloud insight".
+    """
     from ..stealth.nemotron_reasoning import SUPER_MODEL, NemotronReasoner
 
     if not os.environ.get("NEBIUS_API_KEY", "").strip():
         raise RuntimeError("recording needs NEBIUS_API_KEY (Nemotron on Nebius Token Factory)")
+    out = _check_output_path(output)
     template = load_session(session_path)
     live = NemotronReasoner()
     if not live.available:
@@ -297,18 +342,46 @@ def record(output: str | Path, session_path: str | Path | None = None) -> Path:
     predict = RecordingProvider(reasoning_inner)
     reasoner = NemotronReasoner(provider=understand, reasoning_provider=predict, reasoning_model=SUPER_MODEL)
 
-    _steps, _last, history = _run_through_loop(template, reasoner)
+    steps, _last, history = _run_through_loop(template, reasoner, progress)
+    missing = [
+        str(spec["event_type"])
+        for spec in template["events"]
+        if not understand.by_event_type.get(str(spec["event_type"]).lower())
+    ]
+    if missing:
+        detail = understand.errors[-1] if understand.errors else "the reply was not usable JSON"
+        raise RuntimeError(
+            f"live UNDERSTAND failed for {len(missing)}/{len(template['events'])} events "
+            f"({', '.join(missing)}): {detail}. Nothing was written."
+        )
+    # PREDICT for the whole session. The in-loop PREDICT is rate-limited per
+    # stream, so it only ever saw the first event; replay serves this reply as
+    # the session's final prediction, so it must cover the full history.
+    workflow = next(
+        (s.understand.get("suggested_workflow", "") for s in reversed(steps) if s.understand),
+        "",
+    )
+    started = time.perf_counter()
+    replies_before = len(predict.replies)
+    final = reasoner.predict_next("\n".join(history), hypothesis=str(workflow or ""))
+    if progress is not None:
+        print(
+            f"  PREDICT (whole session)  {time.perf_counter() - started:.1f}s  {'ok' if final else 'no reply'}",
+            file=sys.stderr,
+            flush=True,
+        )
+    if not final or len(predict.replies) <= replies_before:
+        detail = predict.errors[-1] if predict.errors else "the reply was not usable JSON"
+        raise RuntimeError(f"live PREDICT failed: {detail}. Nothing was written.")
     recorded_events = [
         {**spec, "understand": understand.by_event_type.get(str(spec["event_type"]).lower())}
         for spec in template["events"]
     ]
-    if not predict.replies:
-        reasoner.predict_next("\n".join(history))
     session = {
         **template,
         "provenance": "recorded",
         "provenance_note": (
-            f"Recorded live from Nebius Token Factory on {time.strftime('%Y-%m-%d %H:%M:%S %Z')} "
+            f"Recorded live from Nebius Token Factory on {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())} "
             "with `ghost demo --record`."
         ),
         "models": {
@@ -316,9 +389,8 @@ def record(output: str | Path, session_path: str | Path | None = None) -> Path:
             "predict": SUPER_MODEL,
         },
         "events": recorded_events,
-        "predict": predict.replies[-1] if predict.replies else None,
+        "predict": predict.replies[-1],
     }
-    out = Path(output)
     out.write_text(json.dumps(session, indent=2) + "\n", encoding="utf-8")
     return out
 
@@ -373,7 +445,12 @@ def run_demo_cli(*, session: str = "", as_json: bool = False, record_to: str = "
     out = stream or sys.stdout
     try:
         if record_to:
-            path = record(record_to, session or None)
+            print(
+                "Recording a live Nemotron session (UNDERSTAND per event, then PREDICT)...",
+                file=sys.stderr,
+                flush=True,
+            )
+            path = record(record_to, session or None, progress=_stderr_progress)
             print(f"Recorded live Nemotron session to {path}. Replay it with: ghost demo --session {path}", file=out)
             return 0
         result = replay(session or None)

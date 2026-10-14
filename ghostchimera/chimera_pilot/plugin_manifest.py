@@ -35,7 +35,7 @@ from ..logging_config import get_logger
 logger = get_logger("plugin_manifest")
 
 # Default plugin search directory (override with GHOSTCHIMERA_PLUGINS_DIR)
-_DEFAULT_PLUGINS_DIR = Path.home() / ".ghostchimera" / "plugins"
+_DEFAULT_PLUGINS_DIR: Path | None = None  # None: resolve via ghostchimera.paths.plugins_dir()
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +280,7 @@ class PluginLoader:
     The plugins directory is resolved in order:
     1. ``plugins_dir`` constructor argument.
     2. ``GHOSTCHIMERA_PLUGINS_DIR`` environment variable.
-    3. ``~/.ghostchimera/plugins``.
+    3. ``<GHOSTCHIMERA_STATE_DIR or ~/.ghostchimera>/plugins``.
 
     Each sub-directory of the plugins directory is scanned for a
     ``plugin.json`` file.  Valid manifests are loaded and activation state
@@ -288,8 +288,9 @@ class PluginLoader:
     """
 
     def __init__(self, plugins_dir: Path | str | None = None) -> None:
-        env_dir = os.environ.get("GHOSTCHIMERA_PLUGINS_DIR")
-        self.plugins_dir = Path(plugins_dir or env_dir or _DEFAULT_PLUGINS_DIR)
+        from ..paths import plugins_dir as _resolve_plugins_dir
+
+        self.plugins_dir = Path(plugins_dir or _DEFAULT_PLUGINS_DIR or _resolve_plugins_dir())
         self._manifests: dict[str, PluginManifest] = {}
         self._lock = threading.Lock()
         self._discovered = False

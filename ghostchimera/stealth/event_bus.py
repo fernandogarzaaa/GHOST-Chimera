@@ -8,8 +8,9 @@ recorded sequence with side-effecting consumers disabled.
 
 from __future__ import annotations
 
+import os
 import threading
-from collections import defaultdict
+from collections import OrderedDict, defaultdict, deque
 from collections.abc import Callable
 from contextlib import suppress
 
@@ -20,16 +21,35 @@ logger = get_logger("stealth.event_bus")
 
 Consumer = Callable[[Event], None]
 
+# The replay log and the dedup-id set used to grow forever (every event and its
+# full payload held for the process lifetime). Both are now bounded.
+DEFAULT_LOG_MAX = 5000
+DEFAULT_SEEN_IDS_MAX = 50_000
+
+
+def _env_cap(name: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(name, "") or default)
+    except ValueError:
+        return default
+    return max(1, value)
+
 
 class EventBus:
     """Thread-safe, idempotent, replayable event bus."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, log_max: int | None = None, seen_ids_max: int | None = None) -> None:
         self._subs: dict[str, list[Consumer]] = defaultdict(list)
         self._wildcards: list[Consumer] = []
-        self._seen_ids: set[str] = set()
+        self.log_max = log_max or _env_cap("GHOSTCHIMERA_BUS_LOG_MAX", DEFAULT_LOG_MAX)
+        self.seen_ids_max = max(
+            self.log_max, seen_ids_max or _env_cap("GHOSTCHIMERA_BUS_SEEN_IDS_MAX", DEFAULT_SEEN_IDS_MAX)
+        )
+        # Insertion-ordered so the oldest ids are evicted first.
+        self._seen_ids: OrderedDict[str, None] = OrderedDict()
         self._lock = threading.Lock()
-        self._log: list[Event] = []
+        self._log: deque[Event] = deque(maxlen=self.log_max)
+        self._processed = 0
         self._dropped_duplicates = 0
 
     # -- subscription -------------------------------------------------
@@ -55,8 +75,11 @@ class EventBus:
             if event.event_id in self._seen_ids:
                 self._dropped_duplicates += 1
                 return False
-            self._seen_ids.add(event.event_id)
+            self._seen_ids[event.event_id] = None
+            while len(self._seen_ids) > self.seen_ids_max:
+                self._seen_ids.popitem(last=False)
             self._log.append(event)
+            self._processed += 1
             consumers = list(self._subs.get(event.event_type, []))
             prefix = event.event_type.split(".")[0] + ".*"
             consumers += list(self._subs.get(prefix, []))
@@ -98,8 +121,9 @@ class EventBus:
 
     @property
     def processed(self) -> int:
+        """Events delivered since start (the replay log itself is bounded)."""
         with self._lock:
-            return len(self._log)
+            return self._processed
 
     @property
     def dropped_duplicates(self) -> int:
@@ -116,6 +140,7 @@ class EventBus:
             self._wildcards.clear()
             self._seen_ids.clear()
             self._log.clear()
+            self._processed = 0
             self._dropped_duplicates = 0
 
 

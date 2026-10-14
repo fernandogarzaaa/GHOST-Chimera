@@ -7,13 +7,13 @@ capabilities before they become active runtime inputs.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .ids import stable_id
 from .redaction import RISK_ORDER
 from .redaction import SECRET_MARKERS as SECRET_MARKERS
 from .redaction import SECRET_PATTERNS as SECRET_PATTERNS
@@ -95,8 +95,7 @@ def _now() -> float:
 
 
 def _stable_id(*parts: object, length: int = 18) -> str:
-    raw = "|".join(str(part).strip().lower() for part in parts if part is not None)
-    return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:length]
+    return stable_id(*parts, length=length, normalize=True)
 
 
 def _normalize_risk(risk: str) -> str:

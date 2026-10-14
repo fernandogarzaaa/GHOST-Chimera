@@ -593,7 +593,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(mock_sleep.call_count, 100)
             for call in mock_sleep.call_args_list:
                 self.assertEqual(call[0][0], 0.1)
-            expected = json.dumps({"ok": True, "stopped": False, "pid": 4242}, indent=2, sort_keys=True)
+            expected = json.dumps({"ok": False, "stopped": False, "pid": 4242}, indent=2, sort_keys=True)
             self.assertEqual(mock_print.call_args[0][0], expected)
 
     def test_daemon_stop_not_running_exact_output(self) -> None:

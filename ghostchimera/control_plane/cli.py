@@ -12,6 +12,7 @@ and processes user input in a loop until the user types ``exit`` or
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -109,6 +110,57 @@ def _first_command_token(argv: list[str]) -> str:
     return ""
 
 
+def _prog_name() -> str:
+    """The command name the user actually typed (``ghost`` or ``ghostchimera``)."""
+    from .prog_name import prog_name
+
+    return prog_name()
+
+
+def _edit_distance(a: str, b: str) -> int:
+    """Damerau-Levenshtein (optimal string alignment) distance; a swap costs 1."""
+    rows = [list(range(len(b) + 1))]
+    for i in range(1, len(a) + 1):
+        row = [i] + [0] * len(b)
+        for j in range(1, len(b) + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            row[j] = min(rows[i - 1][j] + 1, row[j - 1] + 1, rows[i - 1][j - 1] + cost)
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                row[j] = min(row[j], rows[i - 2][j - 2] + 1)
+        rows.append(row)
+    return rows[-1][-1]
+
+
+def _suggest_command(argv: list[str]) -> str:
+    """Return the subcommand a single-word typo most likely meant, or ``""``.
+
+    Only a lone word is checked (``ghost dmeo`` or ``ghost dmeo --json``).
+    Multi-word text, quoted (``ghost "fix the tests"``) or not
+    (``ghost fix the tests``), is a plain-language objective and is left alone,
+    as is any single word that is not close to a command.
+    """
+    if not argv:
+        return ""
+    first = argv[0].strip()
+    if not first or first.startswith("-") or first in _TOP_LEVEL_COMMANDS or any(ch.isspace() for ch in first):
+        return ""
+    if any(token.strip() and not token.startswith("-") for token in argv[1:]):
+        return ""
+    word = first.lower()
+    if word in _TOP_LEVEL_COMMANDS:
+        return word
+    best = ""
+    best_distance = 3
+    for command in sorted(_TOP_LEVEL_COMMANDS):
+        distance = _edit_distance(word, command)
+        # Three-letter commands (ask, mcp, run) are one edit from many real
+        # words at distance 2 ("use", "add"), so only a single edit counts.
+        limit = 1 if len(command) <= 3 else 2
+        if distance <= limit and distance < best_distance:
+            best, best_distance = command, distance
+    return best
+
+
 def _normalize_one_liner_args(argv: list[str]) -> list[str]:
     """Convert free-form terminal prompts into the ask command."""
     if not argv:
@@ -117,6 +169,40 @@ def _normalize_one_liner_args(argv: list[str]) -> list[str]:
     if not first or first.startswith("-") or first in _TOP_LEVEL_COMMANDS:
         return argv
     return ["ask", " ".join(token for token in argv if token.strip())]
+
+
+_START_HERE_COMMANDS = ("demo", "ask", "console", "setup")
+_START_HERE_EXAMPLES = {
+    "demo": "demo",
+    "ask": 'ask "In one sentence, what is NVIDIA Nemotron?"',
+    "console": "console",
+    "setup": "setup",
+}
+
+
+def _group_command_help(parser: argparse.ArgumentParser, sub: argparse._SubParsersAction) -> None:
+    """Show the four first-run commands first in ``--help``, then everything else.
+
+    argparse lists subcommands in registration order (``demo`` was 34th of 36),
+    so the per-choice list is replaced by a grouped description shown right
+    under a short usage line. Parsing is unchanged.
+    """
+    prog = parser.prog
+    actions = list(sub._choices_actions)
+    helps = {action.dest: action.help or "" for action in actions}
+    width = max(len(name) for name in helps) + 2
+    lines = ["Start here:"]
+    for name in _START_HERE_COMMANDS:
+        lines.append(f"  {prog} {_START_HERE_EXAMPLES[name]}")
+        lines.append(f"      {helps.get(name, '')}")
+    lines += ["", "All commands:"]
+    ordered = [name for name in _START_HERE_COMMANDS if name in helps]
+    ordered += [name for name in helps if name not in _START_HERE_COMMANDS]
+    lines += [f"  {name.ljust(width)}{helps[name]}" for name in ordered]
+    sub._choices_actions = []
+    parser.usage = '%(prog)s [options] <command> [args]\n       %(prog)s "<plain-language task>"'
+    parser.description = "Ghost Chimera CLI\n\n" + "\n".join(lines)
+    parser.epilog = f"Run '{prog} <command> --help' for a command's options."
 
 
 def run_cli() -> None:
@@ -142,17 +228,62 @@ def run_cli() -> None:
             print(f"Error: {exc}")
 
 
+def _configure_stdio() -> None:
+    """Never crash on a character the terminal encoding can't show.
+
+    Model replies often contain U+2011 and similar; on a cp1252 Windows console
+    or a redirected pipe, printing them raised UnicodeEncodeError. Replace the
+    unencodable character instead. The stream encoding itself is left alone.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        with contextlib.suppress(Exception):
+            if (getattr(stream, "errors", "") or "strict") == "strict":
+                reconfigure(errors="replace")
+
+
 def _main(argv: list[str] | None = None) -> int:
+    """Console entry point: run the CLI, turning Ctrl-C into one line and exit 130."""
+    _configure_stdio()
+    try:
+        return _run_main(argv)
+    except KeyboardInterrupt:
+        with contextlib.suppress(Exception):  # stdout may already be closed
+            sys.stdout.flush()
+        print("\nInterrupted.", file=sys.stderr)
+        return 130
+
+
+def _run_main(argv: list[str] | None = None) -> int:
     # If parallel flags are present, delegate to parallel_cli
     effective_argv = list(sys.argv[1:] if argv is None else argv)
     if _first_command_token(effective_argv) in _PARALLEL_COMMANDS:
         from .parallel_cli import _main as _parallel_main
 
         return _parallel_main(effective_argv)
+    suggestion = _suggest_command(effective_argv)
+    if suggestion:
+        prog = _prog_name()
+        typed = effective_argv[0].strip()
+        print(
+            f"{prog}: unknown command '{typed}'. Did you mean '{suggestion}'?\n"
+            f'To run it as a plain-language task instead: {prog} ask "{typed}"',
+            file=sys.stderr,
+        )
+        return 2
     effective_argv = _normalize_one_liner_args(effective_argv)
 
-    parser = argparse.ArgumentParser(description="Ghost Chimera CLI")
-    sub = parser.add_subparsers(dest="command")
+    from .. import __version__
+
+    parser = argparse.ArgumentParser(
+        prog=_prog_name(),
+        description="Ghost Chimera CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    sub = parser.add_subparsers(dest="command", metavar="<command>", title="commands")
     sub.add_parser("setup", help="Run interactive setup wizard")
     start_parser = sub.add_parser("start", help="Guided start for non-technical users")
     start_parser.add_argument("--host", default="127.0.0.1", help="Gateway bind host for the console.")
@@ -417,7 +548,12 @@ def _main(argv: list[str] | None = None) -> int:
         "--config-path", default="", help="Optional config file path for testing or portable installs."
     )
     sub.add_parser("model", help="List and switch the current model provider")
-    sub.add_parser("policy", help="Manage security policies")
+    policy_parser = sub.add_parser("policy", help="Manage security policies (list, scan, set)")
+    policy_parser.add_argument(
+        "policy_args",
+        nargs=argparse.REMAINDER,
+        help="Policy subcommand and its arguments: list | scan TEXT [--policy NAME] | set TASK_TYPE.",
+    )
     desktop_stop_parser = sub.add_parser("desktop-stop", help="Create the Chimera Pilot desktop kill-switch file")
     desktop_stop_parser.add_argument("--desktop-kill-switch-path", default="", help="Kill-switch path to create.")
     desktop_stop_parser.add_argument("--reason", default="operator_stop", help="Reason written into the stop file.")
@@ -488,7 +624,9 @@ def _main(argv: list[str] | None = None) -> int:
     )
     minimind_parser.add_argument("--max-vocab", type=int, default=512, help="Maximum neural adapter vocabulary size.")
     minimind_parser.add_argument(
-        "--memory-db", default=".ghostchimera-memory.sqlite3", help="Memory DB path for personal ingestion."
+        "--memory-db",
+        default="",
+        help="Memory DB path for personal ingestion (default: <state dir>/memory.sqlite3).",
     )
     minimind_parser.add_argument(
         "--state-dir", default="", help="Optional state directory for Personal MiniMind consent/datasets."
@@ -704,6 +842,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--config-show", action="store_true", help="Print resolved Ghost Chimera runtime config as JSON and exit."
     )
+    _group_command_help(parser, sub)
     args = parser.parse_args(effective_argv)
     if args.ghost_mode:
         import os
@@ -796,13 +935,14 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "model":
         from .model_picker import run_model_picker
 
-        run_model_picker()
-        return 0
+        return int(run_model_picker() or 0)
 
     if args.command == "policy":
         from .cli_policy import _main as _policy_main
 
-        return _policy_main()
+        # Pass only the args after "policy"; with no argv the policy parser
+        # would re-parse sys.argv[1:] (which starts with "policy") and fail.
+        return _policy_main(list(args.policy_args or ["list"]))
 
     if args.command == "desktop-stop":
         from ..chimera_pilot.desktop_policy import write_desktop_stop_file
@@ -909,9 +1049,9 @@ def _main(argv: list[str] | None = None) -> int:
         try:
             executions = kernel.run(args.pilot_run)
         except NoBackendAvailableError as exc:
-            from .provider_hint import print_no_provider
+            from .provider_hint import print_no_backend
 
-            print_no_provider(args.pilot_run, str(exc))
+            print_no_backend(args.pilot_run, str(getattr(exc, "task_kind", "") or ""), str(exc))
             return 2
         except PermissionError as exc:
             print(
@@ -1047,7 +1187,7 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
         payload = {
             "ok": False,
             "error": str(exc),
-            "tip": "Run `ghostchimera setup` to tune permissions and model setup.",
+            "tip": f"Run `{_prog_name()} setup` to tune permissions and model setup.",
         }
         if args.json:
             print(json.dumps(payload, indent=2, sort_keys=True))
@@ -1103,11 +1243,22 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
                 if primary_output
                 else "the offline deterministic backend could not fulfil this task, so there is no answer"
             )
-            print(
-                f"note: no model provider is configured, so {what}. Run `ghostchimera setup`, "
-                "or set NEBIUS_API_KEY (Nemotron on Nebius Token Factory) or another provider key.",
-                file=sys.stderr,
-            )
+            from .provider_hint import _keys_already_set
+
+            already = _keys_already_set()
+            if already:
+                print(
+                    f"note: {', '.join(already)} is set but no model provider came up, so {what}. "
+                    "Check GHOSTCHIMERA_MODEL_PROVIDER (e.g. `export GHOSTCHIMERA_MODEL_PROVIDER=nebius`) "
+                    "and run `ghost doctor`.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"note: no model provider is configured, so {what}. Run `ghostchimera setup`, "
+                    "or set NEBIUS_API_KEY (Nemotron on Nebius Token Factory) or another provider key.",
+                    file=sys.stderr,
+                )
     return 0 if all(item["ok"] for item in payload) else 1
 
 
@@ -1435,12 +1586,16 @@ def _run_daemon_cli(args: argparse.Namespace) -> int:
             print(json.dumps({"ok": True, "stopped": False, "reason": "not running"}, indent=2))
             return 0
         os.kill(pid, _signal.SIGTERM)
+        # Poll the process itself, not the PID file: the daemon removes its
+        # PID file during shutdown, before the process has actually exited, so
+        # stopping at the file reported "stopped": false for a daemon that was
+        # gone a moment later (poweruser F19).
         for _ in range(100):
             time.sleep(0.1)
-            if not Daemon.pid_alive(pid) or Daemon.read_pid(state_dir) is None:
+            if not Daemon.pid_alive(pid):
                 break
         stopped = not Daemon.pid_alive(pid)
-        print(json.dumps({"ok": True, "stopped": stopped, "pid": pid}, indent=2, sort_keys=True))
+        print(json.dumps({"ok": stopped, "stopped": stopped, "pid": pid}, indent=2, sort_keys=True))
         return 0 if stopped else 1
 
     # status
@@ -1866,7 +2021,9 @@ def _run_minimind_cli(args: argparse.Namespace) -> int:
     from ..model_layer.minimind_lifecycle import MiniMindLifecycle
     from ..model_layer.minimind_personal_agent import MiniMindPersonalAgent
     from ..model_layer.minimind_runtime import list_minimind_architectures, minimind_source_metadata
+    from ..paths import personal_memory_db
 
+    args.memory_db = str(personal_memory_db(args.memory_db))
     lifecycle = MiniMindLifecycle(profile_name=args.profile or None, state_dir=args.state_dir or None)
     personal = MiniMindPersonalAgent(
         profile_name=args.profile or None,

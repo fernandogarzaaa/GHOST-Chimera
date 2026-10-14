@@ -7,12 +7,10 @@ is the canonical config written by the setup wizard.
 
 from __future__ import annotations
 
-import contextlib
-import json
-import os
 from pathlib import Path
 from typing import Any
 
+from .. import state_io
 from ..model_layer.provider_auth import config_to_provider_env
 
 DEFAULT_STATE_DIR = Path.home() / ".ghostchimera"
@@ -20,24 +18,20 @@ CONFIG_FILE = DEFAULT_STATE_DIR / "config.json"
 
 
 def load_config(path: Path | None = None) -> dict[str, Any]:
-    """Load config from disk, returning empty dict if not found."""
+    """Load config from disk, returning empty dict if not found.
+
+    A corrupt file is moved aside (``config.json.corrupt-<ts>``) so the next
+    save cannot silently destroy the user's keys and settings.
+    """
     if path is None:
         path = CONFIG_FILE
-    if not path.exists():
-        return {}
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {}
+    data = state_io.read_json(path, {}, expect=dict)
+    return data if isinstance(data, dict) else {}
 
 
 def _private_mode(path: Path, mode: int) -> None:
     """Best-effort owner-only permissions (POSIX; Windows uses directory ACLs)."""
-    if os.name != "posix":
-        return
-    with contextlib.suppress(OSError):
-        os.chmod(path, mode)
+    state_io.make_private(path, mode=mode)
 
 
 def save_config(config: dict[str, Any], path: Path | None = None) -> None:
@@ -48,26 +42,17 @@ def save_config(config: dict[str, Any], path: Path | None = None) -> None:
     """
     if path is None:
         path = CONFIG_FILE
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _private_mode(path.parent, 0o700)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        with open(tmp, "w") as f:
-            json.dump(config, f, indent=2, sort_keys=True)
-        _private_mode(tmp, 0o600)
-        os.replace(tmp, path)
-    finally:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
+    # Unique temp per writer (the old pid-only name collided across
+    # threads), 0600 from the first byte, 0700 directory, atomic replace.
+    with state_io.locked(path):
+        state_io.write_private_json(path, config)
 
 
 def ensure_state_dir(path: Path | None = None) -> Path:
     """Ensure the state directory exists (owner-only on POSIX)."""
     if path is None:
         path = DEFAULT_STATE_DIR
-    path.mkdir(parents=True, exist_ok=True)
-    _private_mode(path, 0o700)
-    return path
+    return state_io.ensure_private_dir(path)
 
 
 def get_default_config() -> dict[str, Any]:
