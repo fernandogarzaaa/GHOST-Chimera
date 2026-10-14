@@ -722,18 +722,16 @@ class RemoteControlStore:
 
     def _load_secrets(self) -> dict[str, Any]:
         path = _secrets_path(self.state_dir)
-        if not path.exists():
-            return {}
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {}
+        if path.exists():
+            state_io.make_private(path)  # tighten files written 0644 by older versions
+        data = state_io.read_json(path, {}, expect=dict)
         return data if isinstance(data, dict) else {}
 
     def _save_secrets(self, data: dict[str, Any]) -> None:
+        # Bot/API tokens and webhook URLs: 0600 file in a 0700 dir, atomic.
         path = _secrets_path(self.state_dir)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+        with state_io.locked(path):
+            state_io.write_private_json(path, data)
 
     def _event(self, event_type: str, detail: dict[str, Any] | None = None) -> dict[str, Any]:
         event = {
