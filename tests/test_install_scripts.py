@@ -131,3 +131,13 @@ def test_install_sh_dependency_check_passes_for_default_profile(extras: str) -> 
     # This interpreter has the base deps but not pyautogui; the old check failed here.
     assert proc.returncode == 0, proc.stderr
     assert "runtime dependency surface ok" in proc.stdout
+
+
+def test_overview_windows_launch_path_matches_install_ps1() -> None:
+    """newcomer P2-10: OVERVIEW said `.venv/bin/ghostchimera console` for Windows too."""
+    overview = (ROOT / "docs" / "OVERVIEW.md").read_text(encoding="utf-8")
+    powershell = (ROOT / "scripts" / "install.ps1").read_text(encoding="utf-8")
+    windows_launch = r".\.venv\Scripts\ghostchimera.exe console"
+    assert windows_launch in powershell
+    assert windows_launch in overview
+    assert "(`scripts/install.ps1` on Windows, `scripts/install.sh` on macOS/Linux)" not in overview

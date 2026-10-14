@@ -60,11 +60,20 @@ irm https://raw.githubusercontent.com/fernandogarzaaa/GHOST-Chimera/main/scripts
 curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/GHOST-Chimera/main/scripts/install.sh | bash
 ```
 
-Then launch (`scripts/install.ps1` on Windows, `scripts/install.sh` on macOS/Linux):
+Then try the demo and launch the console. On macOS / Linux (`scripts/install.sh`):
 
 ```bash
 cd ~/ghost-chimera
+.venv/bin/ghost demo
 .venv/bin/ghostchimera console
+```
+
+On Windows PowerShell (`scripts/install.ps1`; the venv uses `Scripts\` and `.exe`):
+
+```powershell
+cd $HOME\ghost-chimera
+.\.venv\Scripts\ghost.exe demo
+.\.venv\Scripts\ghostchimera.exe console
 ```
 
 Installer options are environment variables. `GHOSTCHIMERA_EXTRAS` defaults to `gateway,dev`. Set it to add backends, for example `GHOSTCHIMERA_EXTRAS=gateway,dev,desktop` for desktop control or `GHOSTCHIMERA_EXTRAS=all,dev` for every backend (slow: pulls torch, llama-cpp-python and the voice stack). An explicitly empty `GHOSTCHIMERA_EXTRAS=` installs the base package only. The post-install check only verifies the modules of the extras you chose.
