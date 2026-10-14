@@ -15,7 +15,7 @@ from ghostchimera.control_plane.provider_hint import no_provider_message
 
 
 def test_message_names_nebius_key_and_alternatives() -> None:
-    msg = no_provider_message("do a thing", "No available backend")
+    msg = no_provider_message("do a thing", "No available backend", env={})
     assert "NEBIUS_API_KEY" in msg
     assert "export NEBIUS_API_KEY=..." in msg
     assert "ghost demo" in msg

@@ -2,6 +2,21 @@
 
 This is the fastest way to get Ghost Chimera running locally.
 
+## Use NVIDIA Nemotron (Nebius Token Factory)
+
+Get a key at [console.nebius.com](https://console.nebius.com) (Token Factory → API keys), then:
+
+```bash
+export NEBIUS_API_KEY=...        # PowerShell: $env:NEBIUS_API_KEY="..."
+ghost doctor                     # shows "Provider: nebius (auto-detected from NEBIUS_API_KEY)"
+ghost ask "In one sentence, what is NVIDIA Nemotron?"
+ghost demo --record session.json # live Nemotron session, one progress line per event
+```
+
+No `GHOSTCHIMERA_MODEL_PROVIDER` is needed: a lone `NEBIUS_API_KEY` selects Nebius. Set
+`GHOSTCHIMERA_MODEL_PROVIDER` only to pick a different provider; it always wins. Change the
+model with `NEBIUS_MODEL` (default `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`).
+
 ## Option 1: Docker
 
 If you want the browser UI without setting up a Python environment:

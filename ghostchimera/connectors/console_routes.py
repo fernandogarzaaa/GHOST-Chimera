@@ -1991,6 +1991,16 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
     )
 
     # -- Stealth activity monitor + pre-fill drafts (STE-checked) ----------
+    def _cloud_status(loop: Any) -> dict[str, Any] | None:
+        status_fn = getattr(loop, "cloud_status", None)
+        if not callable(status_fn):
+            return None
+        try:
+            return status_fn()
+        except Exception as exc:
+            logger.warning("stealth cloud status failed: %s", exc)
+            return None
+
     def stealth_activity(_ctx: dict[str, Any]) -> dict[str, Any]:
         from .stealth_service import draft_actions, get_service_loop
 
@@ -2031,7 +2041,8 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 store_error = "recent-events-unavailable"
         return {
             "ok": True,
-            "events_processed": loop.bus.processed,
+            "events_processed": getattr(loop, "events_processed", loop.bus.processed),
+            "nemotron": _cloud_status(loop),
             "recent_events": recent,
             "recent_events_error": store_error,
             "interventions": interventions,
@@ -2117,8 +2128,15 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
             event = Event.from_dict(data.get("event") if "event" in data else data)
         except (KeyError, TypeError, ValueError) as exc:
             return {"ok": False, "error": f"bad event: {exc}"}
-        delivered = loop.emit(event)
-        result = loop.last_result
+        # emit_and_get returns this request's own result, never one from a
+        # concurrent request on the shared service loop.
+        emit_and_get = getattr(loop, "emit_and_get", None)
+        if callable(emit_and_get):
+            result = emit_and_get(event)
+            delivered = result is not None
+        else:
+            delivered = loop.emit(event)
+            result = loop.last_result
         return {
             "ok": True,
             "delivered": delivered,

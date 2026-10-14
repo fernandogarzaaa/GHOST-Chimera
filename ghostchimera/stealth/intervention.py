@@ -84,6 +84,33 @@ class Intervention:
         self.outcome = outcome
         self.updated_at = time.time()
 
+    @classmethod
+    def from_row(cls, row: dict[str, Any]) -> Intervention:
+        """Rebuild an intervention from a ``StealthStore.load_interventions`` row."""
+        try:
+            state = InterventionState(str(row.get("state") or "created"))
+        except ValueError:
+            state = InterventionState.CREATED
+        try:
+            outcome = InterventionOutcome(str(row.get("outcome") or "pending"))
+        except ValueError:
+            outcome = InterventionOutcome.PENDING
+        provenance = row.get("provenance")
+        updated = float(row.get("updated_at") or time.time())
+        return cls(
+            id=str(row["id"]),
+            trigger_event_id=str(row.get("trigger_event_id") or ""),
+            workflow=str(row.get("workflow") or ""),
+            confidence=float(row.get("confidence") or 0.0),
+            state=state,
+            outcome=outcome,
+            reason=str(row.get("reason") or ""),
+            provenance=dict(provenance) if isinstance(provenance, dict) else {},
+            created_at=float(row.get("created_at") or updated),
+            updated_at=updated,
+            history=[{"state": str(state), "at": updated, "note": "restored from journal"}],
+        )
+
     def explain(self) -> dict[str, Any]:
         return {
             "id": self.id,

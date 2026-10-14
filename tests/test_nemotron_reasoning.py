@@ -113,7 +113,8 @@ class TestUnderstand(unittest.TestCase):
     def test_fenced_json_is_stripped(self):
         provider = FakeProvider(reply="```json\n" + _UNDERSTAND_JSON + "\n```")
         r = NemotronReasoner(provider=provider)
-        out = r.understand(_event())
+        # A non-empty payload: empty events are no longer sent to the cloud.
+        out = r.understand(_event({"summary": "pricing research"}))
         self.assertEqual(out["intent"], "research")
 
 
@@ -172,6 +173,9 @@ class TestLoopIntegration(unittest.TestCase):
     def _loop(self, **kwargs):
         from ghostchimera.stealth import StealthLoop, new_event
 
+        # These tests pin what lands in the trace, so run cloud calls inline;
+        # async attachment is covered in test_stealth_cloud_async.py.
+        kwargs.setdefault("cloud_mode", "sync")
         loop = StealthLoop(**kwargs)
         self.addCleanup(loop.close)
         return loop, new_event
@@ -239,7 +243,7 @@ class TestLoopPredictWiring(unittest.TestCase):
     def _loop(self, reasoner, **attrs):
         from ghostchimera.stealth import StealthLoop, new_event
 
-        loop = StealthLoop(reasoner=reasoner, own_runtime=False)
+        loop = StealthLoop(reasoner=reasoner, own_runtime=False, cloud_mode="sync")
         self.addCleanup(loop.close)
         for key, value in attrs.items():
             setattr(loop, key, value)
