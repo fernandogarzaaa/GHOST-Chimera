@@ -885,6 +885,8 @@ class GatewayServer(BackgroundService):
                     "path": path,
                     "headers": headers,
                     "body": body.decode("utf-8", errors="replace"),
+                    # Exact bytes for routes that verify provider signatures.
+                    "raw_body": body,
                     "query": query,
                 }
                 try:

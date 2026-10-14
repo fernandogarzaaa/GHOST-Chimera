@@ -7,9 +7,11 @@ JSON — raw tokens and secret keys never leave these routes.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import threading
 import time
 from contextlib import suppress
 from pathlib import Path
@@ -3194,37 +3196,100 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         description="Run one operator tool",
     )
 
-    def inbound_webhook(ctx: dict[str, Any]) -> dict[str, Any]:
-        import time as _time
-        import uuid as _uuid
+    from . import webhook_auth as _wh
 
-        from .stealth_service import get_service_loop
+    webhook_buckets = _wh.TokenBucket(_wh.default_rate_limit(), 60.0)
+    webhook_failures = _wh.TokenBucket(max(10, _wh.default_rate_limit()), 60.0)
+    webhook_replays = _wh.ReplayCache()
+    webhook_dispatch: dict[str, Any] = {}
+    webhook_lock = threading.Lock()
+
+    def _webhook_dispatcher() -> Any:
+        with webhook_lock:
+            if "d" not in webhook_dispatch:
+                from .stealth_service import get_service_loop
+
+                webhook_dispatch["d"] = _wh.WebhookDispatcher(lambda event: get_service_loop(base).emit(event))
+            return webhook_dispatch["d"]
+
+    def _webhook_reply(status: int, payload: dict[str, Any]) -> Any:
+        from ..chimera_pilot.gateway_server import HttpResponse
+
+        return HttpResponse(json.dumps(payload), status=status)
+
+    def inbound_webhook(ctx: dict[str, Any]) -> Any:
+        """Signed provider deliveries -> 202 + background loop hand-off (redteam P0-1)."""
+        import time as _time
+
         from .webhooks import NORMALIZERS, normalize_webhook
 
         parts = str(ctx.get("path", "")).strip("/").split("/")
         # ["api", "webhooks", source, va_id]
         if len(parts) != 4 or parts[0] != "api" or parts[1] != "webhooks":
-            return {"ok": False, "error": "use POST /api/webhooks/{source}/{va_id}"}
+            return _webhook_reply(404, {"ok": False, "error": "use POST /api/webhooks/{source}/{va_id}"})
         source, va_id = parts[2], parts[3]
         if source not in NORMALIZERS:
-            return {"ok": False, "error": f"unknown source '{source}'"}
-        delivery_id = str(ctx.get("headers", {}).get("x-delivery-id", "") or _uuid.uuid4().hex[:12])
-        event = normalize_webhook(source, delivery_id, va_id, _body(ctx))
+            return _webhook_reply(404, {"ok": False, "error": f"unknown source '{source}'"})
+        if not _wh.VA_ID_RE.match(va_id):
+            return _webhook_reply(400, {"ok": False, "error": "invalid va_id"})
+        headers = {str(k).lower(): str(v) for k, v in (ctx.get("headers") or {}).items()}
+        raw = ctx.get("raw_body")
+        body = raw if isinstance(raw, bytes) else str(ctx.get("body") or "").encode("utf-8")
+        if len(body) > _wh.MAX_BODY_BYTES:
+            return _webhook_reply(413, {"ok": False, "error": "webhook body too large"})
+        fail_key = f"{source}/{va_id}"
+        if not webhook_failures.allow(fail_key + "#probe"):
+            # Too many recent failed deliveries for this endpoint: back off.
+            return _webhook_reply(429, {"ok": False, "error": "too many failed webhook deliveries"})
+
+        now = _time.time()
+        secret = _wh.lookup_secret(source, va_id, base)
+        if source == "slack":
+            rejection = (
+                _wh.verify_slack(secret, headers, body, now)
+                if secret
+                else _wh.WebhookRejection(401, "webhook secret not configured for slack")
+            )
+        elif source == "zendesk":
+            rejection = (
+                _wh.verify_zendesk(secret, headers, body, now)
+                if secret
+                else _wh.WebhookRejection(401, "webhook secret not configured for zendesk")
+            )
+        else:
+            rejection = _wh.verify_gmail(secret, headers, dict(ctx.get("query") or {}), now=now)
+        if rejection is not None:
+            return _webhook_reply(rejection.status, {"ok": False, "error": rejection.error})
+        # Successful verification refunds the failure probe so a legitimate
+        # sender is never locked out by its own volume.
+        webhook_failures.refund(fail_key + "#probe")
+
+        payload = _wh.parse_body(source, headers, body)
+        if isinstance(payload, _wh.WebhookRejection):
+            return _webhook_reply(payload.status, {"ok": False, "error": payload.error})
+        if source == "slack" and payload.get("type") == "url_verification":
+            return {"challenge": str(payload.get("challenge", ""))}
+        if not webhook_buckets.allow(fail_key):
+            return _webhook_reply(429, {"ok": False, "error": "webhook rate limit exceeded"})
+
+        delivery_id = str(
+            payload.get("event_id")
+            or headers.get("x-zendesk-webhook-id")
+            or headers.get("x-delivery-id")
+            or hashlib.sha256(body).hexdigest()[:16]
+        )[:128]
+        event = normalize_webhook(source, delivery_id, va_id, payload)
         if event is None:
-            # Verification pings, bot echoes, empty payloads: ack, don't learn.
+            # Bot echoes, empty payloads: ack, don't learn.
             return {"ok": True, "queued": False, "reason": "ignored (ping/echo/empty)"}
-        loop = get_service_loop(base)
-        delivered = loop.emit(event)
-        result = loop.last_result
-        return {
-            "ok": True,
-            "queued": True,
-            "event_id": event.event_id,
-            "delivered": delivered,
-            "decision": str(result.decision) if result else "none",
-            "intervention_id": result.intervention_id if result else "",
-            "received_at": _time.time(),
-        }
+        if webhook_replays.seen(f"{source}/{va_id}/{event.event_id}"):
+            return {"ok": True, "queued": False, "reason": "duplicate delivery", "event_id": event.event_id}
+        if not _webhook_dispatcher().submit(event):
+            return _webhook_reply(503, {"ok": False, "error": "webhook queue full; retry later"})
+        return _webhook_reply(
+            202,
+            {"ok": True, "queued": True, "event_id": event.event_id, "received_at": now},
+        )
 
     server.routes.register(
         "/api/webhooks/",
@@ -3232,7 +3297,7 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         method="POST",
         prefix=True,
         auth="open",
-        description="Unified inbound webhooks per VA",
+        description="Unified inbound webhooks per VA (provider-signed; 202 + async)",
     )
 
 

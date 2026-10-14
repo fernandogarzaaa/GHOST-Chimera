@@ -2,8 +2,10 @@
 
 Mirrors the production ingestion contract: POST /webhooks/{source}/{va_id}
 normalizes provider payloads into one event shape, the loop/queue takes it
-from there, and the endpoint answers 200 immediately. Provider signature
-verification stays upstream (gateway/HMAC layer); these are pure mappers.
+from there, and the endpoint answers 202 immediately. Provider signature
+verification, rate limiting and the async hand-off live in
+:mod:`ghostchimera.connectors.webhook_auth` and run *before* these pure
+mappers see a payload.
 """
 
 from __future__ import annotations

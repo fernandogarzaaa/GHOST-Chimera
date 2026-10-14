@@ -36,8 +36,20 @@ The Ghost Console HTTP API (`ghostchimera console` / `start`) is never open by d
 
 - a random console token is generated on first run, stored owner-only (0600) in `~/.ghostchimera/console_secrets.json` (or `<state-dir>/console_secrets.json`), printed once, and required on every `/api/*` route and the WebSocket (`X-Gateway-Token` or `Authorization: Bearer`); `--auth-token` overrides it for a run;
 - every request must carry a `Host` of `localhost`, `127.0.0.1` or `[::1]` (any port), the concrete bind host, or a host allowed with `--allow-host` / `GHOSTCHIMERA_CONSOLE_ALLOWED_HOSTS` (DNS-rebinding defence);
-- POST/PUT/PATCH/DELETE requests with a foreign or `null` `Origin`, or `Sec-Fetch-Site: cross-site`, are refused, and must be `Content-Type: application/json` (signed `/api/webhooks/` deliveries excepted);
+- POST/PUT/PATCH/DELETE requests with a foreign or `null` `Origin`, or `Sec-Fetch-Site: cross-site`, are refused, and must be `Content-Type: application/json` (signed `/api/webhooks/` deliveries excepted, see below);
 - unrestricted host execution is armed only with this install's random arming phrase, stored in the same file and never returned by the API.
+
+### Inbound provider webhooks
+
+`POST /api/webhooks/{slack,gmail,zendesk}/{va_id}` cannot carry the console token, so each delivery must prove it came from the provider. Nothing is accepted until a secret is configured (fail closed):
+
+| Provider | Verification | Secret |
+|---|---|---|
+| Slack | `X-Slack-Signature` = `v0=` HMAC-SHA256 of `v0:{timestamp}:{body}`; `X-Slack-Request-Timestamp` within 5 minutes | Slack app signing secret |
+| Zendesk | `X-Zendesk-Webhook-Signature` = base64 HMAC-SHA256 of `{timestamp}{body}`; timestamp within 5 minutes | Zendesk webhook signing secret |
+| Gmail (Pub/Sub push) | Google-signed OIDC token in `Authorization: Bearer` when `GHOSTCHIMERA_WEBHOOK_GMAIL_OIDC_AUDIENCE` is set (optionally pinned with `GHOSTCHIMERA_WEBHOOK_GMAIL_OIDC_EMAIL`); otherwise a shared token in `X-Ghost-Webhook-Token` or the push URL's `?token=` | shared verification token |
+
+Secrets are read from `GHOSTCHIMERA_WEBHOOK_SECRET_<SOURCE>_<VA_ID>` (per VA, preferred), `GHOSTCHIMERA_WEBHOOK_SECRET_<SOURCE>` (all VAs), or `<state-dir>/webhook_secrets.json` (`{"slack": {"*": "...", "va-1": "..."}}`, keep it 0600). Bodies must be `application/json` (Slack may also send `application/x-www-form-urlencoded`), at most 1 MiB. Verified deliveries are rate limited per source and VA (`GHOSTCHIMERA_WEBHOOK_RATE_PER_MIN`, default 60), repeated failures back off with `429`, duplicate deliveries are acknowledged without re-processing, and accepted events are queued for the stealth loop with a `202`: the request never waits for model reasoning.
 
 ## Required hardening for production deployments
 
