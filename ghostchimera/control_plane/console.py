@@ -5925,6 +5925,39 @@ def _console_url(server: GatewayServer) -> str:
     return f"http://{server.host}:{http_port}/"
 
 
+def _warn_port_shift(server: GatewayServer, requested_ws_port: int, requested_http_port: int) -> None:
+    """Say loudly when a busy port made the console move to another one.
+
+    The gateway picks the next free port silently, so a user who asked for
+    8766 and opened http://127.0.0.1:8766/ could land on some other process.
+    """
+    actual_ws = int(server.port or 0)
+    actual_http = int(server.http_port or 0)
+    if server._http_server is not None:
+        actual_http = int(server._http_server.server_address[1])
+    shifts = []
+    if requested_http_port > 0 and actual_http != requested_http_port:
+        shifts.append(f"HTTP port {requested_http_port} -> {actual_http}")
+    if requested_ws_port > 0 and actual_ws != requested_ws_port:
+        shifts.append(f"WebSocket port {requested_ws_port} -> {actual_ws}")
+    if not shifts:
+        return
+    banner = "!" * 72
+    print(banner, file=sys.stderr, flush=True)
+    print(
+        "WARNING: requested port(s) already in use, so Ghost Console moved: " + "; ".join(shifts) + ".",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(
+        f"WARNING: use http://{server.host}:{actual_http}/ (not the port you asked for). "
+        "Another process, maybe an older console, owns the requested port.",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(banner, file=sys.stderr, flush=True)
+
+
 def run_console(
     *,
     host: str = "127.0.0.1",
@@ -6021,26 +6054,33 @@ def run_console(
         threading.Thread(target=_warm_voice, name="ghost-voice-warmup", daemon=True).start()
     except Exception:
         pass
+    requested_ws_port = int(server.port or 0)
+    requested_http_port = int(server.http_port or 0)
     server.start()
     _warn_oauth_origin_mismatch(server)
     url = _console_url(server)
+    _warn_port_shift(server, requested_ws_port, requested_http_port)
     # The token rides in the URL fragment: browsers never send fragments to
     # the server, so it stays out of request logs and Referer headers. The UI
     # moves it into sessionStorage and strips it from the address bar.
     token_url = f"{url}#token={urllib.parse.quote(auth_token, safe='')}"
-    print(f"Ghost Console: {url}")
+    # flush=True on every line: with stdout redirected (tee, a log file, Docker)
+    # these lines otherwise sit in the buffer and are lost when the process is
+    # stopped, and the one-time token is never shown again.
+    print(f"Ghost Console: {url}", flush=True)
     if console_secrets.created and auth_token == console_secrets.token:
         # Shown exactly once, when the per-install token is first generated.
-        print(f"New console token (stored owner-only in {console_secrets.path}): {auth_token}")
-        print(f"Open the console with: {token_url}")
+        print(f"New console token (stored owner-only in {console_secrets.path}): {auth_token}", flush=True)
+        print(f"Open the console with: {token_url}", flush=True)
         print(
-            f"Host-execution arming phrase (only needed to arm unrestricted host mode): {console_secrets.arming_phrase}"
+            f"Host-execution arming phrase (only needed to arm unrestricted host mode): {console_secrets.arming_phrase}",
+            flush=True,
         )
     else:
         # Otherwise the value is never printed: it would leak into terminal
         # scrollback, Docker logs, CI logs, and support captures.
         source = "the --auth-token value" if auth_token != console_secrets.token else str(console_secrets.path)
-        print(f"Console token required (X-Gateway-Token or Authorization: Bearer); it is in {source}.")
+        print(f"Console token required (X-Gateway-Token or Authorization: Bearer); it is in {source}.", flush=True)
     if open_browser:
         webbrowser.open(token_url)
     if block:
