@@ -417,7 +417,12 @@ def _main(argv: list[str] | None = None) -> int:
         "--config-path", default="", help="Optional config file path for testing or portable installs."
     )
     sub.add_parser("model", help="List and switch the current model provider")
-    sub.add_parser("policy", help="Manage security policies")
+    policy_parser = sub.add_parser("policy", help="Manage security policies (list, scan, set)")
+    policy_parser.add_argument(
+        "policy_args",
+        nargs=argparse.REMAINDER,
+        help="Policy subcommand and its arguments: list | scan TEXT [--policy NAME] | set TASK_TYPE.",
+    )
     desktop_stop_parser = sub.add_parser("desktop-stop", help="Create the Chimera Pilot desktop kill-switch file")
     desktop_stop_parser.add_argument("--desktop-kill-switch-path", default="", help="Kill-switch path to create.")
     desktop_stop_parser.add_argument("--reason", default="operator_stop", help="Reason written into the stop file.")
@@ -802,7 +807,9 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "policy":
         from .cli_policy import _main as _policy_main
 
-        return _policy_main()
+        # Pass only the args after "policy"; with no argv the policy parser
+        # would re-parse sys.argv[1:] (which starts with "policy") and fail.
+        return _policy_main(list(args.policy_args or ["list"]))
 
     if args.command == "desktop-stop":
         from ..chimera_pilot.desktop_policy import write_desktop_stop_file

@@ -39,7 +39,7 @@ def _cmd_policy_set(task_type: str) -> None:
 
 
 def _main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Policy management")
+    parser = argparse.ArgumentParser(prog="ghost policy", description="Policy management")
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("list", help="List all policy patterns")
