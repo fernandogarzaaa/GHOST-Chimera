@@ -75,6 +75,10 @@ class WorkflowLearner:
         if len(history) > 200:
             del history[: len(history) - 200]
 
+    def forget_stream(self, stream: str) -> None:
+        """Drop a stream's recent window (learned n-gram counts are kept)."""
+        self._sequences.pop(stream, None)
+
     # -- hypotheses ------------------------------------------------------
     def hypotheses(self) -> list[WorkflowHypothesis]:
         learned: list[WorkflowHypothesis] = []

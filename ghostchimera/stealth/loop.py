@@ -201,7 +201,7 @@ class StealthLoop:
         self.nemotron_predict_interval_s = _env_float(
             "GHOSTCHIMERA_NEMOTRON_PREDICT_INTERVAL_S", NEMOTRON_PREDICT_MIN_INTERVAL_S
         )
-        self._nemotron_predict_last: dict[str, float] = {}
+        self._nemotron_predict_last: OrderedDict[str, float] = OrderedDict()
         # Cloud calls run off the hot path by default ("async"): emit() returns
         # after the local stages and Nemotron results are attached to the
         # event's trace/intervention when they land. "sync" (ghost demo,
@@ -216,7 +216,10 @@ class StealthLoop:
         self._eve_interventions: dict[str, EveIntervention] = {}
 
         self.interventions: dict[str, Intervention] = {}
-        self._recent: dict[str, deque[str]] = {}
+        # Per-session state is LRU-bounded (it used to gain one entry per
+        # session id forever); GHOSTCHIMERA_STEALTH_MAX_SESSIONS overrides.
+        self.max_sessions = max(1, int(_env_float("GHOSTCHIMERA_STEALTH_MAX_SESSIONS", 1000)))
+        self._recent: OrderedDict[str, deque[str]] = OrderedDict()
         self._interventions_1h: deque[float] = deque()
         self.bus.subscribe("*", self._on_event)
         if self._own_runtime:
@@ -249,6 +252,18 @@ class StealthLoop:
 
     def emit(self, event: Event) -> bool:
         return self.bus.emit(event)
+
+    def _session_history(self, stream: str) -> deque[str]:
+        history = self._recent.get(stream)
+        if history is None:
+            history = deque(maxlen=20)
+            self._recent[stream] = history
+        self._recent.move_to_end(stream)
+        while len(self._recent) > self.max_sessions:
+            evicted, _ = self._recent.popitem(last=False)
+            self._nemotron_predict_last.pop(evicted, None)
+            self.learner.forget_stream(evicted)
+        return history
 
     def emit_and_get(self, event: Event) -> LoopResult | None:
         """Emit ``event`` and return the LoopResult for *that* event.
@@ -303,7 +318,7 @@ class StealthLoop:
                 self.store.record_event(event)
 
         stream = event.session_id or event.correlation_id or "global"
-        history = self._recent.setdefault(stream, deque(maxlen=20))
+        history = self._session_history(stream)
         history.append(event.event_type)
         self.learner.observe(stream, event.event_type)
         self.predictions.observe(event.event_type)
@@ -430,7 +445,7 @@ class StealthLoop:
                 self.store.record_event(event)
 
         stream = event.session_id or event.correlation_id or "global"
-        history = self._recent.setdefault(stream, deque(maxlen=20))
+        history = self._session_history(stream)
         history.append(event.event_type)
         self.learner.observe(stream, event.event_type)
         self.predictions.observe(event.event_type)
@@ -567,6 +582,9 @@ class StealthLoop:
             if last is not None and now - last < self.nemotron_predict_interval_s:
                 return None
             self._nemotron_predict_last[stream] = now
+            self._nemotron_predict_last.move_to_end(stream)
+            while len(self._nemotron_predict_last) > self.max_sessions:
+                self._nemotron_predict_last.popitem(last=False)
         workflow = getattr(hypothesis, "name", "") if hypothesis is not None else ""
         history_text = "\n".join(history[-20:])
         slot = slot if slot is not None else _CloudSlot()
