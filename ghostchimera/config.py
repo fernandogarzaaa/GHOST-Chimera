@@ -42,9 +42,15 @@ class GhostChimeraConfig:
         )
 
     def ensure_state_dirs(self) -> None:
-        self.state_dir.mkdir(parents=True, exist_ok=True)
-        self.memory_db.parent.mkdir(parents=True, exist_ok=True)
-        self.audit_file.parent.mkdir(parents=True, exist_ok=True)
+        """Create the state dir owner-only (0700), independent of umask."""
+        from .state_io import ensure_private_dir
+
+        ensure_private_dir(self.state_dir)
+        for parent in (self.memory_db.parent, self.audit_file.parent):
+            if parent == self.state_dir or self.state_dir in parent.parents:
+                ensure_private_dir(parent)
+            else:  # an explicit override elsewhere: create, but don't chmod it
+                parent.mkdir(parents=True, exist_ok=True)
 
     def to_dict(self) -> dict[str, Any]:
         return {

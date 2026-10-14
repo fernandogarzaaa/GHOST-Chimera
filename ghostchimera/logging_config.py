@@ -28,6 +28,15 @@ def _configure() -> None:
 
     state_dir = ensure_state_dir()
     log_file = state_dir / "ghostchimera.log"
+    # Logs can carry prompts/paths: create the file 0600 regardless of umask.
+    try:
+        os.close(os.open(log_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600))
+    except OSError:
+        pass
+    else:
+        from .state_io import make_private
+
+        make_private(log_file)
     fmt_type = os.environ.get("GHOSTCHIMERA_LOG_FORMAT", "text").lower()
 
     root = logging.getLogger()
