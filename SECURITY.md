@@ -69,6 +69,21 @@ ghostchimera doctor --production
 
 Host execution remains trusted-inputs-only. Do not set `GHOSTCHIMERA_ALLOW_UNTRUSTED_INPUTS=1` for high-impact production workflows.
 
+## Known dependency advisories
+
+- **diskcache 5.6.3 — CVE-2025-69872 / GHSA-w8v5-vhqr-4h9v / PYSEC-2026-2447**
+  (unsafe pickle deserialization: anyone who can write to a diskcache
+  cache directory can run code in the process that reads it). It is
+  pulled in only by `llama-cpp-python`, i.e. the optional `[local]` /
+  `[all]` extras; the base install does not include it. **No fixed
+  release exists** (5.6.3 is the latest on PyPI and every version is
+  listed as affected), so no lower bound can be pinned. Ghost Chimera
+  never creates a diskcache/`LlamaDiskCache` cache itself. If you enable
+  one in your own llama.cpp integration, keep its directory inside the
+  owner-only (0700) state dir and never point it at a shared or
+  world-writable path. Re-check with `pip-audit` when a fixed diskcache
+  ships, and add a lower bound to the `local` extra then.
+
 ## Reporting vulnerabilities
 
 Open a private security advisory or contact the repository maintainer. Include:

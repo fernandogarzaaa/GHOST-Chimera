@@ -9,11 +9,14 @@ never leave the fabric.
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from .events import Event
+
+logger = logging.getLogger(__name__)
 
 
 def estimate_tokens(text: str) -> int:
@@ -103,15 +106,36 @@ class GhostMemoryRetriever:
     def __init__(self, store: Any = None, *, limit: int = 8) -> None:
         self._store = store
         self._limit = limit
+        self._fallback_failed = False
+
+    def _default_store(self) -> Any:
+        """Open the canonical memory DB (state dir) once; never create it.
+
+        Retrieval must not conjure an empty SQLite file as a side effect,
+        and a failure is logged once instead of being silently swallowed.
+        """
+        if self._fallback_failed:
+            return None
+        from ..paths import memory_db_path
+
+        db_path = memory_db_path()
+        if not db_path.exists():
+            return None
+        try:
+            from ..memory_layer.store import MemoryStore
+
+            self._store = MemoryStore(db_path)
+        except Exception as exc:
+            self._fallback_failed = True
+            logger.warning("ghost-memory retriever disabled: cannot open %s (%s)", db_path, exc)
+            return None
+        return self._store
 
     def retrieve(self, event: Event, context: dict[str, Any]) -> list[ContextItem]:
         store = self._store
         if store is None:
-            try:
-                from ..memory_layer.store import MemoryStore
-
-                store = MemoryStore()
-            except Exception:
+            store = self._default_store()
+            if store is None:
                 return []
         query = f"{event.event_type} {event.actor} {' '.join(str(v) for v in event.payload.values())}"[:500]
         try:

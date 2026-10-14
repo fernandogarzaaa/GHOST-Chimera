@@ -335,7 +335,9 @@ class AIAgent:
                 configured = getattr(self.config, "state_dir", None)
                 state_dir = Path(configured).expanduser() if configured is not None else None
             if state_dir is None:
-                state_dir = Path.home() / ".ghostchimera"
+                from ..paths import state_dir as _default_state_dir
+
+                state_dir = _default_state_dir()
             self._audit_trail = AuditTrail(state_dir)
         return self._audit_trail
 

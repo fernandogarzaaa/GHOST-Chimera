@@ -624,7 +624,9 @@ def _run_main(argv: list[str] | None = None) -> int:
     )
     minimind_parser.add_argument("--max-vocab", type=int, default=512, help="Maximum neural adapter vocabulary size.")
     minimind_parser.add_argument(
-        "--memory-db", default=".ghostchimera-memory.sqlite3", help="Memory DB path for personal ingestion."
+        "--memory-db",
+        default="",
+        help="Memory DB path for personal ingestion (default: <state dir>/memory.sqlite3).",
     )
     minimind_parser.add_argument(
         "--state-dir", default="", help="Optional state directory for Personal MiniMind consent/datasets."
@@ -2008,7 +2010,9 @@ def _run_minimind_cli(args: argparse.Namespace) -> int:
     from ..model_layer.minimind_lifecycle import MiniMindLifecycle
     from ..model_layer.minimind_personal_agent import MiniMindPersonalAgent
     from ..model_layer.minimind_runtime import list_minimind_architectures, minimind_source_metadata
+    from ..paths import personal_memory_db
 
+    args.memory_db = str(personal_memory_db(args.memory_db))
     lifecycle = MiniMindLifecycle(profile_name=args.profile or None, state_dir=args.state_dir or None)
     personal = MiniMindPersonalAgent(
         profile_name=args.profile or None,

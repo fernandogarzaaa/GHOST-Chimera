@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .. import paths as _paths
 from ..memory_layer.store import MemoryStore
 from ..personalization.document_ingester import DocumentIngester
 from ..personalization.email_ingester import EmailIngester
@@ -82,7 +83,7 @@ class MiniMindLifecycle:
         root: str | Path | None = None,
     ) -> None:
         self.profile = get_local_model_profile(profile_name or os.environ.get("MINIMIND_MODEL_PROFILE", "tiny"))
-        self.state_dir = Path(state_dir or os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera")).expanduser()
+        self.state_dir = Path(state_dir or _paths.state_dir()).expanduser()
         self.root = (
             Path(root or os.environ.get("MINIMIND_ROOT", "")).expanduser()
             if (root or os.environ.get("MINIMIND_ROOT"))

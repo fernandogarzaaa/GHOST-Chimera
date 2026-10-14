@@ -25,9 +25,19 @@ logger = get_logger("checkpoint")
 # Constants
 # ---------------------------------------------------------------------------
 
-CHECKPOINT_BASE = Path(
-    os.environ.get("GHOSTCHIMERA_CHECKPOINT_DIR", str(Path.home() / ".ghostchimera" / "checkpoints"))
-)
+# Explicit override (tests/evals assign it); None resolves lazily via
+# ghostchimera.paths (GHOSTCHIMERA_CHECKPOINT_DIR, else <state dir>/checkpoints).
+CHECKPOINT_BASE: Path | None = None
+
+
+def _checkpoint_base() -> Path:
+    if CHECKPOINT_BASE is not None:
+        return Path(CHECKPOINT_BASE)
+    from ..paths import checkpoints_dir
+
+    return checkpoints_dir()
+
+
 CHECKPOINT_INTERVAL = int(os.environ.get("GHOSTCHIMERA_CHECKPOINT_INTERVAL", "10"))  # turns
 DEFAULT_EXCLUDES = [
     ".git/",
@@ -108,7 +118,7 @@ class CheckpointDelta:
             added = (
                 subprocess.check_output(
                     ["git", "diff", "--name-only", "--diff-filter=A", f"{from_hash}..{to_hash}"],
-                    cwd=CHECKPOINT_BASE / f".ghost-{from_hash[:8]}",
+                    cwd=_checkpoint_base() / f".ghost-{from_hash[:8]}",
                     stderr=subprocess.DEVNULL,
                 )
                 .decode()
@@ -122,7 +132,7 @@ class CheckpointDelta:
             modified = (
                 subprocess.check_output(
                     ["git", "diff", "--name-only", "--diff-filter=M", f"{from_hash}..{to_hash}"],
-                    cwd=CHECKPOINT_BASE / f".ghost-{from_hash[:8]}",
+                    cwd=_checkpoint_base() / f".ghost-{from_hash[:8]}",
                     stderr=subprocess.DEVNULL,
                 )
                 .decode()
@@ -136,7 +146,7 @@ class CheckpointDelta:
             deleted = (
                 subprocess.check_output(
                     ["git", "diff", "--name-only", "--diff-filter=D", f"{from_hash}..{to_hash}"],
-                    cwd=CHECKPOINT_BASE / f".ghost-{from_hash[:8]}",
+                    cwd=_checkpoint_base() / f".ghost-{from_hash[:8]}",
                     stderr=subprocess.DEVNULL,
                 )
                 .decode()
@@ -164,7 +174,7 @@ class CheckpointManager:
 
     def __init__(self, config: GhostChimeraConfig | None = None):
         self.config = config or GhostChimeraConfig.from_env()
-        self.checkpoint_dir: Path = Path(CHECKPOINT_BASE)
+        self.checkpoint_dir: Path = _checkpoint_base()
         self.interval = CHECKPOINT_INTERVAL
         self._turn_count = 0
         self._last_checkpoint: str | None = None

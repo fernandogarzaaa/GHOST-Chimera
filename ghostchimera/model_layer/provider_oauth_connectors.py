@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .. import state_io
 from ..http_identity import ensure_user_agent
 
 
@@ -76,9 +77,8 @@ class OAuthExchangeResult:
 
 
 def _oauth_dir(state_dir: str | Path) -> Path:
-    root = Path(state_dir) / "provider_oauth"
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+    # Pending PKCE state: owner-only (0700).
+    return state_io.ensure_private_dir(Path(state_dir).expanduser() / "provider_oauth")
 
 
 def _json_post(url: str, payload: dict[str, Any], *, timeout: float = 20.0) -> dict[str, Any]:
@@ -147,7 +147,7 @@ def start_openrouter_pkce(ctx: dict[str, Any], state_dir: str | Path, *, launch:
         "created_at": time.time(),
         "callback_url": callback_url,
     }
-    (_oauth_dir(state_dir) / f"openrouter-{state}.json").write_text(json.dumps(pending), encoding="utf-8")
+    state_io.write_private_json(_oauth_dir(state_dir) / f"openrouter-{state}.json", pending, indent=None)
     launched = _safe_open_browser(auth_url) if launch else False
     return OAuthLaunchResult(
         ok=True,
@@ -240,7 +240,7 @@ def start_huggingface_device_flow(state_dir: str | Path, *, launch: bool = False
         "created_at": time.time(),
         "expires_in": int(payload.get("expires_in") or 900),
     }
-    (_oauth_dir(state_dir) / f"huggingface-{pending_id}.json").write_text(json.dumps(pending), encoding="utf-8")
+    state_io.write_private_json(_oauth_dir(state_dir) / f"huggingface-{pending_id}.json", pending, indent=None)
     verification_uri = str(payload.get("verification_uri") or payload.get("verification_uri_complete") or "")
     launched = _safe_open_browser(verification_uri) if launch and verification_uri else False
     return OAuthLaunchResult(
