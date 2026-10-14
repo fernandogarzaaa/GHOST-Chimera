@@ -96,7 +96,7 @@ def _now() -> float:
 
 def _stable_id(*parts: object, length: int = 18) -> str:
     raw = "|".join(str(part).strip().lower() for part in parts if part is not None)
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:length]
+    return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:length]
 
 
 def _normalize_risk(risk: str) -> str:

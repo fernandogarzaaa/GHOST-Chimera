@@ -137,7 +137,7 @@ def _now() -> float:
 
 def _stable_id(*parts: str) -> str:
     raw = "|".join(str(part).strip().lower() for part in parts if part is not None)
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
 
 
 def _hash_code(code: str) -> str:
