@@ -1017,7 +1017,16 @@ class NebiusProvider(OpenAICompatibleProvider):
         except Exception as exc:
             tracer.end_run(run, error=f"{type(exc).__name__}: {exc}")
             raise
-        tracer.end_run(run, outputs={"response": result, "model": self.model})
+        outputs: dict[str, Any] = {"response": result, "model": self.model}
+        usage = self.last_usage
+        if usage:
+            outputs["usage_metadata"] = {
+                "input_tokens": usage.get("prompt_tokens", 0),
+                "output_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+                "reasoning_tokens": usage.get("reasoning_tokens", 0),
+            }
+        tracer.end_run(run, outputs=outputs)
         return result
 
 
