@@ -120,3 +120,31 @@ def test_sigint_in_a_real_process_exits_130_without_traceback(tmp_path) -> None:
     assert proc.returncode == 130
     assert "Traceback" not in err
     assert err.strip().splitlines()[-1] == "Interrupted."
+
+
+# --- newcomer P1-8 (brief: P1-10): UnicodeEncodeError on a cp1252 stdout ---
+
+
+def test_non_utf8_stdout_does_not_crash_on_model_unicode(tmp_path) -> None:
+    import os
+    import subprocess
+
+    script = (
+        "import sys\n"
+        "from ghostchimera.control_plane import cli\n"
+        "def _reply(args):\n"
+        "    print('Nemotron says: non\\u2011breaking \\u2192 done')\n"
+        "    return 0\n"
+        "cli._run_ask_cli = _reply\n"
+        "sys.exit(cli._main(['what', 'is', 'nemotron']))\n"
+    )
+    env = {
+        **os.environ,
+        "PYTHONIOENCODING": "cp1252",
+        "HOME": str(tmp_path),
+        "GHOSTCHIMERA_STATE_DIR": str(tmp_path / ".gc"),
+    }
+    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, env=env, timeout=60)
+    assert proc.returncode == 0, proc.stderr.decode("cp1252", "replace")
+    assert b"UnicodeEncodeError" not in proc.stderr
+    assert proc.stdout.decode("cp1252").startswith("Nemotron says: non?breaking")

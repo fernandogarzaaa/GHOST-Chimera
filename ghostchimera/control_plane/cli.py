@@ -198,8 +198,25 @@ def run_cli() -> None:
             print(f"Error: {exc}")
 
 
+def _configure_stdio() -> None:
+    """Never crash on a character the terminal encoding can't show.
+
+    Model replies often contain U+2011 and similar; on a cp1252 Windows console
+    or a redirected pipe, printing them raised UnicodeEncodeError. Replace the
+    unencodable character instead. The stream encoding itself is left alone.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        with contextlib.suppress(Exception):
+            if (getattr(stream, "errors", "") or "strict") == "strict":
+                reconfigure(errors="replace")
+
+
 def _main(argv: list[str] | None = None) -> int:
     """Console entry point: run the CLI, turning Ctrl-C into one line and exit 130."""
+    _configure_stdio()
     try:
         return _run_main(argv)
     except KeyboardInterrupt:
