@@ -645,8 +645,19 @@ class GatewayServer(BackgroundService):
             ).to_json()
         )
 
+        import asyncio
+
+        # The agent turn is a blocking LLM round-trip (plus tool rounds): run
+        # it on a worker thread so other clients and keepalive pings are still
+        # served. One turn at a time per session, so two messages never
+        # interleave on the same SessionState.
+        locks = self.__dict__.setdefault("_turn_locks", {})
+        lock = locks.get(session_id)
+        if lock is None:
+            lock = locks[session_id] = asyncio.Lock()
         try:
-            result = session.agent.run(message)
+            async with lock:
+                result = await asyncio.to_thread(session.agent.run, message)
             await websocket.send(
                 GatewayMessage(
                     type="text",
