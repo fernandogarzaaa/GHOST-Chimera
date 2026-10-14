@@ -99,8 +99,12 @@ class RecordingProvider:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
 
-    def chat(self, system: str, user: str) -> str:
-        reply = self._inner.chat(system, user)
+    def chat(self, system: str, user: str, **options: Any) -> str:
+        from ..stealth.nemotron_reasoning import call_provider
+
+        # Forward per-call options (thinking off, max_tokens, timeout) so a
+        # recording exercises the same request shape as the live loop.
+        reply = call_provider(self._inner, system, user, **options)
         self.replies.append(reply)
         match = _EVENT_TYPE_RE.search(user)
         if match:

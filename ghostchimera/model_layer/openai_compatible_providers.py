@@ -130,7 +130,30 @@ class OpenAICompatibleProvider(BaseProvider):
         """Completion budget sent with every request (env-configurable)."""
         return resolve_max_tokens(self._MAX_TOKENS_ENV_VAR, self._DEFAULT_MAX_TOKENS)
 
-    def chat(self, system_message: str, user_message: str) -> str:
+    def _resolve_timeout(self, timeout: float | None) -> float:
+        if timeout is not None and timeout > 0:
+            return float(timeout)
+        try:
+            return float(os.environ.get("GHOSTCHIMERA_PROVIDER_TIMEOUT", "") or self._REQUEST_TIMEOUT_S)
+        except (TypeError, ValueError):
+            return self._REQUEST_TIMEOUT_S
+
+    def chat(
+        self,
+        system_message: str,
+        user_message: str,
+        *,
+        extra_body: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
+        timeout: float | None = None,
+    ) -> str:
+        """Send one chat completion and return the answer text.
+
+        ``extra_body`` is merged into the request JSON (e.g. Nemotron's
+        ``{"chat_template_kwargs": {"enable_thinking": False}}``),
+        ``max_tokens`` overrides the completion budget for this call and
+        ``timeout`` the network wait (seconds).
+        """
         if not self.available:
             raise RuntimeError(
                 f"{self.__class__.__name__} is not available; set {self._KEY_ENV_VAR} in the environment"
@@ -142,21 +165,21 @@ class OpenAICompatibleProvider(BaseProvider):
                 {"role": "user", "content": user_message},
             ],
             "temperature": 0.0,
-            "max_tokens": self.max_tokens,
+            "max_tokens": int(max_tokens) if max_tokens else self.max_tokens,
         }
+        if extra_body:
+            body.update(extra_body)
         data = json.dumps(body).encode("utf-8")
         context = ssl.create_default_context()
-        try:
-            timeout = float(os.environ.get("GHOSTCHIMERA_PROVIDER_TIMEOUT", "") or self._REQUEST_TIMEOUT_S)
-        except (TypeError, ValueError):
-            timeout = self._REQUEST_TIMEOUT_S
         req = urllib_request.Request(
             self._base_url,
             data=data,
             headers=self._build_headers(),
             method="POST",
         )
-        with urllib_request.urlopen(ensure_user_agent(req), context=context, timeout=timeout) as resp:
+        with urllib_request.urlopen(
+            ensure_user_agent(req), context=context, timeout=self._resolve_timeout(timeout)
+        ) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"{self.name} API returned HTTP {resp.status}")
             response_json = json.loads(resp.read().decode("utf-8"))
@@ -677,8 +700,11 @@ class NebiusProvider(OpenAICompatibleProvider):
     _DEFAULT_MAX_TOKENS = 4096
     _MAX_TOKENS_ENV_VAR = "NEBIUS_MAX_TOKENS"
 
-    def chat(self, system_message: str, user_message: str) -> str:
+    def chat(self, system_message: str, user_message: str, **kwargs: Any) -> str:
         """Chat via Token Factory, with optional LangSmith tracing.
+
+        Keyword arguments (``extra_body``, ``max_tokens``, ``timeout``) are
+        passed through to :meth:`OpenAICompatibleProvider.chat`.
 
         Tracing is a no-op unless LANGSMITH_API_KEY is set; it never
         changes the request, response, or error behavior.
@@ -694,8 +720,8 @@ class NebiusProvider(OpenAICompatibleProvider):
             tags=["ghost-chimera", "nebius", "nemotron"],
         )
         try:
-            result = super().chat(system_message, user_message)
-        except Exception as exc:  # pragma: no cover - base chat swallows errors
+            result = super().chat(system_message, user_message, **kwargs)
+        except Exception as exc:
             tracer.end_run(run, error=f"{type(exc).__name__}: {exc}")
             raise
         tracer.end_run(run, outputs={"response": result, "model": self.model})

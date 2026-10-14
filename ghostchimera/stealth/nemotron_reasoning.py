@@ -14,6 +14,7 @@ are never sent to the cloud; everything else is passed through
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 from typing import Any
@@ -49,6 +50,56 @@ _PREDICT_SYSTEM = (
 )
 
 
+# Nemotron 3 runs a reasoning trace before answering unless the chat template
+# is told not to. For the structured UNDERSTAND call that trace is pure
+# latency and cost (live: 7.1 s / 339 tokens with it, 1.7 s / 69 tokens
+# without, same valid JSON), so it is off by default; set
+# GHOSTCHIMERA_NEMOTRON_UNDERSTAND_THINKING=1 to turn it back on.
+THINKING_OFF: dict[str, Any] = {"chat_template_kwargs": {"enable_thinking": False}}
+UNDERSTAND_MAX_TOKENS_NO_THINKING = 512
+DEFAULT_CLOUD_TIMEOUT_S = 20.0
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _env_number(name: str, default: float) -> float:
+    try:
+        value = float(os.environ.get(name, "") or default)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _accepts_kwargs(fn: Any, names: tuple[str, ...]) -> bool:
+    """True when ``fn`` can take every keyword in ``names`` (or ``**kwargs``)."""
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return True
+    return all(name in params for name in names)
+
+
+def call_provider(provider: Any, system: str, user: str, **options: Any) -> str:
+    """Call ``provider.chat`` with per-call options when it supports them.
+
+    Real providers accept ``extra_body`` / ``max_tokens`` / ``timeout``;
+    test doubles and replay providers with a plain ``chat(system, user)``
+    signature are called without them.
+    """
+    options = {k: v for k, v in options.items() if v is not None}
+    chat = provider.chat
+    if options and _accepts_kwargs(chat, tuple(options)):
+        return chat(system, user, **options)
+    return chat(system, user)
+
+
 def _defang_fence(text: str) -> str:
     """Neutralise fence markers inside web text so it cannot close the fence early."""
     return text.replace(FENCE_CLOSE, FENCE_CLOSE.replace("-", "_")).replace(FENCE_OPEN, FENCE_OPEN.replace("-", "_"))
@@ -75,8 +126,25 @@ class NemotronReasoner:
         grounding: TavilyGrounding | None = None,
         reasoning_model: str = SUPER_MODEL,
         reasoning_provider: Any | None = None,
+        *,
+        understand_thinking: bool | None = None,
+        predict_thinking: bool | None = None,
+        timeout_s: float | None = None,
     ) -> None:
         self._provider = provider if provider is not None else self._default_provider()
+        self.understand_thinking = (
+            _env_flag("GHOSTCHIMERA_NEMOTRON_UNDERSTAND_THINKING", False)
+            if understand_thinking is None
+            else bool(understand_thinking)
+        )
+        self.predict_thinking = (
+            _env_flag("GHOSTCHIMERA_NEMOTRON_PREDICT_THINKING", True)
+            if predict_thinking is None
+            else bool(predict_thinking)
+        )
+        self.timeout_s = (
+            float(timeout_s) if timeout_s else _env_number("GHOSTCHIMERA_NEMOTRON_TIMEOUT_S", DEFAULT_CLOUD_TIMEOUT_S)
+        )
         self._grounding = grounding
         self._reasoning_model = reasoning_model
         # Optional explicit provider for the PREDICT (Nemotron 3 Super) calls;
@@ -125,7 +193,7 @@ class NemotronReasoner:
         user_message = summary + web_block + "\n\nRespond with strict JSON only."
 
         try:
-            raw = self._provider.chat(_UNDERSTAND_SYSTEM, user_message)
+            raw = call_provider(self._provider, _UNDERSTAND_SYSTEM, user_message, **self._understand_options())
             data = json.loads(_strip_fences(raw))
         except Exception as exc:
             logger.warning("Nemotron understand call failed: %s", exc)
@@ -152,7 +220,7 @@ class NemotronReasoner:
             "\n\nRespond with strict JSON only."
         )
         try:
-            raw = provider.chat(_PREDICT_SYSTEM, user_message)
+            raw = call_provider(provider, _PREDICT_SYSTEM, user_message, **self._predict_options())
             data = json.loads(_strip_fences(raw))
         except Exception as exc:
             logger.warning("Nemotron predict call failed: %s", exc)
@@ -196,6 +264,17 @@ class NemotronReasoner:
         return None
 
     # -- helpers -----------------------------------------------------------
+
+    def _understand_options(self) -> dict[str, Any]:
+        if self.understand_thinking:
+            return {"timeout": self.timeout_s}
+        max_tokens = int(_env_number("GHOSTCHIMERA_NEMOTRON_UNDERSTAND_MAX_TOKENS", UNDERSTAND_MAX_TOKENS_NO_THINKING))
+        return {"extra_body": THINKING_OFF, "max_tokens": max_tokens, "timeout": self.timeout_s}
+
+    def _predict_options(self) -> dict[str, Any]:
+        if self.predict_thinking:
+            return {"timeout": self.timeout_s}
+        return {"extra_body": THINKING_OFF, "timeout": self.timeout_s}
 
     def _event_summary(self, event: Any, hypothesis: Any, predictions: Any) -> str:
         # Event data leaves the host here (Nebius Token Factory): scrub
