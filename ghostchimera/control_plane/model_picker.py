@@ -5,8 +5,11 @@ Lists configured providers and lets the user switch the current model.
 
 from __future__ import annotations
 
-from .colors import Colors, color, print_error, print_header, print_info, print_success
+import sys
+
+from .colors import Colors, color, print_error, print_header, print_info, print_success, print_warning
 from .config import CONFIG_FILE, load_config, save_config
+from .prog_name import prog_name
 
 _MODEL_LISTS: dict[str, list[tuple[str, str]]] = {
     "openai": [
@@ -57,13 +60,37 @@ _PROVIDER_DISPLAY = {
 }
 
 
-def run_model_picker() -> None:
-    """List providers and let the user switch the current model."""
+_PICKER_PROVIDERS = ["nebius", "openai", "openrouter", "anthropic", "custom", "local", "opencode_cli", "skip"]
+
+
+def _stdin_is_tty() -> bool:
+    stdin = getattr(sys, "stdin", None)
+    try:
+        return bool(stdin is not None and stdin.isatty())
+    except Exception:  # noqa: BLE001 - a closed/odd stdin is simply not interactive
+        return False
+
+
+def _ask(question: str) -> str | None:
+    """Read one answer; ``None`` when input ends (Ctrl-D / closed stdin)."""
+    try:
+        return input(question).strip()
+    except EOFError:
+        print()
+        return None
+
+
+def run_model_picker() -> int:
+    """List providers and let the user switch the current model.
+
+    Returns a process exit code. Without an interactive terminal it only lists
+    the providers and explains how to switch, instead of dying on EOFError.
+    """
     print_header("Ghost Chimera — Model Picker")
     print()
 
-    config = load_config()
-    model = config.get("model", {})
+    config = load_config() or {}
+    model = config.setdefault("model", {})
     current_provider = model.get("provider", "")
 
     # Show configured providers
@@ -76,30 +103,40 @@ def run_model_picker() -> None:
         print()
 
     # Provider list
-    providers = ["openai", "openrouter", "anthropic", "nebius", "custom", "local", "opencode_cli", "skip"]
-    provider_labels = [f"{_PROVIDER_DISPLAY.get(p, p).title()}" for p in providers]
+    providers = list(_PICKER_PROVIDERS)
+    provider_labels = [_PROVIDER_DISPLAY.get(p, p) for p in providers]
 
     print("Available providers:")
     for idx, label in enumerate(provider_labels):
         provider = providers[idx]
         marker = ">" if provider == current_provider else " "
         current = " (current)" if provider == current_provider else ""
+        line = f"  {marker} {idx + 1}) {label}{current}"
         if provider == current_provider:
-            print(color(f"  {marker} {label}{current}", Colors.GREEN))
+            print(color(line, Colors.GREEN))
         else:
-            print(f"  {marker} {label}{current}")
+            print(line)
     print()
 
+    if not _stdin_is_tty():
+        print_warning("No interactive terminal, so nothing was changed.")
+        print_info(f"  To switch, run '{prog_name()} model' in a terminal, or set for example:")
+        print_info("    GHOSTCHIMERA_MODEL_PROVIDER=nebius  NEBIUS_API_KEY=...")
+        return 0
+
     # Switch provider
-    idx = input(f"  Select a provider [1-{len(providers)}]: ").strip()
+    idx = _ask(f"  Select a provider [1-{len(providers)}]: ")
+    if idx is None:
+        print_warning("Cancelled; nothing was changed.")
+        return 1
     try:
         idx = int(idx) - 1
         if not (0 <= idx < len(providers)):
             print_error("Invalid selection.")
-            return
+            return 2
     except ValueError:
         print_error(f"Please enter a number between 1 and {len(providers)}.")
-        return
+        return 2
 
     new_provider = providers[idx]
     config["model"]["provider"] = new_provider
@@ -111,14 +148,17 @@ def run_model_picker() -> None:
         for i, (label, _name) in enumerate(models):
             print(f"  {i + 1}) {label}")
         print()
-        model_idx = input(f"  Select a model [1-{len(models)}]: ").strip()
+        model_idx = _ask(f"  Select a model [1-{len(models)}]: ")
+        if model_idx is None:
+            print_warning("Cancelled; nothing was changed.")
+            return 1
         try:
             model_idx = int(model_idx) - 1
             if 0 <= model_idx < len(models):
                 config["model"]["model"] = models[model_idx][1]
         except ValueError:
             print_error(f"Please enter a number between 1 and {len(models)}.")
-            return
+            return 2
 
     if new_provider == "skip":
         config["model"]["model"] = ""
@@ -142,7 +182,8 @@ def run_model_picker() -> None:
     print()
     print_info(f"  Config saved to: {CONFIG_FILE}")
     print()
+    return 0
 
 
 if __name__ == "__main__":
-    run_model_picker()
+    raise SystemExit(run_model_picker())

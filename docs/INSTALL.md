@@ -65,6 +65,42 @@ connect a model provider → run the readiness check → connect integrations
 (Slack, Notion, GitHub…) from the **Integrations** tab, which runs Ghost's
 built-in OAuth engine (see `docs/CUSTOM_AUTH.md`).
 
+## Uninstall and clean up
+
+Removing the package does **not** remove your local state. Uninstall with the tool
+you installed with:
+
+```bash
+pipx uninstall ghostchimera        # or: pip uninstall ghostchimera
+brew uninstall ghostchimera        # Homebrew
+rm -rf ~/ghost-chimera             # one-line installer checkout + its .venv (default GHOSTCHIMERA_INSTALL_DIR)
+```
+
+Ghost Chimera keeps its state in `~/.ghostchimera` (`%USERPROFILE%\.ghostchimera` on
+Windows), or in `GHOSTCHIMERA_STATE_DIR` / `--state-dir` if you set one. Depending on
+what you used, it can contain:
+
+| Path | What it is |
+|---|---|
+| `config.json`, `.env` | Settings from `ghost setup` / `ghost model`, including any API key you saved there |
+| `console_secrets.json` | The per-install Ghost Console token and host-execution arming phrase |
+| `ghostchimera.log` | Application log |
+| `memory.sqlite3` | Local memory store |
+| `trust_runtime/` | Durable run journals (`runs/*.jsonl` include the prompts you gave `ghost ask`) |
+| `ghost-stealth.sqlite3*` | Stealth Loop event and context store |
+| `action_approvals.sqlite3`, `auth.sqlite3` | Approval queue and connector auth state |
+| `capability_admission/`, `audit/`, `operator_latency.jsonl` | Capability admission records, audit log, console latency samples |
+
+To remove everything, including saved keys and journals:
+
+```bash
+rm -rf ~/.ghostchimera
+```
+
+```powershell
+Remove-Item -Recurse -Force "$env:USERPROFILE\.ghostchimera"
+```
+
 ## Local voice (Wispr-style dictation + Ghost speech)
 
 ```bash

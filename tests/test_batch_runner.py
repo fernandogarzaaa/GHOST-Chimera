@@ -288,18 +288,21 @@ class CronSchedulerTests(unittest.TestCase):
         )
         self.scheduler.jobs["due-job"] = job
 
-        # Mock the agent core
+        # Stub the Chimera Pilot kernel the default executor builds
+        # (real-kernel coverage lives in tests/test_batch_cron_default_kernel.py).
         mock_results = [MagicMock()]
-        mock_results[0].to_dict.return_value = {"output": "done"}
+        mock_results[0].to_dict.return_value = {"ok": True, "output": "done"}
 
-        with patch("ghostchimera.chimera_pilot.cron_scheduler.AgentCore") as mock_agent:
+        with patch("ghostchimera.chimera_pilot.kernel.ChimeraPilotKernel.default") as mock_default:
             mock_kernel = MagicMock()
-            mock_kernel.compile_and_run.return_value = mock_results
-            mock_agent.default.return_value = mock_kernel
+            mock_kernel.run.return_value = mock_results
+            mock_default.return_value = mock_kernel
             results = self.scheduler.tick()
 
-        # tick should have found the due job
-        self.assertTrue(len(results) >= 0)  # May be 0 if mock didn't match
+        # tick found the due job and ran it through the default kernel
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0].success)
+        mock_kernel.run.assert_called_once_with("test")
 
     def test_tick_uses_custom_job_executor_when_provided(self) -> None:
         calls: list[str] = []

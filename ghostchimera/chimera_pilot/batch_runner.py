@@ -11,11 +11,10 @@ import json
 import time
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from ..agent_core.core import AgentCore
 from ..chimera_pilot.error_classifier import ErrorClassifier
 from ..chimera_pilot.task_ir import TaskKind
 from ..config import GhostChimeraConfig
@@ -47,6 +46,7 @@ class BatchJob:
     retry_count: int = DEFAULT_RETRY_COUNT
     inputs: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+    job_index: int = 0
 
 
 @dataclass(frozen=True)
@@ -108,32 +108,51 @@ class BatchSummary:
 # ---------------------------------------------------------------------------
 
 
-def _run_job_worker(job: BatchJob, output_dir: str, checkpoint_interval: int) -> dict[str, Any]:
-    """Worker function that runs a single objective via AgentCore."""
+def _default_kernel(kernel_options: dict[str, Any] | None = None) -> Any:
+    """Build the Chimera Pilot kernel a batch/cron job runs on.
+
+    ``kernel_options`` are keyword arguments for ``ChimeraPilotKernel.default``
+    (plain data, so they pickle into worker processes).
+    """
+    from .kernel import ChimeraPilotKernel
+
+    return ChimeraPilotKernel.default(**(kernel_options or {}))
+
+
+def _run_job_worker(
+    job: BatchJob,
+    output_dir: str,
+    checkpoint_interval: int,
+    kernel_options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Worker function that runs a single objective through Chimera Pilot."""
     start = time.time()
     try:
-        kernel = AgentCore.default()
-        results = kernel.compile_and_run(job.objective)
+        kernel = _default_kernel(kernel_options)
+        results = kernel.run(job.objective)
+        payload = [r.to_dict() for r in results]
+        ok = bool(payload) and all(bool(item.get("ok")) for item in payload)
 
         # Save individual result
         result_file = Path(output_dir) / f"job_{job.job_index}.json"
         try:
             result_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(result_file, "w") as f:
-                json.dump({"objective": job.objective, "results": [r.to_dict() for r in results]}, f)
+            with open(result_file, "w", encoding="utf-8") as f:
+                json.dump({"objective": job.objective, "results": payload}, f)
         except Exception as exc:
             logger.warning("Batch result write failed for job %s: %s", job.job_index, exc)
 
         duration = time.time() - start
+        errors = [str(item.get("error") or "") for item in payload if not item.get("ok")]
         return {
             "job_index": job.job_index,
             "objective": job.objective,
-            "result": json.dumps([r.to_dict() for r in results]),
-            "success": True,
-            "error": None,
-            "error_category": "none",
+            "result": json.dumps(payload),
+            "success": ok,
+            "error": None if ok else ("; ".join(e for e in errors if e) or "task did not succeed"),
+            "error_category": "none" if ok else "task_failed",
             "duration_seconds": duration,
-            "task_count": len(results),
+            "task_count": len(payload),
             "metadata": job.inputs,
         }
     except Exception as exc:
@@ -169,8 +188,11 @@ class BatchRunner:
         timeout: int = DEFAULT_TIMEOUT,
         checkpoint_interval: int = 0,
         config: GhostChimeraConfig | None = None,
+        kernel_options: dict[str, Any] | None = None,
     ):
-        self.jobs = jobs
+        # Each job carries its position so results, files and errors line up.
+        self.jobs = [replace(job, job_index=index) for index, job in enumerate(jobs)]
+        self.kernel_options = dict(kernel_options or {})
         self.workers = min(workers, len(jobs)) if jobs else 0
         self.output_dir = output_dir
         self.timeout = timeout
@@ -199,7 +221,9 @@ class BatchRunner:
         with ProcessPoolExecutor(max_workers=self.workers) as executor:
             futures = []
             for job in self.jobs:
-                future = executor.submit(_run_job_worker, job, self.output_dir, self.checkpoint_interval)
+                future = executor.submit(
+                    _run_job_worker, job, self.output_dir, self.checkpoint_interval, self.kernel_options
+                )
                 futures.append(future)
 
             for i, future in enumerate(futures):
@@ -217,6 +241,18 @@ class BatchRunner:
                             error="Batch job timed out",
                             error_category="timeout",
                             duration_seconds=self.timeout,
+                            metadata=job.inputs,
+                        )
+                    )
+                except Exception as exc:  # noqa: BLE001 - a crashed worker must not abort the batch
+                    results.append(
+                        BatchJobResult(
+                            job_index=job.job_index,
+                            objective=job.objective,
+                            result="",
+                            success=False,
+                            error=f"Batch worker failed: {exc}",
+                            error_category="worker_error",
                             metadata=job.inputs,
                         )
                     )
@@ -291,7 +327,7 @@ class BatchRunner:
     def _run_single_with_checkpoint(self, job: BatchJob, checkpoint_dir: str) -> BatchJobResult:
         """Run a single job with checkpoint support."""
         self._run_start = getattr(self, "_run_start", time.time())
-        return _run_job_worker(job, checkpoint_dir, self.checkpoint_interval)
+        return BatchJobResult(**_run_job_worker(job, checkpoint_dir, self.checkpoint_interval, self.kernel_options))
 
     def _save_checkpoint(self, results: list[BatchJobResult]) -> None:
         """Save a checkpoint of current progress."""
@@ -344,10 +380,14 @@ def run_batch(
     workers: int = DEFAULT_WORKERS,
     output_dir: str = DEFAULT_OUTPUT_DIR,
     timeout: int = DEFAULT_TIMEOUT,
+    kernel_options: dict[str, Any] | None = None,
 ) -> BatchSummary:
-    """Quick batch run of multiple objectives."""
+    """Quick batch run of multiple objectives.
+
+    ``kernel_options`` are passed to ``ChimeraPilotKernel.default`` in each worker.
+    """
     jobs = [BatchJob(objective=obj) for obj in objectives]
-    runner = BatchRunner(jobs, workers=workers, output_dir=output_dir, timeout=timeout)
+    runner = BatchRunner(jobs, workers=workers, output_dir=output_dir, timeout=timeout, kernel_options=kernel_options)
     return runner.run()
 
 
