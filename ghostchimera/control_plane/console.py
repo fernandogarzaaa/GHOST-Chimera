@@ -6006,6 +6006,7 @@ def run_console(
     request_guard = ConsoleRequestGuard(bind_host=host, extra_hosts=[*allowed_hosts_from_env(), *(allowed_hosts or [])])
     server.routes.request_guard = request_guard.check
     _register_static_routes(server)
+    server.routes.html_security_headers = dict(CONSOLE_HTML_SECURITY_HEADERS)
     register_console_routes(
         server,
         state_dir=state_dir or config.state_dir,
@@ -6105,8 +6106,18 @@ CONSOLE_CSP = (
     "connect-src 'self'; "
     "object-src 'none'; "
     "base-uri 'self'; "
-    "frame-ancestors 'self'"
+    "frame-ancestors 'none'"
 )
+
+# Every HTML document the console serves (the shell at / and /console, OAuth
+# landing pages) carries these, so the approve/arm buttons cannot be framed
+# (clickjacking) and CSP backs up esc() if an XSS sink ever appears.
+CONSOLE_HTML_SECURITY_HEADERS = {
+    "Content-Security-Policy": CONSOLE_CSP,
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
 
 
 def _register_static_routes(server: GatewayServer) -> None:
@@ -6147,9 +6158,7 @@ def _register_static_routes(server: GatewayServer) -> None:
             Returns:
                 Callable[[dict[str, Any]], HttpResponse]: A handler that accepts a request context and returns an HttpResponse with `body` set to `data` and `content_type` set to `ct_`.
             """
-            return lambda ctx: HttpResponse(
-                body=data, content_type=ct_, headers={"Content-Security-Policy": CONSOLE_CSP}
-            )
+            return lambda ctx: HttpResponse(body=data, content_type=ct_, headers=dict(CONSOLE_HTML_SECURITY_HEADERS))
 
         # NOTE: "/" and "/console" are intentionally NOT registered here.
         # console_page is the single "/" handler: it checks OAuth callback

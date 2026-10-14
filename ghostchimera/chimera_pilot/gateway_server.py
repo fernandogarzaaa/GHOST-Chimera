@@ -173,6 +173,9 @@ class HttpRouteRegistry:
         # installs a Host/Origin/Content-Type guard here (see
         # ``ghostchimera.control_plane.console_security``).
         self.request_guard: Callable[[str, str, dict[str, str]], Any] | None = None
+        # Headers added to every text/html HttpResponse that does not set
+        # them itself (the console installs CSP / X-Frame-Options here).
+        self.html_security_headers: dict[str, str] = {}
 
     def register(
         self,
@@ -901,7 +904,13 @@ class GatewayServer(BackgroundService):
                     self.send_response(data.status)
                     self.send_header("Content-Type", data.content_type)
                     self.send_header("Content-Length", str(len(body)))
-                    for name, value in data.headers.items():
+                    headers = dict(data.headers)
+                    if data.content_type.lower().startswith("text/html"):
+                        present = {name.lower() for name in headers}
+                        for name, value in registry.html_security_headers.items():
+                            if name.lower() not in present:
+                                headers[name] = value
+                    for name, value in headers.items():
                         self.send_header(name, value)
                     self.end_headers()
                     self.wfile.write(body)
