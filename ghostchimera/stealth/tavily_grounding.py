@@ -54,6 +54,7 @@ from urllib.error import HTTPError, URLError
 from ..http_identity import ensure_user_agent
 from ..logging_config import get_logger
 from ..mcp.mcp_protocol import McpClient, McpError, StdioTransport, StreamableHttpTransport
+from ..redaction import redact_for_egress
 
 logger = get_logger("tavily_grounding")
 
@@ -66,6 +67,22 @@ SEARCH_TOOL = "tavily-search"
 EXTRACT_TOOL = "tavily-extract"
 
 _GROUND_EVENT_TYPES = frozenset({"web_research", "news_digest", "research", "web"})
+
+# Events with these privacy classifications never produce a web query: Tavily
+# is a third party, and "secret never leaves the host" must hold whether or
+# not the Nemotron reasoner is attached (poweruser F12).
+NO_EGRESS_PRIVACY_CLASSES = frozenset({"secret", "sensitive", "private", "confidential", "restricted"})
+
+
+def event_allows_egress(event: Any) -> bool:
+    """False for events classified secret/sensitive/private (never sent to the web)."""
+    return str(getattr(event, "privacy_classification", "internal") or "internal").strip().lower() not in (
+        NO_EGRESS_PRIVACY_CLASSES
+    )
+
+
+def _egress_text(value: Any) -> str:
+    return str(redact_for_egress(str(value or ""))).strip()
 
 
 class TavilyError(RuntimeError):
@@ -124,6 +141,9 @@ class TavilyGrounding:
         """
         from ghostchimera.observability import get_default_tracer
 
+        # Every query is scrubbed of secrets/PII before it reaches Tavily or the
+        # LangSmith trace (redteam P1-5), whoever the caller is.
+        query = _egress_text(query)
         tracer = get_default_tracer()
         run = tracer.start_run(
             "tavily.search",
@@ -177,11 +197,12 @@ class TavilyGrounding:
         """
         from ghostchimera.observability import get_default_tracer
 
+        query = _egress_text(query) if query else ""
         tracer = get_default_tracer()
         run = tracer.start_run(
             "tavily.extract",
             run_type="tool",
-            inputs={"urls": urls, "query": query, "mode": self._mode},
+            inputs={"urls": [_egress_text(u) for u in urls], "query": query, "mode": self._mode},
             metadata={"provider": "tavily"},
             tags=["ghost-chimera", "tavily"],
         )
@@ -227,6 +248,8 @@ class TavilyGrounding:
         """
         if not self.available:
             return None
+        if not event_allows_egress(event):
+            return None
         query = self._event_query(event)
         if query is None:
             return None
@@ -250,17 +273,21 @@ class TavilyGrounding:
 
     @staticmethod
     def _event_query(event: Any) -> str | None:
+        """Build a web query from *redacted* event text; None for no-egress events."""
+        if not event_allows_egress(event):
+            return None
         payload = getattr(event, "payload", None) or {}
         event_type = str(getattr(event, "event_type", ""))
-        summary = str(
+        summary = _egress_text(
             payload.get("web_query")
             or payload.get("summary")
             or payload.get("text")
             or payload.get("description")
             or ""
-        ).strip()
+        )
         if payload.get("ground_with_web"):
-            query = str(payload.get("web_query") or f"{event_type}: {summary}").strip()
+            web_query = _egress_text(payload.get("web_query") or "")
+            query = (web_query or f"{event_type}: {summary}").strip()
             return query[:300] or None
         if event_type in _GROUND_EVENT_TYPES and summary:
             return f"{event_type}: {summary[:280]}"
@@ -411,4 +438,11 @@ class TavilyGrounding:
         return normalized
 
 
-__all__ = ["TavilyError", "TavilyGrounding", "SEARCH_TOOL", "EXTRACT_TOOL"]
+__all__ = [
+    "EXTRACT_TOOL",
+    "NO_EGRESS_PRIVACY_CLASSES",
+    "SEARCH_TOOL",
+    "TavilyError",
+    "TavilyGrounding",
+    "event_allows_egress",
+]
