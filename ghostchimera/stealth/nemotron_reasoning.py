@@ -223,6 +223,10 @@ class NemotronReasoner:
     def _grounding_block(self, event: Any) -> str:
         if self._grounding is None or not self._grounding.available:
             return ""
+        from .tavily_grounding import event_allows_egress
+
+        if not event_allows_egress(event):
+            return ""
         try:
             grounded = self._grounding.ground_event(event)
         except Exception as exc:

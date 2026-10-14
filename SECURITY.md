@@ -36,8 +36,32 @@ The Ghost Console HTTP API (`ghostchimera console` / `start`) is never open by d
 
 - a random console token is generated on first run, stored owner-only (0600) in `~/.ghostchimera/console_secrets.json` (or `<state-dir>/console_secrets.json`), printed once, and required on every `/api/*` route and the WebSocket (`X-Gateway-Token` or `Authorization: Bearer`); `--auth-token` overrides it for a run;
 - every request must carry a `Host` of `localhost`, `127.0.0.1` or `[::1]` (any port), the concrete bind host, or a host allowed with `--allow-host` / `GHOSTCHIMERA_CONSOLE_ALLOWED_HOSTS` (DNS-rebinding defence);
-- POST/PUT/PATCH/DELETE requests with a foreign or `null` `Origin`, or `Sec-Fetch-Site: cross-site`, are refused, and must be `Content-Type: application/json` (signed `/api/webhooks/` deliveries excepted);
-- unrestricted host execution is armed only with this install's random arming phrase, stored in the same file and never returned by the API.
+- POST/PUT/PATCH/DELETE requests with a foreign or `null` `Origin`, or `Sec-Fetch-Site: cross-site`, are refused, and must be `Content-Type: application/json` (signed `/api/webhooks/` deliveries excepted, see below);
+- unrestricted host execution is armed only with this install's random arming phrase, stored in the same file and never returned by the API;
+- the console runs with `umask 077` and tightens existing state to owner-only (files 0600, directories 0700) at start, so databases, trust journals and audit logs stay private even under a shared `--state-dir`;
+- every HTML document (`/`, `/console`, OAuth landing pages, `/static/*`) is served with a Content-Security-Policy (`script-src 'self'`, `frame-ancestors 'none'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`;
+- request bodies are read only after the route and token checks pass and are capped at 8 MiB (`GHOSTCHIMERA_MAX_HTTP_BODY_BYTES`); an invalid `Content-Length` gets `400`;
+- outbound fetches (`NetworkDispatcher`, the Browser tab) allow only `http`/`https`, refuse every non-global address (private, loopback, link-local, CGNAT `100.64.0.0/10`, reserved, and mapped/6to4/Teredo forms), and connect to the exact IP that was vetted, so DNS rebinding cannot swap in an internal address after the check.
+
+### Connector write approvals
+
+`/api/auth/approvals/decide` records the decider as the principal derived from the credential that authenticated the request (`operator` for the console token); a client-supplied `actor` is kept only as a sanitized label. Give agents, tools and MCP servers the separate `GHOSTCHIMERA_AGENT_TOKEN` instead of the console token: it can call `/api/auth/approvals/request` but can never decide. An agent-originated request (made with the agent token, or with `requested_by` naming an agent/automation) cannot be approved by the same credential that requested it unless `GHOSTCHIMERA_ALLOW_SELF_APPROVAL=1`. `decide` also accepts the request `digest` and refuses a mismatch.
+
+### Memory file ingest
+
+`POST /api/console/memory/ingest-file` and the `path` form of `ingest-email` only read files under the directory the console was started in, plus directories listed in `GHOSTCHIMERA_INGEST_ROOTS` (`os.pathsep`-separated; `/` is never accepted). Paths are resolved (symlinks followed) before the check. The Ghost state directory (including `console_secrets.json`), dotfiles and dot-directories (`.ssh`, `.env`, `.git`, ...) and secret-looking names (`*.pem`, `id_rsa`, `credentials`, `*secret*`, ...) are refused, and every stored chunk is scrubbed of credentials and the host-execution arming phrase.
+
+### Inbound provider webhooks
+
+`POST /api/webhooks/{slack,gmail,zendesk}/{va_id}` cannot carry the console token, so each delivery must prove it came from the provider. Nothing is accepted until a secret is configured (fail closed):
+
+| Provider | Verification | Secret |
+|---|---|---|
+| Slack | `X-Slack-Signature` = `v0=` HMAC-SHA256 of `v0:{timestamp}:{body}`; `X-Slack-Request-Timestamp` within 5 minutes | Slack app signing secret |
+| Zendesk | `X-Zendesk-Webhook-Signature` = base64 HMAC-SHA256 of `{timestamp}{body}`; timestamp within 5 minutes | Zendesk webhook signing secret |
+| Gmail (Pub/Sub push) | Google-signed OIDC token in `Authorization: Bearer` when `GHOSTCHIMERA_WEBHOOK_GMAIL_OIDC_AUDIENCE` is set (optionally pinned with `GHOSTCHIMERA_WEBHOOK_GMAIL_OIDC_EMAIL`); otherwise a shared token in `X-Ghost-Webhook-Token` or the push URL's `?token=` | shared verification token |
+
+Secrets are read from `GHOSTCHIMERA_WEBHOOK_SECRET_<SOURCE>_<VA_ID>` (per VA, preferred), `GHOSTCHIMERA_WEBHOOK_SECRET_<SOURCE>` (all VAs), or `<state-dir>/webhook_secrets.json` (`{"slack": {"*": "...", "va-1": "..."}}`, keep it 0600). Bodies must be `application/json` (Slack may also send `application/x-www-form-urlencoded`), at most 1 MiB. Verified deliveries are rate limited per source and VA (`GHOSTCHIMERA_WEBHOOK_RATE_PER_MIN`, default 60), repeated failures back off with `429`, duplicate deliveries are acknowledged without re-processing, and accepted events are queued for the stealth loop with a `202`: the request never waits for model reasoning.
 
 ## Required hardening for production deployments
 

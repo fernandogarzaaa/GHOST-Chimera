@@ -157,6 +157,8 @@ class CronScheduler(BackgroundService):
         self._state_file = self._state_dir / DEFAULT_STATE_FILE
         self._running = False
         self._thread: threading.Thread | None = None
+        # Set by stop(): wakes the loop out of its poll_interval wait at once.
+        self._wake = threading.Event()
         self._load_jobs()
 
     def add_job(
@@ -249,6 +251,7 @@ class CronScheduler(BackgroundService):
     def start(self) -> threading.Thread:
         """Start the scheduler loop in a background thread."""
         self._running = True
+        self._wake.clear()
 
         def loop():
             while self._running:
@@ -256,7 +259,11 @@ class CronScheduler(BackgroundService):
                     self.tick()
                 except Exception as exc:
                     logger.error("Cron scheduler error: %s", exc)
-                time.sleep(self.poll_interval)
+                # An Event wait instead of time.sleep(poll_interval): stop()
+                # used to block for its full 10 s join timeout (and leave the
+                # thread alive) while the loop slept out a 60 s poll interval.
+                if self._wake.wait(self.poll_interval):
+                    break
 
         self._thread = threading.Thread(target=loop, daemon=True)
         self._thread.start()
@@ -266,6 +273,7 @@ class CronScheduler(BackgroundService):
     def stop(self) -> None:
         """Stop the scheduler loop."""
         self._running = False
+        self._wake.set()
         if self._thread:
             self._thread.join(timeout=10)
             self._thread = None
