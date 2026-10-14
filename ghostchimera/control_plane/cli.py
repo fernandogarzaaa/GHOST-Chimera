@@ -245,7 +245,10 @@ def _run_main(argv: list[str] | None = None) -> int:
         return 2
     effective_argv = _normalize_one_liner_args(effective_argv)
 
-    parser = argparse.ArgumentParser(description="Ghost Chimera CLI")
+    from .. import __version__
+
+    parser = argparse.ArgumentParser(prog=_prog_name(), description="Ghost Chimera CLI")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("setup", help="Run interactive setup wizard")
     start_parser = sub.add_parser("start", help="Guided start for non-technical users")

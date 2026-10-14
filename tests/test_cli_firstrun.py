@@ -192,3 +192,18 @@ def test_quick_start_starts_with_demo_and_nebius() -> None:
     assert "GHOSTCHIMERA_MODEL_PROVIDER=nebius" in text
     assert "NEBIUS_API_KEY" in text
     assert text.index("ghost demo") < text.index("docker compose")
+
+
+# --- newcomer P2-1: ghost --version ---
+
+
+def test_version_flag_prints_package_version(monkeypatch, capsys) -> None:
+    from ghostchimera import __version__
+
+    monkeypatch.setattr(sys, "argv", ["ghost", "--version"])
+    with pytest.raises(SystemExit) as exc:
+        cli._main(["--version"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out.strip()
+    assert out == f"ghost {__version__}"
+    assert "usage:" not in out
