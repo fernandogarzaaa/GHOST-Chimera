@@ -46,10 +46,16 @@ Custom API:
 
 from __future__ import annotations
 
+import email.utils
+import http.client
 import json
 import os
+import random
 import ssl
+import time
 from typing import TYPE_CHECKING, Any
+from urllib import error as urllib_error
+from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
 from ..http_identity import ensure_user_agent
@@ -61,6 +67,95 @@ if TYPE_CHECKING:
     from .auth_profiles import AuthProfile
 
 logger = get_logger("openai_compatible_providers")
+
+
+# ---------------------------------------------------------------------------
+# Errors and retry policy
+# ---------------------------------------------------------------------------
+
+# Transient statuses worth a bounded retry (Retry-After honoured).
+RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+_DEFAULT_RETRIES = 2
+_MAX_RETRIES = 5
+_DEFAULT_RETRY_MAX_WAIT_S = 8.0
+_ERROR_BODY_CHARS = 400
+
+
+class ProviderHTTPError(RuntimeError):
+    """A provider HTTP failure that keeps the status, Retry-After and body."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        retry_after: float | None = None,
+        body: str = "",
+        provider: str = "",
+        model: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.retry_after = retry_after
+        self.body = body
+        self.provider = provider
+        self.model = model
+
+    @property
+    def retryable(self) -> bool:
+        return self.status in RETRY_STATUSES
+
+
+class ProviderConnectionError(RuntimeError):
+    """The provider endpoint could not be reached (DNS, refused, proxy, TLS)."""
+
+
+def _env_number(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_retry_after(value: str | None) -> float | None:
+    """Seconds to wait from a Retry-After header (delta-seconds or HTTP-date)."""
+    if not value:
+        return None
+    text = str(value).strip()
+    try:
+        return max(0.0, float(text))
+    except ValueError:
+        pass
+    try:
+        when = email.utils.parsedate_to_datetime(text)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if when is None:
+        return None
+    return max(0.0, when.timestamp() - time.time())
+
+
+def _error_detail(body: str) -> str:
+    """Best-effort human message from an OpenAI/Nebius-style error body."""
+    text = (body or "").strip()
+    if not text:
+        return ""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = None
+    if isinstance(data, dict):
+        err = data.get("error", data.get("detail", data.get("message")))
+        if isinstance(err, dict):
+            err = err.get("message") or err.get("detail") or err.get("code")
+        if isinstance(err, list) and err:
+            first = err[0]
+            err = first.get("msg") if isinstance(first, dict) else first
+        if err:
+            return " ".join(str(err).split())[:_ERROR_BODY_CHARS]
+    if text.lstrip().startswith("<"):
+        return "non-JSON (HTML) error page"
+    return " ".join(text.split())[:_ERROR_BODY_CHARS]
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +185,8 @@ class OpenAICompatibleProvider(BaseProvider):
     # GHOSTCHIMERA_MAX_TOKENS.
     _DEFAULT_MAX_TOKENS: int = DEFAULT_MAX_TOKENS
     _MAX_TOKENS_ENV_VAR: str = ""
+    # Model ids worth suggesting when the configured one 404s.
+    _KNOWN_MODELS: tuple[str, ...] = ()
 
     def __init__(self, profile: AuthProfile | None = None) -> None:
         if profile is not None:
@@ -170,6 +267,47 @@ class OpenAICompatibleProvider(BaseProvider):
         if extra_body:
             body.update(extra_body)
         data = json.dumps(body).encode("utf-8")
+        response_json = self._post_with_retry(data, self._resolve_timeout(timeout))
+        return extract_answer(response_json, self.name)
+
+    # -- transport ---------------------------------------------------------
+
+    def _retry_budget(self) -> tuple[int, float]:
+        retries = int(_env_number("GHOSTCHIMERA_PROVIDER_RETRIES", _DEFAULT_RETRIES))
+        max_wait = _env_number("GHOSTCHIMERA_PROVIDER_RETRY_MAX_WAIT_S", _DEFAULT_RETRY_MAX_WAIT_S)
+        return max(0, min(_MAX_RETRIES, retries)), max(0.0, max_wait)
+
+    def _post_with_retry(self, data: bytes, timeout: float) -> dict[str, Any]:
+        """POST with bounded retry on 429/5xx (Retry-After honoured, capped)."""
+        retries, max_wait = self._retry_budget()
+        attempt = 0
+        while True:
+            try:
+                return self._post_once(data, timeout)
+            except ProviderHTTPError as exc:
+                if not exc.retryable or attempt >= retries:
+                    raise
+                if exc.retry_after is not None:
+                    delay = exc.retry_after
+                else:
+                    delay = min(max_wait, 0.5 * (2**attempt)) + random.uniform(0, 0.25)
+                if delay > max_wait:
+                    # The server asked for a longer pause than we are willing
+                    # to block for: fail now and let the caller back off.
+                    raise
+                attempt += 1
+                logger.info(
+                    "%s HTTP %s (model=%s); retry %d/%d in %.1fs",
+                    self.name,
+                    exc.status,
+                    self.model,
+                    attempt,
+                    retries,
+                    delay,
+                )
+                time.sleep(delay)
+
+    def _post_once(self, data: bytes, timeout: float) -> dict[str, Any]:
         context = ssl.create_default_context()
         req = urllib_request.Request(
             self._base_url,
@@ -177,13 +315,87 @@ class OpenAICompatibleProvider(BaseProvider):
             headers=self._build_headers(),
             method="POST",
         )
-        with urllib_request.urlopen(
-            ensure_user_agent(req), context=context, timeout=self._resolve_timeout(timeout)
-        ) as resp:
-            if resp.status != 200:
-                raise RuntimeError(f"{self.name} API returned HTTP {resp.status}")
-            response_json = json.loads(resp.read().decode("utf-8"))
-        return extract_answer(response_json, self.name)
+        try:
+            with urllib_request.urlopen(ensure_user_agent(req), context=context, timeout=timeout) as resp:
+                status = int(getattr(resp, "status", 200) or 200)
+                raw = resp.read().decode("utf-8", "replace")
+                retry_after = parse_retry_after(getattr(resp, "headers", {}).get("Retry-After"))
+        except urllib_error.HTTPError as exc:
+            try:
+                raw_body = exc.read().decode("utf-8", "replace")
+            except Exception:
+                raw_body = ""
+            headers = getattr(exc, "headers", None) or {}
+            raise self._http_error(int(exc.code), raw_body, parse_retry_after(headers.get("Retry-After"))) from None
+        except urllib_error.URLError as exc:
+            raise self._connection_error(exc.reason) from None
+        except ConnectionRefusedError as exc:
+            raise self._connection_error(exc) from None
+        except (ConnectionError, http.client.RemoteDisconnected) as exc:
+            # Dropped mid-request: treat like a 503 so it gets a bounded retry.
+            raise ProviderHTTPError(
+                f"{self.name} connection dropped ({type(exc).__name__}: {exc})",
+                status=503,
+                provider=self.name,
+                model=self.model,
+            ) from None
+        if status != 200:
+            raise self._http_error(status, raw, retry_after)
+        try:
+            response_json = json.loads(raw)
+        except ValueError:
+            raise ProviderHTTPError(
+                f"{self.name} returned a non-JSON response (HTTP 200): {_error_detail(raw) or 'empty body'}",
+                status=502,
+                body=raw[:_ERROR_BODY_CHARS],
+                provider=self.name,
+                model=self.model,
+            ) from None
+        if isinstance(response_json, dict) and response_json.get("error") and not response_json.get("choices"):
+            err = response_json.get("error")
+            code = err.get("code") if isinstance(err, dict) else None
+            status_hint = code if isinstance(code, int) and 400 <= code <= 599 else 502
+            raise self._http_error(status_hint, raw, retry_after)
+        if not isinstance(response_json, dict):
+            raise ProviderHTTPError(
+                f"{self.name} returned an unexpected response shape", status=502, provider=self.name, model=self.model
+            )
+        return response_json
+
+    def _http_error(self, status: int, body: str, retry_after: float | None) -> ProviderHTTPError:
+        detail = _error_detail(body)
+        if status == 404:
+            known = f" (known: {', '.join(self._KNOWN_MODELS)})" if self._KNOWN_MODELS else ""
+            hint = (
+                f"model '{self.model}' not found on {self.name}; check {self._MODEL_ENV_VAR or 'the model name'}{known}"
+            )
+        elif status in (401, 403):
+            hint = f"authentication failed on {self.name}; check {self._KEY_ENV_VAR or 'the API key'}"
+        elif status == 429:
+            hint = f"{self.name} rate limit hit (Too Many Requests)"
+        elif status >= 500:
+            hint = f"{self.name} server error"
+        else:
+            hint = f"{self.name} rejected the request"
+        message = f"{self.name} API returned HTTP {status}: {hint}"
+        if detail:
+            message += f" | detail: {detail}"
+        return ProviderHTTPError(
+            message,
+            status=status,
+            retry_after=retry_after,
+            body=(body or "")[:_ERROR_BODY_CHARS],
+            provider=self.name,
+            model=self.model,
+        )
+
+    def _connection_error(self, reason: Any) -> ProviderConnectionError:
+        host = urllib_parse.urlsplit(self._base_url).netloc or self._base_url
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or ""
+        via = f" via proxy {urllib_parse.urlsplit(proxy).netloc or proxy}" if proxy else ""
+        return ProviderConnectionError(
+            f"can't reach {host}{via} ({reason}); check your network connection and proxy settings"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -699,6 +911,12 @@ class NebiusProvider(OpenAICompatibleProvider):
     # Nemotron 3 emits a reasoning trace before the answer; leave room for both.
     _DEFAULT_MAX_TOKENS = 4096
     _MAX_TOKENS_ENV_VAR = "NEBIUS_MAX_TOKENS"
+    _KNOWN_MODELS = (
+        "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+        "nvidia/nemotron-3-super-120b-a12b",
+        "nvidia/Nemotron-3-Ultra-550b-a55b",
+        "nvidia/Nemotron-3_5-Lightning",
+    )
 
     def chat(self, system_message: str, user_message: str, **kwargs: Any) -> str:
         """Chat via Token Factory, with optional LangSmith tracing.
@@ -1125,6 +1343,10 @@ class CloudflareProvider(OpenAICompatibleProvider):
 
 
 __all__ = [
+    "ProviderConnectionError",
+    "ProviderHTTPError",
+    "RETRY_STATUSES",
+    "parse_retry_after",
     "OpenAICompatibleProvider",
     "GroqProvider",
     "XAIProvider",

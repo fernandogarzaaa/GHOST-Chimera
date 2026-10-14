@@ -19,6 +19,8 @@ import json
 import math
 import os
 import re
+import threading
+import time
 from typing import Any
 
 from ..logging_config import get_logger
@@ -31,6 +33,7 @@ logger = get_logger("nemotron_reasoning")
 NEBIUS_PROVIDER_ID = "nebius"
 NANO_MODEL = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
 SUPER_MODEL = "nvidia/nemotron-3-super-120b-a12b"
+LIGHTNING_MODEL = "nvidia/Nemotron-3_5-Lightning"
 
 _UNDERSTAND_SYSTEM = (
     "You are the cloud reasoning backend for Ghost Chimera, a local-first "
@@ -100,6 +103,56 @@ def call_provider(provider: Any, system: str, user: str, **options: Any) -> str:
     if options and _accepts_kwargs(chat, tuple(options)):
         return chat(system, user, **options)
     return chat(system, user)
+
+
+class CircuitOpenError(RuntimeError):
+    """Raised when every model in the chain is cooling down after failures."""
+
+
+class CircuitBreaker:
+    """Tiny per-model breaker: open after N consecutive failures, or at once
+    for the Retry-After a 429 asked for; half-open again after the cooldown."""
+
+    def __init__(self, threshold: int = 3, cooldown_s: float = 30.0, clock: Any = time.monotonic) -> None:
+        self.threshold = max(1, int(threshold))
+        self.cooldown_s = max(0.0, float(cooldown_s))
+        self._clock = clock
+        self._lock = threading.Lock()
+        self.failures = 0
+        self.open_until = 0.0
+
+    def allow(self) -> bool:
+        with self._lock:
+            return self._clock() >= self.open_until
+
+    def success(self) -> None:
+        with self._lock:
+            self.failures = 0
+            self.open_until = 0.0
+
+    def failure(self, retry_after: float | None = None) -> bool:
+        """Record a failure; returns True when this failure opened the breaker."""
+        with self._lock:
+            self.failures += 1
+            now = self._clock()
+            was_open = now < self.open_until
+            if retry_after:
+                self.open_until = max(self.open_until, now + min(float(retry_after), 300.0))
+            if self.failures >= self.threshold:
+                self.open_until = max(self.open_until, now + self.cooldown_s)
+            return not was_open and now < self.open_until
+
+    def to_dict(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "failures": self.failures,
+                "open": self._clock() < self.open_until,
+                "open_for_s": round(max(0.0, self.open_until - self._clock()), 1),
+            }
+
+
+def _env_models(name: str) -> list[str]:
+    return [part.strip() for part in os.environ.get(name, "").split(",") if part.strip()]
 
 
 def _defang_fence(text: str) -> str:
@@ -290,6 +343,9 @@ class NemotronReasoner:
         understand_thinking: bool | None = None,
         predict_thinking: bool | None = None,
         timeout_s: float | None = None,
+        fallback_models: list[str] | None = None,
+        breaker_threshold: int | None = None,
+        breaker_cooldown_s: float | None = None,
     ) -> None:
         self._provider = provider if provider is not None else self._default_provider()
         self.understand_thinking = (
@@ -307,6 +363,18 @@ class NemotronReasoner:
         )
         self._grounding = grounding
         self._reasoning_model = reasoning_model
+        # Optional fallback chain (e.g. NEBIUS_FALLBACK_MODELS=nvidia/Nemotron-3_5-Lightning)
+        # tried when the primary model errors or its breaker is open.
+        self.fallback_models = (
+            list(fallback_models) if fallback_models is not None else _env_models("NEBIUS_FALLBACK_MODELS")
+        )
+        self._breaker_threshold = int(breaker_threshold or _env_number("GHOSTCHIMERA_NEMOTRON_BREAKER_FAILURES", 3))
+        self._breaker_cooldown_s = float(
+            breaker_cooldown_s or _env_number("GHOSTCHIMERA_NEMOTRON_BREAKER_COOLDOWN_S", 30.0)
+        )
+        self._breakers: dict[str, CircuitBreaker] = {}
+        self._fallback_providers: dict[str, Any] = {}
+        self._resilience_lock = threading.Lock()
         # Optional explicit provider for the PREDICT (Nemotron 3 Super) calls;
         # when omitted it is derived lazily from the Nebius key.
         self._reasoning_provider: Any | None = reasoning_provider
@@ -359,7 +427,9 @@ class NemotronReasoner:
         user_message = summary + web_block + "\n\nRespond with strict JSON only."
 
         try:
-            raw = call_provider(self._provider, _UNDERSTAND_SYSTEM, user_message, **self._understand_options())
+            raw, used_model = self._chat_resilient(
+                self._provider, _UNDERSTAND_SYSTEM, user_message, self._understand_options()
+            )
             data = _normalize_understand(extract_json(raw))
         except Exception as exc:
             logger.warning("Nemotron understand call failed: %s", exc)
@@ -368,7 +438,9 @@ class NemotronReasoner:
             logger.warning("Nemotron understand returned unusable payload")
             return None
         data["provider"] = NEBIUS_PROVIDER_ID
-        data["model"] = getattr(self._provider, "model", NANO_MODEL)
+        data["model"] = (
+            used_model if used_model in self.fallback_models else getattr(self._provider, "model", NANO_MODEL)
+        )
         if web_block:
             data["grounded_with_web"] = True
         return data
@@ -386,12 +458,13 @@ class NemotronReasoner:
                 f"Recent history:\n{redact_for_egress(str(history_summary))[:2000]}"
                 "\n\nRespond with strict JSON only."
             )
-            raw = call_provider(provider, _PREDICT_SYSTEM, user_message, **self._predict_options())
+            raw, used_model = self._chat_resilient(provider, _PREDICT_SYSTEM, user_message, self._predict_options())
             items = _prediction_items(extract_json(raw))
             if items is None:
                 logger.warning("Nemotron predict returned unusable payload")
                 return None
-            return normalize_predictions(items, model=self._reasoning_model) or None
+            model = used_model if used_model in self.fallback_models else self._reasoning_model
+            return normalize_predictions(items, model=model) or None
         except Exception as exc:
             logger.warning("Nemotron predict call failed: %s", exc)
             return None
@@ -419,6 +492,86 @@ class NemotronReasoner:
         return None
 
     # -- helpers -----------------------------------------------------------
+
+    # -- resilience --------------------------------------------------------
+
+    def _breaker(self, model: str) -> CircuitBreaker:
+        with self._resilience_lock:
+            breaker = self._breakers.get(model)
+            if breaker is None:
+                breaker = CircuitBreaker(self._breaker_threshold, self._breaker_cooldown_s)
+                self._breakers[model] = breaker
+            return breaker
+
+    def _fallback_provider(self, model: str) -> Any | None:
+        with self._resilience_lock:
+            if model in self._fallback_providers:
+                return self._fallback_providers[model]
+        provider: Any | None = None
+        try:
+            from ..model_layer.auth_profiles import AuthProfile
+            from ..model_layer.providers import get_provider
+
+            profile = AuthProfile(
+                provider=NEBIUS_PROVIDER_ID,
+                api_key=getattr(self._provider, "api_key", "") or os.environ.get("NEBIUS_API_KEY", ""),
+                model=model,
+            )
+            candidate = get_provider(NEBIUS_PROVIDER_ID, profile)
+            if candidate is not None and getattr(candidate, "available", False):
+                provider = candidate
+        except Exception as exc:
+            logger.warning("Could not create Nemotron fallback provider %s: %s", model, exc)
+        with self._resilience_lock:
+            self._fallback_providers[model] = provider
+        return provider
+
+    def _chat_resilient(self, primary: Any, system: str, user: str, options: dict[str, Any]) -> tuple[str, str]:
+        """Call ``primary`` then any fallback models, skipping open breakers.
+
+        Returns ``(reply, model_used)``. Raises the last error (or
+        :class:`CircuitOpenError`) when every model failed or is cooling down.
+        """
+        primary_model = str(getattr(primary, "model", "") or "primary")
+        chain: list[tuple[str, Any]] = [(primary_model, primary)]
+        for model in self.fallback_models:
+            if model and model != primary_model:
+                chain.append((model, None))
+        last_error: Exception | None = None
+        for model, provider in chain:
+            breaker = self._breaker(model)
+            if not breaker.allow():
+                last_error = last_error or CircuitOpenError(f"Nemotron circuit open for {model}")
+                continue
+            if provider is None:
+                provider = self._fallback_provider(model)
+                if provider is None:
+                    continue
+            try:
+                reply = call_provider(provider, system, user, **options)
+            except Exception as exc:
+                last_error = exc
+                if breaker.failure(getattr(exc, "retry_after", None)):
+                    logger.warning(
+                        "Nemotron circuit opened for %s after %d failure(s); cooling down: %s",
+                        model,
+                        breaker.failures,
+                        exc,
+                    )
+                continue
+            breaker.success()
+            if model != primary_model:
+                logger.info("Nemotron fallback model %s answered (primary %s failed)", model, primary_model)
+            return reply, model
+        raise last_error or CircuitOpenError("no Nemotron model available")
+
+    def resilience_status(self) -> dict[str, Any]:
+        with self._resilience_lock:
+            breakers = dict(self._breakers)
+        return {
+            "fallback_models": list(self.fallback_models),
+            "breakers": {model: breaker.to_dict() for model, breaker in breakers.items()},
+        }
 
     def _understand_options(self) -> dict[str, Any]:
         if self.understand_thinking:
@@ -523,6 +676,9 @@ def build_cloud_enhancements(
 
 
 __all__ = [
+    "CircuitBreaker",
+    "CircuitOpenError",
+    "LIGHTNING_MODEL",
     "NemotronReasoner",
     "coerce_unit",
     "extract_json",
