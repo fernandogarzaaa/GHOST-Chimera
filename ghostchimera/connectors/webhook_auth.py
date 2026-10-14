@@ -173,10 +173,12 @@ _CERT_LOCK = threading.Lock()
 def _fetch_google_certs() -> dict[str, str]:
     import urllib.request
 
+    from ..http_identity import ensure_user_agent
+
     with _CERT_LOCK:
         if _CERT_CACHE["certs"] and time.time() < _CERT_CACHE["expires"]:
             return dict(_CERT_CACHE["certs"])
-        with urllib.request.urlopen(GOOGLE_CERTS_URL, timeout=10) as resp:  # noqa: S310 - fixed https URL
+        with urllib.request.urlopen(ensure_user_agent(urllib.request.Request(GOOGLE_CERTS_URL)), timeout=10) as resp:  # noqa: S310 - fixed https URL
             certs = json.loads(resp.read().decode("utf-8"))
         _CERT_CACHE["certs"] = certs
         _CERT_CACHE["expires"] = time.time() + 3600
