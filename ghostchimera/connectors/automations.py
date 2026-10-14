@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import threading
 import time
 import urllib.request
@@ -27,7 +28,10 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .. import state_io
 from ..http_identity import ensure_user_agent
+
+logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_S = 60.0
 EMAIL_CHECK_MIN_GAP_S = 300.0
@@ -62,8 +66,7 @@ class AutomationsEngine:
     """Automation store + poller + run history."""
 
     def __init__(self, state_dir: str | Path, *, poll_interval: float = POLL_INTERVAL_S) -> None:
-        self.state_dir = Path(state_dir)
-        self.state_dir.mkdir(parents=True, exist_ok=True)
+        self.state_dir = state_io.ensure_private_dir(Path(state_dir))
         self._store_path = self.state_dir / "automations.json"
         self._runs_path = self.state_dir / "automations_runs.jsonl"
         self._lock = threading.RLock()
@@ -75,20 +78,20 @@ class AutomationsEngine:
 
     # -- persistence ---------------------------------------------------------
     def _load(self) -> None:
-        try:
-            data = json.loads(self._store_path.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                self._automations = data
-        except (OSError, json.JSONDecodeError):
-            self._automations = []
+        # A corrupt store is quarantined (*.corrupt-<ts>), never overwritten.
+        data = state_io.read_json(self._store_path, [], expect=list)
+        self._automations = data if isinstance(data, list) else []
 
     def _save(self) -> None:
-        with contextlib.suppress(OSError):
-            self._store_path.write_text(json.dumps(self._automations, indent=2), encoding="utf-8")
+        with self._lock, state_io.locked(self._store_path):
+            try:
+                state_io.atomic_write_json(self._store_path, self._automations, sort_keys=False)
+            except OSError as exc:
+                logger.warning("could not persist automations to %s: %s", self._store_path, exc)
 
     def _record_run(self, run: dict[str, Any]) -> None:
-        with contextlib.suppress(OSError), open(self._runs_path, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(run) + "\n")
+        with contextlib.suppress(OSError):
+            state_io.append_line(self._runs_path, json.dumps(run))
 
     # -- CRUD ------------------------------------------------------------------
     def list(self) -> list[dict[str, Any]]:

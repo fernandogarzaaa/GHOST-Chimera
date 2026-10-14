@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import functools
 import json
 import logging
 import os
@@ -305,6 +306,20 @@ def locked(path: str | os.PathLike[str]) -> Iterator[None]:
         lock.release()
 
 
+def locked_method(path_attr: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Decorate a store method so it runs under :func:`locked` on ``self.<path_attr>``."""
+
+    def decorator(method: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(method)
+        def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+            with locked(getattr(self, path_attr)):
+                return method(self, *args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
 # ---------------------------------------------------------------------------
 # Reads that never wipe data
 # ---------------------------------------------------------------------------
@@ -421,6 +436,7 @@ __all__ = [
     "ensure_private_dir",
     "lock_path_for",
     "locked",
+    "locked_method",
     "make_private",
     "quarantine_corrupt",
     "read_json",

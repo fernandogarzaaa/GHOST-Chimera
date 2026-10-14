@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .. import state_io
 from ..trust_runtime import TrustRuntimeStore
 from .conversation import _redact_value
 
@@ -141,12 +142,8 @@ class LivePresenceStore:
         return {"active_session_id": "", "sessions": {}, "presence_eval": {}}
 
     def _load(self) -> dict[str, Any]:
-        if not self.path.exists():
-            return self._default_state()
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return self._default_state()
+        # Corrupt files are quarantined, never silently reset by a save.
+        data = state_io.read_json(self.path, None, expect=dict)
         if not isinstance(data, dict):
             return self._default_state()
         state = self._default_state()
@@ -155,10 +152,11 @@ class LivePresenceStore:
         state["presence_eval"] = data.get("presence_eval") if isinstance(data.get("presence_eval"), dict) else {}
         return _redact_value(state)
 
+    @state_io.locked_method("path")
     def _save(self, data: dict[str, Any]) -> None:
-        self.state_dir.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(_redact_value(data), indent=2, sort_keys=True), encoding="utf-8")
+        state_io.atomic_write_json(self.path, _redact_value(data))
 
+    @state_io.locked_method("path")
     def create_session(
         self,
         *,
@@ -207,6 +205,7 @@ class LivePresenceStore:
             raise KeyError(sid)
         return _redact_value(session)
 
+    @state_io.locked_method("path")
     def _mutate(self, session_id: str, mutate: Any) -> dict[str, Any]:
         data = self._load()
         session = (data.get("sessions") or {}).get(session_id)
@@ -764,6 +763,7 @@ class LivePresenceStore:
             },
         }
 
+    @state_io.locked_method("path")
     def run_presence_eval_suite(self) -> dict[str, Any]:
         sessions = self.list_sessions()["sessions"]
         external_sessions = [item for item in sessions if _has_external_participant(item)]

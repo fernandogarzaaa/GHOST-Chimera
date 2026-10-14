@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .. import state_io
+
 # Spoken punctuation / layout, in longest-first application order.
 INLINE_FORMATTING: tuple[tuple[str, str], ...] = (
     ("new paragraph", "\n\n"),
@@ -180,16 +182,14 @@ class PersonalDictionary:
         self._limit = max(1, limit)
 
     def _load(self) -> dict[str, Any]:
-        try:
-            data = json.loads(self._file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {}
+        # A corrupt dictionary is quarantined, never overwritten.
+        data = state_io.read_json(self._file, {}, expect=dict)
         return data if isinstance(data, dict) else {}
 
     def _save(self, data: dict[str, Any]) -> None:
         try:
-            self._file.parent.mkdir(parents=True, exist_ok=True)
-            self._file.write_text(json.dumps(data), encoding="utf-8")
+            with state_io.locked(self._file):
+                state_io.atomic_write_json(self._file, data, indent=None, sort_keys=False)
         except OSError:
             pass
 
@@ -207,6 +207,10 @@ class PersonalDictionary:
             return False
         if not _learnable_term(heard_key) or not _learnable_term(written_value):
             return False
+        with state_io.locked(self._file):
+            return self._learn_locked(heard_key, written_value)
+
+    def _learn_locked(self, heard_key: str, written_value: str) -> bool:
         data = self._load()
         entries = data.get("entries", {})
         if not isinstance(entries, dict):
@@ -223,6 +227,7 @@ class PersonalDictionary:
         self._save(data)
         return True
 
+    @state_io.locked_method("_file")
     def remove(self, heard: str) -> bool:
         """Forget one learned entry; return True when it existed."""
 
@@ -391,12 +396,12 @@ class FlowHistory:
             "rules": formatted.rules_applied,
         }
         try:
-            self._file.parent.mkdir(parents=True, exist_ok=True)
-            lines = []
-            if self._file.exists():
-                lines = self._file.read_text(encoding="utf-8").splitlines()[-self._limit + 1 :]
-            lines.append(json.dumps(entry))
-            self._file.write_text("\n".join(lines[-self._limit :]), encoding="utf-8")
+            with state_io.locked(self._file):
+                lines = []
+                if self._file.exists():
+                    lines = self._file.read_text(encoding="utf-8").splitlines()[-self._limit + 1 :]
+                lines.append(json.dumps(entry))
+                state_io.atomic_write_text(self._file, "\n".join(lines[-self._limit :]))
         except OSError:
             pass
 

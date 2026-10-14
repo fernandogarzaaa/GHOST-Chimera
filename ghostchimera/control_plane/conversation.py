@@ -8,13 +8,13 @@ hidden reasoning.
 from __future__ import annotations
 
 import hashlib
-import json
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .. import state_io
 from ..redaction import SECRET_MARKERS as SECRET_MARKERS
 from ..redaction import SECRET_PATTERNS as SECRET_PATTERNS
 from ..redaction import redact_text as _redact_text
@@ -189,13 +189,15 @@ class ConversationStore:
             "sessions": {},
         }
 
+    def _lock(self) -> Any:
+        # Console serves requests on ThreadingHTTPServer and the daemon may
+        # share the state dir: serialise every read-modify-write.
+        return state_io.locked(self.path)
+
     def _load(self) -> dict[str, Any]:
-        if not self.path.exists():
-            return self._default_state()
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return self._default_state()
+        # A corrupt file is moved aside to *.corrupt-<ts> (never wiped by
+        # the next save); writes are atomic so readers never see a torn file.
+        data = state_io.read_json(self.path, None, expect=dict)
         if not isinstance(data, dict):
             return self._default_state()
         default = self._default_state()
@@ -205,13 +207,17 @@ class ConversationStore:
         return _redact_value(default)
 
     def _save(self, data: dict[str, Any]) -> None:
-        self.state_dir.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(_redact_value(data), indent=2, sort_keys=True), encoding="utf-8")
+        with self._lock():
+            state_io.atomic_write_json(self.path, _redact_value(data))
 
     def settings(self) -> dict[str, Any]:
         return dict(self._load().get("settings") or {})
 
     def update_settings(self, **updates: Any) -> dict[str, Any]:
+        with self._lock():
+            return self._update_settings(**updates)
+
+    def _update_settings(self, **updates: Any) -> dict[str, Any]:
         data = self._load()
         settings = dict(data.get("settings") or {})
         for key in ("always_listening", "hands_free", "full_bypass", "local_fallback", "presenter_coach_mode"):
@@ -232,6 +238,19 @@ class ConversationStore:
         title: str = "Ghost Conversation",
         mode: str = "listening",
         always_listening: bool | None = None,
+    ) -> dict[str, Any]:
+        with self._lock():
+            return self._create_session(
+                session_id=session_id, title=title, mode=mode, always_listening=always_listening
+            )
+
+    def _create_session(
+        self,
+        *,
+        session_id: str,
+        title: str,
+        mode: str,
+        always_listening: bool | None,
     ) -> dict[str, Any]:
         data = self._load()
         sid = session_id.strip() if session_id else _stable_id("conversation", _now(), title)
@@ -264,6 +283,10 @@ class ConversationStore:
         return _redact_value(session) if isinstance(session, dict) else None
 
     def _mutate_session(self, session_id: str, mutator: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+        with self._lock():
+            return self._mutate_session_locked(session_id, mutator)
+
+    def _mutate_session_locked(self, session_id: str, mutator: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
         data = self._load()
         session = (data.get("sessions") or {}).get(session_id)
         if not isinstance(session, dict):
