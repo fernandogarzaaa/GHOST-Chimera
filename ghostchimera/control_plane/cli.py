@@ -109,6 +109,61 @@ def _first_command_token(argv: list[str]) -> str:
     return ""
 
 
+def _prog_name() -> str:
+    """The command name the user actually typed (``ghost`` or ``ghostchimera``)."""
+    name = Path(sys.argv[0] or "").name if sys.argv else ""
+    for suffix in (".exe", ".py"):
+        if name.lower().endswith(suffix):
+            name = name[: -len(suffix)]
+    if name in {"ghost", "ghostchimera"}:
+        return name
+    return "ghost"
+
+
+def _edit_distance(a: str, b: str) -> int:
+    """Damerau-Levenshtein (optimal string alignment) distance; a swap costs 1."""
+    rows = [list(range(len(b) + 1))]
+    for i in range(1, len(a) + 1):
+        row = [i] + [0] * len(b)
+        for j in range(1, len(b) + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            row[j] = min(rows[i - 1][j] + 1, row[j - 1] + 1, rows[i - 1][j - 1] + cost)
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                row[j] = min(row[j], rows[i - 2][j - 2] + 1)
+        rows.append(row)
+    return rows[-1][-1]
+
+
+def _suggest_command(argv: list[str]) -> str:
+    """Return the subcommand a single-word typo most likely meant, or ``""``.
+
+    Only a lone word is checked (``ghost dmeo`` or ``ghost dmeo --json``).
+    Multi-word text, quoted (``ghost "fix the tests"``) or not
+    (``ghost fix the tests``), is a plain-language objective and is left alone,
+    as is any single word that is not close to a command.
+    """
+    if not argv:
+        return ""
+    first = argv[0].strip()
+    if not first or first.startswith("-") or first in _TOP_LEVEL_COMMANDS or any(ch.isspace() for ch in first):
+        return ""
+    if any(token.strip() and not token.startswith("-") for token in argv[1:]):
+        return ""
+    word = first.lower()
+    if word in _TOP_LEVEL_COMMANDS:
+        return word
+    best = ""
+    best_distance = 3
+    for command in sorted(_TOP_LEVEL_COMMANDS):
+        distance = _edit_distance(word, command)
+        # Three-letter commands (ask, mcp, run) are one edit from many real
+        # words at distance 2 ("use", "add"), so only a single edit counts.
+        limit = 1 if len(command) <= 3 else 2
+        if distance <= limit and distance < best_distance:
+            best, best_distance = command, distance
+    return best
+
+
 def _normalize_one_liner_args(argv: list[str]) -> list[str]:
     """Convert free-form terminal prompts into the ask command."""
     if not argv:
@@ -149,6 +204,16 @@ def _main(argv: list[str] | None = None) -> int:
         from .parallel_cli import _main as _parallel_main
 
         return _parallel_main(effective_argv)
+    suggestion = _suggest_command(effective_argv)
+    if suggestion:
+        prog = _prog_name()
+        typed = effective_argv[0].strip()
+        print(
+            f"{prog}: unknown command '{typed}'. Did you mean '{suggestion}'?\n"
+            f'To run it as a plain-language task instead: {prog} ask "{typed}"',
+            file=sys.stderr,
+        )
+        return 2
     effective_argv = _normalize_one_liner_args(effective_argv)
 
     parser = argparse.ArgumentParser(description="Ghost Chimera CLI")
