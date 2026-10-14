@@ -39,6 +39,10 @@ The Ghost Console HTTP API (`ghostchimera console` / `start`) is never open by d
 - POST/PUT/PATCH/DELETE requests with a foreign or `null` `Origin`, or `Sec-Fetch-Site: cross-site`, are refused, and must be `Content-Type: application/json` (signed `/api/webhooks/` deliveries excepted, see below);
 - unrestricted host execution is armed only with this install's random arming phrase, stored in the same file and never returned by the API.
 
+### Connector write approvals
+
+`/api/auth/approvals/decide` records the decider as the principal derived from the credential that authenticated the request (`operator` for the console token); a client-supplied `actor` is kept only as a sanitized label. Give agents, tools and MCP servers the separate `GHOSTCHIMERA_AGENT_TOKEN` instead of the console token: it can call `/api/auth/approvals/request` but can never decide. An agent-originated request (made with the agent token, or with `requested_by` naming an agent/automation) cannot be approved by the same credential that requested it unless `GHOSTCHIMERA_ALLOW_SELF_APPROVAL=1`. `decide` also accepts the request `digest` and refuses a mismatch.
+
 ### Memory file ingest
 
 `POST /api/console/memory/ingest-file` and the `path` form of `ingest-email` only read files under the directory the console was started in, plus directories listed in `GHOSTCHIMERA_INGEST_ROOTS` (`os.pathsep`-separated; `/` is never accepted). Paths are resolved (symlinks followed) before the check. The Ghost state directory (including `console_secrets.json`), dotfiles and dot-directories (`.ssh`, `.env`, `.git`, ...) and secret-looking names (`*.pem`, `id_rsa`, `credentials`, `*secret*`, ...) are refused, and every stored chunk is scrubbed of credentials and the host-execution arming phrase.

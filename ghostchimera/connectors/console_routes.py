@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 from contextlib import suppress
@@ -979,12 +980,60 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         except Exception as exc:
             return {"ok": False, "error": f"could not read: {type(exc).__name__}"}
 
-    def auth_approval_request(ctx: dict[str, Any]) -> dict[str, Any]:
+    # -- approval authority: requester vs decider (redteam P1-3) -------------
+    # The principal is derived from the credential that authenticated the
+    # request, never from body fields. ``GHOSTCHIMERA_AGENT_TOKEN`` is an
+    # optional second credential for agents/tools/MCP servers: it may propose
+    # approvals but never decide them. Self-approval of an agent-originated
+    # request by the same principal is refused unless
+    # ``GHOSTCHIMERA_ALLOW_SELF_APPROVAL=1``.
+    def _presented_token(ctx: dict[str, Any]) -> str:
+        headers = {str(k).lower(): str(v) for k, v in (ctx.get("headers") or {}).items()}
+        value = headers.get("x-gateway-token", "").strip()
+        if not value:
+            bearer = headers.get("authorization", "").strip()
+            if bearer.lower().startswith("bearer "):
+                value = bearer[7:].strip()
+        return value
+
+    def _agent_token() -> str:
+        return os.environ.get("GHOSTCHIMERA_AGENT_TOKEN", "").strip()
+
+    def _principal(ctx: dict[str, Any]) -> str:
+        import secrets as _secrets
+
+        presented = _presented_token(ctx)
+        agent_token = _agent_token()
+        if presented and agent_token and _secrets.compare_digest(presented, agent_token):
+            return "agent-token"
+        if presented and token and _secrets.compare_digest(presented, token):
+            return "operator"
+        # auth="open" (embedded/test servers): one local principal.
+        return "local"
+
+    def _agent_originated(requested_by: str, principal: str) -> bool:
+        if principal == "agent-token":
+            return True
+        label = str(requested_by or "").strip().lower()
+        return label not in {"", "console", "console-user", "operator", "human", "user"}
+
+    def _claimed_actor(data: dict[str, Any]) -> str:
+        raw = str(data.get("actor") or "")
+        return re.sub(r"[^A-Za-z0-9 _.@:-]", "", raw)[:64]
+
+    def auth_approval_request(ctx: dict[str, Any]) -> Any:
         """Propose one connector write for human approval (agent proposes)."""
         from .action_approvals import ActionApprovalError
 
+        principal = _principal(ctx)
+        if auth == "token" and principal == "local":
+            # Registered open so the agent token is accepted; enforce one of the two.
+            from ..chimera_pilot.gateway_server import HttpResponse
+
+            return HttpResponse(json.dumps({"error": "Unauthorized"}), status=401)
         data = _body(ctx)
         engine = _engine()
+        requested_by = str(data.get("requested_by") or ("agent" if principal == "agent-token" else "console"))
         try:
             return engine.request_action_approval(
                 str(data.get("entity_id") or "console-user"),
@@ -994,7 +1043,8 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
                 data.get("data"),
                 scope=str(data.get("scope") or ""),
                 summary=str(data.get("summary") or ""),
-                requested_by=str(data.get("requested_by") or "console"),
+                requested_by=requested_by[:80],
+                requester_principal=principal,
             )
         except (AuthEngineError, ValueError, ActionApprovalError) as exc:
             return {"ok": False, "error": str(exc)}
@@ -1007,18 +1057,45 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
 
         IDs starting with "apr-" are stealth loop asks: decided through the
         loop queue (which cascades to the durable record); everything else
-        goes straight to the canonical authority.
+        goes straight to the canonical authority. The recorded actor is the
+        server-derived principal; a client ``actor`` is kept only as a
+        sanitized label in the audit detail.
         """
         data = _body(ctx)
         approval_id = str(data.get("id") or "")
         if not approval_id:
             return {"ok": False, "error": "id is required"}
+        decider = _principal(ctx)
+        if decider == "agent-token":
+            return {"ok": False, "error": "the agent credential can propose approvals but never decide them"}
         engine = _engine()
         try:
             if approval_id.startswith("apr-"):
-                return _decide_stealth_approval(base, engine, approval_id, data)
+                return _decide_stealth_approval(base, engine, approval_id, {**data, "actor": decider})
+            record = engine.actions.describe(approval_id)
+            if record is not None:
+                expected_digest = str(data.get("digest") or "").strip()
+                if expected_digest and expected_digest != record.get("digest"):
+                    return {"ok": False, "error": "digest does not match the pending action"}
+                requester = str(record.get("requester_principal") or "")
+                self_approval = (
+                    bool(data.get("approved"))
+                    and requester == decider
+                    and _agent_originated(str(record.get("requested_by") or ""), requester)
+                )
+                if self_approval and os.environ.get("GHOSTCHIMERA_ALLOW_SELF_APPROVAL", "").strip() != "1":
+                    return {
+                        "ok": False,
+                        "error": (
+                            "self-approval refused: this agent-originated request was made with the same"
+                            " credential that is trying to approve it"
+                        ),
+                    }
             return engine.decide_action_approval(
-                approval_id, approved=bool(data.get("approved")), actor=str(data.get("actor") or "console-user")
+                approval_id,
+                approved=bool(data.get("approved")),
+                actor=decider,
+                claimed_actor=_claimed_actor(data),
             )
         except (AuthEngineError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
@@ -1781,7 +1858,9 @@ def register_connector_routes(server: Any, state_dir: str | Path, *, auth: str =
         "/api/auth/approvals/request",
         auth_approval_request,
         method="POST",
-        auth=auth,
+        # Accepts the console token *or* GHOSTCHIMERA_AGENT_TOKEN; the handler
+        # enforces one of them (and derives the requester principal).
+        auth="open" if auth == "token" and _agent_token() else auth,
         token=token,
         description="Propose a connector write for approval",
     )
