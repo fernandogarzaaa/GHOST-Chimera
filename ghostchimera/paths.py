@@ -28,9 +28,30 @@ def _env_path(name: str) -> Path | None:
     return Path(value).expanduser() if value else None
 
 
+def _home_dir() -> Path:
+    """Best-effort home dir that never raises.
+
+    ``Path.home()`` raises ``RuntimeError`` when neither ``USERPROFILE`` (Windows)
+    nor ``HOME`` (POSIX) resolves -- exactly what happens on GitHub's Windows
+    runners when a test clears the environment (``patch.dict(os.environ, {}, clear=True)``).
+    A config default must degrade, never explode, so check the env vars directly first.
+    """
+    for var in ("USERPROFILE", "HOME"):
+        value = os.environ.get(var, "").strip()
+        if value:
+            return Path(value).expanduser()
+    try:
+        return Path.home()
+    except RuntimeError:  # pragma: no cover - fully sanitized CI env
+        drive, _ = os.path.splitdrive(os.getcwd())
+        if os.name == "nt" and drive:
+            return Path(drive + os.sep)
+        return Path.cwd()
+
+
 def state_dir() -> Path:
     """The state directory (not created; see :func:`ensure_state_dir`)."""
-    return _env_path(STATE_DIR_ENV) or (Path.home() / DEFAULT_STATE_DIRNAME)
+    return _env_path(STATE_DIR_ENV) or (_home_dir() / DEFAULT_STATE_DIRNAME)
 
 
 def ensure_state_dir() -> Path:

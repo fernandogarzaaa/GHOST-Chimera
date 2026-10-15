@@ -24,6 +24,21 @@ class GhostChimeraConfigTests(unittest.TestCase):
         self.assertTrue(str(config.memory_db).endswith("memory.sqlite3"))
         self.assertTrue(str(config.audit_file).endswith("audit.json"))
 
+    def test_home_fallback_prefers_env_vars_and_never_raises(self) -> None:
+        from ghostchimera import paths
+
+        with patch.dict(os.environ, {"USERPROFILE": r"C:\Users\ci-user", "HOME": "/home/ci"}, clear=True):
+            self.assertEqual(paths.state_dir(), Path(r"C:\Users\ci-user") / ".ghostchimera")
+        with patch.dict(os.environ, {"HOME": "/home/ci"}, clear=True):
+            self.assertEqual(paths.state_dir(), Path("/home/ci") / ".ghostchimera")
+        # Fully sanitized env (Windows CI runner): must degrade, never raise.
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("pathlib.Path.home", side_effect=RuntimeError("Could not determine home directory")),
+        ):
+            resolved = paths.state_dir()
+        self.assertTrue(str(resolved).endswith(".ghostchimera"))
+
     def test_env_overrides_paths_policy_and_local_model(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ghostchimera-config-test-") as tmp:
             root = Path(tmp)
