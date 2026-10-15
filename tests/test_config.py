@@ -27,9 +27,17 @@ class GhostChimeraConfigTests(unittest.TestCase):
     def test_home_fallback_prefers_env_vars_and_never_raises(self) -> None:
         from ghostchimera import paths
 
-        with patch.dict(os.environ, {"USERPROFILE": r"C:\Users\ci-user", "HOME": "/home/ci"}, clear=True):
+        # When Path.home() cannot resolve (Windows CI runner without USERPROFILE),
+        # the env vars are consulted directly, USERPROFILE first.
+        with (
+            patch.dict(os.environ, {"USERPROFILE": r"C:\Users\ci-user", "HOME": "/home/ci"}, clear=True),
+            patch("pathlib.Path.home", side_effect=RuntimeError("Could not determine home directory")),
+        ):
             self.assertEqual(paths.state_dir(), Path(r"C:\Users\ci-user") / ".ghostchimera")
-        with patch.dict(os.environ, {"HOME": "/home/ci"}, clear=True):
+        with (
+            patch.dict(os.environ, {"HOME": "/home/ci"}, clear=True),
+            patch("pathlib.Path.home", side_effect=RuntimeError("Could not determine home directory")),
+        ):
             self.assertEqual(paths.state_dir(), Path("/home/ci") / ".ghostchimera")
         # Fully sanitized env (Windows CI runner): must degrade, never raise.
         with (

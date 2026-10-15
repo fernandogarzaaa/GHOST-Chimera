@@ -31,22 +31,26 @@ def _env_path(name: str) -> Path | None:
 def _home_dir() -> Path:
     """Best-effort home dir that never raises.
 
-    ``Path.home()`` raises ``RuntimeError`` when neither ``USERPROFILE`` (Windows)
-    nor ``HOME`` (POSIX) resolves -- exactly what happens on GitHub's Windows
-    runners when a test clears the environment (``patch.dict(os.environ, {}, clear=True)``).
-    A config default must degrade, never explode, so check the env vars directly first.
+    ``Path.home()`` is the first authority (it honors the usual per-platform
+    sources and is what callers monkeypatch). It raises ``RuntimeError`` when
+    neither ``USERPROFILE`` (Windows) nor ``HOME`` (POSIX) resolves -- exactly
+    what happens on GitHub's Windows runners when a test clears the environment
+    (``patch.dict(os.environ, {}, clear=True)``). A config default must degrade,
+    never explode, so fall back to the env vars directly, then to the drive
+    root (Windows) or CWD.
     """
+    try:
+        return Path.home()
+    except RuntimeError:
+        pass
     for var in ("USERPROFILE", "HOME"):
         value = os.environ.get(var, "").strip()
         if value:
             return Path(value).expanduser()
-    try:
-        return Path.home()
-    except RuntimeError:  # pragma: no cover - fully sanitized CI env
-        drive, _ = os.path.splitdrive(os.getcwd())
-        if os.name == "nt" and drive:
-            return Path(drive + os.sep)
-        return Path.cwd()
+    drive, _ = os.path.splitdrive(os.getcwd())
+    if os.name == "nt" and drive:
+        return Path(drive + os.sep)
+    return Path.cwd()
 
 
 def state_dir() -> Path:
