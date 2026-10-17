@@ -14,12 +14,12 @@ is treated as fact without confirmation. Explicit facts never decay.
 
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .. import state_io
 from .events import Event
 
 LAYERS = ("identity", "communication", "personality", "work")
@@ -289,8 +289,8 @@ class UserModel:
 
         target = Path(path)
         try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(json.dumps(self.snapshot()), encoding="utf-8")
+            with state_io.locked(target):
+                state_io.atomic_write_json(target, self.snapshot(), indent=None, sort_keys=False)
         except OSError:
             pass
 
@@ -299,10 +299,8 @@ class UserModel:
         """Load a persisted model; return an empty model when unavailable."""
 
         model = cls()
-        try:
-            data = json.loads(Path(path).read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return model
+        # A corrupt model file is quarantined so the next save cannot wipe it.
+        data = state_io.read_json(Path(path), None, expect=dict)
         if not isinstance(data, dict):
             return model
         for layer, entries in (data.get("layers") or {}).items():

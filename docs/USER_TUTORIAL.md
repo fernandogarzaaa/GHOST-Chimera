@@ -54,10 +54,26 @@ python -m pip install -e ".[gateway]"
 ghostchimera console
 ```
 
-If you want token-protected local access:
+The console API is always token-protected. On first run Ghost generates a
+random token, prints it once together with a ready-to-open
+`http://127.0.0.1:8766/#token=...` link, and stores it owner-only in
+`~/.ghostchimera/console_secrets.json`. The browser it opens signs in
+automatically; if you open the console yourself, paste the token from that
+file once per browser session.
+
+To use your own token for a run instead:
 
 ```bash
 ghostchimera console --auth-token mysecrettoken
+```
+
+Serving the console under a hostname or LAN IP (for example behind a reverse
+proxy) also needs that host allowed, because requests with any other `Host`
+header are refused:
+
+```bash
+ghostchimera console --host 0.0.0.0 --allow-host ghost.example.com
+# or: GHOSTCHIMERA_CONSOLE_ALLOWED_HOSTS=ghost.example.com,10.0.0.5
 ```
 
 ## Step 2: Check the Status tab

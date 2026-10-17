@@ -213,13 +213,23 @@ class Daemon(BackgroundService):
         )
 
     def stop(self) -> None:
-        """Stop all supervised services, shut down workers, remove PID file."""
+        """Stop all supervised services, shut down workers, remove PID file.
+
+        The worker pool is drained even when :meth:`start` never ran: hook
+        tasks can be submitted to a constructed-but-unstarted daemon, and
+        returning early used to leave them writing into ``state_dir`` after
+        the caller thought the daemon was stopped (seen as a macOS CI
+        teardown flake: ``Directory not empty: 'trust_runtime'``).
+        Safe to call more than once.
+        """
         with self._lock:
-            if not self._started:
-                return
+            was_started = self._started
             self._started = False
-        self.registry.stop_all()
+        if was_started:
+            self.registry.stop_all()
         self._executor.shutdown(wait=True, cancel_futures=True)
+        if not was_started:
+            return
         self._remove_pid_file()
         self._shutdown.set()
         logger.info("Ghost daemon stopped")

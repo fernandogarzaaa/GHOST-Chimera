@@ -11,15 +11,16 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
+from . import state_io
+from .ids import stable_id, unique_id
 from .redaction import (
     POISON_PATTERNS,
     RISK_ORDER,
@@ -27,10 +28,10 @@ from .redaction import (
 )
 from .redaction import SECRET_MARKERS as SECRET_MARKERS
 from .redaction import (
-    redact_text as _redact_text,
+    redact_secret_values as _redact_value,
 )
 from .redaction import (
-    redact_value as _redact_value,
+    redact_text as _redact_text,
 )
 
 STATUS_RESUMABLE = {"pending_approval", "retryable_failure", "interrupted"}
@@ -192,8 +193,30 @@ def trust_run_scope(run_id: str) -> Iterator[str]:
 
 
 def _stable_id(*parts: object, length: int = 16) -> str:
-    raw = "|".join(str(part) for part in parts if part is not None)
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:length]
+    return stable_id(*parts, length=length)
+
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _store_locked(method: _F) -> _F:
+    """Run a TrustRuntimeStore mutator under the store-wide lock.
+
+    The lock is re-entrant per thread and backed by an OS file lock, so
+    nested mutators (create_approval -> record_step -> _touch_run) work and
+    separate processes sharing the state dir (CLI + daemon + console)
+    serialise their read-modify-write and hash-chain appends.
+    """
+
+    def wrapper(self: TrustRuntimeStore, *args: Any, **kwargs: Any) -> Any:
+        with self._locked():
+            return method(self, *args, **kwargs)
+
+    wrapper.__name__ = method.__name__
+    wrapper.__qualname__ = method.__qualname__
+    wrapper.__doc__ = method.__doc__
+    wrapper.__wrapped__ = method  # type: ignore[attr-defined]
+    return wrapper  # type: ignore[return-value]
 
 
 def _canonical_json(value: Any) -> str:
@@ -288,12 +311,6 @@ def build_tool_trust_envelope(
 class TrustRuntimeStore:
     """Persistent local storage for the Ghost trust runtime."""
 
-    # One lock per canonical sessions file, shared by every store instance
-    # in this process. Guards the read-modify-write sequences in
-    # save_session/delete_session so concurrent writers cannot lose updates.
-    _session_locks: dict[str, threading.Lock] = {}
-    _session_locks_guard = threading.Lock()
-
     def __init__(self, state_dir: str | Path) -> None:
         self.state_dir = Path(state_dir).expanduser()
         self.trust_dir = self.state_dir / "trust_runtime"
@@ -304,9 +321,14 @@ class TrustRuntimeStore:
         self.eval_baseline_path = self.trust_dir / "trust_eval_baseline.json"
         self.eval_cases_path = self.trust_dir / "eval_cases.jsonl"
         self.sessions_path = self.trust_dir / "sessions.json"
-        self.trust_dir.mkdir(parents=True, exist_ok=True)
-        self.runs_dir.mkdir(parents=True, exist_ok=True)
+        state_io.ensure_private_dir(self.trust_dir)
+        state_io.ensure_private_dir(self.runs_dir)
 
+    def _locked(self) -> Any:
+        """Store-wide lock: threads in this process and other processes."""
+        return state_io.locked(self.trust_dir / "store")
+
+    @_store_locked
     def create_run(
         self,
         objective: str,
@@ -318,7 +340,7 @@ class TrustRuntimeStore:
         model_name: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        run_id = _stable_id(source, objective, _now(), length=20)
+        run_id = unique_id(source, objective, length=20)
         run = DurableRun(
             run_id=run_id,
             objective=objective,
@@ -343,6 +365,7 @@ class TrustRuntimeStore:
         )
         return run_payload
 
+    @_store_locked
     def record_step(
         self,
         run_id: str,
@@ -382,6 +405,7 @@ class TrustRuntimeStore:
         self._touch_run(run_id, status=status, increment_step=True)
         return record
 
+    @_store_locked
     def record_tool_call(
         self,
         run_id: str,
@@ -424,6 +448,7 @@ class TrustRuntimeStore:
         self._append_jsonl(self._run_tool_path(run_id), call)
         return call
 
+    @_store_locked
     def create_approval(
         self,
         run_id: str,
@@ -437,7 +462,9 @@ class TrustRuntimeStore:
         authority_id: str = "",
     ) -> dict[str, Any]:
         summary = summary or reason
-        approval_id = _stable_id(run_id, step_id, summary or _now(), length=18)
+        # Unique per request: a re-request for the same step+summary (after a
+        # deny, or a retried tool) must never overwrite a resolved checkpoint.
+        approval_id = unique_id(run_id, step_id, summary, length=18)
         checkpoint = ApprovalCheckpoint(
             approval_id=approval_id,
             run_id=run_id,
@@ -466,6 +493,7 @@ class TrustRuntimeStore:
         self._touch_run(run_id, status="pending_approval")
         return checkpoint
 
+    @_store_locked
     def resolve_approval(
         self, approval_id: str, decision: str, *, reviewer: str = "operator", authority: Any = None
     ) -> dict[str, Any]:
@@ -522,6 +550,7 @@ class TrustRuntimeStore:
         self._touch_run(str(checkpoint["run_id"]), status="resumable" if decision == "approved" else "denied")
         return {"ok": True, "approval": _redact_value(checkpoint)}
 
+    @_store_locked
     def resume_run(self, run_id: str) -> dict[str, Any]:
         run = self.get_run(run_id)
         if not run.get("ok"):
@@ -543,7 +572,7 @@ class TrustRuntimeStore:
             run_id=run_id,
             resume_from_step=str(last_step.get("step_id") or "start"),
             reason=status or str(last_step.get("status") or "manual"),
-            token=_stable_id(run_id, last_step.get("step_id"), _now(), length=32),
+            token=unique_id(run_id, last_step.get("step_id"), length=32),
         )
         self.record_step(
             run_id,
@@ -595,14 +624,9 @@ class TrustRuntimeStore:
     # local-only, same trust posture as the rest of trust_runtime.
     # ------------------------------------------------------------------
 
-    def _session_lock(self) -> threading.Lock:
-        key = str(self.sessions_path.resolve())
-        with TrustRuntimeStore._session_locks_guard:
-            lock = TrustRuntimeStore._session_locks.get(key)
-            if lock is None:
-                lock = threading.Lock()
-                TrustRuntimeStore._session_locks[key] = lock
-            return lock
+    def _session_lock(self) -> Any:
+        # Kept for callers/tests that used it; now the store-wide lock.
+        return self._locked()
 
     def save_session(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Upsert one gateway/agent session snapshot, keyed by session_id."""
@@ -647,6 +671,7 @@ class TrustRuntimeStore:
             self._write_json(self.sessions_path, sessions, redact=False)
         return {"ok": True, "session_id": str(session_id)}
 
+    @_store_locked
     def promote_run_to_eval_case(self, run_id: str, *, label: str = "", severity: str = "P2") -> dict[str, Any]:
         detail = self.get_run(run_id)
         if not detail.get("ok"):
@@ -1018,6 +1043,7 @@ class TrustRuntimeStore:
         servers.sort(key=lambda item: str(item.get("server_id") or ""))
         return {"ok": True, "servers": _redact_value(servers)}
 
+    @_store_locked
     def mcp_trust_set(
         self, server_id: str, status: str, *, risk_ceiling: str = "medium", tools: list[str] | None = None
     ) -> dict[str, Any]:
@@ -1114,7 +1140,8 @@ class TrustRuntimeStore:
             "trust_score": round((passed / total) if total else 1.0, 3),
             "cases": cases,
         }
-        self._write_json(self.eval_baseline_path, baseline)
+        with self._locked():
+            self._write_json(self.eval_baseline_path, baseline)
         return _redact_value(baseline)
 
     def eval_compare(self) -> dict[str, Any]:
@@ -1163,6 +1190,7 @@ class TrustRuntimeStore:
     def _save_index(self, index: dict[str, Any]) -> None:
         self._write_json(self.index_path, index)
 
+    @_store_locked
     def _touch_run(self, run_id: str, *, status: str, increment_step: bool = False) -> None:
         index = self._load_index()
         run = index.get(run_id)
@@ -1200,18 +1228,13 @@ class TrustRuntimeStore:
         return record
 
     def _append_jsonl(self, path: Path, payload: dict[str, Any]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(_redact_value(payload), sort_keys=True) + "\n")
+        state_io.append_line(path, json.dumps(_redact_value(payload), sort_keys=True))
 
     def _write_jsonl(self, path: Path, rows: list[dict[str, Any]]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(
+        state_io.atomic_write_text(
+            path,
             "".join(json.dumps(_redact_value(row), sort_keys=True) + "\n" for row in rows),
-            encoding="utf-8",
         )
-        tmp.replace(path)
 
     def _read_jsonl(self, path: Path) -> list[dict[str, Any]]:
         if not path.exists():
@@ -1227,20 +1250,13 @@ class TrustRuntimeStore:
         return rows
 
     def _load_json(self, path: Path, default: Any) -> Any:
-        if not path.exists():
-            return default
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return default
-        return data if isinstance(data, type(default)) else default
+        # Corrupt files are moved aside (never silently replaced by the
+        # next save), so a torn index/approvals file cannot wipe state.
+        return state_io.read_json(path, default, expect=type(default))
 
     def _write_json(self, path: Path, payload: Any, *, redact: bool = True) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
         body = _redact_value(payload) if redact else payload
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(body, indent=2, sort_keys=True), encoding="utf-8")
-        tmp.replace(path)
+        state_io.atomic_write_json(path, body)
 
 
 __all__ = [

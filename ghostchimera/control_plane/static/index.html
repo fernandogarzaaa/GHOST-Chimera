@@ -15,7 +15,7 @@
   <div id="tokenOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:999; align-items:center; justify-content:center;">
     <div class="card" style="max-width:420px; width:100%; padding:28px; margin:24px;">
       <h3 style="font-size:15px; margin-bottom:8px;">Authentication Required</h3>
-      <p class="hint" style="margin-bottom:16px;">Enter the console token printed to the terminal when starting the server.</p>
+      <p class="hint" style="margin-bottom:16px;">Paste the console token. It was printed the first time <code>ghostchimera console</code> ran and is stored in <code>~/.ghostchimera/console_secrets.json</code> (or <code>&lt;state-dir&gt;/console_secrets.json</code>).</p>
       <div class="form-group">
         <label>Token</label>
         <input id="tokenInput" type="password" placeholder="paste token here" autocomplete="off">
@@ -1036,7 +1036,7 @@
       <input id="hostAuditDir" placeholder="audit directory" style="flex:2;min-width:260px;">
     </div>
     <div class="row" style="margin-bottom:10px;">
-      <input id="hostConfirmationPhrase" placeholder="type: I ACCEPT HOST EXECUTION RISK" style="flex:2;min-width:320px;">
+      <input id="hostConfirmationPhrase" placeholder="type this install's arming phrase (arming_phrase in console_secrets.json)" style="flex:2;min-width:320px;">
       <button id="saveHostExecution" class="danger">Save Host Mode</button>
       <button id="refreshHostExecution">Refresh Host Mode</button>
     </div>

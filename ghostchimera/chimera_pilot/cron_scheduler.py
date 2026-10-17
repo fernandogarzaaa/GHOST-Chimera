@@ -21,7 +21,6 @@ from typing import Any
 
 from croniter import croniter
 
-from ..agent_core.core import AgentCore
 from ..chimera_pilot.task_ir import TaskKind
 from ..config import GhostChimeraConfig
 from ..logging_config import get_logger
@@ -145,16 +144,21 @@ class CronScheduler(BackgroundService):
         poll_interval: int = DEFAULT_POLL_INTERVAL,
         config: GhostChimeraConfig | None = None,
         job_executor: Callable[[CronJob], CronJobResult] | None = None,
+        kernel_options: dict[str, Any] | None = None,
     ):
         self.jobs: dict[str, CronJob] = {}
         self._lock = threading.RLock()
         self.poll_interval = poll_interval
         self.config = config or GhostChimeraConfig.from_env()
         self.job_executor = job_executor
+        # Keyword arguments for ChimeraPilotKernel.default() when no executor is injected.
+        self.kernel_options = dict(kernel_options or {})
         self._state_dir = Path(state_dir or self.config.state_dir)
         self._state_file = self._state_dir / DEFAULT_STATE_FILE
         self._running = False
         self._thread: threading.Thread | None = None
+        # Set by stop(): wakes the loop out of its poll_interval wait at once.
+        self._wake = threading.Event()
         self._load_jobs()
 
     def add_job(
@@ -247,6 +251,7 @@ class CronScheduler(BackgroundService):
     def start(self) -> threading.Thread:
         """Start the scheduler loop in a background thread."""
         self._running = True
+        self._wake.clear()
 
         def loop():
             while self._running:
@@ -254,7 +259,11 @@ class CronScheduler(BackgroundService):
                     self.tick()
                 except Exception as exc:
                     logger.error("Cron scheduler error: %s", exc)
-                time.sleep(self.poll_interval)
+                # An Event wait instead of time.sleep(poll_interval): stop()
+                # used to block for its full 10 s join timeout (and leave the
+                # thread alive) while the loop slept out a 60 s poll interval.
+                if self._wake.wait(self.poll_interval):
+                    break
 
         self._thread = threading.Thread(target=loop, daemon=True)
         self._thread.start()
@@ -264,6 +273,7 @@ class CronScheduler(BackgroundService):
     def stop(self) -> None:
         """Stop the scheduler loop."""
         self._running = False
+        self._wake.set()
         if self._thread:
             self._thread.join(timeout=10)
             self._thread = None
@@ -297,14 +307,19 @@ class CronScheduler(BackgroundService):
         if self.job_executor is not None:
             return self.job_executor(job)
         try:
-            kernel = AgentCore.default()
-            results = kernel.compile_and_run(job.objective)
+            from .kernel import ChimeraPilotKernel
+
+            kernel = ChimeraPilotKernel.default(**self.kernel_options)
+            payload = [r.to_dict() for r in kernel.run(job.objective)]
+            ok = bool(payload) and all(bool(item.get("ok")) for item in payload)
+            errors = [str(item.get("error") or "") for item in payload if not item.get("ok")]
             return CronJobResult(
                 job_id=job.id,
                 job_name=job.name,
                 objective=job.objective,
-                success=True,
-                output=json.dumps([r.to_dict() for r in results])[:3000],
+                success=ok,
+                output=json.dumps(payload)[:3000],
+                error=None if ok else ("; ".join(e for e in errors if e) or "task did not succeed"),
             )
         except Exception as exc:
             logger.error("Cron job '%s' failed: %s", job.name, exc)

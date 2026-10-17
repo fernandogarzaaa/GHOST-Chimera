@@ -104,8 +104,9 @@ def _today() -> str:
 
 
 def _default_state_path() -> Path:
-    base = os.environ.get("GHOSTCHIMERA_STATE_DIR", str(Path.home() / ".ghostchimera"))
-    return Path(base).expanduser() / "free_usage.json"
+    from ..paths import state_path
+
+    return state_path("free_usage.json")
 
 
 @dataclass

@@ -10,6 +10,7 @@ from typing import Any
 
 from ..chimera_pilot.autonomy_queue import AutonomyJobQueue
 from ..memory_layer.store import MemoryStore
+from ..paths import personal_memory_db
 from .minimind_lifecycle import MiniMindLifecycle
 
 
@@ -36,7 +37,7 @@ def _coerce_string_list(value: Any, *, default: list[str] | None = None) -> list
 def load_beta_config(path: str | Path) -> BetaVisionConfig:
     payload = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
     return BetaVisionConfig(
-        memory_db=str(payload.get("memory_db") or ".ghostchimera-memory.sqlite3"),
+        memory_db=str(personal_memory_db(str(payload.get("memory_db") or ""))),
         file_paths=_coerce_string_list(payload.get("file_paths")),
         email_paths=_coerce_string_list(payload.get("email_paths")),
         run_autonomy_jobs=bool(payload.get("run_autonomy_jobs", False)),

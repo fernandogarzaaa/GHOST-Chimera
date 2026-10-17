@@ -71,6 +71,13 @@ class ActionApprovalStore:
             );
             CREATE INDEX IF NOT EXISTS idx_action_entity ON action_approvals(entity_id, state);
             """)
+            # Server-derived principal of the requester (never client-claimed);
+            # added after the first release, so migrate older ledgers in place.
+            columns = {row[1] for row in self._conn.execute("PRAGMA table_info(action_approvals)")}
+            if "requester_principal" not in columns:
+                self._conn.execute(
+                    "ALTER TABLE action_approvals ADD COLUMN requester_principal TEXT NOT NULL DEFAULT ''"
+                )
             self._conn.commit()
 
     def close(self) -> None:
@@ -89,6 +96,7 @@ class ActionApprovalStore:
         summary: str = "",
         requested_by: str = "",
         ttl_s: float = DEFAULT_ACTION_TTL_S,
+        requester_principal: str = "",
     ) -> dict[str, Any]:
         if not entity_id or not provider or not url:
             raise ActionApprovalError("entity_id, provider, and url are required")
@@ -101,8 +109,8 @@ class ActionApprovalStore:
         with self._lock:
             self._conn.execute(
                 "INSERT INTO action_approvals(id, entity_id, provider, method, url, digest,"
-                " scope, summary, state, requested_by, created_at, expires_at)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                " scope, summary, state, requested_by, created_at, expires_at, requester_principal)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     record_id,
                     entity_id,
@@ -116,6 +124,7 @@ class ActionApprovalStore:
                     str(requested_by or ""),
                     now,
                     now + max(1.0, float(ttl_s)),
+                    str(requester_principal or ""),
                 ),
             )
             self._conn.commit()
@@ -208,7 +217,7 @@ class ActionApprovalStore:
         with self._lock:
             row = self._conn.execute(
                 "SELECT id, entity_id, provider, method, url, scope, summary,"
-                " state, requested_by, decided_by, created_at, expires_at"
+                " state, requested_by, decided_by, created_at, expires_at, requester_principal, digest"
                 " FROM action_approvals WHERE id = ?",
                 (approval_id,),
             ).fetchone()
@@ -227,6 +236,8 @@ class ActionApprovalStore:
             "decided_by": row[9],
             "created_at": row[10],
             "expires_at": row[11],
+            "requester_principal": row[12],
+            "digest": row[13],
         }
 
     def sweep(self) -> int:

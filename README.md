@@ -1,235 +1,71 @@
-﻿# Ghost Chimera
+# Ghost Chimera
 
-![Version](https://img.shields.io/badge/version-0.4.0--beta-blueviolet)
+[![CI](https://github.com/fernandogarzaaa/GHOST-Chimera/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fernandogarzaaa/GHOST-Chimera/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/ghostchimera?include_prereleases&label=pypi)](https://pypi.org/project/ghostchimera/)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![CI](https://img.shields.io/badge/CI-ubuntu%20%7C%20windows%20%7C%20macos-brightgreen)
 
-> **Ghost is background AI infrastructure.** Ghost Chimera observes events across your digital workflow, learns how you work, and quietly prepares the right context or action for whichever AI agent you're using — without fine-tuning or replacing the underlying model. Your AI agents do the thinking. Ghost remembers what matters and makes sure they know what they need.
+**Ghost Chimera is local-first background AI for your workflow.** Its Stealth Loop
+watches events (issues, files, agent prompts), learns how you work, and quietly
+prepares context for whichever AI agent you use, consulting **NVIDIA Nemotron on
+Nebius Token Factory** when it needs deeper reasoning.
 
-Ghost Chimera is a **local-first ambient intelligence runtime** built around the **Stealth Loop** — an event-driven learning and intervention cycle (`ghostchimera/stealth/`): EVENT → UNDERSTAND → UPDATE STATE → RECALL EXPERIENCE → MATCH WORKFLOW → PREDICT → DECIDE → PREPARE / INJECT / ACT → OBSERVE OUTCOME → LEARN. **Chimera Pilot** remains as the execution capability underneath it: it compiles natural-language objectives into steps, runs them across registered backends with safety policy and fallbacks, and records telemetry.
-
-This is beta-stage software for real, user-supervised work in local-first environments. It is not AGI, not a secure sandbox for untrusted code by itself, and not a replacement for licensed quantum operating systems.
-
-## Install
+## Try it in one minute
 
 ```bash
-pip install ghostchimera            # Python: headless core, installs in seconds
-pip install "ghostchimera[all]"     # Python: every backend (slow, see note below)
-brew tap fernandogarzaaa/ghostchimera && brew install --HEAD ghostchimera
+pipx install ghostchimera      # or: pip install ghostchimera
+ghost demo                     # replays a Nemotron session offline: no keys, no network
 ```
 
-> **Install time:** the `[all]` extra pulls every backend (desktop, local models, MCP, voice, quantum),
-> including large ML and native packages (torch, transformers, llama-cpp-python, the voice stack).
-> It can take well over 10 minutes on a typical connection. New users should start with the base
-> package and add only the extras they need, for example `pip install "ghostchimera[mcp,gateway]"`.
+> `ghost demo` is new after 0.4.0b1 on PyPI. Until the next release, install from GitHub:
+> `pipx install git+https://github.com/fernandogarzaaa/GHOST-Chimera`
 
-Full matrix (extras, publishing): [docs/INSTALL.md](docs/INSTALL.md)
+`ghost demo` runs the real Stealth Loop and Nemotron reasoner against a session
+recorded live on Nebius Token Factory and bundled with the package (UNDERSTAND
+with Nemotron 3 Nano, PREDICT with Nemotron 3 Super); the replies are the
+models' raw output, unedited. To go live, set `NEBIUS_API_KEY`
+([console.nebius.com](https://console.nebius.com), Token Factory → API keys) and
+record your own session with `ghost demo --record session.json`.
 
-## One-Line Install
+### Environment variables
 
-The one-line path creates a local checkout, builds a virtual environment, installs the full Ghost Chimera runtime profile, verifies the CLI, and prints the launch command.
+Setting `NEBIUS_API_KEY` alone is enough: with `GHOSTCHIMERA_MODEL_PROVIDER` unset,
+`ghost ask`, `ghost --pilot-run`, `ghost doctor` and the Stealth Loop auto-select Nebius
+(Nemotron). An explicit `GHOSTCHIMERA_MODEL_PROVIDER` always wins.
 
-**Windows PowerShell:**
-
-```powershell
-irm https://raw.githubusercontent.com/fernandogarzaaa/GHOST-Chimera/main/scripts/install.ps1 | iex
-```
-
-**macOS / Linux:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/fernandogarzaaa/GHOST-Chimera/main/scripts/install.sh | bash
-```
-
-Then launch (`scripts/install.ps1` on Windows, `scripts/install.sh` on macOS/Linux):
-
-```bash
-cd ~/ghost-chimera
-.venv/bin/ghostchimera console
-```
-
-Installer options are environment variables. `GHOSTCHIMERA_EXTRAS` defaults to the full Ghost Chimera runtime plus verification tools; override it only for constrained development installs.
-
-## Runtime Specs
-
-**Minimum for Ghost Console and local orchestration:**
-
-| Component | Minimum | Recommended |
+| Variable | Default | What it does |
 |---|---|---|
-| OS | Windows 10/11, macOS 13+, Ubuntu 22.04+ | Windows 11, macOS 14+, Ubuntu 24.04+ |
-| Python | 3.11 | 3.12 or 3.13 |
-| RAM | 4 GB | 8-16 GB |
-| Disk | 2 GB free | 10+ GB for memory, traces, and local models |
-| Browser | Current Chrome, Edge, Firefox, or Safari | Current Chrome or Edge |
+| `NEBIUS_API_KEY` | unset | Turns on Nemotron (auto-selects the `nebius` provider). |
+| `NEBIUS_MODEL` | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` | Model for `ask`/pilot and Stealth Loop UNDERSTAND. |
+| `NEBIUS_FALLBACK_MODELS` | unset | Comma list tried when the primary errors, e.g. `nvidia/Nemotron-3_5-Lightning`. |
+| `GHOSTCHIMERA_NEMOTRON_MODE` | `async` | `async`: Nemotron runs off the `emit()` hot path; `sync`: inline. |
+| `GHOSTCHIMERA_NEMOTRON_TIMEOUT_S` | `20` | Per-call timeout for Stealth Loop Nemotron calls. |
+| `GHOSTCHIMERA_NEMOTRON_CALLS_PER_MIN` | `30` | Cloud call budget per minute (0 = unlimited). |
+| `GHOSTCHIMERA_NEMOTRON_TOKENS_PER_HOUR` | `100000` | Token budget (reasoning tokens included); calls stop when spent. |
+| `GHOSTCHIMERA_NEMOTRON_UNDERSTAND_THINKING` | `0` | `1` turns Nemotron's reasoning trace back on for UNDERSTAND (slower). |
+| `GHOSTCHIMERA_PROVIDER_RETRIES` | `2` | Retries on 429/5xx, honouring `Retry-After`. |
+| `GHOSTCHIMERA_BUS_LOG_MAX` | `5000` | Events kept in the in-memory replay log. |
 
-The full install covers Python package dependencies — not model weights, API keys, GPU drivers, or build tools. Without provider credentials, Ghost still runs the console, memory tools, trust runtime, evals, and deterministic backends.
+**Demo video:** [Watch the 3-minute demo on YouTube](https://youtu.be/m1jGOAfMZsg): real Linux screen capture showing `ghost demo`, a live Nemotron Stealth Loop pass on Nebius, and the console.
 
-## Usage in 5 minutes (no terminal needed)
+## Learn more
 
-Ghost Console is the point-and-click dashboard for everyday use:
+- **[Full overview](https://github.com/fernandogarzaaa/GHOST-Chimera/blob/main/docs/OVERVIEW.md)**: how the
+  Stealth Loop works, Nemotron/Tavily/LangSmith setup, the one-line installers, runtime specs, and capabilities.
+- [Quick start](https://github.com/fernandogarzaaa/GHOST-Chimera/blob/main/docs/quick-start.md) ·
+  [Install matrix](https://github.com/fernandogarzaaa/GHOST-Chimera/blob/main/docs/INSTALL.md) ·
+  [Architecture](https://github.com/fernandogarzaaa/GHOST-Chimera/blob/main/docs/ARCHITECTURE.md) ·
+  [Usage guide](https://github.com/fernandogarzaaa/GHOST-Chimera/blob/main/docs/USAGE_GUIDE.md)
+- [Experimental features](https://github.com/fernandogarzaaa/GHOST-Chimera/blob/main/docs/experimental/README.md)
+  (superiority scorecard, SaaS, quantum, MiniMind): shipped but early, and not part of the hackathon submission.
 
-1. Start Ghost (`ghostchimera console` or Docker) and open `http://localhost:8766/`.
-2. The Setup wizard helps you pick an AI provider — choose **OpenCode CLI** or **Local** to start free.
-3. In **Operate → Run**, type an objective in plain words ("Summarize my inbox priorities") and press run.
-4. Check **Operate → Memory** for what Ghost remembered and **Advanced → Trust** for the run journal with replay.
-5. Type `/ghost status` inside Claude Code, OpenCode, Codex, or Gemini CLI to see Ghost working there too.
+**Python is canonical for the hackathon.** This package is what judges install and
+what `ghost demo` runs. [ghost-chimera-rs](https://github.com/fernandogarzaaa/ghost-chimera-rs)
+is the lean long-term core.
 
-Full walkthrough with use cases, everyday recipes, and the safety model: **[docs/USAGE_GUIDE.md](docs/USAGE_GUIDE.md)**. Guided first run: [docs/USER_TUTORIAL.md](docs/USER_TUTORIAL.md).
-
-## What it can do for you
-
-- **Personal productivity** — morning briefings, meeting prep, inbox triage drafts (never auto-sent), and asking your own history questions.
-- **Operator workflows** — repeatable VA-style runs with approval checkpoints, reusable Standing Orders, and phone control from messaging apps.
-- **Developer leverage** — project context auto-injected into your coding agents, free/local model options, and approval-gated computer use (browser and desktop).
-
-## How it works
-
-1. **The Stealth Loop watches and learns.** Events flow through understand → recall → predict → decide. Silence is the default; most events produce nothing visible.
-2. **Chimera Pilot does.** Approved objectives compile into steps across deterministic, local-model, browser, and desktop backends — dry-runnable before anything touches the world.
-3. **Trust Runtime keeps receipts.** Every run, approval, and outcome is journaled locally and replayable.
-
-## Cloud reasoning: NVIDIA Nemotron on Nebius Token Factory
-
-Ghost stays local-first by default, but the Stealth Loop can consult NVIDIA's
-open Nemotron models in the cloud when you want deeper understanding than the
-deterministic engines provide.
-
-**Where Token Factory accelerates the workflow** — the optional
-`NemotronReasoner` (`ghostchimera/stealth/nemotron_reasoning.py`) plugs into
-the Stealth Loop's UNDERSTAND and PREDICT phases:
-
-- **UNDERSTAND** — Nemotron 3 Nano (`nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`) interprets
-  an observation and returns a structured read (intent, confidence, suggested
-  workflow, risk flags). Fast and cheap, so it can run per high-value event.
-- **PREDICT** — Nemotron 3 Super (`nvidia/nemotron-3-super-120b-a12b`) sharpens
-  next-action predictions with real reasoning when the loop needs it.
-- Insights land in the loop's trace (`trace["nemotron"]`) and in intervention
-  provenance. Anything classified `secret` is never sent to the cloud, and a
-  failed cloud call degrades silently to the local loop.
-
-**Setup** — get a key at <https://console.nebius.com> (Token Factory → API
-keys; free credits via the Nebius Builder Program), then:
-
-```bash
-export NEBIUS_API_KEY="..."
-export NEBIUS_MODEL="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"   # optional override
-```
-
-Or pick **Nebius Token Factory** in the setup wizard / model picker
-(`NEBIUS_API_KEY` + `NEBIUS_MODEL` are the env vars). Attach the reasoner
-programmatically:
-
-```python
-from ghostchimera.stealth import StealthLoop, build_cloud_enhancements
-
-reasoner, grounding = build_cloud_enhancements()  # (None, None) without keys
-loop = StealthLoop(reasoner=reasoner, grounding=grounding)
-```
-
-**Web grounding with Tavily** — when an event asks for fresh facts
-(`payload["ground_with_web"]` or a research/news-style event), the UNDERSTAND
-phase grounds it through Tavily, MCP-first:
-
-1. Remote Tavily MCP server (`https://mcp.tavily.com/mcp`, `tavily-search` /
-   `tavily-extract`) via the stdlib MCP client in `ghostchimera/mcp/mcp_protocol.py`
-2. Local `tavily-mcp` over stdio (`npx -y tavily-mcp`)
-3. Direct REST fallback (`POST https://api.tavily.com/search`)
-
-```bash
-export TAVILY_API_KEY="..."   # get one at https://tavily.com
-# optional: TAVILY_MCP_MODE=auto|remote|local|rest (default: auto)
-```
-
-**Observability (optional)** — Nebius chat completions and Tavily
-search/extract calls can be traced to [LangSmith](https://smith.langchain.com)
-with zero new dependencies (a stdlib-only client posts to the LangSmith
-ingest API; the SDK is not required and not installed). Tracing is strictly
-opt-in: with no `LANGSMITH_API_KEY` set, nothing changes.
-
-```bash
-export LANGSMITH_API_KEY="..."          # from https://smith.langchain.com
-export LANGSMITH_PROJECT="ghost-chimera-hackathon"  # optional, this is the default
-export LANGSMITH_TRACING=1              # set to 0 to disable while keeping the key
-```
-
-Traced runs show up as `nebius.chat_completion`, `tavily.search`, and
-`tavily.extract` with the model, query, transport (MCP remote/local or REST),
-and result counts. API keys are never included in run payloads, and a tracing
-outage can never break the traced call.
-
-## Why Ghost
-
-- **Memory that compounds** across every session and every agent you use.
-- **Approval-first autonomy** — observe, prepare, inject, act, with you setting the ceiling.
-- **Local-first privacy** — your data lives in a SQLite file on your disk; secrets encrypted; cloud is opt-in per connection.
-- **Runs on free models** — local Ollama/llama.cpp or the OpenCode CLI's free tiers; swap providers without rewriting anything.
-
-## Capabilities at a glance
-
-- **Stealth Loop** (`ghostchimera/stealth/`) — Event Fabric, WorldState, Experience Graph, Workflow Learner, Prediction Engine, Stealth Evaluator, Context Fabric, Background Runtime, host adapters (Claude Code, OpenClaw, OpenCode, Codex, Gemini, Hermes), and local IPC transport.
-- **Computer use** — browser (console-managed debuggable Chrome), desktop (PyAutoGUI), and vision hierarchy with capability allowlists, risk classification, and explicit approvals.
-- **Connectors** (`ghostchimera/connectors/`) — GitHub (poll + webhooks), self-hosted OAuth2 + token vault (Slack, Notion, LinkedIn, GitHub, Google, Zendesk, Freshdesk, Gorgias, HubSpot, Salesforce, Airtable, Hubstaff, Time Doctor). See [docs/CUSTOM_AUTH.md](docs/CUSTOM_AUTH.md).
-- **Durable local database** — SQLite/WAL journal for events, interventions, outcomes, and workflows, including the useful-intervention-rate metric. No server required.
-- **30+ model providers** — OpenAI, Anthropic, Gemini, OpenRouter, Nebius Token Factory (NVIDIA Nemotron), Ollama, local runtimes, and the OpenCode CLI bridge; swap or chain them without rewriting code.
-- **Ghost Console** — full no-code operator dashboard: guided setup, RAG Builder, Self-Evolution, Trust Runtime, Live Presence, remote control, conversational loop, local models, production readiness.
-- **Trust Runtime** — durable run journals, resumable approval checkpoints, capability admission, and eval flywheels. [Details](docs/TRUST_RUNTIME.md)
-- **Standing Orders** — scoped reusable autonomy programs with explicit enable/run controls. [Details](docs/STANDING_ORDERS.md)
-- **Conservative safety defaults** — shell, network, desktop, and host self-editing are off by default; opt-in host mode is explicit and audited.
-
-## Documentation
-
-> **Note on "MCP":** GHOST's internal `ghostchimera/mcp/` module implements a custom HTTP tool protocol (action/discover/call on 127.0.0.1:3100). It is **not** the standard Model Context Protocol (JSON-RPC over stdio/SSE). The naming is historical. The `ghostchimera mcp` CLI manages trust and approval for external standard-MCP servers; it does not expose a stdio server itself.
-
-- [Usage Guide](docs/USAGE_GUIDE.md) — use cases, everyday recipes, safety model
-- [User Tutorial](docs/USER_TUTORIAL.md) — guided first run
-- [Quick Start](docs/quick-start.md) — fastest install and launch path
-- [Install](docs/INSTALL.md) — install matrix and extras
-- [Architecture](docs/ARCHITECTURE.md) — how the layers fit together
-- [Provider Auth Vault](docs/PROVIDER_AUTH_VAULT.md) — dashboard-based provider setup
-- [Remote Control](docs/REMOTE_CONTROL.md) — paired mobile/messaging commands
-- [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) — guardrails for
-  always-on use
-- [API Reference](docs/api-reference.md) — generated API docs
-
-## Testing
-
-Run the test suite with pytest:
-
-```bash
-python -m pytest tests/
-```
-
-See [CLAUDE.md](CLAUDE.md) for the full contributor command reference
-(compile check, single-file runs, eval suites).
-
-## Production & SaaS pointers
-
-- Daily Production Maintenance refreshes the compatible model catalog and
-  dependency audits: `scripts/update_model_provider_catalog.py` produces
-  [docs/model_provider_catalog.md](docs/model_provider_catalog.md), and
-  `scripts/audit_dependencies.py` produces
-  [docs/dependency_audit.md](docs/dependency_audit.md).
-- Public Launch SaaS progress: `ghostchimera saas status`,
-  `ghostchimera worker status`, and `docker-compose.saas.yml`. Details:
-  [docs/PUBLIC_LAUNCH_SAAS.md](docs/PUBLIC_LAUNCH_SAAS.md).
-## Appropriate Uses
-
-- User-supervised automation and assistance for real work in local-first mode.
-- Desktop and browser workflows (dry-run by default; live modes require explicit enablement and approvals).
-- Governed repository change workflows: evidence retrieval → plan → policy checks → PR-ready output.
-- Production automation inside externally isolated, reviewed deployments that pass `ghostchimera doctor --production`.
-- Extending Ghost Chimera with new backends, skills, and connectors.
-
-## Non-Goals And Boundaries
-
-- Untrusted prompts, repositories, or code must run inside external isolation, not directly on a host machine.
-- Ghost Chimera does not claim AGI, subjective consciousness, or fully autonomous operation.
-- Commercial and enterprise deployments are expected to pass production guardrails and add organization-specific controls.
-- Optional simulator support is not access to a proprietary quantum operating system.
-
----
+Beta software for user-supervised, local-first work. Not AGI, and not a sandbox for
+untrusted code on its own.
 
 ## License
 
-MIT — see `LICENSE`. Third-party attribution in `NOTICE`.
+MIT, see [`LICENSE`](LICENSE). Third-party attribution in [`NOTICE`](NOTICE).

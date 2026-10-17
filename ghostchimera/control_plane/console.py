@@ -16,7 +16,7 @@ import threading
 import time
 import urllib.parse
 import webbrowser
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -93,7 +93,9 @@ from .evolution import (
     set_source_consent,
     upsert_candidate,
 )
-from .host_execution import CONFIRMATION_PHRASE, HostExecutionStore
+from .host_execution import HostExecutionStore
+from .ingest_guard import IngestPathError, RedactingMemoryStore, check_ingest_path, iter_allowed_files
+from .ingest_guard import allowed_roots as allowed_ingest_roots
 from .latency import latency_summary, record_latency_event
 from .live_presence import LivePresenceStore
 from .local_voice import LocalVoiceTranscriber
@@ -914,6 +916,7 @@ def register_console_routes(
     cron_scheduler: Any | None = None,
     operator_workspace: OperatorWorkspaceStore | None = None,
     console_token: str = "",
+    host_arming_phrase: str = "",
     config_path: str | Path | None = None,
 ) -> None:
     """Register browser console routes on an existing GatewayServer."""
@@ -938,7 +941,21 @@ def register_console_routes(
     admission_store = CapabilityAdmissionStore(console_state_dir)
     conversation_store = ConversationStore(console_state_dir)
     live_presence_store = LivePresenceStore(console_state_dir, trust_store=trust_store)
-    host_execution_store = HostExecutionStore(console_state_dir)
+
+    def _host_arming_phrase() -> str:
+        # Per-install random phrase (never the public constant); loaded lazily
+        # so merely registering routes does not touch the secrets file.
+        if host_arming_phrase:
+            return host_arming_phrase
+        from .console_secrets import load_or_create_console_secrets
+
+        return load_or_create_console_secrets(console_state_dir).arming_phrase
+
+    host_execution_store = HostExecutionStore(
+        console_state_dir,
+        confirmation_phrase=_host_arming_phrase,
+        phrase_hint=f"It is the arming_phrase in {console_state_dir / 'console_secrets.json'}.",
+    )
     local_voice = LocalVoiceTranscriber(console_state_dir / "local_voice")
     conversation_controller = ConversationalLoopController(
         state_dir=console_state_dir,
@@ -1033,15 +1050,16 @@ def register_console_routes(
         return GitHubClient(auth=GitHubAuth.discover())
 
     def _workspace_skills_dir() -> Path:
-        root = os.environ.get("GHOSTCHIMERA_SKILLS_DIR") or str(Path.home() / ".ghostchimera" / "skills")
-        return Path(root).expanduser().resolve()
+        from ..paths import skills_dir
+
+        return skills_dir().resolve()
 
     def _skill_slug(name: str) -> str:
         slug = re.sub(r"[^a-z0-9_]+", "_", name.lower())
         slug = re.sub(r"_+", "_", slug).strip("_")
         if slug:
             return slug
-        return f"github_skill_{hashlib.sha1(name.encode('utf-8')).hexdigest()[:8]}"
+        return f"github_skill_{hashlib.sha1(name.encode('utf-8'), usedforsecurity=False).hexdigest()[:8]}"
 
     def _skill_class_name(slug: str) -> str:
         parts = [part for part in slug.split("_") if part]
@@ -2408,7 +2426,8 @@ def register_console_routes(
             payload = {
                 "ok": True,
                 "settings": host_execution_store.settings(),
-                "confirmation_phrase": CONFIRMATION_PHRASE,
+                # The per-install phrase itself is never served over HTTP.
+                "confirmation_phrase_hint": host_execution_store.phrase_hint,
             }
             payload["warning"] = (
                 "Unrestricted host mode runs commands and applies source patches on the local machine. "
@@ -2474,7 +2493,14 @@ def register_console_routes(
         if not url:
             return {"ok": False, "error": "Missing url"}
         try:
-            content = url_fetcher(url)
+            if url_fetcher is http_get:
+                # Token-authenticated operator route: stamp the policy so
+                # http_get's ensure_authorized passes (the SSRF guard and the
+                # https-only rule still apply). Without it every Browser-tab
+                # fetch failed with "requires policy authorization".
+                content = http_get(url, policy={"authorized": True, "source": "console.browser_fetch"})
+            else:
+                content = url_fetcher(url)
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
         return {"ok": True, "url": url, "content": content[:100_000], "truncated": len(content) > 100_000}
@@ -2596,6 +2622,9 @@ def register_console_routes(
         row_id = store.add_document(source, content, metadata=metadata)
         return {"ok": True, "id": row_id, "count": store.count()}
 
+    def _ingest_denied_dirs() -> list[Path]:
+        return [console_state_dir, Path(server.config.state_dir)]
+
     def memory_ingest_email(ctx: dict[str, Any]) -> dict[str, Any]:
         """Ingest email content into personal memory.
 
@@ -2611,12 +2640,15 @@ def register_console_routes(
         path = str(body.get("path") or "").strip()
 
         store = MemoryStore(server.config.memory_db)
-        ingester = EmailIngester(store)
+        ingester = EmailIngester(RedactingMemoryStore(store))  # type: ignore[arg-type]
 
         if raw:
             result = ingester.ingest_raw_email(raw)
         elif path:
-            p = Path(path).expanduser()
+            try:
+                p = check_ingest_path(path, state_dir=_ingest_denied_dirs())
+            except IngestPathError as exc:
+                return {"ok": False, "error": str(exc)}
             if not p.exists():
                 return {"ok": False, "error": f"File not found: {path}"}
             result = ingester.ingest_mbox_file(p) if p.suffix.lower() == ".mbox" else ingester.ingest_eml_file(p)
@@ -2648,15 +2680,29 @@ def register_console_routes(
         if not path:
             return {"ok": False, "error": "Provide a 'path' to a file or directory"}
 
-        p = Path(path).expanduser()
+        try:
+            p = check_ingest_path(path, state_dir=_ingest_denied_dirs())
+        except IngestPathError as exc:
+            return {"ok": False, "error": str(exc)}
         if not p.exists():
             return {"ok": False, "error": f"Path not found: {path}"}
 
         store = MemoryStore(server.config.memory_db)
-        ingester = DocumentIngester(store)
+        ingester = DocumentIngester(RedactingMemoryStore(store))  # type: ignore[arg-type]
 
         if p.is_dir():
-            result = ingester.ingest_directory(p, max_files=max_files)
+            from ..personalization.document_ingester import DocumentIngestResult
+
+            result = DocumentIngestResult()
+            files = iter_allowed_files(
+                p, state_dir=_ingest_denied_dirs(), roots=allowed_ingest_roots(), limit=max(1, min(max_files, 500))
+            )
+            for file_path in files:
+                sub = ingester.ingest_file(file_path, source_prefix=p.name)
+                result.ingested += sub.ingested
+                result.skipped += sub.skipped
+                result.chunks += sub.chunks
+                result.errors.extend(sub.errors)
         else:
             result = ingester.ingest_file(p, source_prefix=source)
 
@@ -5909,6 +5955,80 @@ def _console_url(server: GatewayServer) -> str:
     return f"http://{server.host}:{http_port}/"
 
 
+def _warn_port_shift(server: GatewayServer, requested_ws_port: int, requested_http_port: int) -> None:
+    """Say loudly when a busy port made the console move to another one.
+
+    The gateway picks the next free port silently, so a user who asked for
+    8766 and opened http://127.0.0.1:8766/ could land on some other process.
+    """
+    actual_ws = int(server.port or 0)
+    actual_http = int(server.http_port or 0)
+    if server._http_server is not None:
+        actual_http = int(server._http_server.server_address[1])
+    shifts = []
+    if requested_http_port > 0 and actual_http != requested_http_port:
+        shifts.append(f"HTTP port {requested_http_port} -> {actual_http}")
+    if requested_ws_port > 0 and actual_ws != requested_ws_port:
+        shifts.append(f"WebSocket port {requested_ws_port} -> {actual_ws}")
+    if not shifts:
+        return
+    banner = "!" * 72
+    print(banner, file=sys.stderr, flush=True)
+    print(
+        "WARNING: requested port(s) already in use, so Ghost Console moved: " + "; ".join(shifts) + ".",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(
+        f"WARNING: use http://{server.host}:{actual_http}/ (not the port you asked for). "
+        "Another process, maybe an older console, owns the requested port.",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(banner, file=sys.stderr, flush=True)
+
+
+def harden_state_permissions(state_dir: str | Path, *, max_entries: int = 5000, set_umask: bool = True) -> int | None:
+    """Chmod existing state to 0600/0700 and, by default, set ``umask 077``.
+
+    The console's databases, trust journals, audit logs and logs are only
+    safe while the parent stays 0700; with a shared ``--state-dir`` they were
+    world-readable. POSIX only; best effort (a file we cannot chmod is left).
+
+    ``set_umask`` changes the umask of the *whole process*, so only the
+    process-owning entry point (``run_console(block=True)``: the CLI and the
+    packaged app) should pass it. Embedded/in-process callers pass
+    ``set_umask=False``. Returns the previous umask when it was changed, so
+    a caller can restore it.
+    """
+    if os.name != "posix":
+        return None
+    previous = os.umask(0o077) if set_umask else None
+    root = Path(state_dir).expanduser()
+    if not root.is_dir():
+        return previous
+    seen = 0
+    with contextlib.suppress(OSError):
+        root.chmod(0o700)
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for name in dirnames:
+            seen += 1
+            with contextlib.suppress(OSError):
+                path = Path(dirpath) / name
+                if not path.is_symlink():
+                    path.chmod(0o700)
+        for name in filenames:
+            seen += 1
+            with contextlib.suppress(OSError):
+                path = Path(dirpath) / name
+                if not path.is_symlink():
+                    # Drop group/other bits only; keep the owner's exec bit.
+                    path.chmod(path.stat().st_mode & 0o700 | 0o600)
+        if seen >= max_entries:
+            break
+    return previous
+
+
 def run_console(
     *,
     host: str = "127.0.0.1",
@@ -5918,6 +6038,7 @@ def run_console(
     open_browser: bool = True,
     block: bool = True,
     auth_token: str = "",
+    allowed_hosts: Iterable[str] | None = None,
 ) -> GatewayServer:
     """
     Start and run a GatewayServer hosting the Ghost Console UI, API routes, and optional static assets.
@@ -5933,7 +6054,12 @@ def run_console(
         state_dir (str | Path | None): Optional directory for persistent state (overrides environment config); used for workspace, queue, and scheduler storage.
         open_browser (bool): If True, attempt to open the console URL in the user's default web browser after the server starts.
         block (bool): If True, block the current thread until interrupted; on KeyboardInterrupt the server is stopped before returning.
-        auth_token (str): When non-empty, all /api/* routes require this bearer token via the X-Gateway-Token header.
+        auth_token (str): Console token override for this run. When empty, the per-install token stored owner-only
+            in ``<state_dir>/console_secrets.json`` is used (generated and printed once on first run). The API is
+            never open: every /api/* route requires the token via ``X-Gateway-Token`` or ``Authorization: Bearer``.
+        allowed_hosts (Iterable[str] | None): Extra ``Host`` header values accepted besides loopback names and the
+            bind host (also read from ``GHOSTCHIMERA_CONSOLE_ALLOWED_HOSTS``). Every request is checked against this
+            allow-list (DNS rebinding), and state-changing requests must be same-origin and ``application/json``.
 
     Returns:
         GatewayServer: The started gateway server instance.
@@ -5946,14 +6072,35 @@ def run_console(
         config = replace(
             config, state_dir=resolved, memory_db=resolved / "memory.sqlite3", audit_file=resolved / "audit.json"
         )
+    from .console_secrets import load_or_create_console_secrets
+
+    # Owner-only state (redteam P2-2): pre-existing state is tightened once.
+    # The process-wide umask 077 is only set when this call owns the process
+    # (block=True: CLI / packaged app). An embedded, non-blocking console
+    # (tests, E2E harnesses, the desktop shell) must not change the umask of
+    # its host process; the state files themselves are written owner-only.
+    harden_state_permissions(state_dir or config.state_dir, set_umask=block)
+
+    # Token required by default: a missing --auth-token no longer means an
+    # open API. The per-install token lives owner-only next to the state.
+    console_secrets = load_or_create_console_secrets(state_dir or config.state_dir)
+    auth_token = str(auth_token or "").strip() or console_secrets.token
     server = GatewayServer(
-        host=host, port=port, http_port=_resolve_http_port(http_port), config=config, auth_token=auth_token or ""
+        host=host, port=port, http_port=_resolve_http_port(http_port), config=config, auth_token=auth_token
     )
+    server.console_token = auth_token  # in-process harnesses (tests, E2E scripts) read it here
+    from .console_security import ConsoleRequestGuard, allowed_hosts_from_env
+
+    # Host / Origin / Content-Type gate in front of every console route.
+    request_guard = ConsoleRequestGuard(bind_host=host, extra_hosts=[*allowed_hosts_from_env(), *(allowed_hosts or [])])
+    server.routes.request_guard = request_guard.check
     _register_static_routes(server)
+    server.routes.html_security_headers = dict(CONSOLE_HTML_SECURITY_HEADERS)
     register_console_routes(
         server,
         state_dir=state_dir or config.state_dir,
-        console_token=auth_token or "",
+        console_token=auth_token,
+        host_arming_phrase=console_secrets.arming_phrase,
         config_path=Path(state_dir) / "config.json" if state_dir else None,
     )
     try:
@@ -5962,8 +6109,8 @@ def run_console(
         register_connector_routes(
             server,
             state_dir or config.state_dir,
-            auth="token" if auth_token else "open",
-            token=auth_token or "",
+            auth="token",
+            token=auth_token,
         )
     except Exception as exc:  # connectors must never break console startup
         try:
@@ -5986,17 +6133,35 @@ def run_console(
         threading.Thread(target=_warm_voice, name="ghost-voice-warmup", daemon=True).start()
     except Exception:
         pass
+    requested_ws_port = int(server.port or 0)
+    requested_http_port = int(server.http_port or 0)
     server.start()
     _warn_oauth_origin_mismatch(server)
     url = _console_url(server)
-    print(f"Ghost Console: {url}")
-    if auth_token:
-        # The value itself is never printed: it would leak into terminal
-        # scrollback, Docker logs, CI logs, and support captures. The
-        # operator already holds it (argument, file, or environment).
-        print("Auth token required — set the X-Gateway-Token header (or Authorization: Bearer).")
+    _warn_port_shift(server, requested_ws_port, requested_http_port)
+    # The token rides in the URL fragment: browsers never send fragments to
+    # the server, so it stays out of request logs and Referer headers. The UI
+    # moves it into sessionStorage and strips it from the address bar.
+    token_url = f"{url}#token={urllib.parse.quote(auth_token, safe='')}"
+    # flush=True on every line: with stdout redirected (tee, a log file, Docker)
+    # these lines otherwise sit in the buffer and are lost when the process is
+    # stopped, and the one-time token is never shown again.
+    print(f"Ghost Console: {url}", flush=True)
+    if console_secrets.created and auth_token == console_secrets.token:
+        # Shown exactly once, when the per-install token is first generated.
+        print(f"New console token (stored owner-only in {console_secrets.path}): {auth_token}", flush=True)
+        print(f"Open the console with: {token_url}", flush=True)
+        print(
+            f"Host-execution arming phrase (only needed to arm unrestricted host mode): {console_secrets.arming_phrase}",
+            flush=True,
+        )
+    else:
+        # Otherwise the value is never printed: it would leak into terminal
+        # scrollback, Docker logs, CI logs, and support captures.
+        source = "the --auth-token value" if auth_token != console_secrets.token else str(console_secrets.path)
+        print(f"Console token required (X-Gateway-Token or Authorization: Bearer); it is in {source}.", flush=True)
     if open_browser:
-        webbrowser.open(url)
+        webbrowser.open(token_url)
     if block:
         try:
             while True:
@@ -6037,8 +6202,18 @@ CONSOLE_CSP = (
     "connect-src 'self'; "
     "object-src 'none'; "
     "base-uri 'self'; "
-    "frame-ancestors 'self'"
+    "frame-ancestors 'none'"
 )
+
+# Every HTML document the console serves (the shell at / and /console, OAuth
+# landing pages) carries these, so the approve/arm buttons cannot be framed
+# (clickjacking) and CSP backs up esc() if an XSS sink ever appears.
+CONSOLE_HTML_SECURITY_HEADERS = {
+    "Content-Security-Policy": CONSOLE_CSP,
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
 
 
 def _register_static_routes(server: GatewayServer) -> None:
@@ -6079,9 +6254,7 @@ def _register_static_routes(server: GatewayServer) -> None:
             Returns:
                 Callable[[dict[str, Any]], HttpResponse]: A handler that accepts a request context and returns an HttpResponse with `body` set to `data` and `content_type` set to `ct_`.
             """
-            return lambda ctx: HttpResponse(
-                body=data, content_type=ct_, headers={"Content-Security-Policy": CONSOLE_CSP}
-            )
+            return lambda ctx: HttpResponse(body=data, content_type=ct_, headers=dict(CONSOLE_HTML_SECURITY_HEADERS))
 
         # NOTE: "/" and "/console" are intentionally NOT registered here.
         # console_page is the single "/" handler: it checks OAuth callback

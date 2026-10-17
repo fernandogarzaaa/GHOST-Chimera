@@ -1,5 +1,7 @@
 # Personal MiniMind Privacy and Operation
 
+> **Experimental.** Personal MiniMind is an opt-in experimental feature. See [docs/experimental](experimental/README.md) for what that means.
+
 Personal MiniMind is an opt-in local personalization layer. It can index user
 files and email exports into a local SQLite memory store, generate local
 MiniMind JSONL training records, train a small local neural Personal MiniMind

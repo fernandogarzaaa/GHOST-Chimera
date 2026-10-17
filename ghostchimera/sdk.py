@@ -39,6 +39,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import paths as _paths
 from .chimera_pilot.executor import PilotExecution
 from .chimera_pilot.kernel import ChimeraPilotKernel
 from .memory_layer.store import TEACH_SOURCE, MemoryStore, teach_document
@@ -112,7 +113,7 @@ class GhostClient:
         enable_minimind_summary: bool = True,
         include_deterministic_backend: bool = True,
     ) -> None:
-        _state = Path(state_dir or os.environ.get("GHOSTCHIMERA_STATE_DIR", "~/.ghostchimera")).expanduser()
+        _state = Path(state_dir or _paths.state_dir()).expanduser()
         _db = Path(memory_db or os.environ.get("GHOSTCHIMERA_MEMORY_DB", str(_state / "memory.sqlite3"))).expanduser()
 
         self._state_dir = _state

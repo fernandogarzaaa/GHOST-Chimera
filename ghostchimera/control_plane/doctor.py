@@ -15,6 +15,7 @@ from ..model_layer.providers import get_provider
 from ..safety_layer.production import ProductionGuardrails
 from .colors import Colors, color, print_error, print_header, print_info, print_success, print_warning
 from .config import CONFIG_FILE, config_to_env_vars, ensure_state_dir, load_config
+from .prog_name import prog_name
 
 
 def _check(label: str, ok: bool, hint: str = "") -> None:
@@ -55,7 +56,21 @@ def _provider_status(config: dict[str, object], env: dict[str, str] | None = Non
             return (f"Provider: {provider.name} (config)", provider.available and not errors, hint)
         has_key = "api_key" in model
         return (f"Provider: {provider_name.title()} (model: {model.get('model', '?')})", has_key, "API key not set")
-    return ("Provider", False, "No provider configured - run 'ghostchimera setup' or set GHOSTCHIMERA_MODEL_PROVIDER")
+    from ..model_layer.providers import resolve_provider_name
+
+    auto_name, source = resolve_provider_name(env=active_env)
+    if source.startswith("auto:"):
+        provider = get_provider(auto_name)
+        if provider is not None:
+            errors = provider.validate_config()
+            hint = "; ".join(errors[:2]) if errors else ""
+            key = source.split(":", 1)[1]
+            return (f"Provider: {provider.name} (auto-detected from {key})", provider.available and not errors, hint)
+    return (
+        "Provider",
+        False,
+        "No provider configured - set NEBIUS_API_KEY (Nemotron), run 'ghost setup', or set GHOSTCHIMERA_MODEL_PROVIDER",
+    )
 
 
 def doctor_checks(*, production: bool = False) -> dict[str, Any]:
@@ -107,7 +122,7 @@ def doctor_checks(*, production: bool = False) -> dict[str, Any]:
         record(f"Config exists at {CONFIG_FILE}", True)
         passed += 1
     else:
-        record("Config file", False, "Run 'ghostchimera setup' to configure")
+        record("Config file", False, f"Run '{prog_name()} setup' to configure")
         warned += 1
 
     # Provider status
@@ -227,7 +242,7 @@ def run_doctor(*, production: bool = False) -> int:
     print(f"  Result: {payload['passed']} passed, {payload['warned']} warnings, {payload['errors']} errors")
     print()
     if payload["errors"] > 0:
-        print_info("Run 'ghostchimera setup' to fix configuration issues.")
+        print_info(f"Run '{prog_name()} setup' to fix configuration issues.")
     print()
     return 0 if payload["errors"] == 0 else 1
 

@@ -20,6 +20,9 @@ from typing import Any
 from urllib import request as urllib_request
 from urllib.error import HTTPError, URLError
 
+from .. import state_io
+from ..http_identity import USER_AGENT, ensure_user_agent
+from ..ids import stable_id, unique_id
 from ..redaction import BASE_MARKERS
 
 RemoteObjectiveRunner = Callable[[str], dict[str, Any]]
@@ -134,9 +137,8 @@ def _now() -> float:
     return time.time()
 
 
-def _stable_id(*parts: str) -> str:
-    raw = "|".join(str(part).strip().lower() for part in parts if part is not None)
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+def _stable_id(*parts: object) -> str:
+    return stable_id(*parts, length=16, normalize=True)
 
 
 def _hash_code(code: str) -> str:
@@ -623,7 +625,7 @@ def _channel_setup_steps(channel: str, missing_inbound: list[str], missing_outbo
 
 def _resolve_send_endpoint(reply: RemoteOutboundReply, secrets_data: dict[str, Any]) -> tuple[str, dict[str, str]]:
     channel = reply.channel
-    headers = {"Content-Type": "application/json", "User-Agent": "GhostChimeraRemote/0.4"}
+    headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
     if channel == "telegram":
         token = str(secrets_data.get("bot_token") or secrets_data.get("api_token") or "").strip()
         if not token:
@@ -667,7 +669,7 @@ def _default_send_transport(endpoint: str, headers: dict[str, str], body: dict[s
         method="POST",
     )
     try:
-        with urllib_request.urlopen(request, timeout=15) as response:
+        with urllib_request.urlopen(ensure_user_agent(request), timeout=15) as response:
             payload = response.read().decode("utf-8", errors="replace")[:2000]
             return {"ok": 200 <= int(response.status) < 300, "status": int(response.status), "body_preview": payload}
     except HTTPError as exc:
@@ -682,15 +684,11 @@ class RemoteControlStore:
 
     def __init__(self, state_dir: str | Path) -> None:
         self.state_dir = Path(state_dir).expanduser()
+        self.path = _state_path(self.state_dir)
 
     def _load(self) -> dict[str, Any]:
-        path = _state_path(self.state_dir)
-        if not path.exists():
-            return _default_state()
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return _default_state()
+        # Corrupt files are quarantined, never silently reset by a save.
+        data = state_io.read_json(self.path, None, expect=dict)
         if not isinstance(data, dict):
             return _default_state()
         default = _default_state()
@@ -709,25 +707,31 @@ class RemoteControlStore:
                 data["channels"][channel] = channel_default
         return data
 
+    @state_io.locked_method("path")
     def _save(self, data: dict[str, Any]) -> None:
-        path = _state_path(self.state_dir)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(_redact_value(data), indent=2, sort_keys=True), encoding="utf-8")
+        state_io.atomic_write_json(self.path, _redact_value(data))
+
+    def _update(self, mutator: Callable[[dict[str, Any]], Any]) -> Any:
+        """Locked reload -> mutate -> save, for paths that must not hold the
+        lock across slow work (objective runners, providers)."""
+        with state_io.locked(self.path):
+            data = self._load()
+            result = mutator(data)
+            self._save(data)
+            return result
 
     def _load_secrets(self) -> dict[str, Any]:
         path = _secrets_path(self.state_dir)
-        if not path.exists():
-            return {}
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {}
+        if path.exists():
+            state_io.make_private(path)  # tighten files written 0644 by older versions
+        data = state_io.read_json(path, {}, expect=dict)
         return data if isinstance(data, dict) else {}
 
     def _save_secrets(self, data: dict[str, Any]) -> None:
+        # Bot/API tokens and webhook URLs: 0600 file in a 0700 dir, atomic.
         path = _secrets_path(self.state_dir)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+        with state_io.locked(path):
+            state_io.write_private_json(path, data)
 
     def _event(self, event_type: str, detail: dict[str, Any] | None = None) -> dict[str, Any]:
         event = {
@@ -736,10 +740,7 @@ class RemoteControlStore:
             "event_type": event_type,
             "detail": _redact_value(detail or {}),
         }
-        path = _timeline_path(self.state_dir)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event, sort_keys=True) + "\n")
+        state_io.append_line(_timeline_path(self.state_dir), json.dumps(event, sort_keys=True))
         return event
 
     def timeline(self, *, limit: int = 50) -> list[dict[str, Any]]:
@@ -843,6 +844,7 @@ class RemoteControlStore:
             "secret_policy": {"secrets_are_write_only": True, "raw_secret_values_returned": False},
         }
 
+    @state_io.locked_method("path")
     def configure_channel(self, channel: str, payload: dict[str, Any]) -> dict[str, Any]:
         channel = channel.strip().lower()
         if channel not in DEFAULT_CHANNELS:
@@ -959,6 +961,7 @@ class RemoteControlStore:
             "raw_secret_values_returned": False,
         }
 
+    @state_io.locked_method("path")
     def update_policy(self, payload: dict[str, Any]) -> dict[str, Any]:
         data = self._load()
         policy = RemotePolicy(**{**RemotePolicy().to_dict(), **data.get("policy", {})})
@@ -978,6 +981,7 @@ class RemoteControlStore:
         self._event("remote_policy_updated", {"direct_execution_enabled": policy.direct_execution_enabled})
         return {"ok": True, "policy": policy.to_dict()}
 
+    @state_io.locked_method("path")
     def create_pairing(
         self,
         *,
@@ -1011,6 +1015,7 @@ class RemoteControlStore:
         payload["pairing_code"] = code
         return {"ok": True, "pairing": payload}
 
+    @state_io.locked_method("path")
     def approve_pairing(
         self, *, pairing_id: str = "", channel: str = "", peer_id: str = "", code: str = ""
     ) -> dict[str, Any]:
@@ -1051,6 +1056,7 @@ class RemoteControlStore:
         )
         return {"ok": True, "peer": peer.to_dict(), "pairing": _redact_value(pairing)}
 
+    @state_io.locked_method("path")
     def set_peer_direct_execution(self, peer_id: str, allowed: bool) -> dict[str, Any]:
         data = self._load()
         peer = data["peers"].get(peer_id)
@@ -1062,6 +1068,7 @@ class RemoteControlStore:
         self._event("remote_peer_policy_updated", {"peer_id": peer_id, "allow_direct_execution": bool(allowed)})
         return {"ok": True, "peer": _redact_value(peer)}
 
+    @state_io.locked_method("path")
     def revoke_peer(self, peer_id: str) -> dict[str, Any]:
         data = self._load()
         peer = data["peers"].get(peer_id)
@@ -1116,7 +1123,13 @@ class RemoteControlStore:
             }
         peer["last_seen"] = _now()
         data["peers"][peer_key] = peer
-        self._save(data)
+
+        def _touch_peer(fresh: dict[str, Any]) -> None:
+            current = fresh["peers"].get(peer_key)
+            if isinstance(current, dict):
+                current["last_seen"] = peer["last_seen"]
+
+        self._update(_touch_peer)
 
         command, argument = _parse_command(text)
         if command not in policy.allowed_commands:
@@ -1254,7 +1267,13 @@ class RemoteControlStore:
             )
         peer["allow_direct_execution"] = allow
         data["peers"][str(peer.get("id"))] = peer
-        self._save(data)
+
+        def _set_direct(fresh: dict[str, Any]) -> None:
+            current = fresh["peers"].get(str(peer.get("id")))
+            if isinstance(current, dict):
+                current["allow_direct_execution"] = allow
+
+        self._update(_set_direct)
         self._event("remote_peer_policy_updated", {"peer_id": peer.get("id"), "allow_direct_execution": allow})
         message = (
             "Direct execution enabled for this paired admin." if allow else "Direct execution disabled for this sender."
@@ -1310,14 +1329,14 @@ class RemoteControlStore:
                 "Remote objective executed." if result.get("ok", True) else "Remote objective failed.",
             )
         approval = RemoteApproval(
-            id=_stable_id(str(peer.get("id")), command, objective, str(_now())),
+            id=unique_id(str(peer.get("id")), command, objective),
             channel=str(peer.get("channel") or ""),
             peer_id=str(peer.get("peer_id") or ""),
             command=command,
             objective=objective,
         )
         data["approvals"][approval.id] = approval.to_dict()
-        self._save(data)
+        self._update(lambda fresh: fresh["approvals"].__setitem__(approval.id, approval.to_dict()))
         self._event(
             "remote_approval_requested",
             {"approval_id": approval.id, "peer_id": peer.get("id"), "objective_preview": objective[:160]},
@@ -1343,27 +1362,41 @@ class RemoteControlStore:
         objective_runner: RemoteObjectiveRunner | None = None,
         resolver_peer_id: str = "",
     ) -> dict[str, Any]:
-        data = self._load()
-        approval = data["approvals"].get(approval_id)
-        if not isinstance(approval, dict):
-            return {"ok": False, "error": "Remote approval not found."}
-        if approval.get("status") != "pending":
-            return {"ok": False, "error": "Remote approval is no longer pending.", "approval": _redact_value(approval)}
-        if not approved:
-            approval["status"] = "denied"
-            approval["resolved_at"] = _now()
+        # Claim the approval under the lock so two concurrent /approve
+        # messages cannot both execute it; run the objective unlocked.
+        with state_io.locked(self.path):
+            data = self._load()
+            approval = data["approvals"].get(approval_id)
+            if not isinstance(approval, dict):
+                return {"ok": False, "error": "Remote approval not found."}
+            if approval.get("status") != "pending":
+                return {
+                    "ok": False,
+                    "error": "Remote approval is no longer pending.",
+                    "approval": _redact_value(approval),
+                }
+            if not approved:
+                approval["status"] = "denied"
+                approval["resolved_at"] = _now()
+                data["approvals"][approval_id] = approval
+                self._save(data)
+                self._event(
+                    "remote_approval_denied", {"approval_id": approval_id, "resolver_peer_id": resolver_peer_id}
+                )
+                return {"ok": True, "approval": _redact_value(approval), "message": "Approval denied."}
+            approval["status"] = "executing"
             data["approvals"][approval_id] = approval
             self._save(data)
-            self._event("remote_approval_denied", {"approval_id": approval_id, "resolver_peer_id": resolver_peer_id})
-            return {"ok": True, "approval": _redact_value(approval), "message": "Approval denied."}
         result = {"ok": True, "skipped": True, "message": "Approved without runner."}
         if objective_runner is not None:
-            result = objective_runner(str(approval.get("objective") or ""))
+            try:
+                result = objective_runner(str(approval.get("objective") or ""))
+            except Exception as exc:
+                result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         approval["status"] = "executed" if result.get("ok", True) else "failed"
         approval["resolved_at"] = _now()
         approval["result"] = _redact_value(result)
-        data["approvals"][approval_id] = approval
-        self._save(data)
+        self._update(lambda fresh: fresh["approvals"].__setitem__(approval_id, approval))
         self._event(
             "remote_approval_executed",
             {"approval_id": approval_id, "resolver_peer_id": resolver_peer_id, "ok": result.get("ok")},

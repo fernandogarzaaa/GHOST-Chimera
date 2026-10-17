@@ -104,7 +104,11 @@ def test_load_beta_config_falls_back_to_default_memory_db_when_falsy() -> None:
         config_path = base / "empty_db.json"
         config_path.write_text(json.dumps({"memory_db": ""}), encoding="utf-8")
         config = load_beta_config(config_path)
-        assert config.memory_db == ".ghostchimera-memory.sqlite3"
+        # F13: the default lives in the state dir, never the CWD.
+        from ghostchimera.paths import personal_memory_db
+
+        assert config.memory_db == str(personal_memory_db())
+        assert config.memory_db != ".ghostchimera-memory.sqlite3"
 
 
 def test_load_beta_config_raises_for_missing_file() -> None:

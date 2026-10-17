@@ -7,13 +7,13 @@ composition, and context-aware progressive disclosure.
 
 from __future__ import annotations
 
-import json
 import os
 import threading
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
+from .. import paths as _paths
+from .. import state_io
 from ..agent_core.skill_manager import SkillManager
 from ..logging_config import get_logger
 from .mcp_wrapper import list_available_tools
@@ -310,26 +310,22 @@ class ToolsetManager:
 
     def _load_active(self) -> None:
         """Load active toolsets from state or defaults."""
-        state_file = (
-            Path(os.environ.get("GHOSTCHIMERA_STATE_DIR", str(Path.home() / ".ghostchimera"))) / "active_toolsets.json"
-        )
-        if state_file.exists():
-            try:
-                with open(state_file) as f:
-                    self._active_toolsets = json.load(f).get("active", ["coding", "delegation"])
-            except (json.JSONDecodeError, KeyError):
-                self._active_toolsets = ["coding", "delegation"]
+        state_file = _paths.state_path("active_toolsets.json")
+        # default: coding + delegation; a corrupt file is quarantined, not wiped
+        data = state_io.read_json(state_file, {}, expect=dict)
+        active = data.get("active") if isinstance(data, dict) else None
+        if isinstance(active, list) and all(isinstance(item, str) for item in active):
+            self._active_toolsets = list(active)
         else:
-            self._active_toolsets = ["coding", "delegation"]  # default: coding + delegation
+            self._active_toolsets = ["coding", "delegation"]
 
     def _save_active(self) -> None:
-        state_file = (
-            Path(os.environ.get("GHOSTCHIMERA_STATE_DIR", str(Path.home() / ".ghostchimera"))) / "active_toolsets.json"
-        )
+        state_file = _paths.state_path("active_toolsets.json")
         try:
-            state_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(state_file, "w") as f:
-                json.dump({"active": self._active_toolsets}, f)
+            with self._lock:
+                active = list(self._active_toolsets)
+            with state_io.locked(state_file):
+                state_io.atomic_write_json(state_file, {"active": active}, indent=None, sort_keys=False)
         except Exception as exc:
             logger.warning("Failed to save active toolsets: %s", exc)
 

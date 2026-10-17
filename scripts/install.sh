@@ -110,7 +110,7 @@ step "Creating virtual environment."
 VENV_PYTHON="$INSTALL_DIR/.venv/bin/python"
 VENV_GHOST="$INSTALL_DIR/.venv/bin/ghostchimera"
 
-step "Installing full Python runtime dependencies, optional extras, and developer verification tools."
+step "Installing Ghost Chimera with extras: ${EXTRAS:-<none>}."
 "$VENV_PYTHON" -m pip install --upgrade pip
 if [ -n "$EXTRAS" ]; then
   "$VENV_PYTHON" -m pip install -e ".[${EXTRAS}]"
@@ -119,14 +119,21 @@ else
 fi
 
 step "Verifying installed dependency surface."
-"$VENV_PYTHON" - <<'PY'
+"$VENV_PYTHON" - "$EXTRAS" <<'PY'
 import importlib.util
+import sys
 
-required = ["certifi", "croniter", "jsonschema", "pyautogui", "websockets"]
+extras = {item.strip() for item in (sys.argv[1] if len(sys.argv) > 1 else '').split(',') if item.strip()}
+# Import names of pyproject [project].dependencies: present on every install.
+required = ['certifi', 'croniter', 'cryptography', 'jsonschema', 'websockets']
+# Import names checked only when the matching extra was requested.
+extra_modules = {'desktop': ['pyautogui'], 'mcp': ['mcp'], 'all': ['pyautogui', 'mcp']}
+for extra in sorted(extras):
+    required += [name for name in extra_modules.get(extra, []) if name not in required]
 missing = [name for name in required if importlib.util.find_spec(name) is None]
 if missing:
-    raise SystemExit("Missing installed runtime dependencies: " + ", ".join(missing))
-print("runtime dependency surface ok: " + ", ".join(required))
+    raise SystemExit('Missing installed runtime dependencies: ' + ', '.join(missing))
+print('runtime dependency surface ok: ' + ', '.join(required))
 PY
 "$VENV_PYTHON" -m pip check
 
@@ -134,7 +141,9 @@ step "Verifying CLI entrypoint."
 "$VENV_GHOST" doctor
 
 printf '\nGhost Chimera installed.\n'
-printf 'Launch Ghost Console:\n'
+printf 'Try the offline Nemotron demo first:\n'
 printf '  cd "%s"\n' "$INSTALL_DIR"
+printf '  .venv/bin/ghost demo\n\n'
+printf 'Launch Ghost Console:\n'
 printf '  .venv/bin/ghostchimera console\n\n'
 printf 'Then open: http://127.0.0.1:8766/\n'

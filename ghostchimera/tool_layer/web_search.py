@@ -15,6 +15,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from ..http_identity import USER_AGENT, ensure_user_agent
 from ..stealth.untrusted import fence_content
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8080"
@@ -31,9 +32,9 @@ class SearXNGClient:
 
     def _get_json(self, path: str, params: dict[str, str]) -> Any:
         url = f"{self.base_url.rstrip('/')}{path}?{urllib.parse.urlencode(params)}"
-        request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "ghostchimera/1.0"})
+        request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": USER_AGENT})
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with urllib.request.urlopen(ensure_user_agent(request), timeout=self.timeout) as response:
                 raw = response.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             raise RuntimeError(f"SearXNG request failed (HTTP {exc.code})") from exc
@@ -48,7 +49,7 @@ class SearXNGClient:
         """Return True when any HTTP response arrives from the instance."""
 
         try:
-            urllib.request.urlopen(self.base_url.rstrip("/") + "/", timeout=3.0).close()
+            urllib.request.urlopen(ensure_user_agent(self.base_url.rstrip("/") + "/"), timeout=3.0).close()
             return True
         except urllib.error.HTTPError:
             return True

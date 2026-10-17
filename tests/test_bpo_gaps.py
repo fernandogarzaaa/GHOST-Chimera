@@ -158,8 +158,10 @@ def test_zendesk_webhook_routes_by_status() -> None:
     assert normalize_webhook("pagerduty", "d4", "va-1", {}) is None
 
 
-def test_ghost_write_route_honest_without_model(tmp_path) -> None:
+def test_ghost_write_route_honest_without_model(tmp_path, monkeypatch) -> None:
     import urllib.request
+
+    monkeypatch.setenv("GHOSTCHIMERA_WEBHOOK_SECRET_SLACK", "slack-test-secret")
     from dataclasses import replace
 
     from ghostchimera.chimera_pilot.gateway_server import GatewayServer
@@ -172,14 +174,15 @@ def test_ghost_write_route_honest_without_model(tmp_path) -> None:
         memory_db=tmp_path / "m.sqlite3",
         audit_file=tmp_path / "a.json",
     )
-    server = GatewayServer(host="127.0.0.1", port=19173, http_port=19174, config=config)
+    server = GatewayServer(host="127.0.0.1", port=0, http_port=0, config=config)
     register_connector_routes(server, tmp_path)
     server.start()
+    http_port = server._http_server.server_address[1]  # type: ignore[union-attr]
     try:
 
         def post(path, payload):
             req = urllib.request.Request(
-                f"http://127.0.0.1:19174{path}",
+                f"http://127.0.0.1:{http_port}{path}",
                 data=json.dumps(payload).encode(),
                 headers={"Content-Type": "application/json"},
             )
@@ -194,15 +197,45 @@ def test_ghost_write_route_honest_without_model(tmp_path) -> None:
         )
         assert long_text["ok"] is False
         assert "no completion available" in long_text["error"]
-        hook = post(
+        # Webhooks are provider-signed (redteam P0-1): unsigned -> 401.
+        import time as _time
+        import urllib.error
+
+        from ghostchimera.connectors.webhook_auth import slack_signature
+
+        def signed_post(path, payload):
+            raw = json.dumps(payload).encode()
+            ts = str(int(_time.time()))
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{http_port}{path}",
+                data=raw,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Slack-Request-Timestamp": ts,
+                    "X-Slack-Signature": slack_signature("slack-test-secret", ts, raw),
+                },
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.status, json.load(resp)
+
+        try:
+            post("/api/webhooks/slack/va-9", {"event": {"type": "message", "text": "x"}})
+            raise AssertionError("unsigned webhook must be rejected")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 401
+        status_code, hook = signed_post(
             "/api/webhooks/slack/va-9",
             {"event": {"type": "message", "user": "U1", "text": "hello", "channel": "C1", "ts": "99"}},
         )
+        assert status_code == 202
         assert hook["ok"] is True and hook["queued"] is True
-        assert hook["decision"] in ("none", "store", "prepare", "inject", "act", "ask")
-        ping = post("/api/webhooks/slack/va-9", {"type": "url_verification"})
-        assert ping["ok"] is True and ping["queued"] is False
-        assert post("/api/webhooks/pagerduty/va-9", {})["ok"] is False
+        status_code, ping = signed_post("/api/webhooks/slack/va-9", {"type": "url_verification", "challenge": "c1"})
+        assert status_code == 200 and ping == {"challenge": "c1"}
+        try:
+            post("/api/webhooks/pagerduty/va-9", {})
+            raise AssertionError("unknown source must 404")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 404
     finally:
         server.stop()
 
@@ -232,12 +265,13 @@ def test_ghost_write_route_uses_model_when_present(tmp_path, monkeypatch) -> Non
         memory_db=tmp_path / "m.sqlite3",
         audit_file=tmp_path / "a.json",
     )
-    server = GatewayServer(host="127.0.0.1", port=19175, http_port=19176, config=config)
+    server = GatewayServer(host="127.0.0.1", port=0, http_port=0, config=config)
     register_connector_routes(server, tmp_path)
     server.start()
+    http_port = server._http_server.server_address[1]  # type: ignore[union-attr]
     try:
         req = urllib.request.Request(
-            "http://127.0.0.1:19176/api/stealth/ghost-write",
+            f"http://127.0.0.1:{http_port}/api/stealth/ghost-write",
             data=json.dumps({"prompt_context": "The customer cannot connect."}).encode(),
             headers={"Content-Type": "application/json"},
         )

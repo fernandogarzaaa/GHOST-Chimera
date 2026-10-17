@@ -20,7 +20,7 @@ from .plugin_manifest import PluginLoader, PluginManifest, get_loader
 from .policy import PilotPolicy
 from .resource_registry import ResourceRegistry
 from .result_envelope import ResultEnvelope, merge_envelopes
-from .scheduler import ChimeraScheduler, ScheduleDecision
+from .scheduler import ChimeraScheduler, NoBackendAvailableError, ScheduleDecision
 from .semantic_verifier import SemanticVerifier
 from .service_registry import BackgroundService, ServiceHealth, ServiceRegistry
 from .service_registry import get_registry as get_service_registry
@@ -41,6 +41,7 @@ __all__ = [
     "ClaimExtractor",
     "HookName",
     "HookRegistry",
+    "NoBackendAvailableError",
     "PilotExecution",
     "PilotPolicy",
     "ParallelAgent",

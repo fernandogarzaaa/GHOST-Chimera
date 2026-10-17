@@ -34,15 +34,19 @@ class ConsoleRun:
     _thread: threading.Thread | None = field(default=None, repr=False)
 
     def to_dict(self) -> dict[str, Any]:
+        # The label is the raw objective; never echo credentials typed into it
+        # (or returned in a result) through /api/console/runs (redteam P1-7).
+        from ..redaction import redact_secret_values, redact_secrets_text
+
         return {
             "run_id": self.run_id,
-            "label": self.label,
+            "label": redact_secrets_text(self.label),
             "status": self.status,
             "created_at": self.created_at,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
-            "result": self.result,
-            "error": self.error,
+            "result": redact_secret_values(self.result),
+            "error": redact_secrets_text(self.error) if self.error else self.error,
         }
 
 

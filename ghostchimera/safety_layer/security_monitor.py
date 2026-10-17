@@ -41,10 +41,9 @@ from ..logging_config import get_logger
 
 logger = get_logger("security_monitor")
 
-_DEFAULT_EVENTS_FILE = os.environ.get(
-    "GHOSTCHIMERA_SECURITY_EVENTS_FILE",
-    os.path.expanduser("~/.ghostchimera/security_events.json"),
-)
+# Explicit override; None resolves lazily via ghostchimera.paths
+# (GHOSTCHIMERA_SECURITY_EVENTS_FILE, else <state dir>/security_events.json).
+_DEFAULT_EVENTS_FILE: str | None = None
 
 
 class ThreatCategory(StrEnum):
@@ -108,7 +107,11 @@ class SecurityMonitor:
     """
 
     def __init__(self, events_file: str | None = None, max_events: int = 5000) -> None:
-        self._events_file = events_file or _DEFAULT_EVENTS_FILE
+        if not events_file:
+            from ..paths import security_events_file_path
+
+            events_file = _DEFAULT_EVENTS_FILE or str(security_events_file_path())
+        self._events_file = events_file
         self._max_events = max_events
         self._events: list[SecurityEvent] = []
         self._lock = threading.Lock()

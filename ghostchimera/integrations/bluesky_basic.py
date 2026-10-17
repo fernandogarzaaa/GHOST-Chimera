@@ -17,6 +17,8 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from ..http_identity import ensure_user_agent
+
 DEFAULT_PDS = "https://bsky.social"
 PUBLIC_APPVIEW = "https://public.api.bsky.app"
 
@@ -42,7 +44,7 @@ def _request(
         headers["atproto-proxy"] = proxy_did
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(ensure_user_agent(req), timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8", "replace"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")[:200]

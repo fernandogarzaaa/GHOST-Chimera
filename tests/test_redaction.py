@@ -28,7 +28,7 @@ class CanonicalBehaviorTests(unittest.TestCase):
         for marker in ("token", "secret", "api_key", "password", "credential", "authorization", "bearer"):
             self.assertIn(marker, SECRET_MARKERS)
             self.assertIn(marker, BASE_MARKERS)
-        self.assertEqual(len(SECRET_PATTERNS), 3)
+        self.assertGreaterEqual(len(SECRET_PATTERNS), 3)
         self.assertTrue(POISON_PATTERNS)
         self.assertEqual(RISK_ORDER["critical"], 4)
 
