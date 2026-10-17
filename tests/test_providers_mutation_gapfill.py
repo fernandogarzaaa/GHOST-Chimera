@@ -73,6 +73,25 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch):
     reset_usage_totals()
 
 
+class _ScopedNamespace:
+    """Namespace double: override listed attrs, delegate the rest to `real`.
+
+    ocp.time / ocp.random / ocp.urllib_request ARE the stdlib modules, so
+    patching an attribute on them is process-global and poisons background
+    threads (seen as CI failures on macOS/Windows). Swapping the attribute
+    on the ocp namespace keeps fakes local to the module under test.
+    """
+
+    def __init__(self, real: Any, **overrides: Any) -> None:
+        self._real = real
+        self._overrides = overrides
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self._overrides:
+            return self._overrides[name]
+        return getattr(self._real, name)
+
+
 def _script(monkeypatch: pytest.MonkeyPatch, items: list) -> tuple[list, list]:
     calls: list = []
     queue = list(items)
@@ -85,8 +104,8 @@ def _script(monkeypatch: pytest.MonkeyPatch, items: list) -> tuple[list, list]:
             raise item
         return item
 
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(ocp.time, "sleep", sleeps.append)
+    monkeypatch.setattr(ocp, "urllib_request", _ScopedNamespace(ocp.urllib_request, urlopen=fake_urlopen))
+    monkeypatch.setattr(ocp, "time", _ScopedNamespace(ocp.time, sleep=sleeps.append))
     return calls, sleeps
 
 
@@ -232,7 +251,7 @@ def test_retry_budget_env_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_post_with_retry_backoff_uses_jitter_additively(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = NebiusProvider(_profile())
-    monkeypatch.setattr(ocp.random, "uniform", lambda a, b: 0.1)
+    monkeypatch.setattr(ocp, "random", _ScopedNamespace(ocp.random, uniform=lambda a, b: 0.1))
     calls, sleeps = _script(monkeypatch, [])
     monkeypatch.setattr(
         provider,
@@ -315,34 +334,48 @@ def test_nebius_chat_usage_metadata_zero_defaults(monkeypatch: pytest.MonkeyPatc
 
 def test_ollama_validate_config_notes_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = OllamaProvider()
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError("down")))
+    monkeypatch.setattr(
+        ocp,
+        "urllib_request",
+        _ScopedNamespace(ocp.urllib_request, urlopen=lambda *a, **k: (_ for _ in ()).throw(OSError("down"))),
+    )
     notes = provider.validate_config()
     assert any("unreachable" in n for n in notes)
 
 
 def test_ollama_validate_config_clean_when_reachable(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = OllamaProvider()
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", lambda *a, **k: FakeResp(200, "{}"))
+    monkeypatch.setattr(
+        ocp, "urllib_request", _ScopedNamespace(ocp.urllib_request, urlopen=lambda *a, **k: FakeResp(200, "{}"))
+    )
     assert provider.validate_config() == []
 
 
 def test_ollama_chat_success(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = OllamaProvider()
     body = json.dumps({"choices": [{"message": {"content": "hey"}}]})
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", lambda *a, **k: FakeResp(200, body))
+    monkeypatch.setattr(
+        ocp, "urllib_request", _ScopedNamespace(ocp.urllib_request, urlopen=lambda *a, **k: FakeResp(200, body))
+    )
     assert provider.chat("sys", "hi") == "hey"
 
 
 def test_ollama_chat_non_200_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = OllamaProvider()
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", lambda *a, **k: FakeResp(500, "{}"))
+    monkeypatch.setattr(
+        ocp, "urllib_request", _ScopedNamespace(ocp.urllib_request, urlopen=lambda *a, **k: FakeResp(500, "{}"))
+    )
     with pytest.raises(RuntimeError, match="Ollama API returned HTTP 500"):
         provider.chat("sys", "hi")
 
 
 def test_ollama_chat_oserror_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = OllamaProvider()
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError("refused")))
+    monkeypatch.setattr(
+        ocp,
+        "urllib_request",
+        _ScopedNamespace(ocp.urllib_request, urlopen=lambda *a, **k: (_ for _ in ()).throw(OSError("refused"))),
+    )
     with pytest.raises(RuntimeError, match="could not reach"):
         provider.chat("sys", "hi")
 
@@ -366,20 +399,28 @@ def test_cohere_validate_config_flags_missing_key() -> None:
 def test_cohere_chat_success(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = CohereProvider(_profile(api_key="<redacted>"))
     body = json.dumps({"message": {"content": [{"type": "text", "text": "  yo  "}]}})
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", lambda *a, **k: FakeResp(200, body))
+    monkeypatch.setattr(
+        ocp, "urllib_request", _ScopedNamespace(ocp.urllib_request, urlopen=lambda *a, **k: FakeResp(200, body))
+    )
     assert provider.chat("sys", "hi") == "yo"
 
 
 def test_cohere_chat_non_200_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = CohereProvider(_profile(api_key="<redacted>"))
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", lambda *a, **k: FakeResp(401, "{}"))
+    monkeypatch.setattr(
+        ocp, "urllib_request", _ScopedNamespace(ocp.urllib_request, urlopen=lambda *a, **k: FakeResp(401, "{}"))
+    )
     with pytest.raises(RuntimeError, match="Cohere API returned HTTP 401"):
         provider.chat("sys", "hi")
 
 
 def test_cohere_chat_missing_content_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = CohereProvider(_profile(api_key="<redacted>"))
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", lambda *a, **k: FakeResp(200, '{"message": {}}'))
+    monkeypatch.setattr(
+        ocp,
+        "urllib_request",
+        _ScopedNamespace(ocp.urllib_request, urlopen=lambda *a, **k: FakeResp(200, '{"message": {}}')),
+    )
     with pytest.raises(RuntimeError, match="missing content"):
         provider.chat("sys", "hi")
 
@@ -391,34 +432,48 @@ def test_cohere_chat_missing_content_raises(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_lmstudio_validate_config_notes_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = LMStudioProvider()
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError("down")))
+    monkeypatch.setattr(
+        ocp,
+        "urllib_request",
+        _ScopedNamespace(ocp.urllib_request, urlopen=lambda *a, **k: (_ for _ in ()).throw(OSError("down"))),
+    )
     notes = provider.validate_config()
     assert any("unreachable" in n for n in notes)
 
 
 def test_lmstudio_validate_config_clean_when_reachable(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = LMStudioProvider()
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", lambda *a, **k: FakeResp(200, "{}"))
+    monkeypatch.setattr(
+        ocp, "urllib_request", _ScopedNamespace(ocp.urllib_request, urlopen=lambda *a, **k: FakeResp(200, "{}"))
+    )
     assert provider.validate_config() == []
 
 
 def test_lmstudio_chat_success(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = LMStudioProvider()
     body = json.dumps({"choices": [{"message": {"content": "local hi"}}]})
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", lambda *a, **k: FakeResp(200, body))
+    monkeypatch.setattr(
+        ocp, "urllib_request", _ScopedNamespace(ocp.urllib_request, urlopen=lambda *a, **k: FakeResp(200, body))
+    )
     assert provider.chat("sys", "hi") == "local hi"
 
 
 def test_lmstudio_chat_non_200_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = LMStudioProvider()
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", lambda *a, **k: FakeResp(500, "{}"))
+    monkeypatch.setattr(
+        ocp, "urllib_request", _ScopedNamespace(ocp.urllib_request, urlopen=lambda *a, **k: FakeResp(500, "{}"))
+    )
     with pytest.raises(RuntimeError, match="LM Studio API returned HTTP 500"):
         provider.chat("sys", "hi")
 
 
 def test_lmstudio_chat_oserror_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = LMStudioProvider()
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError("refused")))
+    monkeypatch.setattr(
+        ocp,
+        "urllib_request",
+        _ScopedNamespace(ocp.urllib_request, urlopen=lambda *a, **k: (_ for _ in ()).throw(OSError("refused"))),
+    )
     with pytest.raises(RuntimeError, match="could not reach"):
         provider.chat("sys", "hi")
 
@@ -436,7 +491,7 @@ def test_pollinations_chat_success(monkeypatch: pytest.MonkeyPatch) -> None:
         seen.append(req.full_url)
         return FakeResp(200, "  keyless hello  ")
 
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(ocp, "urllib_request", _ScopedNamespace(ocp.urllib_request, urlopen=fake_urlopen))
     assert provider.chat("sys", "hi there") == "keyless hello"
     assert seen[0].startswith("https://text.pollinations.ai/")
     assert "hi%20there" in seen[0]
@@ -450,7 +505,7 @@ def test_pollinations_chat_truncates_prompt_to_4000(monkeypatch: pytest.MonkeyPa
         seen.append(req.full_url)
         return FakeResp(200, "ok")
 
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(ocp, "urllib_request", _ScopedNamespace(ocp.urllib_request, urlopen=fake_urlopen))
     provider.chat("", "x" * 5000)
     import urllib.parse as up
 
@@ -459,7 +514,9 @@ def test_pollinations_chat_truncates_prompt_to_4000(monkeypatch: pytest.MonkeyPa
 
 def test_pollinations_chat_non_200_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = PollinationsProvider()
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", lambda *a, **k: FakeResp(429, "slow"))
+    monkeypatch.setattr(
+        ocp, "urllib_request", _ScopedNamespace(ocp.urllib_request, urlopen=lambda *a, **k: FakeResp(429, "slow"))
+    )
     with pytest.raises(RuntimeError, match="HTTP 429"):
         provider.chat("s", "u")
 
