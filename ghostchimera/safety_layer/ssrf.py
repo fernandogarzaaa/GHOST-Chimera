@@ -417,7 +417,12 @@ class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
         self._pinned_context = context
 
     def https_open(self, req: urllib.request.Request) -> Any:
-        if req.has_proxy():
+        # For HTTPS, ProxyHandler rewrites the request in place: req.host
+        # becomes the proxy's host and the real destination moves to
+        # req._tunnel_host (so has_proxy() is False for https). Delegate the
+        # whole CONNECT-tunnel dance to the stock handler; the operator's
+        # proxy resolves the target and there is nothing to pin locally.
+        if req.has_proxy() or getattr(req, "_tunnel_host", None):
             return super().https_open(req)
         return self.do_open(_PinnedHTTPSConnection, req, context=self._pinned_context)
 
