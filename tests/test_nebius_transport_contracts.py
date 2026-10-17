@@ -58,6 +58,23 @@ def provider(monkeypatch: pytest.MonkeyPatch) -> NebiusProvider:
     return NebiusProvider(AuthProfile(provider="nebius", api_key="k", model="nvidia/test-model"))
 
 
+class _ScopedNamespace:
+    """Namespace double: override listed attrs, delegate the rest to `real`.
+
+    Used to fake stdlib modules for the module under test without patching
+    them process-globally (which poisons background threads).
+    """
+
+    def __init__(self, real: Any, **overrides: Any) -> None:
+        self._real = real
+        self._overrides = overrides
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self._overrides:
+            return self._overrides[name]
+        return getattr(self._real, name)
+
+
 @pytest.fixture()
 def script(monkeypatch: pytest.MonkeyPatch):
     calls: list[dict[str, Any]] = []
@@ -71,9 +88,15 @@ def script(monkeypatch: pytest.MonkeyPatch):
         return item
 
     sleeps: list[float] = []
-    monkeypatch.setattr(ocp.urllib_request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(ocp.time, "sleep", lambda s: sleeps.append(s))
-    monkeypatch.setattr(ocp.random, "uniform", lambda a, b: 0.0)
+    # NOTE: ocp.time / ocp.random / ocp.urllib_request ARE the stdlib modules,
+    # so patching an attribute on them is process-global. Background threads
+    # (free-tier monitor, automations poller) then busy-loop into `sleeps`
+    # and break the assertions (seen as a Windows CI failure). Swap the
+    # attributes on the ocp namespace instead: the fakes apply only to the
+    # module under test.
+    monkeypatch.setattr(ocp, "urllib_request", _ScopedNamespace(ocp.urllib_request, urlopen=fake_urlopen))
+    monkeypatch.setattr(ocp, "time", _ScopedNamespace(ocp.time, sleep=sleeps.append))
+    monkeypatch.setattr(ocp, "random", _ScopedNamespace(ocp.random, uniform=lambda a, b: 0.0))
     return queue, calls, sleeps
 
 
