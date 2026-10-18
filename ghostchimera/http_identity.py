@@ -13,6 +13,7 @@ example a browser-style agent a specific site requires).
 
 from __future__ import annotations
 
+import ssl
 from typing import Any
 from urllib import request as urllib_request
 
@@ -20,7 +21,33 @@ from . import __version__
 
 USER_AGENT: str = f"GHOST-Chimera/{__version__}"
 
-__all__ = ["USER_AGENT", "ensure_user_agent", "with_user_agent"]
+__all__ = ["USER_AGENT", "ensure_user_agent", "with_user_agent", "shared_ssl_context"]
+
+
+# One TLS context for the whole process, built at import time on the main
+# thread. ssl.create_default_context() loads the system CA bundle through
+# OpenSSL, which segfaults when called concurrently from background threads
+# (observed as SIGSEGV inside ssl.load_default_certs on Python 3.13).
+# Building it once here keeps all cert loading off every worker thread.
+# The context is never mutated after creation; sharing it across threads
+# for opening connections is safe.
+_TLS_CONTEXT: ssl.SSLContext | None = None
+
+
+def shared_ssl_context() -> ssl.SSLContext:
+    """Return the process-wide TLS context for outbound HTTPS.
+
+    Every background thread doing HTTPS must use this instead of calling
+    ``ssl.create_default_context()`` itself.
+    """
+    global _TLS_CONTEXT
+    if _TLS_CONTEXT is None:
+        _TLS_CONTEXT = ssl.create_default_context()
+    return _TLS_CONTEXT
+
+
+# Eagerly build it at import so even the first background thread reuses it.
+shared_ssl_context()
 
 
 def with_user_agent(headers: dict[str, str] | None = None) -> dict[str, str]:
