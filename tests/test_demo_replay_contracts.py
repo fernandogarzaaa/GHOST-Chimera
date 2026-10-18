@@ -182,12 +182,16 @@ def test_render_text_pins_the_transcript(session: dict) -> None:
     assert lines[1].startswith("Replaying a Nemotron session (recorded) offline")
     assert lines[2] == f"  UNDERSTAND: {result.models['understand']}"
     assert lines[3] == f"  PREDICT:    {result.models['predict']}"
-    assert lines[4] == ""
+    idx = 4
+    if result.seeded_workflows:
+        assert lines[idx] == (f"  LEARNED:    {', '.join(result.seeded_workflows)} (workflows this loop already knows)")
+        idx += 1
+    assert lines[idx] == ""
     first = result.steps[0]
-    assert lines[5] == f"[1] {first.event_type}  (from {first.source})"
-    assert lines[6].startswith(f"    UNDERSTAND -> intent={first.understand['intent']}")
-    assert lines[7] == f"                  {first.understand['rationale']}"
-    assert lines[8] == f"    DECIDE     -> {first.decision}"
+    assert lines[idx + 1] == f"[1] {first.event_type}  (from {first.source})"
+    assert lines[idx + 2].startswith(f"    UNDERSTAND -> intent={first.understand['intent']}")
+    assert lines[idx + 3] == f"                  {first.understand['rationale']}"
+    assert lines[idx + 4] == f"    DECIDE     -> {first.decision}"
     last = result.steps[-1]
     assert f"[{len(result.steps)}] {last.event_type}  (from {last.source})" in lines
     assert any(line.startswith("PREDICT (Nemotron 3 Super, via ") for line in lines)
