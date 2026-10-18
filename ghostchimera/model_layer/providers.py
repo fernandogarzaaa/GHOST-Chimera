@@ -64,6 +64,7 @@ from .openai_compatible_providers import (
     XAIProvider,
 )
 from .opencode_cli_provider import OpenCodeCliProvider
+from .opencode_serve_provider import OpenCodeServeProvider
 
 if TYPE_CHECKING:
     from .auth_profiles import AuthProfile
@@ -344,6 +345,7 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
     OllamaProvider.name: OllamaProvider,
     OpenAIProvider.name: OpenAIProvider,
     OpenCodeCliProvider.name: OpenCodeCliProvider,
+    OpenCodeServeProvider.name: OpenCodeServeProvider,
     OpenRouterProvider.name: OpenRouterProvider,
     PerplexityProvider.name: PerplexityProvider,
     PollinationsProvider.name: PollinationsProvider,
@@ -384,6 +386,7 @@ TEXT_PROVIDERS: dict[str, type[BaseProvider]] = {
     OllamaProvider.name: OllamaProvider,
     OpenAIProvider.name: OpenAIProvider,
     OpenCodeCliProvider.name: OpenCodeCliProvider,
+    OpenCodeServeProvider.name: OpenCodeServeProvider,
     OpenRouterProvider.name: OpenRouterProvider,
     PerplexityProvider.name: PerplexityProvider,
     PollinationsProvider.name: PollinationsProvider,
