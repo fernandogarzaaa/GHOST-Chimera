@@ -13,12 +13,12 @@ Nebius Token Factory** when it needs deeper reasoning.
 ## Try it in one minute
 
 ```bash
-pipx install ghostchimera      # or: pip install ghostchimera
+pipx install git+https://github.com/fernandogarzaaa/GHOST-Chimera
 ghost demo                     # replays a Nemotron session offline: no keys, no network
 ```
 
-> `ghost demo` is new after 0.4.0b1 on PyPI. Until the next release, install from GitHub:
-> `pipx install git+https://github.com/fernandogarzaaa/GHOST-Chimera`
+> Until the next PyPI release, install from GitHub (above). `pip install ghostchimera`
+> currently serves 0.4.0b1, which predates `ghost demo`.
 
 `ghost demo` runs the real Stealth Loop and Nemotron reasoner against a session
 recorded live on Nebius Token Factory and bundled with the package (UNDERSTAND
