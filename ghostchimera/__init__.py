@@ -17,7 +17,7 @@ dataset, and hand retrieved personal context to the configured primary model.
 
 from __future__ import annotations
 
-__version__ = "0.4.0-beta.1"
+__version__ = "0.4.0-beta.2"
 __release_phase__ = "beta"
 
 __all__ = ["__version__", "__release_phase__"]

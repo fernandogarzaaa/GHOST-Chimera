@@ -1,6 +1,6 @@
 {
   "name": "ghostchimera",
-  "version": "0.4.0-beta.1",
+  "version": "0.4.0-beta.2",
   "description": "Ghost Chimera — background AI infrastructure. Local-first ambient intelligence runtime with Stealth Loop, host adapters, and Ghost Console.",
   "license": "MIT",
   "type": "commonjs",

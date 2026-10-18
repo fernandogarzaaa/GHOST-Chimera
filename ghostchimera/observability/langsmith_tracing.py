@@ -34,7 +34,6 @@ from __future__ import annotations
 import json
 import os
 import queue
-import ssl
 import threading
 import uuid
 from collections.abc import Iterator, Mapping
@@ -44,7 +43,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib import request as urllib_request
 
-from ..http_identity import ensure_user_agent
+from ..http_identity import ensure_user_agent, shared_ssl_context
 
 DEFAULT_ENDPOINT = "https://api.smith.langchain.com"
 DEFAULT_PROJECT = "ghost-chimera-hackathon"
@@ -192,7 +191,7 @@ class LangSmithTracer:
 
         def send() -> None:
             try:
-                with opener(ensure_user_agent(req), timeout=timeout, context=ssl.create_default_context()):
+                with opener(ensure_user_agent(req), timeout=timeout, context=shared_ssl_context()):
                     pass
             except Exception:
                 # Tracing is observability only; never let it break the caller.

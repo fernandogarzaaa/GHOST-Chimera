@@ -24,7 +24,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from ..http_identity import USER_AGENT, ensure_user_agent
+from ..http_identity import USER_AGENT, ensure_user_agent, shared_ssl_context
 
 CHECK_INTERVAL_S = 24 * 3600
 STARTUP_JITTER_S = 300.0
@@ -76,7 +76,7 @@ def _fetch_json(url: str, *, api_key: str = "", timeout: float = PROBE_TIMEOUT_S
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     req = urllib.request.Request(url, headers=headers, method="GET")
-    with urllib.request.urlopen(ensure_user_agent(req), timeout=timeout) as resp:
+    with urllib.request.urlopen(ensure_user_agent(req), timeout=timeout, context=shared_ssl_context()) as resp:
         if resp.status != 200:
             raise ValueError(f"HTTP {resp.status}")
         return json.loads(resp.read().decode("utf-8", "replace"))
