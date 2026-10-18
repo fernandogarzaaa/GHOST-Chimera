@@ -205,6 +205,7 @@ class DemoResult:
     predictions: list[dict[str, Any]] | None
     predict_source: str
     elapsed_s: float
+    seeded_workflows: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -216,17 +217,29 @@ class DemoResult:
             "predictions": self.predictions,
             "predict_source": self.predict_source,
             "elapsed_s": round(self.elapsed_s, 3),
+            "seeded_workflows": list(self.seeded_workflows),
         }
 
 
 def _run_through_loop(
     session: dict[str, Any], reasoner: Any, progress: Any | None = None
-) -> tuple[list[DemoStep], Any, list[str]]:
+) -> tuple[list[DemoStep], Any, list[str], list[str]]:
     from ..stealth import StealthLoop, new_event
+    from ..stealth.loop import _compact_event_descriptor
 
     # Sync cloud mode: replay must be deterministic and record must capture
     # every reply in order.
     loop = StealthLoop(reasoner=reasoner, own_runtime=False, cloud_mode="sync")
+    # The demo shows a loop that has already learned how this user works (the
+    # product's claim), not a blank one: pre-register the session's learned
+    # workflows so MATCH WORKFLOW fires and decisions vary by situation.
+    seeded: list[str] = []
+    for spec in session.get("seed_workflows") or []:
+        name = str(spec.get("name") or "seeded")
+        pattern = [str(part) for part in spec.get("pattern") or []]
+        if len(pattern) >= 2:
+            loop.learner.register_explicit(name, pattern, [str(part) for part in spec.get("expected_next") or []])
+            seeded.append(name)
     steps: list[DemoStep] = []
     history: list[str] = []
     session_id = str(session.get("session_id") or "demo-session")
@@ -238,7 +251,9 @@ def _run_through_loop(
                 payload=dict(spec.get("payload") or {}),
                 session_id=session_id,
             )
-            history.append(event.event_type)
+            # Enriched descriptors (not bare type names) so PREDICT can name
+            # the entities its predictions must reference.
+            history.append(_compact_event_descriptor(event))
             started = time.perf_counter()
             loop.emit(event)
             result = loop.last_result
@@ -258,7 +273,7 @@ def _run_through_loop(
         last = loop.last_result
     finally:
         loop.close()
-    return steps, last, history
+    return steps, last, history, seeded
 
 
 def _predict_step(reasoner: Any, last: Any, history: list[str], steps: list[DemoStep]) -> tuple[Any, str]:
@@ -283,7 +298,7 @@ def replay(session_path: str | Path | None = None) -> DemoResult:
             reasoning_provider=ReplayProvider(session, model=models["predict"], role="predict"),
             reasoning_model=models["predict"],
         )
-        steps, last, history = _run_through_loop(session, reasoner)
+        steps, last, history, seeded = _run_through_loop(session, reasoner)
         predictions, predict_source = _predict_step(reasoner, last, history, steps)
     return DemoResult(
         title=str(session.get("title") or "Ghost Chimera demo"),
@@ -294,6 +309,7 @@ def replay(session_path: str | Path | None = None) -> DemoResult:
         predictions=predictions,
         predict_source=predict_source,
         elapsed_s=time.perf_counter() - started,
+        seeded_workflows=seeded,
     )
 
 
@@ -342,7 +358,7 @@ def record(
     predict = RecordingProvider(reasoning_inner)
     reasoner = NemotronReasoner(provider=understand, reasoning_provider=predict, reasoning_model=SUPER_MODEL)
 
-    steps, _last, history = _run_through_loop(template, reasoner, progress)
+    steps, _last, history, _seeded = _run_through_loop(template, reasoner, progress)
     missing = [
         str(spec["event_type"])
         for spec in template["events"]
@@ -410,6 +426,8 @@ def render_text(result: DemoResult, stream: TextIO | None = None) -> None:
     say(f"Replaying a Nemotron session ({result.provenance}) offline: no API keys, network disabled.")
     say(f"  UNDERSTAND: {result.models['understand']}")
     say(f"  PREDICT:    {result.models['predict']}")
+    if result.seeded_workflows:
+        say(f"  LEARNED:    {', '.join(result.seeded_workflows)} (workflows this loop already knows)")
     say()
     for index, step in enumerate(result.steps, 1):
         say(f"[{index}] {step.event_type}  (from {step.source})")

@@ -106,36 +106,25 @@ class LiveConsoleSecurityTests(unittest.TestCase):
         headers: dict[str, str] | None = None,
         host: str | None = None,
     ) -> tuple[int, dict[str, Any]]:
-        # The console rejects hostile requests before reading the body and then
-        # closes the connection. If the client is still sending the body, the
-        # teardown can surface on the client as a connection abort (notably
-        # WinError 10053 on Windows) instead of the 403 the server actually
-        # sent. Retry once so the test asserts on the server's real response.
-        last_error: OSError | None = None
-        for _ in range(2):
-            conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
+        try:
+            payload = body if isinstance(body, (bytes, str)) or body is None else json.dumps(body)
+            conn.putrequest(method, path, skip_host=True, skip_accept_encoding=True)
+            conn.putheader("Host", host if host is not None else f"127.0.0.1:{self.port}")
+            data = payload.encode() if isinstance(payload, str) else (payload or b"")
+            for name, value in (headers or {}).items():
+                conn.putheader(name, value)
+            conn.putheader("Content-Length", str(len(data)))
+            conn.endheaders(data)
+            resp = conn.getresponse()
+            raw = resp.read()
             try:
-                payload = body if isinstance(body, (bytes, str)) or body is None else json.dumps(body)
-                conn.putrequest(method, path, skip_host=True, skip_accept_encoding=True)
-                conn.putheader("Host", host if host is not None else f"127.0.0.1:{self.port}")
-                data = payload.encode() if isinstance(payload, str) else (payload or b"")
-                for name, value in (headers or {}).items():
-                    conn.putheader(name, value)
-                conn.putheader("Content-Length", str(len(data)))
-                conn.endheaders(data)
-                resp = conn.getresponse()
-                raw = resp.read()
-                try:
-                    parsed = json.loads(raw or b"{}")
-                except ValueError:
-                    parsed = {"raw": raw.decode("utf-8", "replace")}
-                return resp.status, parsed if isinstance(parsed, dict) else {"value": parsed}
-            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError) as exc:
-                last_error = exc
-            finally:
-                conn.close()
-        assert last_error is not None
-        raise last_error
+                parsed = json.loads(raw or b"{}")
+            except ValueError:
+                parsed = {"raw": raw.decode("utf-8", "replace")}
+            return resp.status, parsed if isinstance(parsed, dict) else {"value": parsed}
+        finally:
+            conn.close()
 
     def json_post_headers(self, **extra: str) -> dict[str, str]:
         return {"Content-Type": "application/json", "Origin": self.origin, **self.auth_headers(), **extra}

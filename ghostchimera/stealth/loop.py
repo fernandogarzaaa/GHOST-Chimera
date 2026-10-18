@@ -93,6 +93,30 @@ def _payload_unit(payload: Any, key: str, default: Any) -> float:
     return coerce_unit(payload.get(key), default=fallback)
 
 
+_DESCRIPTOR_KEYS = ("repo", "number", "title", "project", "path", "tool", "command", "prompt", "summary")
+
+
+def _compact_event_descriptor(event: Any) -> str:
+    """One-line event summary for cloud prediction context.
+
+    ``event_type`` plus the most informative payload fields, so Nemotron can
+    name the entities its predictions must reference. Values are truncated;
+    the reasoner redacts secrets/PII before egress.
+    """
+    parts = [str(getattr(event, "event_type", ""))]
+    payload = getattr(event, "payload", None)
+    if isinstance(payload, dict):
+        for key in _DESCRIPTOR_KEYS:
+            value = payload.get(key)
+            if value:
+                text = str(value).replace("\n", " ").strip()[:80]
+                if text:
+                    parts.append(f"{key}={text}")
+            if len(parts) > 6:
+                break
+    return " ".join(parts)
+
+
 @dataclass
 class _CloudSlot:
     """Where an event's cloud results land, whenever they arrive.
@@ -225,6 +249,11 @@ class StealthLoop:
         # session id forever); GHOSTCHIMERA_STEALTH_MAX_SESSIONS overrides.
         self.max_sessions = max(1, int(_env_float("GHOSTCHIMERA_STEALTH_MAX_SESSIONS", 1000)))
         self._recent: OrderedDict[str, deque[str]] = OrderedDict()
+        # Parallel per-session descriptors ("type key=value ...") for the cloud
+        # PREDICT call: the event-type history alone starves Nemotron of the
+        # entities (paths, issue numbers) specific predictions need. Kept
+        # separate so the workflow learner still sees bare event types.
+        self._recent_detail: OrderedDict[str, deque[str]] = OrderedDict()
         self._interventions_1h: deque[float] = deque()
         self.bus.subscribe("*", self._on_event)
         if self._own_runtime:
@@ -267,8 +296,17 @@ class StealthLoop:
         while len(self._recent) > self.max_sessions:
             evicted, _ = self._recent.popitem(last=False)
             self._nemotron_predict_last.pop(evicted, None)
+            self._recent_detail.pop(evicted, None)
             self.learner.forget_stream(evicted)
         return history
+
+    def _detail_history(self, stream: str) -> deque[str]:
+        """Compact per-event descriptors for the cloud PREDICT call."""
+        detail = self._recent_detail.get(stream)
+        if detail is None:
+            detail = deque(maxlen=20)
+            self._recent_detail[stream] = detail
+        return detail
 
     def emit_and_get(self, event: Event) -> LoopResult | None:
         """Emit ``event`` and return the LoopResult for *that* event.
@@ -325,6 +363,7 @@ class StealthLoop:
         stream = event.session_id or event.correlation_id or "global"
         history = self._session_history(stream)
         history.append(event.event_type)
+        self._detail_history(stream).append(_compact_event_descriptor(event))
         self.learner.observe(stream, event.event_type)
         self.predictions.observe(event.event_type)
         self.user_model.observe_event(event)
@@ -452,6 +491,7 @@ class StealthLoop:
         stream = event.session_id or event.correlation_id or "global"
         history = self._session_history(stream)
         history.append(event.event_type)
+        self._detail_history(stream).append(_compact_event_descriptor(event))
         self.learner.observe(stream, event.event_type)
         self.predictions.observe(event.event_type)
         self.user_model.observe_event(event)
@@ -638,7 +678,11 @@ class StealthLoop:
             while len(self._nemotron_predict_last) > self.max_sessions:
                 self._nemotron_predict_last.popitem(last=False)
         workflow = getattr(hypothesis, "name", "") if hypothesis is not None else ""
-        history_text = "\n".join(history[-20:])
+        # Predict from compact event descriptors, not bare type names: without
+        # the entities (paths, issue numbers, projects) Nemotron can only
+        # guess generic next actions.
+        detail = list(self._detail_history(stream))[-20:]
+        history_text = "\n".join(detail) if detail else "\n".join(history[-20:])
         slot = slot if slot is not None else _CloudSlot()
 
         def call() -> list[dict[str, Any]] | None:

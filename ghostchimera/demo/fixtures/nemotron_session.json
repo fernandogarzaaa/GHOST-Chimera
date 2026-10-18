@@ -2,12 +2,35 @@
   "format": "ghostchimera.demo.session/v1",
   "title": "Bug triage: a failing /login after deploy",
   "provenance": "recorded",
-  "provenance_note": "Recorded live from Nebius Token Factory on 2026-10-13 19:36:25 UTC with `ghost demo --record`.",
+  "provenance_note": "Re-recorded live from Nebius Token Factory on 2026-10-18 04:03:23 UTC with evidence-grounded UNDERSTAND/PREDICT prompts (risk flags must be evidenced; predictions must name specific entities).",
   "models": {
     "understand": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
     "predict": "nvidia/nemotron-3-super-120b-a12b"
   },
   "session_id": "demo-session",
+  "seed_workflows": [
+    {
+      "name": "triage_bug",
+      "pattern": [
+        "github.issue_created",
+        "agent.prompt_submitted"
+      ],
+      "expected_next": [
+        "file.modified",
+        "agent.tool_called"
+      ]
+    },
+    {
+      "name": "test_cycle",
+      "pattern": [
+        "file.modified",
+        "agent.tool_called"
+      ],
+      "expected_next": [
+        "agent.response_received"
+      ]
+    }
+  ],
   "events": [
     {
       "event_type": "agent.session_started",
@@ -17,7 +40,7 @@
         "project": "acme-web",
         "summary": "Coding agent session opened in acme-web"
       },
-      "understand": "{\n  \"intent\": \"session_started\",\n  \"confidence\": 0.96,\n  \"suggested_workflow\": \"initialize_agent\",\n  \"risk_flags\": [\"high_cpu_load\", \"network_latency\"],\n  \"rationale\": \"A coding agent session has been opened for the acme-web project, indicating the start of an automated development workflow.\"\n}"
+      "understand": "{\n  \"intent\": \"session_start\",\n  \"confidence\": 0.95,\n  \"suggested_workflow\": \"monitor_agent_activity\",\n  \"risk_flags\": [],\n  \"rationale\": \"A coding agent session has started in the acme-web project, indicating an active automation task.\"\n}"
     },
     {
       "event_type": "github.issue_created",
@@ -31,7 +54,7 @@
           "p1"
         ]
       },
-      "understand": "{\n  \"intent\": \"bug_report\",\n  \"confidence\": 0.96,\n  \"suggested_workflow\": \"triage_bug\",\n  \"risk_flags\": [\"p1\", \"high_sev\"],\n  \"rationale\": \"A critical P1 bug was opened in the main repo after a recent deploy, indicating a likely regression that needs immediate attention.\"\n}"
+      "understand": "{\n  \"intent\": \"bug_report\",\n  \"confidence\": 0.95,\n  \"suggested_workflow\": \"triage\",\n  \"risk_flags\": [\n    \"p1\"\n  ],\n  \"rationale\": \"The issue is labeled P1 and reports a critical bug affecting login functionality.\"\n}"
     },
     {
       "event_type": "agent.prompt_submitted",
@@ -39,7 +62,7 @@
       "payload": {
         "prompt": "why is /login returning 500 since the last deploy?"
       },
-      "understand": "{\n  \"intent\": \"debug_error\",\n  \"confidence\": 0.93,\n  \"suggested_workflow\": \"triage\",\n  \"risk_flags\": [\"service_outage\", \"code_regression\"],\n  \"rationale\": \"The prompt seeks the cause of a 500 error after a deploy, indicating a likely regression or service issue.\"\n}"
+      "understand": "{\n  \"intent\": \"triage_bug\",\n  \"confidence\": 0.95,\n  \"suggested_workflow\": \"triage_bug\",\n  \"risk_flags\": [],\n  \"rationale\": \"The event indicates a bug investigation into a 500 error on /login after a deploy, matching the triage_bug hypothesis.\"\n}"
     },
     {
       "event_type": "file.modified",
@@ -48,7 +71,7 @@
         "path": "acme_web/auth/session.py",
         "lines_changed": 6
       },
-      "understand": "{\n  \"intent\": \"code_change_triggered_workflow\",\n  \"confidence\": 0.85,\n  \"suggested_workflow\": \"session_start\",\n  \"risk_flags\": [\"auth_logic_modification\", \"potential_secret_leak\"],\n  \"rationale\": \"The modification to session.py likely triggered session initialization, issue creation, and prompt submission, indicating a code change that may affect authentication flow.\"\n}"
+      "understand": "{\n  \"intent\": \"code_change\",\n  \"confidence\": 0.95,\n  \"suggested_workflow\": \"code_review\",\n  \"risk_flags\": [\n    \"code_injection\",\n    \"privilege_escalation\"\n  ],\n  \"rationale\": \"The modified auth/session.py file with six lines changed raises suspicion of potential malicious code injection or privilege escalation.\"\n}"
     },
     {
       "event_type": "agent.tool_called",
@@ -58,8 +81,8 @@
         "command": "pytest tests/auth -q",
         "exit_code": 0
       },
-      "understand": "{\n  \"intent\": \"run_tests\",\n  \"confidence\": 0.96,\n  \"suggested_workflow\": \"test_execution\",\n  \"risk_flags\": [\"test_failure\"],\n  \"rationale\": \"The agent successfully executed the auth test suite via a bash command, confirming a test run was triggered.\"\n}"
+      "understand": "{\n  \"intent\": \"test_execution\",\n  \"confidence\": 0.95,\n  \"suggested_workflow\": \"test_cycle\",\n  \"risk_flags\": [],\n  \"rationale\": \"The command pytest tests/auth -q completed successfully with exit code 0, indicating tests passed without errors.\"\n}"
     }
   ],
-  "predict": "[{\"action\":\"agent.response_received\",\"probability\":0.45,\"rationale\":\"After submitting a prompt and invoking a tool, the system typically returns a response to the user.\"},{\"action\":\"file.saved\",\"probability\":0.3,\"rationale\":\"The file was recently modified, so the next logical step is to save those changes.\"},{\"action\":\"github.issue_updated\",\"probability\":0.2,\"rationale\":\"Users often update the newly created issue with results or feedback from the tool execution.\"}]"
+  "predict": "[\n  {\n    \"action\": \"Run verbose pytest on the login test file: pytest tests/auth/test_login.py -v\",\n    \"probability\": 0.7,\n    \"rationale\": \"After the quick test run, the agent likely needs to see which specific login test fails to pinpoint the 500 error.\"\n  },\n  {\n    \"action\": \"Add a comment to GitHub issue #412 in repo acme/acme-web with the pytest failure output\",\n    \"probability\": 0.6,\n    \"rationale\": \"Documenting the test results in the issue helps track progress on the login 500 bug.\"\n  },\n  {\n    \"action\": \"Edit acme_web/auth/session.py to adjust session validation logic\",\n    \"probability\": 0.4,\n    \"rationale\": \"The session.py file was recently modified and is a likely source of the authentication failure causing the 500 response.\"\n  }\n]"
 }
