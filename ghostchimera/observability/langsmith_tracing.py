@@ -70,6 +70,15 @@ _QUEUE_MAX = 256
 _DEFAULT_TIMEOUT_S = 2.0
 
 
+# One shared TLS context, built at import time on the main thread.
+# ssl.create_default_context() loads the system CA bundle through OpenSSL,
+# which is not thread-safe when called concurrently from background threads
+# (observed as SIGSEGV in ssl.load_default_certs on Python 3.13). Building it
+# once here keeps all cert loading off every worker thread. SSLContext objects
+# are safe to share across threads for opening connections.
+_SSL_CONTEXT = ssl.create_default_context()
+
+
 class _BackgroundSender:
     """One daemon thread that performs trace POSTs in FIFO order (create before close)."""
 
@@ -192,7 +201,7 @@ class LangSmithTracer:
 
         def send() -> None:
             try:
-                with opener(ensure_user_agent(req), timeout=timeout, context=ssl.create_default_context()):
+                with opener(ensure_user_agent(req), timeout=timeout, context=_SSL_CONTEXT):
                     pass
             except Exception:
                 # Tracing is observability only; never let it break the caller.
