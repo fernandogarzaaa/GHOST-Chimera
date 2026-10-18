@@ -37,7 +37,7 @@ logger = get_logger("mcp_protocol")
 
 MCP_PROTOCOL_VERSION = "2024-11-05"
 CLIENT_NAME = "ghost-chimera"
-CLIENT_VERSION = "0.4.0-beta.1"
+CLIENT_VERSION = "0.4.0-beta.2"
 
 
 class McpError(RuntimeError):
