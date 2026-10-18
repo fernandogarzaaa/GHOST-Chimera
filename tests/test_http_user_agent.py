@@ -10,7 +10,9 @@ import ast
 import io
 import json
 import pathlib
+import tempfile
 import urllib.request
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -149,35 +151,44 @@ def test_shared_ssl_context_survives_concurrent_use() -> None:
     import ssl
     import threading
 
+    # Self-signed cert for a localhost TLS server, generated in-process
+    # (no openssl CLI dependency; Windows runners lack it).
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
     from ghostchimera.http_identity import shared_ssl_context
 
-    subprocess = pytest.importorskip("subprocess")
-    # Self-signed cert for a localhost TLS server (openssl must exist).
-    key = pathlib.Path("/tmp/test-shared-ctx-key.pem")
-    cert = pathlib.Path("/tmp/test-shared-ctx-cert.pem")
-    if not cert.exists():
-        subprocess.run(
-            [
-                "openssl",
-                "req",
-                "-x509",
-                "-newkey",
-                "rsa:2048",
-                "-keyout",
-                str(key),
-                "-out",
-                str(cert),
-                "-days",
-                "1",
-                "-nodes",
-                "-subj",
-                "/CN=localhost",
-            ],
-            capture_output=True,
-            check=True,
+    def _self_signed_cert() -> tuple[bytes, bytes]:
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(subject)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(datetime.now(UTC) - timedelta(days=1))
+            .not_valid_after(datetime.now(UTC) + timedelta(days=1))
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName("localhost")]), critical=False)
+            .sign(key, hashes.SHA256())
         )
+        key_pem = key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        )
+        cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+        return key_pem, cert_pem
+
+    key_pem, cert_pem = _self_signed_cert()
+    key_file = pathlib.Path(tempfile.gettempdir()) / "test-shared-ctx-key.pem"
+    cert_file = pathlib.Path(tempfile.gettempdir()) / "test-shared-ctx-cert.pem"
+    key_file.write_bytes(key_pem)
+    cert_file.write_bytes(cert_pem)
     server_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    server_ctx.load_cert_chain(str(cert), str(key))
+    server_ctx.load_cert_chain(str(cert_file), str(key_file))
     srv = socket.socket()
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", 0))
@@ -202,7 +213,7 @@ def test_shared_ssl_context_survives_concurrent_use() -> None:
     threading.Thread(target=serve, daemon=True).start()
     try:
         ctx = shared_ssl_context()
-        ctx.load_verify_locations(cafile=str(cert))
+        ctx.load_verify_locations(cafile=str(cert_file))
         creations: list[int] = []
         orig = ssl.create_default_context
 
