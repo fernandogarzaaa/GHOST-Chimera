@@ -8,6 +8,8 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+from ..http_identity import ensure_user_agent
+
 Fetcher = Callable[[str], Any]
 
 
@@ -15,7 +17,7 @@ def bearer_get_json(url: str, token: str, *, params: dict[str, str] | None = Non
     """GET JSON with a Bearer token. Raises on transport/HTTP errors."""
     full = url + ("?" + urllib.parse.urlencode(params) if params else "")
     req = urllib.request.Request(full, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urllib.request.urlopen(ensure_user_agent(req), timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8", "replace"))
 
 

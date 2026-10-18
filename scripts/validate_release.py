@@ -31,6 +31,8 @@ REQUIRED_FILES = [
     ".env.saas.example",
     "docker-compose.saas.yml",
     "docs/ARCHITECTURE.md",
+    "docs/OVERVIEW.md",
+    "docs/experimental/README.md",
     "docs/CLEAN_ROOM.md",
     "docs/BOB_OPTIONAL_TOOLING.md",
     "docs/COMPETITIVE_CAPABILITY_MATRIX.md",
@@ -511,7 +513,8 @@ def check_production_maintenance_artifacts() -> dict[str, Any]:
     if "Ghost Chimera Dependency Specification Audit" not in dependency_audit:
         errors.append("dependency audit markdown missing expected title")
 
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    # Long-form README content lives in docs/OVERVIEW.md (README.md is the short judge-facing entry).
+    readme = (ROOT / "docs" / "OVERVIEW.md").read_text(encoding="utf-8")
     for token in (
         "Daily Production Maintenance",
         "docs/model_provider_catalog.md",
@@ -519,7 +522,7 @@ def check_production_maintenance_artifacts() -> dict[str, Any]:
         "scripts/update_model_provider_catalog.py",
     ):
         if token not in readme:
-            errors.append(f"README missing production maintenance reference {token!r}")
+            errors.append(f"docs/OVERVIEW.md missing production maintenance reference {token!r}")
 
     return {"ok": not errors, "errors": errors}
 
@@ -563,7 +566,8 @@ def check_public_launch_saas_artifacts() -> dict[str, Any]:
         if table not in schema:
             errors.append(f"SaaS schema missing {table!r}")
 
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    # Long-form README content lives in docs/OVERVIEW.md (README.md is the short judge-facing entry).
+    readme = (ROOT / "docs" / "OVERVIEW.md").read_text(encoding="utf-8")
     for token in (
         "Public Launch SaaS",
         "ghostchimera saas status",
@@ -571,7 +575,7 @@ def check_public_launch_saas_artifacts() -> dict[str, Any]:
         "docker-compose.saas.yml",
     ):
         if token not in readme:
-            errors.append(f"README missing SaaS launch reference {token!r}")
+            errors.append(f"docs/OVERVIEW.md missing SaaS launch reference {token!r}")
 
     compose = (ROOT / "docker-compose.saas.yml").read_text(encoding="utf-8")
     for token in ("postgres:", "console:", "worker:", "no-new-privileges:true", "cap_drop:"):

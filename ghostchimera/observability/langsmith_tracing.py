@@ -17,16 +17,25 @@ Environment:
     LANGSMITH_ENDPOINT  Override for the LangSmith API base URL
                         (e.g. self-hosted). Default: https://api.smith.langchain.com
 
+Tracing never blocks the traced call: run create/close POSTs are queued to a
+single background sender thread (bounded queue, dropped on overflow, 2 s
+timeout per POST; ``LANGSMITH_TIMEOUT_S`` overrides), so a slow or unreachable
+LangSmith endpoint adds no latency to a model call.
+
 Tracing never raises and never logs or transmits API keys: instrumentation
-points wrap all network calls in try/except, and run payloads carry only
-event names, models, queries, and result counts.
+points wrap all network calls in try/except, and every run's inputs,
+outputs, metadata and error text pass through
+:func:`ghostchimera.redaction.redact_for_egress` (secrets and PII) before
+they are sent.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import queue
 import ssl
+import threading
 import uuid
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -35,8 +44,87 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib import request as urllib_request
 
+from ..http_identity import ensure_user_agent
+
 DEFAULT_ENDPOINT = "https://api.smith.langchain.com"
 DEFAULT_PROJECT = "ghost-chimera-hackathon"
+
+
+# Run fields that can carry user/event data. Structural fields (id, name,
+# run_type, timestamps, tags) are left alone.
+_SCRUBBED_FIELDS = ("inputs", "outputs", "error", "metadata", "extra")
+
+
+def _scrub_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Redact secrets and PII from run data before it leaves for LangSmith."""
+    from ..redaction import redact_for_egress
+
+    scrubbed = dict(payload)
+    for field in _SCRUBBED_FIELDS:
+        if field in scrubbed:
+            scrubbed[field] = redact_for_egress(scrubbed[field])
+    return scrubbed
+
+
+_QUEUE_MAX = 256
+_DEFAULT_TIMEOUT_S = 2.0
+
+
+class _BackgroundSender:
+    """One daemon thread that performs trace POSTs in FIFO order (create before close)."""
+
+    def __init__(self) -> None:
+        self._queue: queue.Queue[Any] = queue.Queue(maxsize=_QUEUE_MAX)
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+        self.dropped = 0
+
+    def submit(self, job: Any) -> bool:
+        self._ensure_thread()
+        try:
+            self._queue.put_nowait(job)
+            return True
+        except queue.Full:
+            self.dropped += 1
+            return False
+
+    def flush(self, timeout: float = 5.0) -> bool:
+        """Wait until queued posts are sent (tests / shutdown)."""
+        done = threading.Event()
+        if not self.submit(done.set):
+            return False
+        return done.wait(timeout)
+
+    def _ensure_thread(self) -> None:
+        with self._lock:
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(target=self._run, name="ghost-langsmith", daemon=True)
+                self._thread.start()
+
+    def _run(self) -> None:
+        while True:
+            job = self._queue.get()
+            try:
+                job()
+            except Exception:
+                pass  # observability only
+            finally:
+                self._queue.task_done()
+
+
+_SENDER = _BackgroundSender()
+
+
+def flush_traces(timeout: float = 5.0) -> bool:
+    """Block until queued LangSmith posts have been attempted."""
+    return _SENDER.flush(timeout)
+
+
+def _timeout_s() -> float:
+    try:
+        return max(0.1, float(os.environ.get("LANGSMITH_TIMEOUT_S", "") or _DEFAULT_TIMEOUT_S))
+    except ValueError:
+        return _DEFAULT_TIMEOUT_S
 
 
 def _utc_now() -> str:
@@ -92,14 +180,27 @@ class LangSmithTracer:
     def _post_json(self, path: str, payload: dict[str, Any], method: str = "POST") -> None:
         if not self.enabled:
             return
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib_request.Request(f"{self.config.endpoint}{path}", data=data, headers=self._headers(), method=method)
         try:
-            with urllib_request.urlopen(req, timeout=10.0, context=ssl.create_default_context()):
-                pass
+            data = json.dumps(_scrub_payload(payload), default=str).encode("utf-8")
+            req = urllib_request.Request(
+                f"{self.config.endpoint}{path}", data=data, headers=self._headers(), method=method
+            )
+            opener = urllib_request.urlopen
         except Exception:
-            # Tracing is observability only; never let it break the caller.
             return
+        timeout = _timeout_s()
+
+        def send() -> None:
+            try:
+                with opener(ensure_user_agent(req), timeout=timeout, context=ssl.create_default_context()):
+                    pass
+            except Exception:
+                # Tracing is observability only; never let it break the caller.
+                return
+
+        # Off the caller's thread: a slow or unreachable LangSmith endpoint
+        # must not add latency to the traced model call.
+        _SENDER.submit(send)
 
     # -- run lifecycle -------------------------------------------------------
     def start_run(

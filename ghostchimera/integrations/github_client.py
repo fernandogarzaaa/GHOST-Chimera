@@ -11,6 +11,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from ..http_identity import USER_AGENT, ensure_user_agent
+
 GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code"
 GITHUB_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
 
@@ -64,11 +66,11 @@ def _post_form_json(url: str, payload: dict[str, str]) -> dict[str, Any]:
         headers={
             "Accept": "application/json",
             "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": "ghostchimera-github-console",
+            "User-Agent": USER_AGENT,
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.urlopen(ensure_user_agent(request), timeout=30) as response:
         raw = response.read().decode("utf-8")
     data = json.loads(raw or "{}")
     if not isinstance(data, dict):
@@ -113,11 +115,11 @@ def fetch_authenticated_user(token: str) -> dict[str, Any]:
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "ghostchimera-github-console",
+            "User-Agent": USER_AGENT,
         },
         method="GET",
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.urlopen(ensure_user_agent(request), timeout=30) as response:
         data = json.loads(response.read().decode("utf-8") or "{}")
     if not isinstance(data, dict):
         raise RuntimeError("GitHub returned a non-object user response")
@@ -138,7 +140,7 @@ class GitHubClient:
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "ghostchimera-github-connected-beta",
+            "User-Agent": USER_AGENT,
         }
         if self.auth.token:
             headers["Authorization"] = f"Bearer {self.auth.token}"
@@ -170,7 +172,7 @@ class GitHubClient:
 
     def _open_json(self, request: urllib.request.Request) -> dict[str, Any] | list[Any]:
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with urllib.request.urlopen(ensure_user_agent(request), timeout=30) as response:
                 raw = response.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")

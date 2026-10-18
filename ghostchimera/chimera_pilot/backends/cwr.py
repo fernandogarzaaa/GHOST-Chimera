@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +47,8 @@ _STOPWORDS = frozenset(
     }
 )
 
-DEFAULT_MEMORY_DB = Path(os.environ.get("GHOSTCHIMERA_MEMORY_DB", "~/.ghostchimera/memory.sqlite3")).expanduser()
+# Explicit override; None resolves lazily via ghostchimera.paths.memory_db_path().
+DEFAULT_MEMORY_DB: Path | None = None
 
 
 logger = get_logger("cwr")
@@ -67,7 +67,11 @@ class CWRBackend:
         *,
         graph: TemporalGraphStore | None = None,
     ) -> None:
-        self.store = store or MemoryStore(DEFAULT_MEMORY_DB)
+        if store is None:
+            from ...paths import memory_db_path
+
+            store = MemoryStore(DEFAULT_MEMORY_DB or memory_db_path())
+        self.store = store
         # Optional bi-temporal knowledge graph: when present, retrieval fuses
         # durable facts (coarse) with episodic FTS chunks (fine) per the
         # decouple-before-aggregate pattern. Absent by default → FTS-only.

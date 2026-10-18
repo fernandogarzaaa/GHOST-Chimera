@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..http_identity import ensure_user_agent
+
 
 @dataclass(frozen=True)
 class ProviderPreset:
@@ -296,7 +298,7 @@ def _form_post(url: str, payload: dict[str, str], *, timeout: float = 30.0) -> d
     req = urllib.request.Request(
         url, data=body, headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urllib.request.urlopen(ensure_user_agent(req), timeout=timeout) as resp:
         raw = resp.read().decode("utf-8", "replace")
     try:
         return json.loads(raw)
@@ -465,7 +467,7 @@ def exchange_openrouter_code(code: str) -> dict[str, Any]:
         OPENROUTER_KEYS_URL, data=body, headers={"Content-Type": "application/json", "Accept": "application/json"}
     )
     try:
-        with urllib.request.urlopen(req, timeout=30.0) as resp:
+        with urllib.request.urlopen(ensure_user_agent(req), timeout=30.0) as resp:
             data = json.loads(resp.read().decode("utf-8", "replace"))
     except urllib.error.HTTPError as exc:
         raise ValueError(f"OpenRouter exchange failed: HTTP {exc.code}") from exc

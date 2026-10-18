@@ -51,7 +51,10 @@ class GhostTransport:
             def _authed(self) -> bool:
                 if not outer.token:
                     return True
-                return self.headers.get("X-Ghost-Token") == outer.token
+                import hmac
+
+                presented = str(self.headers.get("X-Ghost-Token") or "")
+                return hmac.compare_digest(presented.encode(), str(outer.token).encode())
 
             def _body(self) -> dict[str, Any]:
                 try:
@@ -96,7 +99,8 @@ class GhostTransport:
                     self._send(
                         {
                             "ok": True,
-                            "events_processed": loop.bus.processed,
+                            "events_processed": getattr(loop, "events_processed", loop.bus.processed),
+                            "nemotron": loop.cloud_status() if hasattr(loop, "cloud_status") else None,
                             "interventions": len(loop.interventions),
                             "workflows": len(loop.learner.hypotheses()),
                             "experience": loop.graph.snapshot(),

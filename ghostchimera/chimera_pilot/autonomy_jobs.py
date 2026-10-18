@@ -115,7 +115,9 @@ class AutonomyJobRunner:
         self.profile = (
             get_autonomy_profile(profile) if isinstance(profile, str) else profile or get_autonomy_profile("supervised")
         )
-        self.state_dir = Path(state_dir or Path.home() / ".ghostchimera").expanduser()
+        from ..paths import state_dir as _default_state_dir
+
+        self.state_dir = Path(state_dir or _default_state_dir()).expanduser()
         self.kernel = kernel or ChimeraPilotKernel.default(
             autonomy_level=self.profile.name, include_deterministic_backend=True
         )

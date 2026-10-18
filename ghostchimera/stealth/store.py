@@ -202,6 +202,42 @@ class StealthStore:
                 )
             self._conn.commit()
 
+    def load_interventions(self, states: tuple[str, ...] | None = None, *, limit: int = 1000) -> list[dict[str, Any]]:
+        """Journaled interventions (oldest first), optionally filtered by state."""
+        query = (
+            "SELECT id, trigger_event_id, workflow, confidence, state, outcome, reason, provenance,"
+            " created_at, updated_at FROM interventions"
+        )
+        params: list[Any] = []
+        if states:
+            query += " WHERE state IN (" + ",".join("?" for _ in states) + ")"
+            params.extend(states)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(int(limit))
+        with self._lock:
+            rows = self._conn.execute(query, params).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in reversed(rows):
+            try:
+                provenance = json.loads(row[7] or "{}")
+            except ValueError:
+                provenance = {}
+            out.append(
+                {
+                    "id": row[0],
+                    "trigger_event_id": row[1],
+                    "workflow": row[2],
+                    "confidence": float(row[3] or 0.0),
+                    "state": row[4],
+                    "outcome": row[5],
+                    "reason": row[6],
+                    "provenance": provenance if isinstance(provenance, dict) else {},
+                    "created_at": float(row[8] or 0.0),
+                    "updated_at": float(row[9] or 0.0),
+                }
+            )
+        return out
+
     def record_outcome(self, intervention_id: str, workflow: str, outcome: str) -> None:
         now = time.time()
         with self._lock:

@@ -1,5 +1,7 @@
 # Competitive Capability Matrix
 
+> **Experimental.** The superiority scorecard described here is a self-assessment, not an independent benchmark. See [docs/experimental](experimental/README.md) for what that means.
+
 Last reviewed: 2026-05-13.
 
 Ghost Chimera tracks release readiness against current agent-platform patterns,

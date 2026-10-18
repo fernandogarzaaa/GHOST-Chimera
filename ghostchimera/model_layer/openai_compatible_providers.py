@@ -46,19 +46,177 @@ Custom API:
 
 from __future__ import annotations
 
+import email.utils
+import http.client
 import json
 import os
+import random
 import ssl
+import threading
+import time
 from typing import TYPE_CHECKING, Any
+from urllib import error as urllib_error
+from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
+from ..http_identity import ensure_user_agent
 from ..logging_config import get_logger
 from .base_provider import BaseProvider
+from .reasoning_output import DEFAULT_MAX_TOKENS, extract_answer, resolve_max_tokens
 
 if TYPE_CHECKING:
     from .auth_profiles import AuthProfile
 
 logger = get_logger("openai_compatible_providers")
+
+
+# ---------------------------------------------------------------------------
+# Errors and retry policy
+# ---------------------------------------------------------------------------
+
+# Transient statuses worth a bounded retry (Retry-After honoured).
+RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+_DEFAULT_RETRIES = 2
+_MAX_RETRIES = 5
+_DEFAULT_RETRY_MAX_WAIT_S = 8.0
+_ERROR_BODY_CHARS = 400
+
+
+class ProviderHTTPError(RuntimeError):
+    """A provider HTTP failure that keeps the status, Retry-After and body."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        retry_after: float | None = None,
+        body: str = "",
+        provider: str = "",
+        model: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.retry_after = retry_after
+        self.body = body
+        self.provider = provider
+        self.model = model
+
+    @property
+    def retryable(self) -> bool:
+        return self.status in RETRY_STATUSES
+
+
+class ProviderConnectionError(RuntimeError):
+    """The provider endpoint could not be reached (DNS, refused, proxy, TLS)."""
+
+
+def _env_number(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_retry_after(value: str | None) -> float | None:
+    """Seconds to wait from a Retry-After header (delta-seconds or HTTP-date)."""
+    if not value:
+        return None
+    text = str(value).strip()
+    try:
+        return max(0.0, float(text))
+    except ValueError:
+        pass
+    try:
+        when = email.utils.parsedate_to_datetime(text)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if when is None:
+        return None
+    return max(0.0, when.timestamp() - time.time())
+
+
+def _error_detail(body: str) -> str:
+    """Best-effort human message from an OpenAI/Nebius-style error body."""
+    text = (body or "").strip()
+    if not text:
+        return ""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = None
+    if isinstance(data, dict):
+        err = data.get("error", data.get("detail", data.get("message")))
+        if isinstance(err, dict):
+            err = err.get("message") or err.get("detail") or err.get("code")
+        if isinstance(err, list) and err:
+            first = err[0]
+            err = first.get("msg") if isinstance(first, dict) else first
+        if err:
+            return " ".join(str(err).split())[:_ERROR_BODY_CHARS]
+    if text.lstrip().startswith("<"):
+        return "non-JSON (HTML) error page"
+    return " ".join(text.split())[:_ERROR_BODY_CHARS]
+
+
+# ---------------------------------------------------------------------------
+# Token usage accounting
+# ---------------------------------------------------------------------------
+
+_USAGE_KEYS = ("prompt_tokens", "completion_tokens", "reasoning_tokens", "cached_tokens", "total_tokens")
+_usage_lock = threading.Lock()
+_usage_totals: dict[str, dict[str, int]] = {}
+
+
+def parse_usage(response_json: Any) -> dict[str, int]:
+    """Normalize an OpenAI/Nebius ``usage`` block (reasoning + cached tokens included)."""
+    usage = response_json.get("usage") if isinstance(response_json, dict) else None
+    if not isinstance(usage, dict):
+        return {}
+
+    def _int(value: Any) -> int:
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    completion_details = usage.get("completion_tokens_details") or {}
+    prompt_details = usage.get("prompt_tokens_details") or {}
+    out = {
+        "prompt_tokens": _int(usage.get("prompt_tokens")),
+        "completion_tokens": _int(usage.get("completion_tokens")),
+        "reasoning_tokens": _int(
+            usage.get("reasoning_tokens")
+            or (completion_details.get("reasoning_tokens") if isinstance(completion_details, dict) else 0)
+        ),
+        "cached_tokens": _int(prompt_details.get("cached_tokens") if isinstance(prompt_details, dict) else 0),
+        "total_tokens": _int(usage.get("total_tokens")),
+    }
+    if not out["total_tokens"]:
+        out["total_tokens"] = out["prompt_tokens"] + out["completion_tokens"]
+    return out
+
+
+def record_usage(provider: str, model: str, usage: dict[str, int]) -> None:
+    if not usage:
+        return
+    key = f"{provider}:{model}"
+    with _usage_lock:
+        totals = _usage_totals.setdefault(key, {name: 0 for name in (*_USAGE_KEYS, "calls")})
+        for name in _USAGE_KEYS:
+            totals[name] += int(usage.get(name, 0) or 0)
+        totals["calls"] += 1
+
+
+def get_usage_totals() -> dict[str, dict[str, int]]:
+    """Process-wide token totals per ``provider:model`` since start (or reset)."""
+    with _usage_lock:
+        return {key: dict(value) for key, value in _usage_totals.items()}
+
+
+def reset_usage_totals() -> None:
+    with _usage_lock:
+        _usage_totals.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +240,14 @@ class OpenAICompatibleProvider(BaseProvider):
     # Bounded network wait so one stalled provider cannot wedge failover
     # chains (e.g. FreeRouter); override per class or via env.
     _REQUEST_TIMEOUT_S: float = 90.0
+    # Always send max_tokens: reasoning models (Nemotron, R1, Qwen3) spend
+    # tokens on a trace first, and without a budget some servers stop before
+    # the answer. Override with ``_MAX_TOKENS_ENV_VAR`` or
+    # GHOSTCHIMERA_MAX_TOKENS.
+    _DEFAULT_MAX_TOKENS: int = DEFAULT_MAX_TOKENS
+    _MAX_TOKENS_ENV_VAR: str = ""
+    # Model ids worth suggesting when the configured one 404s.
+    _KNOWN_MODELS: tuple[str, ...] = ()
 
     def __init__(self, profile: AuthProfile | None = None) -> None:
         if profile is not None:
@@ -117,7 +283,35 @@ class OpenAICompatibleProvider(BaseProvider):
             "Authorization": f"Bearer {self.api_key}",
         }
 
-    def chat(self, system_message: str, user_message: str) -> str:
+    @property
+    def max_tokens(self) -> int:
+        """Completion budget sent with every request (env-configurable)."""
+        return resolve_max_tokens(self._MAX_TOKENS_ENV_VAR, self._DEFAULT_MAX_TOKENS)
+
+    def _resolve_timeout(self, timeout: float | None) -> float:
+        if timeout is not None and timeout > 0:
+            return float(timeout)
+        try:
+            return float(os.environ.get("GHOSTCHIMERA_PROVIDER_TIMEOUT", "") or self._REQUEST_TIMEOUT_S)
+        except (TypeError, ValueError):
+            return self._REQUEST_TIMEOUT_S
+
+    def chat(
+        self,
+        system_message: str,
+        user_message: str,
+        *,
+        extra_body: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
+        timeout: float | None = None,
+    ) -> str:
+        """Send one chat completion and return the answer text.
+
+        ``extra_body`` is merged into the request JSON (e.g. Nemotron's
+        ``{"chat_template_kwargs": {"enable_thinking": False}}``),
+        ``max_tokens`` overrides the completion budget for this call and
+        ``timeout`` the network wait (seconds).
+        """
         if not self.available:
             raise RuntimeError(
                 f"{self.__class__.__name__} is not available; set {self._KEY_ENV_VAR} in the environment"
@@ -129,27 +323,154 @@ class OpenAICompatibleProvider(BaseProvider):
                 {"role": "user", "content": user_message},
             ],
             "temperature": 0.0,
+            "max_tokens": int(max_tokens) if max_tokens else self.max_tokens,
         }
+        if extra_body:
+            body.update(extra_body)
         data = json.dumps(body).encode("utf-8")
+        response_json = self._post_with_retry(data, self._resolve_timeout(timeout))
+        usage = parse_usage(response_json)
+        self._usage_tls().last = usage
+        record_usage(self.name, self.model, usage)
+        return extract_answer(response_json, self.name)
+
+    def _usage_tls(self) -> threading.local:
+        tls = self.__dict__.get("_usage_local")
+        if tls is None:
+            tls = self.__dict__.setdefault("_usage_local", threading.local())
+        return tls
+
+    @property
+    def last_usage(self) -> dict[str, int]:
+        """Token usage of the last call made *on this thread* (empty if none)."""
+        return dict(getattr(self._usage_tls(), "last", {}) or {})
+
+    # -- transport ---------------------------------------------------------
+
+    def _retry_budget(self) -> tuple[int, float]:
+        retries = int(_env_number("GHOSTCHIMERA_PROVIDER_RETRIES", _DEFAULT_RETRIES))
+        max_wait = _env_number("GHOSTCHIMERA_PROVIDER_RETRY_MAX_WAIT_S", _DEFAULT_RETRY_MAX_WAIT_S)
+        return max(0, min(_MAX_RETRIES, retries)), max(0.0, max_wait)
+
+    def _post_with_retry(self, data: bytes, timeout: float) -> dict[str, Any]:
+        """POST with bounded retry on 429/5xx (Retry-After honoured, capped)."""
+        retries, max_wait = self._retry_budget()
+        attempt = 0
+        while True:
+            try:
+                return self._post_once(data, timeout)
+            except ProviderHTTPError as exc:
+                if not exc.retryable or attempt >= retries:
+                    raise
+                if exc.retry_after is not None:
+                    delay = exc.retry_after
+                else:
+                    delay = min(max_wait, 0.5 * (2**attempt)) + random.uniform(0, 0.25)
+                if delay > max_wait:
+                    # The server asked for a longer pause than we are willing
+                    # to block for: fail now and let the caller back off.
+                    raise
+                attempt += 1
+                logger.info(
+                    "%s HTTP %s (model=%s); retry %d/%d in %.1fs",
+                    self.name,
+                    exc.status,
+                    self.model,
+                    attempt,
+                    retries,
+                    delay,
+                )
+                time.sleep(delay)
+
+    def _post_once(self, data: bytes, timeout: float) -> dict[str, Any]:
         context = ssl.create_default_context()
-        try:
-            timeout = float(os.environ.get("GHOSTCHIMERA_PROVIDER_TIMEOUT", "") or self._REQUEST_TIMEOUT_S)
-        except (TypeError, ValueError):
-            timeout = self._REQUEST_TIMEOUT_S
         req = urllib_request.Request(
             self._base_url,
             data=data,
             headers=self._build_headers(),
             method="POST",
         )
-        with urllib_request.urlopen(req, context=context, timeout=timeout) as resp:
-            if resp.status != 200:
-                raise RuntimeError(f"{self.name} API returned HTTP {resp.status}")
-            response_json = json.loads(resp.read().decode("utf-8"))
-        choices = response_json.get("choices")
-        if not choices:
-            raise RuntimeError(f"{self.name} response missing choices")
-        return choices[0]["message"]["content"].strip()
+        try:
+            with urllib_request.urlopen(ensure_user_agent(req), context=context, timeout=timeout) as resp:
+                status = int(getattr(resp, "status", 200) or 200)
+                raw = resp.read().decode("utf-8", "replace")
+                retry_after = parse_retry_after(getattr(resp, "headers", {}).get("Retry-After"))
+        except urllib_error.HTTPError as exc:
+            try:
+                raw_body = exc.read().decode("utf-8", "replace")
+            except Exception:
+                raw_body = ""
+            headers = getattr(exc, "headers", None) or {}
+            raise self._http_error(int(exc.code), raw_body, parse_retry_after(headers.get("Retry-After"))) from None
+        except urllib_error.URLError as exc:
+            raise self._connection_error(exc.reason) from None
+        except ConnectionRefusedError as exc:
+            raise self._connection_error(exc) from None
+        except (ConnectionError, http.client.RemoteDisconnected) as exc:
+            # Dropped mid-request: treat like a 503 so it gets a bounded retry.
+            raise ProviderHTTPError(
+                f"{self.name} connection dropped ({type(exc).__name__}: {exc})",
+                status=503,
+                provider=self.name,
+                model=self.model,
+            ) from None
+        if status != 200:
+            raise self._http_error(status, raw, retry_after)
+        try:
+            response_json = json.loads(raw)
+        except ValueError:
+            raise ProviderHTTPError(
+                f"{self.name} returned a non-JSON response (HTTP 200): {_error_detail(raw) or 'empty body'}",
+                status=502,
+                body=raw[:_ERROR_BODY_CHARS],
+                provider=self.name,
+                model=self.model,
+            ) from None
+        if isinstance(response_json, dict) and response_json.get("error") and not response_json.get("choices"):
+            err = response_json.get("error")
+            code = err.get("code") if isinstance(err, dict) else None
+            status_hint = code if isinstance(code, int) and 400 <= code <= 599 else 502
+            raise self._http_error(status_hint, raw, retry_after)
+        if not isinstance(response_json, dict):
+            raise ProviderHTTPError(
+                f"{self.name} returned an unexpected response shape", status=502, provider=self.name, model=self.model
+            )
+        return response_json
+
+    def _http_error(self, status: int, body: str, retry_after: float | None) -> ProviderHTTPError:
+        detail = _error_detail(body)
+        if status == 404:
+            known = f" (known: {', '.join(self._KNOWN_MODELS)})" if self._KNOWN_MODELS else ""
+            hint = (
+                f"model '{self.model}' not found on {self.name}; check {self._MODEL_ENV_VAR or 'the model name'}{known}"
+            )
+        elif status in (401, 403):
+            hint = f"authentication failed on {self.name}; check {self._KEY_ENV_VAR or 'the API key'}"
+        elif status == 429:
+            hint = f"{self.name} rate limit hit (Too Many Requests)"
+        elif status >= 500:
+            hint = f"{self.name} server error"
+        else:
+            hint = f"{self.name} rejected the request"
+        message = f"{self.name} API returned HTTP {status}: {hint}"
+        if detail:
+            message += f" | detail: {detail}"
+        return ProviderHTTPError(
+            message,
+            status=status,
+            retry_after=retry_after,
+            body=(body or "")[:_ERROR_BODY_CHARS],
+            provider=self.name,
+            model=self.model,
+        )
+
+    def _connection_error(self, reason: Any) -> ProviderConnectionError:
+        host = urllib_parse.urlsplit(self._base_url).netloc or self._base_url
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or ""
+        via = f" via proxy {urllib_parse.urlsplit(proxy).netloc or proxy}" if proxy else ""
+        return ProviderConnectionError(
+            f"can't reach {host}{via} ({reason}); check your network connection and proxy settings"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +684,7 @@ class OllamaProvider(BaseProvider):
             context = ssl.create_default_context()
             tags_url = f"{self._base_url}/api/tags"
             req = urllib_request.Request(tags_url, method="GET")
-            with urllib_request.urlopen(req, context=context, timeout=2):
+            with urllib_request.urlopen(ensure_user_agent(req), context=context, timeout=2):
                 pass
         except Exception as exc:
             notes.append(
@@ -388,6 +709,7 @@ class OllamaProvider(BaseProvider):
                 {"role": "user", "content": user_message},
             ],
             "temperature": 0.0,
+            "max_tokens": resolve_max_tokens(),
         }
         data = json.dumps(body).encode("utf-8")
         context = ssl.create_default_context()
@@ -398,7 +720,7 @@ class OllamaProvider(BaseProvider):
             method="POST",
         )
         try:
-            with urllib_request.urlopen(req, context=context) as resp:
+            with urllib_request.urlopen(ensure_user_agent(req), context=context) as resp:
                 if resp.status != 200:
                     raise RuntimeError(f"Ollama API returned HTTP {resp.status}")
                 response_json = json.loads(resp.read().decode("utf-8"))
@@ -407,10 +729,7 @@ class OllamaProvider(BaseProvider):
                 f"OllamaProvider could not reach {self._chat_url}. "
                 "Ensure Ollama is running (`ollama serve`) and the model is pulled."
             ) from exc
-        choices = response_json.get("choices")
-        if not choices:
-            raise RuntimeError("Ollama response missing choices")
-        return choices[0]["message"]["content"].strip()
+        return extract_answer(response_json, "Ollama")
 
 
 # ---------------------------------------------------------------------------
@@ -481,7 +800,7 @@ class CohereProvider(BaseProvider):
         }
         context = ssl.create_default_context()
         req = urllib_request.Request(self._API_URL, data=data, headers=headers, method="POST")
-        with urllib_request.urlopen(req, context=context) as resp:
+        with urllib_request.urlopen(ensure_user_agent(req), context=context) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"Cohere API returned HTTP {resp.status}")
             response_json = json.loads(resp.read().decode("utf-8"))
@@ -638,6 +957,8 @@ class NvidiaProvider(OpenAICompatibleProvider):
     _DEFAULT_MODEL = "meta/llama-3.1-70b-instruct"
     _KEY_ENV_VAR = "NVIDIA_API_KEY"
     _MODEL_ENV_VAR = "NVIDIA_MODEL"
+    _DEFAULT_MAX_TOKENS = 4096
+    _MAX_TOKENS_ENV_VAR = "NVIDIA_MAX_TOKENS"
 
 
 class NebiusProvider(OpenAICompatibleProvider):
@@ -662,9 +983,21 @@ class NebiusProvider(OpenAICompatibleProvider):
     _DEFAULT_MODEL = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
     _KEY_ENV_VAR = "NEBIUS_API_KEY"
     _MODEL_ENV_VAR = "NEBIUS_MODEL"
+    # Nemotron 3 emits a reasoning trace before the answer; leave room for both.
+    _DEFAULT_MAX_TOKENS = 4096
+    _MAX_TOKENS_ENV_VAR = "NEBIUS_MAX_TOKENS"
+    _KNOWN_MODELS = (
+        "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+        "nvidia/nemotron-3-super-120b-a12b",
+        "nvidia/Nemotron-3-Ultra-550b-a55b",
+        "nvidia/Nemotron-3_5-Lightning",
+    )
 
-    def chat(self, system_message: str, user_message: str) -> str:
+    def chat(self, system_message: str, user_message: str, **kwargs: Any) -> str:
         """Chat via Token Factory, with optional LangSmith tracing.
+
+        Keyword arguments (``extra_body``, ``max_tokens``, ``timeout``) are
+        passed through to :meth:`OpenAICompatibleProvider.chat`.
 
         Tracing is a no-op unless LANGSMITH_API_KEY is set; it never
         changes the request, response, or error behavior.
@@ -680,11 +1013,20 @@ class NebiusProvider(OpenAICompatibleProvider):
             tags=["ghost-chimera", "nebius", "nemotron"],
         )
         try:
-            result = super().chat(system_message, user_message)
-        except Exception as exc:  # pragma: no cover - base chat swallows errors
+            result = super().chat(system_message, user_message, **kwargs)
+        except Exception as exc:
             tracer.end_run(run, error=f"{type(exc).__name__}: {exc}")
             raise
-        tracer.end_run(run, outputs={"response": result, "model": self.model})
+        outputs: dict[str, Any] = {"response": result, "model": self.model}
+        usage = self.last_usage
+        if usage:
+            outputs["usage_metadata"] = {
+                "input_tokens": usage.get("prompt_tokens", 0),
+                "output_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+                "reasoning_tokens": usage.get("reasoning_tokens", 0),
+            }
+        tracer.end_run(run, outputs=outputs)
         return result
 
 
@@ -938,7 +1280,7 @@ class LMStudioProvider(BaseProvider):
         try:
             context = ssl.create_default_context()
             req = urllib_request.Request(f"{self._base_url}/v1/models", method="GET")
-            with urllib_request.urlopen(req, context=context, timeout=2):
+            with urllib_request.urlopen(ensure_user_agent(req), context=context, timeout=2):
                 pass
         except Exception as exc:
             notes.append(
@@ -963,6 +1305,7 @@ class LMStudioProvider(BaseProvider):
                 {"role": "user", "content": user_message},
             ],
             "temperature": 0.0,
+            "max_tokens": resolve_max_tokens(),
         }
         data = json.dumps(body).encode("utf-8")
         context = ssl.create_default_context()
@@ -973,7 +1316,7 @@ class LMStudioProvider(BaseProvider):
             method="POST",
         )
         try:
-            with urllib_request.urlopen(req, context=context) as resp:
+            with urllib_request.urlopen(ensure_user_agent(req), context=context) as resp:
                 if resp.status != 200:
                     raise RuntimeError(f"LM Studio API returned HTTP {resp.status}")
                 response_json = json.loads(resp.read().decode("utf-8"))
@@ -982,10 +1325,7 @@ class LMStudioProvider(BaseProvider):
                 f"LMStudioProvider could not reach {self._chat_url}. "
                 "Ensure LM Studio is running with the local server enabled."
             ) from exc
-        choices = response_json.get("choices")
-        if not choices:
-            raise RuntimeError("LM Studio response missing choices")
-        return choices[0]["message"]["content"].strip()
+        return extract_answer(response_json, "LM Studio")
 
 
 class GeminiOpenAIProvider(OpenAICompatibleProvider):
@@ -1054,7 +1394,7 @@ class PollinationsProvider(BaseProvider):
             url += "?model=" + urllib.parse.quote(self.model, safe="")
         req = urllib_request.Request(url, method="GET")
         context = ssl.create_default_context()
-        with urllib_request.urlopen(req, context=context, timeout=self._REQUEST_TIMEOUT_S) as resp:
+        with urllib_request.urlopen(ensure_user_agent(req), context=context, timeout=self._REQUEST_TIMEOUT_S) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"{self.name} API returned HTTP {resp.status}")
             return resp.read().decode("utf-8", "replace").strip()
@@ -1087,6 +1427,13 @@ class CloudflareProvider(OpenAICompatibleProvider):
 
 
 __all__ = [
+    "get_usage_totals",
+    "parse_usage",
+    "reset_usage_totals",
+    "ProviderConnectionError",
+    "ProviderHTTPError",
+    "RETRY_STATUSES",
+    "parse_retry_after",
     "OpenAICompatibleProvider",
     "GroqProvider",
     "XAIProvider",

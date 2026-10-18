@@ -28,6 +28,7 @@ from .config import (
     load_config,
     save_config,
 )
+from .prog_name import prog_name
 
 _LOCAL_PROFILES = ["tiny", "balanced", "stronger"]
 
@@ -52,8 +53,17 @@ def print_noninteractive_guidance() -> None:
     print()
     print("Configure Ghost Chimera using environment variables:")
     print()
-    print("  # Choose a provider:")
-    print("  export GHOSTCHIMERA_MODEL_PROVIDER=openrouter  # or openai/anthropic/local")
+    print("  # Try it first with no key at all (replays a recorded Nemotron session):")
+    print(f"  {prog_name()} demo")
+    print()
+    print("  # Nebius Token Factory — NVIDIA Nemotron (recommended):")
+    print("  # key: https://console.nebius.com  (Token Factory -> API keys)")
+    print("  export GHOSTCHIMERA_MODEL_PROVIDER=nebius")
+    print("  export NEBIUS_API_KEY=your-token-factory-key")
+    print('  export NEBIUS_MODEL="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"  # optional')
+    print('  # PowerShell: $env:GHOSTCHIMERA_MODEL_PROVIDER="nebius"; $env:NEBIUS_API_KEY="..."')
+    print()
+    print("  # Other providers: set GHOSTCHIMERA_MODEL_PROVIDER=openrouter/openai/anthropic/minimind")
     print()
     print("  # OpenRouter (200+ models):")
     print('  export OPENAI_BASE_URL="https://openrouter.ai/api/v1"')
@@ -71,7 +81,7 @@ def print_noninteractive_guidance() -> None:
     print("  export GHOSTCHIMERA_MODEL_PROVIDER=minimind")
     print("  export MINIMIND_MODEL_PROFILE=tiny")
     print()
-    print("  # Or run 'ghostchimera setup' in an interactive terminal.")
+    print(f"  # Or run '{prog_name()} setup' in an interactive terminal.")
     print()
 
 
@@ -145,17 +155,22 @@ def prompt_yes_no(question: str, default: bool = True) -> bool:
 # Section 1: Inference Provider
 # ──────────────────────────────────────────────────────────────────────
 
-_PROVIDER_CHOICES = [
-    "Free tiers          — $0 auto-router: Gemini, Grok-fast, OpenRouter free (paste free keys)",
-    "OpenAI API          — gpt-4o, gpt-3.5-turbo  (https://platform.openai.com/api-keys)",
-    "OpenRouter          — 200+ models via unified API  (https://openrouter.ai/keys)",
-    "Anthropic           — Claude models  (https://console.anthropic.com/keys)",
-    "Nebius Token Factory — NVIDIA Nemotron models  (https://console.nebius.com)",
-    "OpenCode CLI        — free opencode/* models via your login (no API key)",
-    "Custom endpoint     — Ollama, LM Studio, vLLM, any OpenAI-compatible server",
-    "Local profile       — tiny/balanced/stronger, no API key needed",
-    "Skip                — use deterministic backend only (for testing/hackathons)",
+# (provider id, menu label). Nebius Token Factory (NVIDIA Nemotron) comes first
+# and is the default: it is the provider the hackathon demo and docs use.
+_PROVIDER_OPTIONS: list[tuple[str, str]] = [
+    ("nebius", "Nebius Token Factory — NVIDIA Nemotron models (recommended)  (https://console.nebius.com)"),
+    ("free", "Free tiers          — $0 auto-router: Gemini, Grok-fast, OpenRouter free (paste free keys)"),
+    ("openai", "OpenAI API          — gpt-4o, gpt-3.5-turbo  (https://platform.openai.com/api-keys)"),
+    ("openrouter", "OpenRouter          — 200+ models via unified API  (https://openrouter.ai/keys)"),
+    ("anthropic", "Anthropic           — Claude models  (https://console.anthropic.com/keys)"),
+    ("opencode_cli", "OpenCode CLI        — free opencode/* models via your login (no API key)"),
+    ("custom", "Custom endpoint     — Ollama, LM Studio, vLLM, any OpenAI-compatible server"),
+    ("local", "Local profile       — tiny/balanced/stronger, no API key needed"),
+    ("skip", "Skip                — use deterministic backend only (for testing/hackathons)"),
 ]
+_PROVIDER_IDS = [provider for provider, _label in _PROVIDER_OPTIONS]
+_PROVIDER_CHOICES = [label for _provider, label in _PROVIDER_OPTIONS]
+_DEFAULT_PROVIDER_INDEX = _PROVIDER_IDS.index("nebius")
 
 _FREE_TIER_KEYS: list[tuple[str, str, str]] = [
     ("GOOGLE_API_KEY", "Google AI Studio (Gemini free tier)", "https://ai.google.dev/"),
@@ -229,10 +244,9 @@ def _setup_provider(config: dict) -> None:
     print_info("Choose how you'd like to connect:")
     print()
 
-    idx = prompt_choice("Select a provider:", _PROVIDER_CHOICES, 0)
+    idx = prompt_choice("Select a provider:", _PROVIDER_CHOICES, _DEFAULT_PROVIDER_INDEX)
 
-    providers = ["free", "openai", "openrouter", "anthropic", "nebius", "opencode_cli", "custom", "local", "skip"]
-    provider = providers[idx]
+    provider = _PROVIDER_IDS[idx]
     config["model"]["provider"] = provider
 
     if provider == "skip":
@@ -552,10 +566,10 @@ def _show_summary(config: dict) -> None:
     print_info(f"  Config saved to: {CONFIG_FILE}")
     print()
     print_info("  To start chatting:")
-    print_info("    ghostchimera")
+    print_info(f"    {prog_name()}")
     print()
     print_info("  To check your setup:")
-    print_info("    ghostchimera doctor")
+    print_info(f"    {prog_name()} doctor")
     print()
 
 
@@ -570,7 +584,7 @@ def run_setup_wizard() -> None:
     print(color("═" * 50, Colors.DIM))
     print()
     print_info("This wizard will configure Ghost Chimera step by step.")
-    print_info("You can always re-run 'ghostchimera setup' later to change anything.")
+    print_info(f"You can always re-run '{prog_name()} setup' later to change anything.")
     print()
 
     ensure_state_dir()

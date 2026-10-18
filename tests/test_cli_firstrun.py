@@ -1,0 +1,385 @@
+"""First-run CLI regressions from the round-2 newcomer/poweruser audits."""
+
+from __future__ import annotations
+
+import sys
+
+import pytest
+
+from ghostchimera.control_plane import cli
+
+
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("GHOSTCHIMERA_STATE_DIR", str(tmp_path / ".ghostchimera"))
+
+
+# --- newcomer P1-4 (brief: P1-6): `ghost policy` argparse mismatch ---
+
+
+@pytest.mark.parametrize("argv", [["policy"], ["policy", "list"]])
+def test_policy_list_works_from_the_top_level_cli(argv, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(sys, "argv", ["ghost", *argv])
+    assert cli._main(argv) == 0
+    out = capsys.readouterr().out
+    assert "strict_factual" in out
+
+
+def test_policy_set_and_scan_receive_their_own_arguments(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(sys, "argv", ["ghost", "policy", "set", "coding"])
+    assert cli._main(["policy", "set", "coding"]) == 0
+    assert "code_review" in capsys.readouterr().out
+    argv = ["policy", "scan", "hello world", "--policy", "strict_factual"]
+    monkeypatch.setattr(sys, "argv", ["ghost", *argv])
+    assert cli._main(argv) == 0
+    assert '"policy_id": "strict_factual"' in capsys.readouterr().out
+
+
+# --- newcomer P1-6 (brief: P1-8): subcommand typos must not run as tasks ---
+
+
+@pytest.mark.parametrize(
+    ("typed", "expected"),
+    [("dmeo", "demo"), ("polcy", "policy"), ("doctr", "doctor"), ("stup", "setup"), ("mpc", "mcp")],
+)
+def test_subcommand_typo_suggests_and_exits_2(typed, expected, monkeypatch, capsys) -> None:
+    ran = []
+    monkeypatch.setattr(cli, "_run_ask_cli", lambda args: ran.append(args) or 0)
+    monkeypatch.setattr(sys, "argv", ["ghost", typed])
+    assert cli._main([typed]) == 2
+    err = capsys.readouterr().err
+    assert f"unknown command '{typed}'" in err
+    assert f"Did you mean '{expected}'?" in err
+    assert ran == [], "a typo must not be executed as an objective"
+
+
+def test_typo_with_flags_is_still_caught(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(sys, "argv", ["ghost", "dmeo", "--json"])
+    assert cli._main(["dmeo", "--json"]) == 2
+    assert "Did you mean 'demo'?" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["summarize"], ["hello"], ["use"], ["dmeo the repo"], ["fix", "the", "tests"], ["test", "my", "code"]],
+)
+def test_objectives_that_are_not_typos_still_run_as_ask(argv, monkeypatch) -> None:
+    ran = []
+    monkeypatch.setattr(cli, "_run_ask_cli", lambda args: ran.append(" ".join(args.objective)) or 0)
+    monkeypatch.setattr(sys, "argv", ["ghost", *argv])
+    assert cli._main(argv) == 0
+    assert ran == [" ".join(argv)]
+
+
+# --- newcomer P1-5 (brief: P1-7): Ctrl-C prints one line, exit 130 ---
+
+
+def test_keyboard_interrupt_exits_130_with_one_line(monkeypatch, capsys) -> None:
+    def _interrupt(args):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "_run_ask_cli", _interrupt)
+    monkeypatch.setattr(sys, "argv", ["ghost", "summarize", "my", "workspace"])
+    assert cli._main(["summarize", "my", "workspace"]) == 130
+    captured = capsys.readouterr()
+    assert captured.err.strip() == "Interrupted."
+    assert "Traceback" not in captured.err + captured.out
+
+
+def test_sigint_in_a_real_process_exits_130_without_traceback(tmp_path) -> None:
+    import signal
+    import subprocess
+    import time
+
+    if sys.platform == "win32":
+        pytest.skip("POSIX signal delivery")
+    # A background runner (nohup, `&`, some CI shells) starts children with
+    # SIGINT ignored; restore the interactive-terminal default first.
+    script = (
+        "import signal, sys, time\n"
+        "signal.signal(signal.SIGINT, signal.default_int_handler)\n"
+        "from ghostchimera.control_plane import cli\n"
+        "def _slow(args):\n"
+        "    print('ready', flush=True)\n"
+        "    time.sleep(30)\n"
+        "    return 0\n"
+        "cli._run_ask_cli = _slow\n"
+        "sys.exit(cli._main(['summarize', 'this']))\n"
+    )
+    env = {**__import__("os").environ, "HOME": str(tmp_path), "GHOSTCHIMERA_STATE_DIR": str(tmp_path / ".gc")}
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env
+    )
+    try:
+        assert proc.stdout.readline().strip() == "ready"
+        time.sleep(0.2)
+        proc.send_signal(signal.SIGINT)
+        _out, err = proc.communicate(timeout=20)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    assert proc.returncode == 130
+    assert "Traceback" not in err
+    assert err.strip().splitlines()[-1] == "Interrupted."
+
+
+# --- newcomer P1-8 (brief: P1-10): UnicodeEncodeError on a cp1252 stdout ---
+
+
+def test_non_utf8_stdout_does_not_crash_on_model_unicode(tmp_path) -> None:
+    import os
+    import subprocess
+
+    script = (
+        "import sys\n"
+        "from ghostchimera.control_plane import cli\n"
+        "def _reply(args):\n"
+        "    print('Nemotron says: non\\u2011breaking \\u2192 done')\n"
+        "    return 0\n"
+        "cli._run_ask_cli = _reply\n"
+        "sys.exit(cli._main(['what', 'is', 'nemotron']))\n"
+    )
+    env = {
+        **os.environ,
+        "PYTHONIOENCODING": "cp1252",
+        "HOME": str(tmp_path),
+        "GHOSTCHIMERA_STATE_DIR": str(tmp_path / ".gc"),
+    }
+    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, env=env, timeout=60)
+    assert proc.returncode == 0, proc.stderr.decode("cp1252", "replace")
+    assert b"UnicodeEncodeError" not in proc.stderr
+    assert proc.stdout.decode("cp1252").startswith("Nemotron says: non?breaking")
+
+
+# --- newcomer P1-7 (brief: P1-9): setup steers judges to Nebius ---
+
+
+def test_setup_wizard_offers_nebius_first_and_by_default() -> None:
+    from ghostchimera.control_plane import setup_wizard as wizard
+
+    assert wizard._PROVIDER_IDS[0] == "nebius"
+    assert wizard._DEFAULT_PROVIDER_INDEX == 0
+    assert "Nebius" in wizard._PROVIDER_CHOICES[0]
+    assert len(wizard._PROVIDER_IDS) == len(wizard._PROVIDER_CHOICES)
+
+
+def test_setup_wizard_default_choice_configures_nebius(monkeypatch) -> None:
+    from ghostchimera.control_plane import setup_wizard as wizard
+
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")  # Enter = default everywhere
+    monkeypatch.setattr(wizard.getpass, "getpass", lambda _prompt="": "")
+    config = {"model": {}}
+    wizard._setup_provider(config)
+    assert config["model"]["provider"] == "nebius"
+    assert config["model"]["model"].startswith("nvidia/")
+
+
+def test_noninteractive_setup_text_leads_with_nebius_and_demo(capsys) -> None:
+    from ghostchimera.control_plane import setup_wizard as wizard
+
+    wizard.print_noninteractive_guidance()
+    out = capsys.readouterr().out
+    assert "GHOSTCHIMERA_MODEL_PROVIDER=nebius" in out
+    assert "NEBIUS_API_KEY" in out
+    assert out.index("nebius") < out.index("OpenRouter")
+    assert "ghost demo" in out
+
+
+def test_quick_start_starts_with_demo_and_nebius() -> None:
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parents[1] / "docs" / "quick-start.md").read_text(encoding="utf-8")
+    assert "ghost demo" in text
+    assert "GHOSTCHIMERA_MODEL_PROVIDER=nebius" in text
+    assert "NEBIUS_API_KEY" in text
+    assert text.index("ghost demo") < text.index("docker compose")
+
+
+# --- newcomer P2-1: ghost --version ---
+
+
+def test_version_flag_prints_package_version(monkeypatch, capsys) -> None:
+    from ghostchimera import __version__
+
+    monkeypatch.setattr(sys, "argv", ["ghost", "--version"])
+    with pytest.raises(SystemExit) as exc:
+        cli._main(["--version"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out.strip()
+    assert out == f"ghost {__version__}"
+    assert "usage:" not in out
+
+
+# --- newcomer P2-2: demo/ask/console/setup first in --help, grouped ---
+
+
+def test_help_leads_with_start_here_group(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(sys, "argv", ["ghost", "--help"])
+    with pytest.raises(SystemExit) as exc:
+        cli._main(["--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    head = out[: out.index("options:")]
+    assert "Start here:" in head
+    starts = [head.index(f"ghost {name}") for name in ("demo", "ask", "console", "setup")]
+    assert starts == sorted(starts)
+    # Every subcommand is still documented, after the start-here group.
+    all_commands = head[head.index("All commands:") :]
+    for name in cli._TOP_LEVEL_COMMANDS - cli._PARALLEL_COMMANDS:
+        assert f"  {name} " in all_commands, name
+    assert all_commands.index("  demo ") < all_commands.index("  superiority ")
+    # The usage line no longer dumps 36 choices in braces.
+    assert "{setup,start" not in out
+
+
+def test_grouped_help_does_not_change_subcommand_parsing(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(sys, "argv", ["ghost", "demo", "--help"])
+    with pytest.raises(SystemExit):
+        cli._main(["demo", "--help"])
+    assert "usage: ghost demo" in capsys.readouterr().out
+
+
+# --- newcomer P2-3: ghost model picker ---
+
+
+def _picker_env(tmp_path, monkeypatch):
+    from ghostchimera.control_plane import config as cfg
+    from ghostchimera.control_plane import model_picker
+
+    monkeypatch.setattr(model_picker, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(model_picker, "load_config", lambda: {})
+    saved = {}
+    monkeypatch.setattr(model_picker, "save_config", lambda c: saved.update(c))
+    monkeypatch.setattr(cfg, "CONFIG_FILE", tmp_path / "config.json")
+    return model_picker, saved
+
+
+def test_model_picker_without_tty_lists_and_exits_cleanly(tmp_path, monkeypatch, capsys) -> None:
+    import io
+
+    model_picker, saved = _picker_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))  # not a TTY, immediate EOF
+    assert model_picker.run_model_picker() == 0
+    out = capsys.readouterr().out
+    assert "1) Nebius Token Factory" in out
+    assert "2) OpenAI" in out
+    assert "OpenCode CLI" in out
+    assert "Openai" not in out and "Opencode Cli" not in out
+    assert "nothing was changed" in out
+    assert saved == {}
+
+
+def test_model_picker_numbered_selection_switches_provider(tmp_path, monkeypatch, capsys) -> None:
+    model_picker, saved = _picker_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(model_picker, "_stdin_is_tty", lambda: True)
+    answers = iter(["1", "2"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+    assert model_picker.run_model_picker() == 0
+    assert saved["model"]["provider"] == "nebius"
+    assert saved["model"]["model"] == "nvidia/nemotron-3-super-120b-a12b"
+
+
+def test_model_picker_eof_on_tty_cancels_without_traceback(tmp_path, monkeypatch, capsys) -> None:
+    model_picker, saved = _picker_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(model_picker, "_stdin_is_tty", lambda: True)
+
+    def _eof(_prompt=""):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", _eof)
+    assert model_picker.run_model_picker() == 1
+    assert "Cancelled" in capsys.readouterr().out
+    assert saved == {}
+
+
+# --- newcomer P2-13: hints use the command name the user typed ---
+
+
+@pytest.mark.parametrize(
+    ("argv0", "expected"),
+    [
+        ("/usr/local/bin/ghost", "ghost"),
+        ("/home/u/.venv/bin/ghostchimera", "ghostchimera"),
+        ("C:\\venv\\Scripts\\ghostchimera.exe", "ghostchimera"),
+        ("ghost-script.py", "ghost"),
+        ("/x/ghostchimera/__main__.py", "ghost"),
+        ("", "ghost"),
+    ],
+)
+def test_prog_name_follows_argv0(argv0, expected) -> None:
+    from ghostchimera.control_plane.prog_name import prog_name
+
+    if "\\" in argv0 and sys.platform != "win32":
+        argv0 = argv0.split("\\")[-1]
+    assert prog_name(argv0) == expected
+
+
+@pytest.mark.parametrize("typed", ["ghost", "ghostchimera"])
+def test_setup_hints_echo_the_typed_command(typed, monkeypatch, capsys) -> None:
+    from ghostchimera.control_plane import setup_wizard as wizard
+
+    monkeypatch.setattr(sys, "argv", [f"/venv/bin/{typed}", "setup"])
+    wizard.print_noninteractive_guidance()
+    out = capsys.readouterr().out
+    assert f"run '{typed} setup'" in out
+    assert f"  {typed} demo" in out
+    other = "ghostchimera" if typed == "ghost" else "ghost"
+    assert f"'{other} setup'" not in out
+
+
+def test_doctor_config_hint_echoes_the_typed_command(monkeypatch, capsys) -> None:
+    from ghostchimera.control_plane import doctor
+
+    monkeypatch.setattr(sys, "argv", ["/venv/bin/ghost", "doctor"])
+    monkeypatch.setattr(doctor, "load_config", lambda: {})
+    checks = {item["label"]: item for item in doctor.doctor_checks()["checks"]}
+    assert checks["Config file"]["hint"] == "Run 'ghost setup' to configure"
+
+
+# --- poweruser F19: `ghost daemon stop` reported stopped:false for a daemon that stopped ---
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX SIGTERM semantics")
+def test_daemon_stop_waits_for_the_process_not_the_pid_file(tmp_path, capsys) -> None:
+    import argparse
+    import json
+    import subprocess
+    import threading
+    import time
+
+    from ghostchimera.chimera_pilot.always_on.daemon import PID_FILE
+
+    state = tmp_path / "state"
+    state.mkdir()
+    pid_file = state / PID_FILE
+    # A real process that behaves like the daemon on SIGTERM: it removes its
+    # PID file first and only exits after finishing shutdown work.
+    script = (
+        "import os, signal, sys, time\n"
+        f"pid_file = {str(pid_file)!r}\n"
+        "def _term(*_):\n"
+        "    os.unlink(pid_file)\n"
+        "    time.sleep(0.8)\n"
+        "    sys.exit(0)\n"
+        "signal.signal(signal.SIGTERM, _term)\n"
+        "open(pid_file, 'w').write(str(os.getpid()))\n"
+        "while True:\n"
+        "    time.sleep(0.05)\n"
+    )
+    proc = subprocess.Popen([sys.executable, "-c", script])
+    reaper = threading.Thread(target=proc.wait, daemon=True)  # no zombie lingering as "alive"
+    reaper.start()
+    try:
+        deadline = time.monotonic() + 20
+        while not pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert pid_file.exists()
+        args = argparse.Namespace(action="stop", state_dir=str(state), poll_interval=60)
+        assert cli._run_daemon_cli(args) == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload == {"ok": True, "stopped": True, "pid": proc.pid}
+    finally:
+        if proc.poll() is None:
+            proc.kill()

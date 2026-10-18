@@ -13,7 +13,7 @@ from .backends.base import ExecutionResult
 from .hooks import HookName, HookRegistry
 from .policy import PilotPolicy
 from .result_envelope import ResultEnvelope
-from .scheduler import ChimeraScheduler, ScheduleDecision
+from .scheduler import ChimeraScheduler, NoBackendAvailableError, ScheduleDecision
 from .schema import validate_task
 from .semantic_verifier import SemanticVerifier
 from .task_ir import TaskSpec
@@ -314,7 +314,7 @@ class ChimeraPilotExecutor:
             selected_strategy = self.policy.autonomy_profile.cap_strategy(selected_strategy)
         ranked = self.scheduler.rank_backends(task)
         if not ranked:
-            raise RuntimeError(f"No available backend can run task {task.id}: {task.kind.value}")
+            raise NoBackendAvailableError(task.id, task.kind.value)
 
         transitions: list[StateTransition] = [
             StateTransition(PilotRunState.PLANNED, now(), f"task accepted strategy={selected_strategy}")
@@ -430,11 +430,21 @@ class ChimeraPilotExecutor:
                 semantic_ok, semantic_err, semantic_warnings = self.semantic_verifier.verify(
                     task, result, envelope=None
                 )
+                # Backends that cannot verify their output (free-text model
+                # answers) report their own confidence/source; only verified
+                # executions get 1.0 and a passed verification claim.
+                metrics = result.metrics if isinstance(result.metrics, dict) else {}
+                confidence_source = str(metrics.get("confidence_source") or "execution_success")
+                try:
+                    confidence = min(1.0, max(0.0, float(metrics.get("confidence", 1.0))))
+                except (TypeError, ValueError):
+                    confidence = 1.0
+                unverified = confidence_source == "model_unverified"
                 envelope = ResultEnvelope(
                     kind=task.kind.value,
                     value=result.output,
-                    confidence=1.0,
-                    confidence_source="execution_success",
+                    confidence=confidence,
+                    confidence_source=confidence_source,
                     provenance=[
                         {
                             "step": "backend_selection",
@@ -445,9 +455,10 @@ class ChimeraPilotExecutor:
                     ],
                     claims=[
                         {"claim": "task_completed", "passed": True},
-                        {"claim": "verification_passed", "passed": True},
+                        {"claim": "verification_passed", "passed": not unverified},
                     ],
-                    warnings=semantic_warnings if semantic_ok else [],
+                    warnings=(semantic_warnings if semantic_ok else [])
+                    + (["unverified model output: nothing checked this answer"] if unverified else []),
                     metadata={
                         "task_id": task.id,
                         "task_kind": task.kind.value,

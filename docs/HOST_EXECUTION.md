@@ -5,7 +5,11 @@ Ghost Chimera defaults to sandboxed execution. Unrestricted Host Execution is an
 This mode is intentionally separate from the normal runtime:
 
 - It is off by default.
-- It requires the exact confirmation phrase `I ACCEPT HOST EXECUTION RISK`.
+- It requires this install's random arming phrase (`I ACCEPT HOST EXECUTION RISK XXXX-XXXX`). The console generates it on first run, prints it once, and stores it owner-only as `arming_phrase` in `~/.ghostchimera/console_secrets.json` (or `<state-dir>/console_secrets.json`). It is never returned by the API.
+- The Console API itself requires the per-install console token (same file), rejects non-loopback `Host` headers, cross-site or `null` `Origin`s, and non-JSON state-changing requests.
+- Wrong arming-phrase attempts are counted on disk (`host_execution_lockout.json` in the state dir). After 5 failures every further attempt, including a correct one, is refused for an exponentially growing window (2 s, 4 s, 8 s ... capped at 1 hour); a correct phrase after the window resets the counter.
+- Changing `allowed_root` or `audit_dir`, enabling `allow_source_mutation` / `allow_network_commands`, or raising `max_command_seconds` needs the arming phrase even while host mode is disarmed, because that scope applies the moment it is armed. Saving the form unchanged, or disarming, does not.
+- `allowed_root` can never be the filesystem root (`/`, `C:\`); a stored root of `/` blocks runs until a project directory is set.
 - It writes local audit artifacts for command runs and self-edits.
 - Self-edits write requested, applied, and revert patches.
 - It only mutates files under the configured allowed root.

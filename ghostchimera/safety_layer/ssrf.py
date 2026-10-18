@@ -19,6 +19,7 @@ Usage::
 from __future__ import annotations
 
 import concurrent.futures
+import http.client
 import ipaddress
 import socket
 import ssl
@@ -28,11 +29,146 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..http_identity import with_user_agent
 from ..logging_config import get_logger
 
 logger = get_logger("ssrf")
 
 _DNS_RESOLVE_TIMEOUT = 5.0  # seconds
+
+
+ALLOWED_SCHEMES = frozenset({"http", "https"})
+
+
+# Ranges the stdlib's ``ipaddress`` mislabels as global on some versions
+# (notably Python 3.11's ``is_global`` for 192.0.0.0/24 incl. ``192.0.0.8``,
+# part of IANA Special-Purpose ``192.0.0.0/24``). Fail-closed allowlist of
+# always-internal networks, checked in both IPv4 and embedded forms.
+_ALWAYS_INTERNAL_NETWORKS = (
+    ipaddress.ip_network("0.0.0.0/8"),  # "this network"
+    ipaddress.ip_network("10.0.0.0/8"),  # RFC1918 private
+    ipaddress.ip_network("100.64.0.0/10"),  # shared/CGNAT (Tailscale, carrier NAT)
+    ipaddress.ip_network("127.0.0.0/8"),  # loopback
+    ipaddress.ip_network("169.254.0.0/16"),  # link-local (incl. cloud metadata 169.254.169.254)
+    ipaddress.ip_network("172.16.0.0/12"),  # RFC1918 private
+    ipaddress.ip_network("192.0.0.0/24"),  # IANA special-purpose (incl. 192.0.0.8)
+    ipaddress.ip_network("192.0.2.0/24"),  # TEST-NET-1 (docs/benchmarks)
+    ipaddress.ip_network("192.168.0.0/16"),  # RFC1918 private
+    ipaddress.ip_network("198.18.0.0/15"),  # benchmarking
+    ipaddress.ip_network("198.51.100.0/24"),  # TEST-NET-2
+    ipaddress.ip_network("203.0.113.0/24"),  # TEST-NET-3
+    ipaddress.ip_network("224.0.0.0/4"),  # multicast
+    ipaddress.ip_network("240.0.0.0/4"),  # reserved/future use
+    ipaddress.ip_network("255.255.255.255/32"),  # broadcast
+    ipaddress.ip_network("::/128"),  # unspecified
+    ipaddress.ip_network("::1/128"),  # loopback
+    ipaddress.ip_network("::ffff:0:0/96"),  # IPv4-mapped (veil for any v4 internal)
+    ipaddress.ip_network("64:ff9b::/96"),  # NAT64 well-known prefix
+    ipaddress.ip_network("100::/64"),  # discard
+    ipaddress.ip_network("2001::/32"),  # Teredo
+    ipaddress.ip_network("2001:db8::/32"),  # documentation
+    ipaddress.ip_network("2002::/16"),  # 6to4
+    ipaddress.ip_network("fc00::/7"),  # unique-local
+    ipaddress.ip_network("fe80::/10"),  # link-local
+    ipaddress.ip_network("ff00::/8"),  # multicast
+)
+
+# 6to4's embedded-IPv4 slot (2002:V4HIGH:V4LOW::/48).
+_SIXTOFOUR_V4_HIGH_SHIFT = 16
+
+
+def _v4_embedded_forms(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> list[ipaddress.IPv4Address]:
+    """IPv4 addresses hidden inside IPv6 transition forms (6to4 / Teredo)."""
+    embedded: list[ipaddress.IPv4Address] = []
+    mapped = getattr(addr, "ipv4_mapped", None)
+    if mapped is not None:
+        embedded.append(mapped)
+    if isinstance(addr, ipaddress.IPv6Address):
+        packed = int(addr)
+        if (packed >> 112) == 0x2002:  # 2002::/16: next 32 bits are the IPv4 address
+            embedded.append(ipaddress.IPv4Address((packed >> 80) & 0xFFFFFFFF))
+        teredo = addr.teredo
+        if teredo is not None and teredo[1] is not None:
+            embedded.append(teredo[1])
+    return embedded
+
+
+def _in_always_internal(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    return any(addr in net for net in _ALWAYS_INTERNAL_NETWORKS)
+
+
+def _is_internal_address(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """True for addresses an outbound fetch must never reach.
+
+    Anything that is not globally routable is internal: private, loopback,
+    link-local (incl. the 169.254.169.254 cloud metadata service),
+    unspecified, reserved, multicast, shared/CGNAT space (100.64.0.0/10, used
+    by Tailscale and carrier NAT), benchmarking ranges, IANA special-purpose
+    192.0.0.0/24 (misreported as global by ``ipaddress`` on Python 3.11), and
+    IPv4-mapped / 6to4 / Teredo forms of any of them.
+
+    The check is belt-and-suspenders by design: an explicit network table
+    (stable across Python versions) ORed with the stdlib's flags. Either
+    source saying "internal" blocks the address.
+    """
+    if _in_always_internal(addr):
+        return True
+    for embedded in _v4_embedded_forms(addr):
+        if _in_always_internal(embedded) or _is_internal_address(embedded):
+            return True
+    return (
+        not addr.is_global
+        or addr.is_private
+        or addr.is_loopback
+        or addr.is_link_local
+        or addr.is_unspecified
+        or addr.is_reserved
+        or addr.is_multicast
+    )
+
+
+def _getaddrinfo_with_timeout(host: str, port: int | None) -> list[Any]:
+    """``socket.getaddrinfo`` bounded by :data:`_DNS_RESOLVE_TIMEOUT` (fails closed)."""
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        future = pool.submit(socket.getaddrinfo, host, port, 0, socket.SOCK_STREAM)
+        try:
+            return future.result(timeout=_DNS_RESOLVE_TIMEOUT)
+        except concurrent.futures.TimeoutError as exc:
+            raise OSError(f"DNS resolution timed out for {host}") from exc
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def resolve_vetted_addresses(host: str, port: int) -> list[tuple[Any, ...]]:
+    """Resolve *host* once and return only safe ``getaddrinfo`` entries.
+
+    Raises :class:`SSRFViolation` when the host is (or resolves to) any
+    internal address. The caller must connect to exactly these addresses so a
+    second, attacker-controlled DNS answer (rebinding) is never consulted.
+    """
+    try:
+        literal = ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        literal = None
+    if literal is not None:
+        if _is_internal_address(literal):
+            raise SSRFViolation(f"Private/loopback address blocked: {host}")
+        family = socket.AF_INET6 if literal.version == 6 else socket.AF_INET
+        return [(family, socket.SOCK_STREAM, 0, "", (str(literal), port))]
+    infos = _getaddrinfo_with_timeout(host, port)
+    vetted = []
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(str(info[4][0]).split("%", 1)[0])
+        except ValueError:
+            continue
+        if _is_internal_address(addr):
+            raise SSRFViolation(f"Hostname '{host}' resolves to private/loopback/link-local address: {addr}")
+        vetted.append(info)
+    if not vetted:
+        raise SSRFViolation(f"No routable address for hostname: {host}")
+    return vetted
 
 
 # ---------------------------------------------------------------------------
@@ -94,11 +230,17 @@ class SSRFPolicy:
         """
         import fnmatch
 
+        parsed = urllib.parse.urlparse(url)
+        scheme = (parsed.scheme or "").lower()
+        if scheme not in ALLOWED_SCHEMES:
+            # file://, ftp://, gopher://, data: ... are never fetchable (redteam P1-2).
+            return False, f"Scheme '{scheme or '(none)'}' is not allowed; only http and https"
         if self.allow_all:
             return True, "allow_all is set"
 
-        parsed = urllib.parse.urlparse(url)
         hostname = parsed.hostname or ""
+        if not hostname:
+            return False, "URL has no host"
         with self._lock:
             denied = list(self._denied)
             allowed = list(self._allowed)
@@ -113,7 +255,7 @@ class SSRFPolicy:
         if self.block_private_ranges and hostname:
             try:
                 addr = ipaddress.ip_address(hostname)
-                if addr.is_private or addr.is_loopback or addr.is_link_local:
+                if _is_internal_address(addr):
                     return False, f"Private/loopback address blocked: {hostname}"
             except ValueError:
                 # Not a literal IP — resolve the hostname and check all resolved addresses.
@@ -145,7 +287,7 @@ class SSRFPolicy:
                         addr_str = info[4][0]
                         try:
                             addr = ipaddress.ip_address(addr_str)
-                            if addr.is_private or addr.is_loopback or addr.is_link_local:
+                            if _is_internal_address(addr):
                                 return False, (
                                     f"Hostname '{hostname}' resolves to private/loopback/link-local address: {addr_str}"
                                 )
@@ -222,6 +364,70 @@ class _SSRFRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 # ---------------------------------------------------------------------------
+# Pinned connections (DNS-rebinding defence, redteam P1-1)
+# ---------------------------------------------------------------------------
+
+
+def _connect_vetted(host: str, port: int, timeout: Any, source_address: Any = None) -> socket.socket:
+    """Resolve once, connect only to a vetted address, and re-check the peer."""
+    last_error: OSError | None = None
+    for family, socktype, proto, _canon, sockaddr in resolve_vetted_addresses(host, port):
+        sock = socket.socket(family, socktype, proto)
+        try:
+            if timeout is not None and timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:  # type: ignore[attr-defined]
+                sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            sock.connect(sockaddr)
+            peer = ipaddress.ip_address(str(sock.getpeername()[0]).split("%", 1)[0])
+            if _is_internal_address(peer):
+                raise SSRFViolation(f"Connected peer {peer} for '{host}' is internal")
+            return sock
+        except SSRFViolation:
+            sock.close()
+            raise
+        except OSError as exc:
+            sock.close()
+            last_error = exc
+    raise last_error or OSError(f"could not connect to {host}:{port}")
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    def connect(self) -> None:
+        self.sock = _connect_vetted(self.host, self.port, self.timeout, self.source_address)
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def connect(self) -> None:
+        sock = _connect_vetted(self.host, self.port, self.timeout, self.source_address)
+        # SNI and certificate verification stay bound to the *hostname*.
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)  # type: ignore[attr-defined]
+
+
+class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req: urllib.request.Request) -> Any:
+        if req.has_proxy():  # the operator's proxy resolves the target; nothing to pin locally
+            return super().http_open(req)
+        return self.do_open(_PinnedHTTPConnection, req)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, context: ssl.SSLContext) -> None:
+        super().__init__(context=context)
+        self._pinned_context = context
+
+    def https_open(self, req: urllib.request.Request) -> Any:
+        # For HTTPS, ProxyHandler rewrites the request in place: req.host
+        # becomes the proxy's host and the real destination moves to
+        # req._tunnel_host (so has_proxy() is False for https). Delegate the
+        # whole CONNECT-tunnel dance to the stock handler; the operator's
+        # proxy resolves the target and there is nothing to pin locally.
+        if req.has_proxy() or getattr(req, "_tunnel_host", None):
+            return super().https_open(req)
+        return self.do_open(_PinnedHTTPSConnection, req, context=self._pinned_context)
+
+
+# ---------------------------------------------------------------------------
 # NetworkDispatcher
 # ---------------------------------------------------------------------------
 
@@ -290,14 +496,23 @@ class NetworkDispatcher:
             raise SSRFViolation(f"Request to '{url}' blocked: {reason}")
 
         logger.debug("NetworkDispatcher %s %s", method, url)
-        hdrs = headers or {}
+        hdrs = with_user_agent(headers)
         try:
             req = urllib.request.Request(url, data=body, headers=hdrs, method=method.upper())
             ctx = ssl.create_default_context()
-            opener = urllib.request.build_opener(
-                urllib.request.HTTPSHandler(context=ctx),
-                _SSRFRedirectHandler(self.policy),
-            )
+            if self.policy.block_private_ranges and not self.policy.allow_all:
+                # Connect only to the address that was vetted at connect time,
+                # for the first request and every redirect hop.
+                opener = urllib.request.build_opener(
+                    _PinnedHTTPHandler(),
+                    _PinnedHTTPSHandler(ctx),
+                    _SSRFRedirectHandler(self.policy),
+                )
+            else:
+                opener = urllib.request.build_opener(
+                    urllib.request.HTTPSHandler(context=ctx),
+                    _SSRFRedirectHandler(self.policy),
+                )
             with opener.open(req, timeout=timeout_seconds) as resp:
                 resp_body = resp.read()
                 resp_headers = {k.lower(): v for k, v in resp.headers.items()}
@@ -344,8 +559,10 @@ def fetch(url: str, **kwargs: Any) -> FetchResult:
 
 
 __all__ = [
+    "ALLOWED_SCHEMES",
     "SSRFPolicy",
     "SSRFViolation",
+    "resolve_vetted_addresses",
     "NetworkDispatcher",
     "FetchResult",
     "get_dispatcher",

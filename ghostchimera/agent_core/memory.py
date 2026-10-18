@@ -22,24 +22,28 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-DEFAULT_FILE = os.environ.get(
-    "GHOSTCHIMERA_MEMORY_FILE",
-    os.path.expanduser("~/.ghostchimera/memory.json"),
-)
+from ..state_io import atomic_write_json
+
+# Explicit override; None resolves lazily via ghostchimera.paths
+# (GHOSTCHIMERA_MEMORY_FILE, else <GHOSTCHIMERA_STATE_DIR>/memory.json).
+DEFAULT_FILE: str | None = None
 
 
 class MemoryManager:
     """Thread‑safe persistent memory store."""
 
     def __init__(self, file_path: str | None = None) -> None:
-        self.file_path = file_path or DEFAULT_FILE
+        if not file_path:
+            from ..paths import agent_memory_file_path
+
+            file_path = DEFAULT_FILE or str(agent_memory_file_path())
+        self.file_path = file_path
         self._lock = threading.Lock()
         # ensure directory exists
         Path(os.path.dirname(self.file_path)).mkdir(parents=True, exist_ok=True)
         # ensure file exists
         if not os.path.exists(self.file_path):
-            with open(self.file_path, "w", encoding="utf-8") as f:
-                json.dump([], f)
+            self._write_events([])
 
     def _read_events(self) -> list[dict[str, Any]]:
         with open(self.file_path, encoding="utf-8") as f:
@@ -49,8 +53,8 @@ class MemoryManager:
                 return []
 
     def _write_events(self, events: list[dict[str, Any]]) -> None:
-        with open(self.file_path, "w", encoding="utf-8") as f:
-            json.dump(events, f, ensure_ascii=False, indent=2)
+        # Atomic + 0600; the directory is left as the caller made it.
+        atomic_write_json(self.file_path, events, ensure_ascii=False, indent=2, sort_keys=False, dir_mode=None)
 
     def add_event(self, event: dict[str, Any]) -> None:
         """Append an event to the memory."""

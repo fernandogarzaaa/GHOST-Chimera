@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .. import state_io
+from ..http_identity import ensure_user_agent
 from ..memory_layer.store import MemoryStore
 from ..model_layer.minimind_lifecycle import MiniMindLifecycle
 
@@ -74,8 +76,11 @@ class EmailOAuthResult:
 
 
 def _email_oauth_dir(state_dir: str | Path) -> Path:
-    path = Path(state_dir).expanduser() / "email_oauth"
-    path.mkdir(parents=True, exist_ok=True)
+    # Holds refresh tokens and PKCE verifiers: owner-only (0700). Files
+    # written by older versions at 0644 are tightened on first touch.
+    path = state_io.ensure_private_dir(Path(state_dir).expanduser() / "email_oauth")
+    for existing in path.glob("*.json"):
+        state_io.make_private(existing)
     return path
 
 
@@ -217,7 +222,7 @@ try {
 
 def _urlopen_json(req: urllib.request.Request, *, timeout: float) -> dict[str, Any]:
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with urllib.request.urlopen(ensure_user_agent(req), timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.URLError as exc:
         if not _is_certificate_error(exc):
@@ -225,7 +230,7 @@ def _urlopen_json(req: urllib.request.Request, *, timeout: float) -> dict[str, A
         last_error: urllib.error.URLError = exc
         for context in (_certifi_ssl_context(), _windows_ssl_context()):
             try:
-                with urllib.request.urlopen(req, timeout=timeout, context=context) as response:
+                with urllib.request.urlopen(ensure_user_agent(req), timeout=timeout, context=context) as response:
                     return json.loads(response.read().decode("utf-8"))
             except urllib.error.URLError as retry_exc:
                 if not _is_certificate_error(retry_exc):
@@ -382,7 +387,7 @@ def start_email_oauth(provider: str, state_dir: str | Path) -> dict[str, Any]:
         "created_at": time.time(),
         "expires_in": int(payload.get("expires_in") or 900),
     }
-    _pending_path(state_dir, provider, pending_id).write_text(json.dumps(pending), encoding="utf-8")
+    state_io.write_private_json(_pending_path(state_dir, provider, pending_id), pending, indent=None)
     return EmailOAuthResult(
         ok=True,
         provider=provider,
@@ -443,7 +448,7 @@ def start_gmail_browser_oauth(state_dir: str | Path, redirect_uri: str) -> dict[
         "created_at": time.time(),
         "expires_in": 900,
     }
-    _browser_pending_path(state_dir, "gmail", state).write_text(json.dumps(pending), encoding="utf-8")
+    state_io.write_private_json(_browser_pending_path(state_dir, "gmail", state), pending, indent=None)
     return {
         "ok": True,
         "provider": "gmail",
@@ -501,7 +506,7 @@ def finish_gmail_browser_oauth(state_dir: str | Path, state: str, code: str) -> 
     token["provider"] = "gmail"
     token["created_at"] = time.time()
     token["expires_at"] = time.time() + float(token.get("expires_in") or 3600)
-    _token_path(state_dir, "gmail").write_text(json.dumps(token), encoding="utf-8")
+    state_io.write_private_json(_token_path(state_dir, "gmail"), token, indent=None)
     pending_file.unlink(missing_ok=True)
     return {
         "ok": True,
@@ -547,7 +552,7 @@ def poll_email_oauth(provider: str, state_dir: str | Path, pending_id: str) -> d
     token["provider"] = provider
     token["created_at"] = time.time()
     token["expires_at"] = time.time() + float(token.get("expires_in") or 3600)
-    _token_path(state_dir, provider).write_text(json.dumps(token), encoding="utf-8")
+    state_io.write_private_json(_token_path(state_dir, provider), token, indent=None)
     pending_file.unlink(missing_ok=True)
     return {
         "ok": True,

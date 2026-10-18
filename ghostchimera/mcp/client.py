@@ -6,6 +6,8 @@ import json
 import logging
 from typing import Any
 
+from ..http_identity import ensure_user_agent
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,7 +25,7 @@ class MCPClient:
         url = f"http://{self.host}:{self.port}/"
         body = json.dumps({"action": action, **(payload or {})}).encode("utf-8")
         req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(ensure_user_agent(req), timeout=5) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
     def connect(self, url: str | None = None) -> bool:

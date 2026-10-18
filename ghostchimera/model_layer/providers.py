@@ -24,6 +24,7 @@ import ssl
 from typing import TYPE_CHECKING, Any
 from urllib import request as urllib_request
 
+from ..http_identity import ensure_user_agent
 from ..logging_config import get_logger
 from .base_provider import BaseProvider
 from .claude_agent_provider import ClaudeAgentProvider
@@ -134,7 +135,7 @@ class OpenAIProvider(BaseProvider):
         data = json.dumps(body).encode("utf-8")
         context = ssl.create_default_context()
         req = urllib_request.Request(self._base_url, data=data, headers=headers, method="POST")
-        with urllib_request.urlopen(req, context=context) as resp:
+        with urllib_request.urlopen(ensure_user_agent(req), context=context) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"OpenAI API returned HTTP {resp.status}")
             response_json = json.loads(resp.read().decode("utf-8"))
@@ -203,7 +204,7 @@ class AnthropicProvider(BaseProvider):
         data = json.dumps(body).encode("utf-8")
         context = ssl.create_default_context()
         req = urllib_request.Request(self._base_url, data=data, headers=headers, method="POST")
-        with urllib_request.urlopen(req, context=context) as resp:
+        with urllib_request.urlopen(ensure_user_agent(req), context=context) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"Anthropic API returned HTTP {resp.status}")
             response_json = json.loads(resp.read().decode("utf-8"))
@@ -394,6 +395,36 @@ TEXT_PROVIDERS: dict[str, type[BaseProvider]] = {
     VultrInferenceProvider.name: VultrInferenceProvider,
     XAIProvider.name: XAIProvider,
 }
+
+
+# Provider keys that select a provider automatically when
+# ``GHOSTCHIMERA_MODEL_PROVIDER`` is unset. Nebius (NVIDIA Nemotron on Token
+# Factory) is the hackathon path, so a lone ``NEBIUS_API_KEY`` is enough.
+AUTO_DETECT_PROVIDER_KEYS: tuple[tuple[str, str], ...] = (("NEBIUS_API_KEY", "nebius"),)
+
+_FALLBACK_PROVIDER = "openai"
+
+
+def resolve_provider_name(explicit: str | None = None, env: dict[str, str] | None = None) -> tuple[str, str]:
+    """Return ``(provider_name, source)`` for the active text provider.
+
+    Precedence: an explicit name, then ``GHOSTCHIMERA_MODEL_PROVIDER``, then the
+    first auto-detect key that is set (``NEBIUS_API_KEY`` -> ``nebius``), then
+    the historic ``openai`` default. ``source`` is ``"explicit"``, ``"env"``,
+    ``"auto:<KEY>"`` or ``"default"`` so callers can tell an implicit default
+    (whose config warnings are noise) from a provider the user chose.
+    """
+
+    if explicit and str(explicit).strip():
+        return str(explicit).strip().lower(), "explicit"
+    active = os.environ if env is None else env
+    configured = str(active.get("GHOSTCHIMERA_MODEL_PROVIDER", "") or "").strip().lower()
+    if configured:
+        return configured, "env"
+    for key, name in AUTO_DETECT_PROVIDER_KEYS:
+        if str(active.get(key, "") or "").strip():
+            return name, f"auto:{key}"
+    return _FALLBACK_PROVIDER, "default"
 
 
 def get_provider(name: str, profile: AuthProfile | None = None) -> BaseProvider | None:

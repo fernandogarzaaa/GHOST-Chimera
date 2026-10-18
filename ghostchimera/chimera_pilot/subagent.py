@@ -7,15 +7,14 @@ configurable depth cap. Supports parallel batch and depth-limited tree spawning.
 
 from __future__ import annotations
 
-import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
+from .. import paths as _paths
 from ..config import GhostChimeraConfig
 from ..logging_config import get_logger
 from .agent_loop import AIAgent, SessionState
@@ -41,7 +40,7 @@ DELEGATE_BLOCKED_TOOLS = frozenset(
 )
 DEFAULT_DEPTH_CAP = 1
 DEFAULT_MAX_WORKERS = 3
-DELEGATE_STATE_DIR = Path(os.environ.get("GHOSTCHIMERA_STATE_DIR", str(Path.home() / ".ghostchimera")))
+DELEGATE_STATE_DIR = _paths.state_dir()  # import-time snapshot kept for compatibility
 
 # ---------------------------------------------------------------------------
 # Data types

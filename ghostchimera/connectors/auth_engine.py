@@ -34,6 +34,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..http_identity import ensure_user_agent
+
 REFRESH_SKEW_SECONDS = 300.0
 STATE_TTL_SECONDS = 600.0
 # Imported `gh` tokens have no refresh token; treat them as valid for 90
@@ -428,26 +430,49 @@ class CustomAuthEngine:
         scope: str = "",
         summary: str = "",
         requested_by: str = "",
+        requester_principal: str = "",
     ) -> dict[str, Any]:
         created = self.actions.request(
-            entity_id, provider, method, url, data, scope=scope, summary=summary, requested_by=requested_by
+            entity_id,
+            provider,
+            method,
+            url,
+            data,
+            scope=scope,
+            summary=summary,
+            requested_by=requested_by,
+            requester_principal=requester_principal,
         )
         self.audit.record(
             "approval.requested",
             entity_id=entity_id,
             provider=provider,
-            detail={"id": created["id"], "method": method, "url": url, "scope": scope, "summary": summary},
+            detail={
+                "id": created["id"],
+                "method": method,
+                "url": url,
+                "scope": scope,
+                "summary": summary,
+                "requested_by": requested_by,
+                "principal": requester_principal,
+            },
         )
         return {"ok": True, **created}
 
-    def decide_action_approval(self, approval_id: str, *, approved: bool, actor: str) -> dict[str, Any]:
+    def decide_action_approval(
+        self, approval_id: str, *, approved: bool, actor: str, claimed_actor: str = ""
+    ) -> dict[str, Any]:
+        """Record a decision. ``actor`` must be the server-derived principal."""
         from .action_approvals import ActionApprovalError
 
         try:
             result = self.actions.decide(approval_id, approved=approved, actor=actor)
         except ActionApprovalError as exc:
             raise AuthEngineError(str(exc)) from exc
-        self.audit.record(f"approval.{result['state'].lower()}", detail={"id": approval_id, "actor": actor})
+        detail = {"id": approval_id, "actor": actor}
+        if claimed_actor:
+            detail["claimed_actor"] = claimed_actor
+        self.audit.record(f"approval.{result['state'].lower()}", detail=detail)
         return {"ok": True, **result}
 
     def pending_action_approvals(self, entity_id: str) -> dict[str, Any]:
@@ -698,7 +723,7 @@ class CustomAuthEngine:
                     },
                 )
                 try:
-                    with urllib.request.urlopen(req, timeout=30.0) as resp:
+                    with urllib.request.urlopen(ensure_user_agent(req), timeout=30.0) as resp:
                         raw = resp.read().decode("utf-8", "replace")
                 except urllib.error.HTTPError as exc:
                     raw = exc.read().decode("utf-8", "replace")
@@ -882,7 +907,7 @@ class CustomAuthEngine:
             "https://api.github.com/user", headers={"Authorization": f"Bearer {token}", "Accept": "application/json"}
         )
         try:
-            with urllib.request.urlopen(req, timeout=15.0) as resp:
+            with urllib.request.urlopen(ensure_user_agent(req), timeout=15.0) as resp:
                 data = json.loads(resp.read().decode("utf-8", "replace"))
         except Exception as exc:
             raise AuthEngineError(f"github token validation failed: {type(exc).__name__}") from exc
@@ -1040,7 +1065,7 @@ class CustomAuthEngine:
                 headers["Authorization"] = "Basic " + _b64.b64encode(basic.encode()).decode()
             req = urllib.request.Request(url, data=encoded, headers=headers)
             try:
-                with urllib.request.urlopen(req, timeout=30.0) as resp:
+                with urllib.request.urlopen(ensure_user_agent(req), timeout=30.0) as resp:
                     status, raw = resp.status, resp.read().decode("utf-8", "replace")
             except urllib.error.HTTPError as exc:
                 status, raw = exc.code, exc.read().decode("utf-8", "replace")
@@ -1178,7 +1203,7 @@ class CustomAuthEngine:
                 raise AuthEngineError("provider API returned non-JSON") from exc
             return decoded if isinstance(decoded, dict) else {"data": decoded}
         try:
-            with urllib.request.urlopen(req, timeout=30.0) as resp:
+            with urllib.request.urlopen(ensure_user_agent(req), timeout=30.0) as resp:
                 raw, status = resp.read().decode("utf-8", "replace"), resp.status
         except Exception as exc:
             raise AuthEngineError(f"provider API unreachable: {type(exc).__name__}") from exc

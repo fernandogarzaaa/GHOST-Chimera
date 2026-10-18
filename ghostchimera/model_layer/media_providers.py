@@ -40,6 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..http_identity import ensure_user_agent
 from ..logging_config import get_logger
 
 if TYPE_CHECKING:
@@ -304,7 +305,7 @@ class StdlibWebFetchProvider(WebFetchProvider):
 
         try:
             ctx = ssl.create_default_context()
-            with urllib.request.urlopen(url, context=ctx, timeout=timeout_seconds) as resp:
+            with urllib.request.urlopen(ensure_user_agent(url), context=ctx, timeout=timeout_seconds) as resp:
                 content = resp.read().decode("utf-8", errors="replace")
                 return WebFetchResult(
                     url=url,
@@ -364,7 +365,7 @@ class OpenAIImageProvider(ImageGenerationProvider):
         url = "https://api.openai.com/v1/images/generations"
         req = urllib.request.Request(url, data=body, headers=headers, method="POST")
         ctx = ssl.create_default_context()
-        with urllib.request.urlopen(req, context=ctx) as resp:
+        with urllib.request.urlopen(ensure_user_agent(req), context=ctx) as resp:
             data = json.loads(resp.read().decode())
             return [
                 ImageResult(url=item.get("url", ""), provider=self.name, width=width, height=height)
@@ -415,7 +416,7 @@ class OpenAISpeechProvider(SpeechProvider):
         url = "https://api.openai.com/v1/audio/speech"
         req = urllib.request.Request(url, data=body, headers=headers, method="POST")
         ctx = ssl.create_default_context()
-        with urllib.request.urlopen(req, context=ctx) as resp:
+        with urllib.request.urlopen(ensure_user_agent(req), context=ctx) as resp:
             audio = resp.read()
             return SpeechResult(audio_data=audio, mime_type=f"audio/{format}", provider=self.name)
 
@@ -594,7 +595,7 @@ class OpenAIVisionProvider(MediaUnderstandingProvider):
         url = "https://api.openai.com/v1/chat/completions"
         req = urllib.request.Request(url, data=body, headers=headers, method="POST")
         ctx = ssl.create_default_context()
-        with urllib.request.urlopen(req, context=ctx) as resp:
+        with urllib.request.urlopen(ensure_user_agent(req), context=ctx) as resp:
             data = json.loads(resp.read().decode())
             text = data["choices"][0]["message"]["content"].strip()
             return MediaUnderstandingResult(description=text, provider=self.name, confidence=0.9)

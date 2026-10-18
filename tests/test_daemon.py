@@ -593,7 +593,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(mock_sleep.call_count, 100)
             for call in mock_sleep.call_args_list:
                 self.assertEqual(call[0][0], 0.1)
-            expected = json.dumps({"ok": True, "stopped": False, "pid": 4242}, indent=2, sort_keys=True)
+            expected = json.dumps({"ok": False, "stopped": False, "pid": 4242}, indent=2, sort_keys=True)
             self.assertEqual(mock_print.call_args[0][0], expected)
 
     def test_daemon_stop_not_running_exact_output(self) -> None:
@@ -915,11 +915,25 @@ class DaemonHardeningTests(_FakeAgentMixin, unittest.TestCase):
             result = d._handle_hook(ctx)
             self.assertTrue(result["ok"])
         finally:
+            # stop() drains the hook worker even though start() never ran, so
+            # nothing is still writing into state_dir when tearDown removes it.
             d.stop()
-        # Drain the async task.
-        deadline = time.time() + 10
-        while not FakeAIAgent.instances and time.time() < deadline:
-            time.sleep(0.05)
+
+    def test_stop_without_start_drains_inflight_hook_tasks(self) -> None:
+        d = Daemon(state_dir=self.state_dir, hook_secret="s")
+        finished = threading.Event()
+
+        def slow_task(*_args, **_kwargs) -> None:
+            time.sleep(0.3)
+            finished.set()
+
+        d._run_hook_task = slow_task  # type: ignore[method-assign]
+        d.register_hook(HookDefinition(name="h", source="generic"))
+        ctx = {"method": "POST", "path": "/hooks/h", "headers": {}, "body": "{}", "query": {"secret": "s"}}
+        self.assertTrue(d._handle_hook(ctx)["ok"])
+        d.stop()
+        self.assertTrue(finished.is_set(), "stop() returned while a hook task was still running")
+        d.stop()  # idempotent
 
     def test_check_hook_secret_returns_bool(self) -> None:
         d = Daemon(state_dir=self.state_dir, hook_secret="s")
