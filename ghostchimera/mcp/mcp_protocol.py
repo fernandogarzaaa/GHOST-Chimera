@@ -333,7 +333,7 @@ class McpClient:
                 },
             )
             if not isinstance(result, dict):
-                raise McpError("MCP initialize returned no result")
+                raise McpError("MCP initialize returned no result") from exc
             self._server_info = result
             server_version = result.get("protocolVersion")
             if server_version and server_version != MCP_PROTOCOL_VERSION:
