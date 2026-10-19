@@ -2,8 +2,10 @@
 
 The legacy :class:`~ghostchimera.mcp.client.MCPClient` speaks Ghost's own
 HTTP bridge protocol (``{"action": "discover"}``). This module implements the
-actual MCP JSON-RPC wire protocol — ``initialize`` → ``notifications/initialized``
-→ ``tools/list`` → ``tools/call`` — so Ghost can talk to real MCP servers:
+actual MCP JSON-RPC wire protocol — ``server/discover`` → ``tools/list`` →
+``tools/call`` (MCP 2.0, spec 2026-07-28) — so Ghost can talk to real MCP
+servers. Dual-era: falls back to the legacy ``initialize`` →
+``notifications/initialized`` handshake for pre-2.0 servers.
 
 - **Streamable HTTP** servers, e.g. the Tavily remote MCP server at
   ``https://mcp.tavily.com/mcp`` (single POST endpoint, JSON or SSE
@@ -35,7 +37,7 @@ from ..logging_config import get_logger
 
 logger = get_logger("mcp_protocol")
 
-MCP_PROTOCOL_VERSION = "2024-11-05"
+MCP_PROTOCOL_VERSION = "2026-07-28"
 CLIENT_NAME = "ghost-chimera"
 CLIENT_VERSION = "0.4.0-beta.2"
 
@@ -71,6 +73,7 @@ class StreamableHttpTransport:
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
+            "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
         }
         headers.update(self.headers)
         if self.session_id:
@@ -288,8 +291,17 @@ class McpClient:
         message: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
         if not notification:
             message["id"] = self._new_id()
-        if params is not None:
-            message["params"] = params
+        # MCP 2.0 (2026-07-28): stateless, per-request protocol metadata.
+        meta = {
+            "io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION,
+            "clientInfo": {"name": CLIENT_NAME, "version": CLIENT_VERSION},
+        }
+        merged_params = dict(params) if params else {}
+        existing_meta = merged_params.get("_meta")
+        if isinstance(existing_meta, dict):
+            meta.update(existing_meta)
+        merged_params["_meta"] = meta
+        message["params"] = merged_params
         response = self.transport.request(message)
         if response is None:
             return None
@@ -301,23 +313,39 @@ class McpClient:
         return response.get("result")
 
     def initialize(self) -> dict[str, Any]:
-        """Run the MCP handshake; returns the server's initialize result."""
-        result = self._send(
-            "initialize",
-            {
-                "protocolVersion": MCP_PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": {"name": CLIENT_NAME, "version": CLIENT_VERSION},
-            },
-        )
+        """Run the MCP handshake; returns the server's discovery result.
+
+        MCP 2.0 (2026-07-28): uses ``server/discover`` instead of the legacy
+        ``initialize`` handshake. Falls back to ``initialize`` +
+        ``notifications/initialized`` for pre-2.0 servers (dual-era).
+        """
+        try:
+            result = self._send("server/discover", {})
+        except McpError as exc:
+            # Dual-era fallback: server does not know server/discover.
+            logger.debug("server/discover failed (%s), falling back to initialize", exc)
+            result = self._send(
+                "initialize",
+                {
+                    "protocolVersion": MCP_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": {"name": CLIENT_NAME, "version": CLIENT_VERSION},
+                },
+            )
+            if not isinstance(result, dict):
+                raise McpError("MCP initialize returned no result")
+            self._server_info = result
+            server_version = result.get("protocolVersion")
+            if server_version and server_version != MCP_PROTOCOL_VERSION:
+                logger.debug("MCP server protocol version %s (client %s)", server_version, MCP_PROTOCOL_VERSION)
+            self._send("notifications/initialized", notification=True)
+            logger.debug("MCP handshake complete (legacy): %s", result.get("serverInfo", {}).get("name"))
+            return result
         if not isinstance(result, dict):
-            raise McpError("MCP initialize returned no result")
+            raise McpError("MCP server/discover returned no result")
         self._server_info = result
-        server_version = result.get("protocolVersion")
-        if server_version and server_version != MCP_PROTOCOL_VERSION:
-            logger.debug("MCP server protocol version %s (client %s)", server_version, MCP_PROTOCOL_VERSION)
-        self._send("notifications/initialized", notification=True)
-        logger.debug("MCP handshake complete: %s", result.get("serverInfo", {}).get("name"))
+        # MCP 2.0: stateless, no notifications/initialized.
+        logger.debug("MCP discover complete: %s", result.get("serverInfo", {}).get("name"))
         return result
 
     def list_tools(self) -> list[dict[str, Any]]:

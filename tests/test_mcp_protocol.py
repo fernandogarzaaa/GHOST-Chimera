@@ -207,9 +207,10 @@ class TestMcpClient(unittest.TestCase):
         return McpClient(_FakeTransport(script))
 
     def test_initialize_handshake(self):
+        # MCP 2.0 (2026-07-28): server/discover replaces initialize.
         c = self._client(
             {
-                "initialize": {"protocolVersion": "2024-11-05", "serverInfo": {"name": "tavily"}},
+                "server/discover": {"protocolVersion": "2026-07-28", "serverInfo": {"name": "tavily"}},
                 "tools/list": {"tools": [{"name": "tavily-search"}]},
                 "tools/call": {"content": [{"type": "text", "text": "{}"}]},
             }
@@ -217,8 +218,9 @@ class TestMcpClient(unittest.TestCase):
         info = c.initialize()
         self.assertEqual(info["serverInfo"]["name"], "tavily")
         methods = [m["method"] for m in c.transport.sent]
-        self.assertEqual(methods[0], "initialize")
-        self.assertEqual(methods[1], "notifications/initialized")
+        self.assertEqual(methods[0], "server/discover")
+        # MCP 2.0: stateless, no notifications/initialized.
+        self.assertNotIn("notifications/initialized", methods)
         tools = c.list_tools()
         self.assertEqual(tools[0]["name"], "tavily-search")
         out = c.call_tool("tavily-search", {"query": "x"})
@@ -227,9 +229,27 @@ class TestMcpClient(unittest.TestCase):
         self.assertEqual(call_msg["params"]["name"], "tavily-search")
         self.assertEqual(call_msg["params"]["arguments"], {"query": "x"})
 
+    def test_initialize_fallback_to_legacy(self):
+        # Dual-era: pre-2.0 server that rejects server/discover falls back
+        # to the legacy initialize handshake.
+        c = self._client(
+            {
+                "server/discover": McpError("Method not found"),
+                "initialize": {"protocolVersion": "2024-11-05", "serverInfo": {"name": "tavily"}},
+                "tools/list": {"tools": []},
+            }
+        )
+        info = c.initialize()
+        self.assertEqual(info["serverInfo"]["name"], "tavily")
+        methods = [m["method"] for m in c.transport.sent]
+        self.assertEqual(methods[0], "server/discover")
+        self.assertEqual(methods[1], "initialize")
+        self.assertEqual(methods[2], "notifications/initialized")
+
     def test_protocol_error_raises(self):
         transport = _FakeTransport({})
         c = McpClient(transport)
+        transport.script["server/discover"] = McpError("boom")
         transport.script["initialize"] = McpError("boom")
         with self.assertRaises(McpError):
             c.initialize()
