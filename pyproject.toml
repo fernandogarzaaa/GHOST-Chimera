@@ -24,7 +24,7 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-  "certifi>=2024.2.2",
+  "certifi>=2026.10.19",
   "croniter>=6.0.0",
   "cryptography>=42.0",
   "jsonschema>=4.0",
@@ -59,7 +59,7 @@ voice = [
   "edge-tts>=6.0",
 ]
 all = [
-  "certifi>=2024.2.2",
+  "certifi>=2026.10.19",
   "croniter>=6.0.0",
   "cryptography>=42.0",
   "jsonschema>=4.0",
@@ -85,7 +85,7 @@ dev = [
   "pytest>=8.0",
   "pytest-cov>=5.0",
   "ruff>=0.5",
-  "pillow>=10.0",
+  "pillow>=13.0",
 ]
 
 [project.scripts]
