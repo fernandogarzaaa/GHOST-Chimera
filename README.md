@@ -17,8 +17,7 @@ pipx install ghostchimera      # or: pip install ghostchimera
 ghost demo                     # replays a Nemotron session offline: no keys, no network
 ```
 
-> `ghost demo` is new after 0.4.0b1 on PyPI. Until the next release, install from GitHub:
-> `pipx install git+https://github.com/fernandogarzaaa/GHOST-Chimera`
+> `ghost demo` is included in 0.4.0b2 on PyPI. Install from PyPI with the command above.
 
 `ghost demo` runs the real Stealth Loop and Nemotron reasoner against a session
 recorded live on Nebius Token Factory and bundled with the package (UNDERSTAND
