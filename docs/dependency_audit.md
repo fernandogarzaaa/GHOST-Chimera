@@ -7,7 +7,7 @@
 
 ## Base Dependencies
 
-- `certifi>=2024.2.2` :warning:
+- `certifi>=2026.10.19` :warning:
   - Unpinned upper bound (>=)
 - `croniter>=6.0.0` :warning:
   - Unpinned upper bound (>=)
@@ -76,7 +76,7 @@
 
 ### [all]
 
-- `certifi>=2024.2.2` :warning:
+- `certifi>=2026.10.19` :warning:
   - Unpinned upper bound (>=)
 - `croniter>=6.0.0` :warning:
   - Unpinned upper bound (>=)
@@ -125,7 +125,7 @@
   - Unpinned upper bound (>=)
 - `ruff>=0.5` :warning:
   - Unpinned upper bound (>=)
-- `pillow>=10.0` :warning:
+- `pillow>=13.0` :warning:
   - Unpinned upper bound (>=)
 
 ## Common Risks
