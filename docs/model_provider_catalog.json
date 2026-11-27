@@ -1,55 +1,38 @@
 {
-  "generated_at": 1791818977.476849,
-  "generated_at_iso": "2026-10-12T15:29:37Z",
+  "generated_at": 1795797567.4227471,
+  "generated_at_iso": "2026-11-27T16:39:27Z",
   "model_count": 125,
   "models": [
     {
       "auth_required": true,
       "capability_badges": [
-        "1.58bit",
-        "ar",
-        "bitnet",
+        "abliterated",
+        "base_model:quantized:qwen/qwen3.8-27b",
+        "base_model:qwen/qwen3.8-27b",
         "conversational",
-        "cpu",
-        "de",
-        "deepseek",
-        "efficient",
-        "en",
         "endpoints_compatible",
-        "es",
-        "fr",
         "gguf",
-        "it",
-        "ja",
-        "jirack",
-        "ko",
-        "license:mit",
-        "low-memory",
+        "heretic",
+        "imatrix",
+        "license:apache-2.0",
         "open-weight",
-        "pt",
-        "qwen2",
-        "qwen2.5",
+        "qwen3.5",
+        "qwen3.8",
         "region:us",
-        "robotics",
-        "routing",
-        "ru",
+        "roleplay",
         "safetensors",
-        "ternary",
         "text-generation",
-        "th",
-        "tool-call",
-        "vi",
-        "web-ui",
-        "zh"
+        "transformers",
+        "uncensored"
       ],
       "compatibility_status": "candidate_only",
       "context_length": 0,
       "cost_class": "unknown",
-      "display_name": "CMSManhattan/JiRackUltra_1b",
+      "display_name": "0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored-GGUF",
       "modalities": [
         "text"
       ],
-      "model_id": "CMSManhattan/JiRackUltra_1b",
+      "model_id": "0bserverx/Qwen3.8-27B-Heretic-Abliterated-Uncensored-GGUF",
       "provider": "huggingface",
       "recommended_use_cases": [
         "manager",
@@ -97,6 +80,76 @@
     {
       "auth_required": true,
       "capability_badges": [
+        "arxiv:2502.02737",
+        "deploy:azure",
+        "en",
+        "endpoints_compatible",
+        "eval-results",
+        "license:apache-2.0",
+        "llama",
+        "open-weight",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "HuggingFaceTB/SmolLM2-135M",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "HuggingFaceTB/SmolLM2-135M",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2604.18556",
+        "arxiv:2605.00649",
+        "base_model:deepseek-ai/deepseek-v4.1-flash-1017",
+        "base_model:quantized:deepseek-ai/deepseek-v4.1-flash-1017",
+        "conversational",
+        "deepseek",
+        "gguf",
+        "gsq",
+        "ist-daslab",
+        "license:mit",
+        "mixed-precision",
+        "moe",
+        "open-weight",
+        "quantization",
+        "rco",
+        "reasoning",
+        "region:us",
+        "text-generation"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "ISTA-DASLab/DeepSeek-V4.1-Flash-1017-GSQ-RCO-GGUF",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "ISTA-DASLab/DeepSeek-V4.1-Flash-1017-GSQ-RCO-GGUF",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "self-evolution"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
         "base_model:quantized:qwen/qwen3.8-27b",
         "base_model:qwen/qwen3.8-27b",
         "conversational",
@@ -124,6 +177,78 @@
         "text"
       ],
       "model_id": "JonathanColetti/Qwen3.8-27B-Uncensored-GGUF",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "base_model:ifm/k2-horizon-7b",
+        "base_model:quantized:ifm/k2-horizon-7b",
+        "conversational",
+        "documents",
+        "en",
+        "endpoints_compatible",
+        "finance",
+        "gguf",
+        "imatrix",
+        "k2_horizon",
+        "license:apache-2.0",
+        "llama.cpp",
+        "open-weight",
+        "quantized",
+        "reasoning",
+        "region:us",
+        "spreadsheets",
+        "text-generation",
+        "tool-use"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "OsaurusAI/Diplodocus-preview-GGUF",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "OsaurusAI/Diplodocus-preview-GGUF",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "self-evolution"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2407.10671",
+        "conversational",
+        "deploy:azure",
+        "en",
+        "endpoints_compatible",
+        "eval-results",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen2",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen2.5-0.5B",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen2.5-0.5B",
       "provider": "huggingface",
       "recommended_use_cases": [
         "manager",
@@ -194,80 +319,6 @@
         "text"
       ],
       "model_id": "Qwen/Qwen2.5-1.5B-Instruct",
-      "provider": "huggingface",
-      "recommended_use_cases": [
-        "manager",
-        "virtual-assistant"
-      ],
-      "source": "huggingface"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "4-bit",
-        "arxiv:2309.00071",
-        "arxiv:2407.10671",
-        "awq",
-        "base_model:quantized:qwen/qwen2.5-14b-instruct",
-        "base_model:qwen/qwen2.5-14b-instruct",
-        "chat",
-        "conversational",
-        "en",
-        "endpoints_compatible",
-        "license:apache-2.0",
-        "open-weight",
-        "qwen2",
-        "region:us",
-        "safetensors",
-        "text-generation",
-        "text-generation-inference",
-        "transformers"
-      ],
-      "compatibility_status": "candidate_only",
-      "context_length": 0,
-      "cost_class": "unknown",
-      "display_name": "Qwen/Qwen2.5-14B-Instruct-AWQ",
-      "modalities": [
-        "text"
-      ],
-      "model_id": "Qwen/Qwen2.5-14B-Instruct-AWQ",
-      "provider": "huggingface",
-      "recommended_use_cases": [
-        "manager",
-        "virtual-assistant"
-      ],
-      "source": "huggingface"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "arxiv:2309.00071",
-        "arxiv:2407.10671",
-        "base_model:finetune:qwen/qwen2.5-32b",
-        "base_model:qwen/qwen2.5-32b",
-        "chat",
-        "conversational",
-        "deploy:azure",
-        "deploy:sagemaker",
-        "en",
-        "endpoints_compatible",
-        "license:apache-2.0",
-        "open-weight",
-        "qwen2",
-        "region:us",
-        "safetensors",
-        "text-generation",
-        "text-generation-inference",
-        "transformers"
-      ],
-      "compatibility_status": "candidate_only",
-      "context_length": 0,
-      "cost_class": "unknown",
-      "display_name": "Qwen/Qwen2.5-32B-Instruct",
-      "modalities": [
-        "text"
-      ],
-      "model_id": "Qwen/Qwen2.5-32B-Instruct",
       "provider": "huggingface",
       "recommended_use_cases": [
         "manager",
@@ -713,6 +764,40 @@
     {
       "auth_required": true,
       "capability_badges": [
+        "arxiv:2505.09388",
+        "base_model:quantized:qwen/qwen3-4b-instruct-2507",
+        "base_model:qwen/qwen3-4b-instruct-2507",
+        "conversational",
+        "deploy:azure",
+        "endpoints_compatible",
+        "fp8",
+        "license:apache-2.0",
+        "open-weight",
+        "qwen3",
+        "region:us",
+        "safetensors",
+        "text-generation",
+        "text-generation-inference",
+        "transformers"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "Qwen/Qwen3-4B-Instruct-2507-FP8",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "Qwen/Qwen3-4B-Instruct-2507-FP8",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
         "arxiv:2309.00071",
         "arxiv:2505.09388",
         "base_model:finetune:qwen/qwen3-8b-base",
@@ -749,35 +834,32 @@
     {
       "auth_required": true,
       "capability_badges": [
-        "4-bit",
-        "arxiv:2309.00071",
         "arxiv:2505.09388",
-        "awq",
-        "base_model:quantized:qwen/qwen3-8b",
-        "base_model:qwen/qwen3-8b",
         "conversational",
+        "deploy:azure",
+        "deploy:sagemaker",
         "endpoints_compatible",
         "license:apache-2.0",
         "open-weight",
-        "qwen3",
+        "qwen3_moe",
         "region:us",
         "safetensors",
         "text-generation",
-        "text-generation-inference",
         "transformers"
       ],
       "compatibility_status": "candidate_only",
       "context_length": 0,
       "cost_class": "unknown",
-      "display_name": "Qwen/Qwen3-8B-AWQ",
+      "display_name": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
       "modalities": [
         "text"
       ],
-      "model_id": "Qwen/Qwen3-8B-AWQ",
+      "model_id": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
       "provider": "huggingface",
       "recommended_use_cases": [
-        "manager",
-        "virtual-assistant"
+        "ai-engineer",
+        "analyst",
+        "self-evolution"
       ],
       "source": "huggingface"
     },
@@ -890,38 +972,6 @@
       "auth_required": true,
       "capability_badges": [
         "arxiv:2506.05176",
-        "base_model:finetune:qwen/qwen3-0.6b-base",
-        "base_model:qwen/qwen3-0.6b-base",
-        "endpoints_compatible",
-        "license:apache-2.0",
-        "open-weight",
-        "qwen3",
-        "region:us",
-        "safetensors",
-        "sentence-transformers",
-        "text-generation",
-        "text-ranking",
-        "transformers"
-      ],
-      "compatibility_status": "candidate_only",
-      "context_length": 0,
-      "cost_class": "unknown",
-      "display_name": "Qwen/Qwen3-Reranker-0.6B",
-      "modalities": [
-        "text"
-      ],
-      "model_id": "Qwen/Qwen3-Reranker-0.6B",
-      "provider": "huggingface",
-      "recommended_use_cases": [
-        "manager",
-        "virtual-assistant"
-      ],
-      "source": "huggingface"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "arxiv:2506.05176",
         "base_model:finetune:qwen/qwen3-4b-base",
         "base_model:qwen/qwen3-4b-base",
         "deploy:sagemaker",
@@ -954,18 +1004,19 @@
     {
       "auth_required": true,
       "capability_badges": [
+        "arxiv:2501.12948",
+        "conversational",
         "custom_code",
-        "dflash",
-        "dspark",
-        "feature-extraction",
-        "long-context",
+        "deepseek_v3",
+        "deploy:sagemaker",
+        "endpoints_compatible",
+        "eval-results",
+        "fp8",
+        "license:mit",
         "open-weight",
-        "qwen3",
+        "reasoning",
         "region:us",
         "safetensors",
-        "sglang",
-        "specforge",
-        "speculative-decoding",
         "text-generation",
         "text-generation-inference",
         "transformers"
@@ -973,15 +1024,16 @@
       "compatibility_status": "candidate_only",
       "context_length": 0,
       "cost_class": "unknown",
-      "display_name": "RadixArk/Kimi-K3-DSpark",
+      "display_name": "deepseek-ai/DeepSeek-R1",
       "modalities": [
         "text"
       ],
-      "model_id": "RadixArk/Kimi-K3-DSpark",
+      "model_id": "deepseek-ai/DeepSeek-R1",
       "provider": "huggingface",
       "recommended_use_cases": [
+        "ai-engineer",
         "analyst",
-        "manager"
+        "self-evolution"
       ],
       "source": "huggingface"
     },
@@ -1011,41 +1063,6 @@
         "text"
       ],
       "model_id": "deepseek-ai/DeepSeek-V3.2",
-      "provider": "huggingface",
-      "recommended_use_cases": [
-        "ai-engineer",
-        "analyst",
-        "self-evolution"
-      ],
-      "source": "huggingface"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "8-bit",
-        "arxiv:2606.19348",
-        "deepseek_v4",
-        "deploy:azure",
-        "deploy:sagemaker",
-        "endpoints_compatible",
-        "eval-results",
-        "fp8",
-        "license:mit",
-        "open-weight",
-        "reasoning",
-        "region:us",
-        "safetensors",
-        "text-generation",
-        "transformers"
-      ],
-      "compatibility_status": "candidate_only",
-      "context_length": 0,
-      "cost_class": "unknown",
-      "display_name": "deepseek-ai/DeepSeek-V4-Flash-0731",
-      "modalities": [
-        "text"
-      ],
-      "model_id": "deepseek-ai/DeepSeek-V4-Flash-0731",
       "provider": "huggingface",
       "recommended_use_cases": [
         "ai-engineer",
@@ -1176,57 +1193,82 @@
     {
       "auth_required": true,
       "capability_badges": [
-        "arxiv:1705.03551",
-        "arxiv:1810.12440",
-        "arxiv:1903.00161",
-        "arxiv:1904.09728",
-        "arxiv:1905.07830",
-        "arxiv:1905.10044",
-        "arxiv:1907.10641",
-        "arxiv:1908.02660",
-        "arxiv:1910.11856",
-        "arxiv:1911.01547",
-        "arxiv:1911.11641",
-        "arxiv:2009.03300",
-        "arxiv:2103.03874",
-        "arxiv:2104.12756",
-        "arxiv:2106.03193",
-        "arxiv:2107.03374",
-        "arxiv:2108.07732",
-        "arxiv:2110.14168",
-        "arxiv:2203.10244",
-        "arxiv:2210.03057",
-        "arxiv:2304.06364",
-        "arxiv:2311.12022",
-        "arxiv:2311.16502",
-        "arxiv:2312.11805",
-        "arxiv:2404.12390",
-        "arxiv:2404.16816",
-        "arxiv:2502.12404",
-        "arxiv:2502.21228",
-        "base_model:finetune:google/gemma-3-1b-pt",
-        "base_model:google/gemma-3-1b-pt",
+        "4-bit",
+        "amd",
+        "arxiv:2610.07766",
+        "awq",
+        "base_model:google/gemma-4-26b-a4b-it",
+        "base_model:quantized:google/gemma-4-26b-a4b-it",
+        "classification",
+        "compressed-tensors",
         "conversational",
-        "deploy:sagemaker",
+        "cuda",
+        "decision-engine",
+        "decision-model",
+        "en",
         "endpoints_compatible",
-        "eval-results",
-        "gemma3_text",
-        "license:gemma",
+        "gemma4",
+        "gguf",
+        "h100",
+        "license:apache-2.0",
+        "llama.cpp",
+        "mixture-of-experts",
+        "nvidia",
+        "open-telco-ai",
         "open-weight",
         "region:us",
+        "rocm",
         "safetensors",
+        "system-one",
+        "telecom",
+        "telecommunications",
         "text-generation",
-        "text-generation-inference",
-        "transformers"
+        "typed-decisions",
+        "vllm",
+        "w4a16"
       ],
       "compatibility_status": "candidate_only",
       "context_length": 0,
       "cost_class": "unknown",
-      "display_name": "google/gemma-3-1b-it",
+      "display_name": "farbodtavakkoli/OTel-2.0-Decision-26B-A4B-4bit",
       "modalities": [
         "text"
       ],
-      "model_id": "google/gemma-3-1b-it",
+      "model_id": "farbodtavakkoli/OTel-2.0-Decision-26B-A4B-4bit",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "base_model:finetune:zai-org/glm-5.3-bf16",
+        "base_model:zai-org/glm-5.3-bf16",
+        "conversational",
+        "exl3",
+        "gb10",
+        "glm",
+        "glm_moe_dsa",
+        "license:other",
+        "moe",
+        "open-weight",
+        "quantized",
+        "region:us",
+        "tensor-parallel",
+        "text-generation",
+        "trellis"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "kindlingai/glm-5.3-exlr8-k2-k3-k4",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "kindlingai/glm-5.3-exlr8-k2-k3-k4",
       "provider": "huggingface",
       "recommended_use_cases": [
         "manager",
@@ -1328,89 +1370,31 @@
     {
       "auth_required": true,
       "capability_badges": [
-        "arxiv:2310.06825",
-        "conversational",
-        "deploy:azure",
-        "eval-results",
-        "finetuned",
-        "license:apache-2.0",
-        "mistral",
-        "mistral-common",
-        "open-weight",
-        "pytorch",
-        "region:us",
-        "safetensors",
-        "text-generation",
-        "text-generation-inference",
-        "transformers"
-      ],
-      "compatibility_status": "candidate_only",
-      "context_length": 0,
-      "cost_class": "unknown",
-      "display_name": "mistralai/Mistral-7B-Instruct-v0.2",
-      "modalities": [
-        "text"
-      ],
-      "model_id": "mistralai/Mistral-7B-Instruct-v0.2",
-      "provider": "huggingface",
-      "recommended_use_cases": [
-        "manager",
-        "virtual-assistant"
-      ],
-      "source": "huggingface"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
         "8-bit",
-        "arxiv:2512.20848",
-        "arxiv:2512.20856",
-        "arxiv:2601.20088",
-        "base_model:nvidia/nvidia-nemotron-3-nano-30b-a3b-bf16",
-        "base_model:quantized:nvidia/nvidia-nemotron-3-nano-30b-a3b-bf16",
+        "base_model:google/gemma-4-26b-a4b-it",
+        "base_model:quantized:google/gemma-4-26b-a4b-it",
         "conversational",
-        "custom_code",
-        "dataset:nvidia/nemotron-3-nano-rl-training-blend",
-        "dataset:nvidia/nemotron-agentic-v1",
-        "dataset:nvidia/nemotron-cc-code-v1",
-        "dataset:nvidia/nemotron-cc-math-v1",
-        "dataset:nvidia/nemotron-cc-v2",
-        "dataset:nvidia/nemotron-cc-v2.1",
-        "dataset:nvidia/nemotron-competitive-programming-v1",
-        "dataset:nvidia/nemotron-instruction-following-chat-v1",
-        "dataset:nvidia/nemotron-math-proofs-v1",
-        "dataset:nvidia/nemotron-math-v2",
-        "dataset:nvidia/nemotron-pretraining-code-v1",
-        "dataset:nvidia/nemotron-pretraining-code-v2",
-        "dataset:nvidia/nemotron-pretraining-dataset-sample",
-        "dataset:nvidia/nemotron-pretraining-sft-v1",
-        "dataset:nvidia/nemotron-pretraining-specialized-v1",
-        "dataset:nvidia/nemotron-science-v1",
-        "de",
-        "en",
-        "endpoints_compatible",
-        "es",
-        "fr",
-        "it",
-        "ja",
-        "license:other",
-        "nemotron_h",
+        "gemma4",
+        "gemma4-26b-a4b-it",
+        "license:apache-2.0",
+        "model optimizer",
+        "modelopt",
+        "nvfp4",
         "nvidia",
         "open-weight",
-        "pytorch",
+        "quantized",
         "region:us",
         "safetensors",
-        "text-generation",
-        "transformers"
+        "text-generation"
       ],
       "compatibility_status": "candidate_only",
       "context_length": 0,
       "cost_class": "unknown",
-      "display_name": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4",
+      "display_name": "nvidia/Gemma-4-26B-A4B-NVFP4",
       "modalities": [
         "text"
       ],
-      "model_id": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4",
+      "model_id": "nvidia/Gemma-4-26B-A4B-NVFP4",
       "provider": "huggingface",
       "recommended_use_cases": [
         "manager",
@@ -1578,33 +1562,6 @@
       "compatibility_status": "candidate_only",
       "context_length": 0,
       "cost_class": "unknown",
-      "display_name": "ornith-ai/Ornith-1.0-35B-GGUF",
-      "modalities": [
-        "text"
-      ],
-      "model_id": "ornith-ai/Ornith-1.0-35B-GGUF",
-      "provider": "huggingface",
-      "recommended_use_cases": [
-        "manager",
-        "virtual-assistant"
-      ],
-      "source": "huggingface"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "conversational",
-        "endpoints_compatible",
-        "gguf",
-        "license:mit",
-        "open-weight",
-        "region:us",
-        "text-generation",
-        "transformers"
-      ],
-      "compatibility_status": "candidate_only",
-      "context_length": 0,
-      "cost_class": "unknown",
       "display_name": "ornith-ai/Ornith-1.0-9B-GGUF",
       "modalities": [
         "text"
@@ -1674,38 +1631,33 @@
     {
       "auth_required": true,
       "capability_badges": [
-        "2-bit",
-        "base_model:quantized:qwen/qwen3.8-27b",
-        "base_model:qwen/qwen3.8-27b",
-        "bonsai",
-        "conversational",
-        "cuda",
+        "base_model:quantized:zai-org/glm-5.3-flash",
+        "base_model:zai-org/glm-5.3-flash",
         "endpoints_compatible",
+        "feature-extraction",
         "gguf",
-        "hybrid-attention",
-        "license:apache-2.0",
-        "llama-cpp",
-        "llama.cpp",
-        "metal",
-        "on-device",
+        "glm",
+        "imatrix",
+        "license:mit",
+        "mixture-of-experts",
         "open-weight",
-        "prismml",
+        "project-maya",
         "region:us",
-        "ternary",
-        "text-generation"
+        "text-generation",
+        "vision"
       ],
       "compatibility_status": "candidate_only",
       "context_length": 0,
       "cost_class": "unknown",
-      "display_name": "prism-ml/Ternary-Bonsai-2-27B-gguf",
+      "display_name": "peasantsmith/GLM-5.3-Flash-Maya-GGUF",
       "modalities": [
         "text"
       ],
-      "model_id": "prism-ml/Ternary-Bonsai-2-27B-gguf",
+      "model_id": "peasantsmith/GLM-5.3-Flash-Maya-GGUF",
       "provider": "huggingface",
       "recommended_use_cases": [
-        "manager",
-        "virtual-assistant"
+        "analyst",
+        "multimodal-review"
       ],
       "source": "huggingface"
     },
@@ -1741,30 +1693,64 @@
     {
       "auth_required": true,
       "capability_badges": [
-        "arxiv:2505.09388",
-        "base_model:quantized:qwen/qwen3-coder-30b-a3b-instruct",
-        "base_model:qwen/qwen3-coder-30b-a3b-instruct",
         "conversational",
         "endpoints_compatible",
-        "gguf",
-        "imatrix",
-        "license:apache-2.0",
         "open-weight",
-        "qwen",
         "qwen3",
         "region:us",
+        "safetensors",
         "text-generation",
+        "text-generation-inference",
         "transformers",
-        "unsloth"
+        "trl"
       ],
       "compatibility_status": "candidate_only",
       "context_length": 0,
       "cost_class": "unknown",
-      "display_name": "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+      "display_name": "trl-internal-testing/tiny-Qwen3ForCausalLM",
       "modalities": [
         "text"
       ],
-      "model_id": "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+      "model_id": "trl-internal-testing/tiny-Qwen3ForCausalLM",
+      "provider": "huggingface",
+      "recommended_use_cases": [
+        "manager",
+        "virtual-assistant"
+      ],
+      "source": "huggingface"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "arxiv:2604.18556",
+        "arxiv:2605.00649",
+        "base_model:quantized:ukisai/swift-1.5-qwen3.8-27b",
+        "base_model:ukisai/swift-1.5-qwen3.8-27b",
+        "conversational",
+        "efficient-thinking",
+        "endpoints_compatible",
+        "gguf",
+        "gsq",
+        "imatrix",
+        "license:other",
+        "llama.cpp",
+        "open-weight",
+        "post-training",
+        "qwen3_8",
+        "rco",
+        "reasoning",
+        "region:us",
+        "text-generation",
+        "token-efficient"
+      ],
+      "compatibility_status": "candidate_only",
+      "context_length": 0,
+      "cost_class": "unknown",
+      "display_name": "ukisai/Swift-1.5-Qwen3.8-27B-GSQ-RCO-GGUF",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "ukisai/Swift-1.5-Qwen3.8-27B-GSQ-RCO-GGUF",
       "provider": "huggingface",
       "recommended_use_cases": [
         "ai-engineer",
@@ -1797,40 +1783,6 @@
         "text"
       ],
       "model_id": "vikhyatk/moondream2",
-      "provider": "huggingface",
-      "recommended_use_cases": [
-        "manager",
-        "virtual-assistant"
-      ],
-      "source": "huggingface"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "arxiv:2602.15763",
-        "conversational",
-        "deploy:sagemaker",
-        "en",
-        "endpoints_compatible",
-        "eval-results",
-        "fp8",
-        "glm_moe_dsa",
-        "license:other",
-        "open-weight",
-        "region:us",
-        "safetensors",
-        "text-generation",
-        "transformers",
-        "zh"
-      ],
-      "compatibility_status": "candidate_only",
-      "context_length": 0,
-      "cost_class": "unknown",
-      "display_name": "zai-org/GLM-5.3",
-      "modalities": [
-        "text"
-      ],
-      "model_id": "zai-org/GLM-5.3",
       "provider": "huggingface",
       "recommended_use_cases": [
         "manager",
@@ -1911,9 +1863,47 @@
     {
       "auth_required": true,
       "capability_badges": [
+        "audio",
+        "file",
+        "image",
         "long-context",
         "low-cost",
-        "text"
+        "text",
+        "tool-calling",
+        "video",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 2000000,
+      "cost_class": "low",
+      "display_name": "Auto Code",
+      "modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "model_id": "openrouter/auto-code",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "self-evolution",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling"
       ],
       "compatibility_status": "needs_key",
       "context_length": 2000000,
@@ -1948,7 +1938,7 @@
       "compatibility_status": "needs_key",
       "context_length": 2000000,
       "cost_class": "low",
-      "display_name": "SpaceXAI: Grok 4.20",
+      "display_name": "SpaceXSI: Grok 4.20",
       "modalities": [
         "file",
         "image",
@@ -1978,7 +1968,7 @@
       "compatibility_status": "needs_key",
       "context_length": 2000000,
       "cost_class": "low",
-      "display_name": "SpaceXAI: Grok 4.20 Multi-Agent",
+      "display_name": "SpaceXSI: Grok 4.20 Multi-Agent",
       "modalities": [
         "file",
         "image",
@@ -2382,14 +2372,13 @@
         "file",
         "image",
         "long-context",
-        "low-cost",
         "text",
         "tool-calling",
         "vision"
       ],
       "compatibility_status": "needs_key",
       "context_length": 1050000,
-      "cost_class": "low",
+      "cost_class": "medium",
       "display_name": "OpenAI: GPT-5.6 Sol",
       "modalities": [
         "file",
@@ -2401,9 +2390,7 @@
       "recommended_use_cases": [
         "analyst",
         "manager",
-        "marketing-specialist",
-        "multimodal-review",
-        "virtual-assistant"
+        "multimodal-review"
       ],
       "source": "openrouter"
     },
@@ -2413,14 +2400,13 @@
         "file",
         "image",
         "long-context",
-        "low-cost",
         "text",
         "tool-calling",
         "vision"
       ],
       "compatibility_status": "needs_key",
       "context_length": 1050000,
-      "cost_class": "low",
+      "cost_class": "medium",
       "display_name": "OpenAI: GPT-5.6 Sol Pro",
       "modalities": [
         "file",
@@ -2432,9 +2418,7 @@
       "recommended_use_cases": [
         "analyst",
         "manager",
-        "marketing-specialist",
-        "multimodal-review",
-        "virtual-assistant"
+        "multimodal-review"
       ],
       "source": "openrouter"
     },
@@ -3105,84 +3089,24 @@
     {
       "auth_required": true,
       "capability_badges": [
-        "audio",
+        "file",
         "image",
         "long-context",
         "low-cost",
         "text",
         "tool-calling",
-        "video",
         "vision"
       ],
       "compatibility_status": "needs_key",
       "context_length": 1050000,
       "cost_class": "low",
-      "display_name": "Xiaomi: MiMo-V2.5",
+      "display_name": "OpenAI: GPT-6.1 Terra",
       "modalities": [
-        "audio",
+        "file",
         "image",
-        "text",
-        "video"
-      ],
-      "model_id": "xiaomi/mimo-v2.5",
-      "provider": "openrouter",
-      "recommended_use_cases": [
-        "analyst",
-        "manager",
-        "marketing-specialist",
-        "multimodal-review",
-        "virtual-assistant"
-      ],
-      "source": "openrouter"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "long-context",
-        "low-cost",
-        "text",
-        "tool-calling"
-      ],
-      "compatibility_status": "needs_key",
-      "context_length": 1050000,
-      "cost_class": "low",
-      "display_name": "Xiaomi: MiMo-V2.5-Pro",
-      "modalities": [
         "text"
       ],
-      "model_id": "xiaomi/mimo-v2.5-pro",
-      "provider": "openrouter",
-      "recommended_use_cases": [
-        "analyst",
-        "manager",
-        "marketing-specialist",
-        "virtual-assistant"
-      ],
-      "source": "openrouter"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "audio",
-        "image",
-        "long-context",
-        "low-cost",
-        "text",
-        "tool-calling",
-        "video",
-        "vision"
-      ],
-      "compatibility_status": "needs_key",
-      "context_length": 1050000,
-      "cost_class": "low",
-      "display_name": "Xiaomi: MiMo-V2.6-Flash",
-      "modalities": [
-        "audio",
-        "image",
-        "text",
-        "video"
-      ],
-      "model_id": "xiaomi/mimo-v2.6-flash",
+      "model_id": "openai/gpt-6.1-terra",
       "provider": "openrouter",
       "recommended_use_cases": [
         "analyst",
@@ -3196,26 +3120,322 @@
     {
       "auth_required": true,
       "capability_badges": [
-        "audio",
+        "file",
         "image",
         "long-context",
         "low-cost",
         "text",
         "tool-calling",
-        "video",
         "vision"
       ],
       "compatibility_status": "needs_key",
       "context_length": 1050000,
       "cost_class": "low",
-      "display_name": "Xiaomi: MiMo-V2.6-Pro",
+      "display_name": "OpenAI: GPT-6.1 Terra Pro",
       "modalities": [
-        "audio",
+        "file",
         "image",
-        "text",
-        "video"
+        "text"
       ],
-      "model_id": "xiaomi/mimo-v2.6-pro",
+      "model_id": "openai/gpt-6.1-terra-pro",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1050000,
+      "cost_class": "low",
+      "display_name": "OpenAI: GPT-6.1 Terra Pro (batch)",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-6.1-terra-pro:batch",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1050000,
+      "cost_class": "low",
+      "display_name": "OpenAI: GPT-6.1 Terra (batch)",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-6.1-terra:batch",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1050000,
+      "cost_class": "medium",
+      "display_name": "OpenAI: GPT-6.2 Astra",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-6.2-astra",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1050000,
+      "cost_class": "medium",
+      "display_name": "OpenAI: GPT-6.2 Astra Pro",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-6.2-astra-pro",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1050000,
+      "cost_class": "medium",
+      "display_name": "OpenAI: GPT-6.2 Astra Pro (batch)",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-6.2-astra-pro:batch",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1050000,
+      "cost_class": "medium",
+      "display_name": "OpenAI: GPT-6.2 Astra (batch)",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-6.2-astra:batch",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "multimodal-review"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1050000,
+      "cost_class": "low",
+      "display_name": "OpenAI: GPT-6.2 Sol",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-6.2-sol",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1050000,
+      "cost_class": "low",
+      "display_name": "OpenAI: GPT-6.2 Sol Pro",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-6.2-sol-pro",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1050000,
+      "cost_class": "low",
+      "display_name": "OpenAI: GPT-6.2 Sol Pro (batch)",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-6.2-sol-pro:batch",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "file",
+        "image",
+        "long-context",
+        "low-cost",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1050000,
+      "cost_class": "low",
+      "display_name": "OpenAI: GPT-6.2 Sol (batch)",
+      "modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "model_id": "openai/gpt-6.2-sol:batch",
       "provider": "openrouter",
       "recommended_use_cases": [
         "analyst",
@@ -3322,13 +3542,14 @@
         "file",
         "image",
         "long-context",
+        "low-cost",
         "text",
         "tool-calling",
         "vision"
       ],
       "compatibility_status": "needs_key",
       "context_length": 1050000,
-      "cost_class": "medium",
+      "cost_class": "low",
       "display_name": "OpenAI: GPT Terra Latest",
       "modalities": [
         "file",
@@ -3340,31 +3561,8 @@
       "recommended_use_cases": [
         "analyst",
         "manager",
-        "multimodal-review"
-      ],
-      "source": "openrouter"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "long-context",
-        "low-cost",
-        "text",
-        "tool-calling"
-      ],
-      "compatibility_status": "needs_key",
-      "context_length": 1048756,
-      "cost_class": "low",
-      "display_name": "Meituan: LongCat 2.0",
-      "modalities": [
-        "text"
-      ],
-      "model_id": "meituan/longcat-2.0",
-      "provider": "openrouter",
-      "recommended_use_cases": [
-        "analyst",
-        "manager",
         "marketing-specialist",
+        "multimodal-review",
         "virtual-assistant"
       ],
       "source": "openrouter"
@@ -3416,6 +3614,35 @@
         "text"
       ],
       "model_id": "deepseek/deepseek-v4-flash-0731",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "self-evolution",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "reasoning",
+        "text",
+        "tool-calling"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "DeepSeek: DeepSeek V4 Flash 0731 (batch)",
+      "modalities": [
+        "text"
+      ],
+      "model_id": "deepseek/deepseek-v4-flash-0731:batch",
       "provider": "openrouter",
       "recommended_use_cases": [
         "ai-engineer",
@@ -3539,6 +3766,72 @@
         "text"
       ],
       "model_id": "deepseek/deepseek-v4.1-flash",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "self-evolution",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "image",
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "reasoning",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "DeepSeek: DeepSeek V4.1 Flash 1017",
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "model_id": "deepseek/deepseek-v4.1-flash-1017",
+      "provider": "openrouter",
+      "recommended_use_cases": [
+        "ai-engineer",
+        "analyst",
+        "manager",
+        "marketing-specialist",
+        "multimodal-review",
+        "self-evolution",
+        "virtual-assistant"
+      ],
+      "source": "openrouter"
+    },
+    {
+      "auth_required": true,
+      "capability_badges": [
+        "image",
+        "long-context",
+        "low-cost",
+        "open-weight",
+        "reasoning",
+        "text",
+        "tool-calling",
+        "vision"
+      ],
+      "compatibility_status": "needs_key",
+      "context_length": 1048576,
+      "cost_class": "low",
+      "display_name": "DeepSeek: DeepSeek V4.1 Flash 1017 (batch)",
+      "modalities": [
+        "image",
+        "text"
+      ],
+      "model_id": "deepseek/deepseek-v4.1-flash-1017:batch",
       "provider": "openrouter",
       "recommended_use_cases": [
         "ai-engineer",
@@ -3696,76 +3989,6 @@
       "compatibility_status": "needs_key",
       "context_length": 1048576,
       "cost_class": "low",
-      "display_name": "Google: Gemini 2.5 Flash Lite (batch)",
-      "modalities": [
-        "audio",
-        "file",
-        "image",
-        "text",
-        "video"
-      ],
-      "model_id": "google/gemini-2.5-flash-lite:batch",
-      "provider": "openrouter",
-      "recommended_use_cases": [
-        "analyst",
-        "manager",
-        "marketing-specialist",
-        "multimodal-review",
-        "virtual-assistant"
-      ],
-      "source": "openrouter"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "audio",
-        "file",
-        "image",
-        "long-context",
-        "low-cost",
-        "text",
-        "tool-calling",
-        "video",
-        "vision"
-      ],
-      "compatibility_status": "needs_key",
-      "context_length": 1048576,
-      "cost_class": "low",
-      "display_name": "Google: Gemini 2.5 Flash (batch)",
-      "modalities": [
-        "audio",
-        "file",
-        "image",
-        "text",
-        "video"
-      ],
-      "model_id": "google/gemini-2.5-flash:batch",
-      "provider": "openrouter",
-      "recommended_use_cases": [
-        "analyst",
-        "manager",
-        "marketing-specialist",
-        "multimodal-review",
-        "virtual-assistant"
-      ],
-      "source": "openrouter"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "audio",
-        "file",
-        "image",
-        "long-context",
-        "low-cost",
-        "text",
-        "tool-calling",
-        "video",
-        "vision"
-      ],
-      "compatibility_status": "needs_key",
-      "context_length": 1048576,
-      "cost_class": "low",
       "display_name": "Google: Gemini 2.5 Pro",
       "modalities": [
         "audio",
@@ -3834,41 +4057,6 @@
       "compatibility_status": "needs_key",
       "context_length": 1048576,
       "cost_class": "low",
-      "display_name": "Google: Gemini 2.5 Pro (batch)",
-      "modalities": [
-        "audio",
-        "file",
-        "image",
-        "text",
-        "video"
-      ],
-      "model_id": "google/gemini-2.5-pro:batch",
-      "provider": "openrouter",
-      "recommended_use_cases": [
-        "analyst",
-        "manager",
-        "marketing-specialist",
-        "multimodal-review",
-        "virtual-assistant"
-      ],
-      "source": "openrouter"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "audio",
-        "file",
-        "image",
-        "long-context",
-        "low-cost",
-        "text",
-        "tool-calling",
-        "video",
-        "vision"
-      ],
-      "compatibility_status": "needs_key",
-      "context_length": 1048576,
-      "cost_class": "low",
       "display_name": "Google: Gemini 3 Flash Preview",
       "modalities": [
         "audio",
@@ -3878,280 +4066,6 @@
         "video"
       ],
       "model_id": "google/gemini-3-flash-preview",
-      "provider": "openrouter",
-      "recommended_use_cases": [
-        "analyst",
-        "manager",
-        "marketing-specialist",
-        "multimodal-review",
-        "virtual-assistant"
-      ],
-      "source": "openrouter"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "audio",
-        "file",
-        "image",
-        "long-context",
-        "low-cost",
-        "text",
-        "tool-calling",
-        "video",
-        "vision"
-      ],
-      "compatibility_status": "needs_key",
-      "context_length": 1048576,
-      "cost_class": "low",
-      "display_name": "Google: Gemini 3 Flash Preview (batch)",
-      "modalities": [
-        "audio",
-        "file",
-        "image",
-        "text",
-        "video"
-      ],
-      "model_id": "google/gemini-3-flash-preview:batch",
-      "provider": "openrouter",
-      "recommended_use_cases": [
-        "analyst",
-        "manager",
-        "marketing-specialist",
-        "multimodal-review",
-        "virtual-assistant"
-      ],
-      "source": "openrouter"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "audio",
-        "file",
-        "image",
-        "long-context",
-        "low-cost",
-        "text",
-        "tool-calling",
-        "video",
-        "vision"
-      ],
-      "compatibility_status": "needs_key",
-      "context_length": 1048576,
-      "cost_class": "low",
-      "display_name": "Google: Gemini 3.1 Flash Lite",
-      "modalities": [
-        "audio",
-        "file",
-        "image",
-        "text",
-        "video"
-      ],
-      "model_id": "google/gemini-3.1-flash-lite",
-      "provider": "openrouter",
-      "recommended_use_cases": [
-        "analyst",
-        "manager",
-        "marketing-specialist",
-        "multimodal-review",
-        "virtual-assistant"
-      ],
-      "source": "openrouter"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "audio",
-        "file",
-        "image",
-        "long-context",
-        "low-cost",
-        "text",
-        "tool-calling",
-        "video",
-        "vision"
-      ],
-      "compatibility_status": "needs_key",
-      "context_length": 1048576,
-      "cost_class": "low",
-      "display_name": "Google: Gemini 3.1 Flash Lite Preview",
-      "modalities": [
-        "audio",
-        "file",
-        "image",
-        "text",
-        "video"
-      ],
-      "model_id": "google/gemini-3.1-flash-lite-preview",
-      "provider": "openrouter",
-      "recommended_use_cases": [
-        "analyst",
-        "manager",
-        "marketing-specialist",
-        "multimodal-review",
-        "virtual-assistant"
-      ],
-      "source": "openrouter"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "audio",
-        "file",
-        "image",
-        "long-context",
-        "low-cost",
-        "text",
-        "tool-calling",
-        "video",
-        "vision"
-      ],
-      "compatibility_status": "needs_key",
-      "context_length": 1048576,
-      "cost_class": "low",
-      "display_name": "Google: Gemini 3.1 Flash Lite (batch)",
-      "modalities": [
-        "audio",
-        "file",
-        "image",
-        "text",
-        "video"
-      ],
-      "model_id": "google/gemini-3.1-flash-lite:batch",
-      "provider": "openrouter",
-      "recommended_use_cases": [
-        "analyst",
-        "manager",
-        "marketing-specialist",
-        "multimodal-review",
-        "virtual-assistant"
-      ],
-      "source": "openrouter"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "audio",
-        "file",
-        "image",
-        "long-context",
-        "text",
-        "tool-calling",
-        "video",
-        "vision"
-      ],
-      "compatibility_status": "needs_key",
-      "context_length": 1048576,
-      "cost_class": "medium",
-      "display_name": "Google: Gemini 3.1 Pro Preview",
-      "modalities": [
-        "audio",
-        "file",
-        "image",
-        "text",
-        "video"
-      ],
-      "model_id": "google/gemini-3.1-pro-preview",
-      "provider": "openrouter",
-      "recommended_use_cases": [
-        "analyst",
-        "manager",
-        "multimodal-review"
-      ],
-      "source": "openrouter"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "audio",
-        "file",
-        "image",
-        "long-context",
-        "text",
-        "tool-calling",
-        "video",
-        "vision"
-      ],
-      "compatibility_status": "needs_key",
-      "context_length": 1048576,
-      "cost_class": "medium",
-      "display_name": "Google: Gemini 3.1 Pro Preview Custom Tools",
-      "modalities": [
-        "audio",
-        "file",
-        "image",
-        "text",
-        "video"
-      ],
-      "model_id": "google/gemini-3.1-pro-preview-customtools",
-      "provider": "openrouter",
-      "recommended_use_cases": [
-        "analyst",
-        "manager",
-        "multimodal-review"
-      ],
-      "source": "openrouter"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "audio",
-        "file",
-        "image",
-        "long-context",
-        "low-cost",
-        "text",
-        "tool-calling",
-        "video",
-        "vision"
-      ],
-      "compatibility_status": "needs_key",
-      "context_length": 1048576,
-      "cost_class": "low",
-      "display_name": "Google: Gemini 3.1 Pro Preview (batch)",
-      "modalities": [
-        "audio",
-        "file",
-        "image",
-        "text",
-        "video"
-      ],
-      "model_id": "google/gemini-3.1-pro-preview:batch",
-      "provider": "openrouter",
-      "recommended_use_cases": [
-        "analyst",
-        "manager",
-        "marketing-specialist",
-        "multimodal-review",
-        "virtual-assistant"
-      ],
-      "source": "openrouter"
-    },
-    {
-      "auth_required": true,
-      "capability_badges": [
-        "audio",
-        "file",
-        "image",
-        "long-context",
-        "low-cost",
-        "text",
-        "tool-calling",
-        "video",
-        "vision"
-      ],
-      "compatibility_status": "needs_key",
-      "context_length": 1048576,
-      "cost_class": "low",
-      "display_name": "Google: Gemini 3.5 Flash",
-      "modalities": [
-        "audio",
-        "file",
-        "image",
-        "text",
-        "video"
-      ],
-      "model_id": "google/gemini-3.5-flash",
       "provider": "openrouter",
       "recommended_use_cases": [
         "analyst",
@@ -4175,14 +4089,14 @@
       "count": 50,
       "error": "",
       "included_count": 50,
-      "last_refreshed": 1791818964.887595,
+      "last_refreshed": 1795797566.950987,
       "ok": true
     },
     "openrouter": {
-      "count": 458,
+      "count": 477,
       "error": "",
       "included_count": 75,
-      "last_refreshed": 1791818964.887595,
+      "last_refreshed": 1795797566.950987,
       "ok": true
     },
     "vultr": {
